@@ -64,6 +64,29 @@ export default function AuthPage() {
     }
   }
 
+  async function fetchNostrProfile(pubkey: string): Promise<{ name?: string; picture?: string }> {
+    const RELAYS = [
+      "wss://relay.damus.io",
+      "wss://relay.nostr.band",
+      "wss://nos.lol",
+      "wss://relay.primal.net",
+    ]
+    try {
+      const { SimplePool } = await import("nostr-tools/pool")
+      const pool = new SimplePool()
+      const event = await pool.get(RELAYS, { kinds: [0], authors: [pubkey] })
+      pool.close(RELAYS)
+      if (!event?.content) return {}
+      const meta = JSON.parse(event.content) as Record<string, string>
+      return {
+        name: meta.display_name || meta.name || undefined,
+        picture: meta.picture || undefined,
+      }
+    } catch {
+      return {}
+    }
+  }
+
   async function handleNostrLogin() {
     setError("")
     setLoading(true)
@@ -81,6 +104,11 @@ export default function AuthPage() {
       }
 
       const pubkey = await nostrExt.getPublicKey()
+
+      const [profile] = await Promise.all([
+        fetchNostrProfile(pubkey),
+      ])
+
       const event = {
         kind: 27235,
         created_at: Math.floor(Date.now() / 1000),
@@ -97,6 +125,8 @@ export default function AuthPage() {
       const result = await signIn("nostr", {
         pubkey,
         event: JSON.stringify(signed),
+        profileName: profile.name || "",
+        profileImage: profile.picture || "",
         redirect: false,
       })
 

@@ -39,11 +39,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         pubkey: { label: "Public Key", type: "text" },
         sig: { label: "Signature", type: "text" },
         event: { label: "Signed Event", type: "text" },
+        profileName: { label: "Profile Name", type: "text" },
+        profileImage: { label: "Profile Image", type: "text" },
       },
       async authorize(credentials) {
         if (!credentials?.pubkey || !credentials?.event) return null
         const pubkey = credentials.pubkey as string
         const eventStr = credentials.event as string
+        const profileName = (credentials.profileName as string) || ""
+        const profileImage = (credentials.profileImage as string) || ""
 
         try {
           const { verifyEvent } = await import("nostr-tools")
@@ -57,9 +61,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             user = await prisma.user.create({
               data: {
                 nostrPubkey: pubkey,
-                name: `nostr:${pubkey.slice(0, 8)}`,
+                name: profileName || `nostr:${pubkey.slice(0, 8)}`,
+                image: profileImage || null,
               },
             })
+          } else if (profileName || profileImage) {
+            const updates: { name?: string; image?: string } = {}
+            if (profileName && user.name?.startsWith("nostr:")) updates.name = profileName
+            if (profileImage && user.image !== profileImage) updates.image = profileImage
+            if (Object.keys(updates).length > 0) {
+              user = await prisma.user.update({ where: { id: user.id }, data: updates })
+            }
           }
           return { id: user.id, name: user.name, email: user.email, image: user.image }
         } catch {
@@ -78,12 +90,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id
+        token.picture = user.image ?? undefined
       }
       return token
     },
     async session({ session, token }) {
       if (token?.id) {
         session.user.id = token.id as string
+      }
+      if (token?.picture) {
+        session.user.image = token.picture as string
       }
       return session
     },
