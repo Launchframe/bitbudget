@@ -1,22 +1,49 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, formatNumber } from "@/lib/data"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 
+type RangeKey = "30d" | "3m" | "12m" | "ytd" | "5y" | "all"
+
+const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
+  { key: "30d", label: "30D" },
+  { key: "3m", label: "3M" },
+  { key: "12m", label: "12M" },
+  { key: "ytd", label: "YTD" },
+  { key: "5y", label: "5Y" },
+  { key: "all", label: "All" },
+]
+
+function getStartDateForRange(key: RangeKey): string {
+  const d = new Date()
+  switch (key) {
+    case "30d": d.setDate(d.getDate() - 30); break
+    case "3m": d.setMonth(d.getMonth() - 3); break
+    case "12m": d.setFullYear(d.getFullYear() - 1); break
+    case "ytd": return `${d.getFullYear()}-01-01`
+    case "5y": d.setFullYear(d.getFullYear() - 5); break
+    case "all": return "2009-01-03"
+  }
+  return d.toISOString().split("T")[0]
+}
+
 export function BtcPriceChart() {
   const [showSats, setShowSats] = useState(false)
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date()
-    d.setFullYear(d.getFullYear() - 1)
-    return d.toISOString().split("T")[0]
-  })
+  const [activeRange, setActiveRange] = useState<RangeKey>("12m")
+  const [startDate, setStartDate] = useState(() => getStartDateForRange("12m"))
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0])
 
-  const { priceHistory } = useBtcPrices()
+  const { priceHistory, backfillStatus } = useBtcPrices()
+
+  const selectRange = useCallback((key: RangeKey) => {
+    setActiveRange(key)
+    setStartDate(getStartDateForRange(key))
+    setEndDate(new Date().toISOString().split("T")[0])
+  }, [])
 
   const filteredData = useMemo(() => {
     return priceHistory
@@ -37,31 +64,23 @@ export function BtcPriceChart() {
     return [Math.max(0, Math.floor(min - pad)), Math.ceil(max + pad)]
   }, [filteredData])
 
+  const xTickFormat = useCallback((val: string) => {
+    const d = new Date(val)
+    if (activeRange === "30d") {
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    }
+    return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
+  }, [activeRange])
+
   return (
     <div className="flex flex-col gap-5 p-6 bg-[#0D0D0D] rounded-2xl">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <h2 className="text-xl font-semibold text-foreground">BTC Price</h2>
-          <span className="text-sm text-muted-foreground px-2 py-0.5 bg-[#1A1A1A] rounded-full">
-            {showSats ? "Sats/$" : "BTC/USD"}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="bg-[#1A1A1A] border border-[#333] rounded-lg px-3 py-1.5 text-sm text-foreground"
-            />
-            <span className="text-muted-foreground text-sm">to</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="bg-[#1A1A1A] border border-[#333] rounded-lg px-3 py-1.5 text-sm text-foreground"
-            />
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold text-foreground">BTC Price</h2>
+            <span className="text-sm text-muted-foreground px-2 py-0.5 bg-[#1A1A1A] rounded-full">
+              {showSats ? "Sats/$" : "BTC/USD"}
+            </span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -74,6 +93,27 @@ export function BtcPriceChart() {
             />
             <Label htmlFor="sats-toggle" className="text-xs text-muted-foreground cursor-pointer">Sats/$</Label>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-[#1A1A1A] rounded-lg p-1 w-fit">
+            {RANGE_OPTIONS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => selectRange(key)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  activeRange === key
+                    ? "bg-[#F7931A] text-[#0D0D0D]"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {backfillStatus === "in_progress" && (
+            <span className="text-xs text-muted-foreground animate-pulse">Loading history…</span>
+          )}
         </div>
       </div>
 
@@ -93,10 +133,7 @@ export function BtcPriceChart() {
               axisLine={false}
               tickLine={false}
               interval={Math.max(1, Math.floor(filteredData.length / 8))}
-              tickFormatter={(val: string) => {
-                const d = new Date(val)
-                return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
-              }}
+              tickFormatter={xTickFormat}
             />
             <YAxis
               domain={yDomain}

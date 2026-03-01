@@ -14,6 +14,7 @@ interface BtcPriceContextValue {
   calculateOpportunityCost: (amount: number, date: string) => number
   satsPerDollar: number
   loading: boolean
+  backfillStatus: "idle" | "in_progress" | "complete" | "error"
 }
 
 const BtcPriceContext = createContext<BtcPriceContextValue | null>(null)
@@ -24,12 +25,20 @@ export function useBtcPrices(): BtcPriceContextValue {
   return ctx
 }
 
+function buildSortedHistory(prices: Record<string, number>): BtcPricePoint[] {
+  return Object.entries(prices)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, price]) => ({ date, price }))
+}
+
 export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
   const [currentPrice, setCurrentPrice] = useState<number | null>(null)
   const [priceMap, setPriceMap] = useState<Record<string, number>>({})
   const [priceHistory, setPriceHistory] = useState<BtcPricePoint[]>([])
   const [loading, setLoading] = useState(true)
+  const [backfillStatus, setBackfillStatus] = useState<"idle" | "in_progress" | "complete" | "error">("idle")
   const fetched = useRef(false)
+  const backfillStarted = useRef(false)
 
   useEffect(() => {
     if (fetched.current) return
@@ -37,8 +46,6 @@ export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
 
     async function load() {
       try {
-        // Single API call — server fetches from CoinGecko if needed and caches.
-        // CoinGecko free tier caps at 365 days of history.
         const res = await fetch("/api/btc-price?days=365")
         if (!res.ok) throw new Error(`API returned ${res.status}`)
 
@@ -50,14 +57,11 @@ export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
 
         if (Object.keys(prices).length > 0) {
           setPriceMap(prices)
-          const sorted = Object.entries(prices)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([date, price]) => ({ date, price }))
-          setPriceHistory(sorted)
+          setPriceHistory(buildSortedHistory(prices))
 
-          // If the main call didn't include a current price, use the latest history point
-          if (!current && sorted.length > 0) {
-            setCurrentPrice(sorted[sorted.length - 1].price)
+          if (!current) {
+            const sorted = buildSortedHistory(prices)
+            if (sorted.length > 0) setCurrentPrice(sorted[sorted.length - 1].price)
           }
         }
       } catch (err) {
@@ -69,6 +73,59 @@ export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
 
     load()
   }, [])
+
+  // Background backfill: progressively fetch older data from CoinCap
+  useEffect(() => {
+    if (loading || backfillStarted.current) return
+    backfillStarted.current = true
+
+    async function runBackfill() {
+      setBackfillStatus("in_progress")
+      let retries = 0
+      const MAX_RETRIES = 3
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        try {
+          const res = await fetch("/api/btc-price/backfill", { method: "POST" })
+          if (!res.ok) {
+            throw new Error(`Backfill returned ${res.status}`)
+          }
+
+          retries = 0
+          const data = await res.json()
+          const newPrices: Record<string, number> = data.newPrices ?? {}
+
+          if (Object.keys(newPrices).length > 0) {
+            setPriceMap(prev => {
+              const merged = { ...prev, ...newPrices }
+              setPriceHistory(buildSortedHistory(merged))
+              return merged
+            })
+          }
+
+          if (data.status === "complete") {
+            console.log("[BtcPriceProvider] Backfill complete, earliest:", data.earliestDate)
+            setBackfillStatus("complete")
+            break
+          }
+
+          console.log("[BtcPriceProvider] Backfill chunk done, earliest:", data.earliestDate)
+          await new Promise(r => setTimeout(r, 2000))
+        } catch (err) {
+          retries++
+          console.error(`[BtcPriceProvider] Backfill error (attempt ${retries}/${MAX_RETRIES}):`, err)
+          if (retries >= MAX_RETRIES) {
+            setBackfillStatus("error")
+            break
+          }
+          await new Promise(r => setTimeout(r, 5000 * retries))
+        }
+      }
+    }
+
+    runBackfill()
+  }, [loading])
 
   const getPriceOnDate = useCallback(
     (date: string): number => {
@@ -99,7 +156,15 @@ export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <BtcPriceContext.Provider
-      value={{ currentPrice, priceHistory, getPriceOnDate, calculateOpportunityCost, satsPerDollar, loading }}
+      value={{
+        currentPrice,
+        priceHistory,
+        getPriceOnDate,
+        calculateOpportunityCost,
+        satsPerDollar,
+        loading,
+        backfillStatus,
+      }}
     >
       {children}
     </BtcPriceContext.Provider>

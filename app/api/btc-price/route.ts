@@ -12,15 +12,11 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const days = searchParams.get("days")
 
-  // Primary endpoint: fetch history + current price in one call
-  // GET /api/btc-price?days=730
   if (days) {
     const result = await fetchBtcPriceHistory(parseInt(days, 10))
     return NextResponse.json(result)
   }
 
-  // Lightweight: just current price
-  // GET /api/btc-price
   const price = await getCurrentBtcPrice()
   return NextResponse.json({ price })
 }

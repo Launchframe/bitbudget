@@ -4,28 +4,34 @@ import { useMemo } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
-import { TrendingUp } from "lucide-react"
+import { TrendingUp, TrendingDown } from "lucide-react"
 
 export function TopOpportunityCosts() {
   const { state } = useApp()
-  const { calculateOpportunityCost } = useBtcPrices()
+  const { calculateOpportunityCost, currentPrice } = useBtcPrices()
 
   const topTransactions = useMemo(() => {
     return state.transactions
       .filter((t) => t.type === "expense")
       .map((t) => ({
         ...t,
-        opportunityCost: calculateOpportunityCost(t.amount, t.date),
+        btcValueToday: calculateOpportunityCost(t.amount, t.date),
       }))
-      .sort((a, b) => b.opportunityCost - a.opportunityCost)
+      .sort((a, b) => b.btcValueToday - a.btcValueToday)
       .slice(0, 10)
   }, [state.transactions, calculateOpportunityCost])
 
   return (
     <div className="bg-[#0D0D0D] rounded-2xl p-6">
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-lg font-semibold text-foreground">Most Expensive Transactions</h2>
-        <span className="text-xs text-muted-foreground uppercase tracking-wider">By Opportunity Cost</span>
+      <div className="flex flex-col gap-1 mb-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Top Opportunity Costs</h2>
+          <span className="text-xs text-muted-foreground uppercase tracking-wider">BTC what-if</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          What each expense would be worth today if you&apos;d bought BTC instead
+          {currentPrice ? ` (BTC @ ${formatUsd(currentPrice)})` : ""}
+        </p>
       </div>
 
       <div className="overflow-x-auto">
@@ -36,12 +42,14 @@ export function TopOpportunityCosts() {
               <th className="pb-3 text-left font-medium">Payee</th>
               <th className="pb-3 text-left font-medium hidden sm:table-cell">Date</th>
               <th className="pb-3 text-right font-medium">Spent</th>
-              <th className="pb-3 text-right font-medium pr-2">Opportunity Cost</th>
+              <th className="pb-3 text-right font-medium pr-2">BTC Value Today</th>
             </tr>
           </thead>
           <tbody>
             {topTransactions.map((txn, idx) => {
-              const multiplier = txn.opportunityCost / txn.amount
+              const multiplier = txn.btcValueToday / txn.amount
+              const gained = multiplier >= 1
+              const pctChange = Math.abs((multiplier - 1) * 100)
               return (
                 <tr key={txn.id} className="group hover:bg-[#1A1A1A] transition-colors">
                   <td className="py-3 pl-2 text-muted-foreground text-sm rounded-l-xl">{idx + 1}</td>
@@ -56,13 +64,17 @@ export function TopOpportunityCosts() {
                   </td>
                   <td className="py-3 text-right pr-2 rounded-r-xl">
                     <div className="flex items-center justify-end gap-2">
-                      <span className="text-sm font-semibold text-[#F7931A]">
-                        {formatUsd(txn.opportunityCost)}
+                      <span className={`text-sm font-semibold ${gained ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
+                        {formatUsd(txn.btcValueToday)}
                       </span>
-                      {multiplier > 1.1 && (
-                        <span className="flex items-center gap-0.5 text-[10px] font-medium text-[#F7931A] bg-[#F7931A]/10 px-1.5 py-0.5 rounded-full">
-                          <TrendingUp className="h-3 w-3" />
-                          {multiplier.toFixed(1)}x
+                      {txn.btcValueToday > 0 && (
+                        <span className={`flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                          gained
+                            ? "text-[#F7931A] bg-[#F7931A]/10"
+                            : "text-[#22C55E] bg-[#22C55E]/10"
+                        }`}>
+                          {gained ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                          {gained ? "+" : "-"}{pctChange.toFixed(0)}%
                         </span>
                       )}
                     </div>
