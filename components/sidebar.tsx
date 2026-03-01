@@ -1,6 +1,5 @@
 "use client"
 
-import { signOut } from "next-auth/react"
 import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 
@@ -15,7 +14,7 @@ const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
 ]
 
 export function Sidebar() {
-  const { currentPage, navigateTo, setTransactionDialogOpen } = useApp()
+  const { currentPage, navigateTo, setTransactionDialogOpen, logout } = useApp()
 
   return (
     <aside className="sticky top-24 h-[calc(100vh-8rem)] md:w-48 lg:w-64 bg-[#0D0D0D] rounded-2xl hidden md:flex flex-col p-8 overflow-y-auto">
@@ -73,7 +72,7 @@ export function Sidebar() {
           <span className="text-sm font-medium tracking-wide">SETTINGS</span>
         </button>
         <button
-          onClick={() => signOut({ callbackUrl: "/auth" })}
+          onClick={logout}
           className="flex items-center gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left"
         >
           <LogOut className="h-6 w-6" />

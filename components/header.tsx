@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { signOut, useSession } from "next-auth/react"
+import { useSession } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { Settings2, LogOut, Upload } from "lucide-react"
 import { useApp } from "@/lib/app-context"
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function Header() {
-  const { setTransactionDialogOpen, navigateTo, refreshData, encryptForStorage } = useApp()
+  const { setTransactionDialogOpen, navigateTo, refreshData, encryptForStorage, logout } = useApp()
   const { data: session } = useSession()
   const userImage = session?.user?.image
   const userName = session?.user?.name
@@ -66,7 +66,7 @@ export function Header() {
                 <span>Import CSV</span>
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => signOut({ callbackUrl: "/auth" })}
+                onClick={logout}
                 className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
               >
                 <LogOut className="mr-2 h-4 w-4 text-muted-foreground" />

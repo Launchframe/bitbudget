@@ -33,6 +33,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState<Step>("security")
   const [loading, setLoading] = useState(false)
   const [isNostr, setIsNostr] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
 
   // Security
   const [pin, setPin] = useState("")
@@ -63,6 +64,7 @@ export default function OnboardingPage() {
     try {
       const res = await fetch("/api/user/encryption")
       const data = await res.json()
+      if (data.userId) setUserId(data.userId)
       if (data.isNostr) {
         setIsNostr(true)
 
@@ -83,6 +85,7 @@ export default function OnboardingPage() {
               body: JSON.stringify({ encryptedPrivacyKey: encrypted }),
             })
             sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
+            if (data.userId) sessionStorage.setItem("bitbudget-privacy-user", data.userId)
           }
         }
 
@@ -122,6 +125,7 @@ export default function OnboardingPage() {
 
       if (typeof window !== "undefined") {
         sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
+        if (userId) sessionStorage.setItem("bitbudget-privacy-user", userId)
       }
 
       setStep("income")

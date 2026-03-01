@@ -14,6 +14,7 @@ export async function GET() {
   })
 
   return NextResponse.json({
+    userId: session.user.id,
     encryptedPrivacyKey: user?.encryptedPrivacyKey ?? null,
     privacyKeySalt: user?.privacyKeySalt ?? null,
     isNostr: !!user?.nostrPubkey,

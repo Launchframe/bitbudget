@@ -1,6 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
+import { signOut } from "next-auth/react"
 import type { Transaction, Envelope, AppState, BtcDisplayUnit } from "@/lib/data"
 import { generateId, getDefaultState } from "@/lib/data"
 import { encryptField, decryptField, hexToUint8 } from "@/lib/crypto"
@@ -67,6 +68,7 @@ interface AppContextValue {
   addTag: (tag: string) => void
   refreshData: () => Promise<void>
   encryptForStorage: (plaintext: string) => Promise<string>
+  logout: () => void
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -106,6 +108,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const isPopstate = useRef(false)
 
   const privacyKeyRef = useRef<Uint8Array | null>(null)
+  const currentUserIdRef = useRef<string | null>(null)
   const [encryption, setEncryption] = useState<EncryptionState>({
     ready: false,
     needsPinUnlock: false,
@@ -119,22 +122,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) return
 
       const data = await res.json() as {
+        userId: string
         encryptedPrivacyKey: string | null
         privacyKeySalt: string | null
         isNostr: boolean
         nostrPubkey: string | null
       }
 
+      currentUserIdRef.current = data.userId
+
       if (!data.encryptedPrivacyKey) {
         setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
         return
       }
 
-      const cached = sessionStorage.getItem("bitbudget-privacy-key")
-      if (cached) {
-        privacyKeyRef.current = hexToUint8(cached)
+      const cachedKey = sessionStorage.getItem("bitbudget-privacy-key")
+      const cachedUser = sessionStorage.getItem("bitbudget-privacy-user")
+      if (cachedKey && cachedUser === data.userId) {
+        privacyKeyRef.current = hexToUint8(cachedKey)
         setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
         return
+      }
+
+      if (cachedUser !== data.userId) {
+        sessionStorage.removeItem("bitbudget-privacy-key")
+        sessionStorage.removeItem("bitbudget-privacy-user")
       }
 
       if (data.isNostr && data.nostrPubkey) {
@@ -147,6 +159,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const hexKey = await nostrExt.nip04.decrypt(data.nostrPubkey, data.encryptedPrivacyKey)
             privacyKeyRef.current = hexToUint8(hexKey)
             sessionStorage.setItem("bitbudget-privacy-key", hexKey)
+            sessionStorage.setItem("bitbudget-privacy-user", data.userId)
             setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
             return
           } catch { /* fall through to show unlock needed */ }
@@ -166,6 +179,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const unlockWithKey = useCallback((key: Uint8Array) => {
     privacyKeyRef.current = key
+    if (currentUserIdRef.current) {
+      sessionStorage.setItem("bitbudget-privacy-user", currentUserIdRef.current)
+    }
     setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
   }, [])
 
@@ -427,6 +443,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return encryptField(plaintext, privacyKeyRef.current)
   }, [])
 
+  const logout = useCallback(() => {
+    sessionStorage.removeItem("bitbudget-privacy-key")
+    sessionStorage.removeItem("bitbudget-privacy-user")
+    privacyKeyRef.current = null
+    currentUserIdRef.current = null
+    signOut({ callbackUrl: "/auth" })
+  }, [])
+
   return (
     <AppContext.Provider
       value={{
@@ -451,6 +475,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addTag,
         refreshData,
         encryptForStorage,
+        logout,
       }}
     >
       {children}

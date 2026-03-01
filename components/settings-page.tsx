@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef } from "react"
-import { signOut, useSession } from "next-auth/react"
+import { useSession } from "next-auth/react"
 import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
 import { Input } from "@/components/ui/input"
@@ -10,7 +10,7 @@ import { CSVImportDialog } from "@/components/csv-import-dialog"
 import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, User } from "lucide-react"
 
 export function SettingsPage() {
-  const { state, setMonthlyIncome, setBtcDisplayUnit, refreshData, encryptForStorage } = useApp()
+  const { state, setMonthlyIncome, setBtcDisplayUnit, refreshData, encryptForStorage, logout } = useApp()
   const { data: session } = useSession()
   const userName = session?.user?.name
   const userEmail = session?.user?.email
@@ -262,7 +262,7 @@ export function SettingsPage() {
               setDeletingAccount(true)
               try {
                 await fetch("/api/user/delete", { method: "DELETE" })
-                signOut({ callbackUrl: "/auth" })
+                logout()
               } finally {
                 setDeletingAccount(false)
                 setConfirmDeleteAccount(false)
