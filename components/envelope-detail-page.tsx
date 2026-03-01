@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import {
@@ -27,7 +27,7 @@ import {
 const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 
 export function EnvelopeDetailPage() {
-  const { state, selectedEnvelopeId, navigateTo, deleteTransaction } = useApp()
+  const { state, selectedEnvelopeId, highlightTransactionId, navigateTo, deleteTransaction } = useApp()
   const { calculateOpportunityCost } = useBtcPrices()
 
   const envelope = state.envelopes.find((e) => e.id === selectedEnvelopeId)
@@ -39,6 +39,7 @@ export function EnvelopeDetailPage() {
   const [endDate, setEndDate] = useState("")
   const [pageSize, setPageSize] = useState(10)
   const [page, setPage] = useState(1)
+  const highlightedRef = useRef<HTMLTableRowElement>(null)
 
   const currentMonth = getCurrentMonthKey()
 
@@ -71,6 +72,20 @@ export function EnvelopeDetailPage() {
 
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
   const paginatedTransactions = filteredTransactions.slice((page - 1) * pageSize, page * pageSize)
+
+  useEffect(() => {
+    if (!highlightTransactionId) return
+    const idx = filteredTransactions.findIndex(t => t.id === highlightTransactionId)
+    if (idx === -1) return
+    const targetPage = Math.floor(idx / pageSize) + 1
+    if (targetPage !== page) setPage(targetPage)
+  }, [highlightTransactionId, filteredTransactions, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (highlightTransactionId && highlightedRef.current) {
+      highlightedRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    }
+  }, [highlightTransactionId, page])
 
   if (!envelope) {
     return (
@@ -204,10 +219,12 @@ export function EnvelopeDetailPage() {
             <tbody>
               {paginatedTransactions.map((txn) => {
                 const opCost = calculateOpportunityCost(txn.amount, txn.date)
+                const isHighlighted = txn.id === highlightTransactionId
                 return (
                   <tr
                     key={txn.id}
-                    className="border-b border-[#1A1A1A] last:border-0 hover:bg-[#111] transition-colors group cursor-pointer"
+                    ref={isHighlighted ? highlightedRef : undefined}
+                    className={`border-b border-[#1A1A1A] last:border-0 hover:bg-[#111] transition-colors group cursor-pointer ${isHighlighted ? "bg-[#F7931A]/10 ring-1 ring-inset ring-[#F7931A]/30" : ""}`}
                     onClick={() => setSelectedTxn(txn)}
                   >
                     <td className="py-3.5 px-4 text-sm text-muted-foreground">

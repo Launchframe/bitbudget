@@ -37,10 +37,11 @@ interface AppContextValue {
   state: AppState
   currentPage: PageId
   selectedEnvelopeId: string | null
+  highlightTransactionId: string | null
   transactionDialogOpen: boolean
   loading: boolean
 
-  navigateTo: (page: PageId, envelopeId?: string) => void
+  navigateTo: (page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string }) => void
   setTransactionDialogOpen: (open: boolean) => void
 
   addTransaction: (txn: Omit<Transaction, "id">) => void
@@ -75,6 +76,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return null
     return hashToPage(window.location.hash).envelopeId ?? null
   })
+  const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const mounted = useRef(false)
@@ -121,9 +123,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
-  const navigateTo = useCallback((page: PageId, envelopeId?: string) => {
+  const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string }) => {
     setCurrentPage(page)
     if (envelopeId) setSelectedEnvelopeId(envelopeId)
+    setHighlightTransactionId(opts?.highlightTxnId ?? null)
 
     if (!isPopstate.current) {
       const hash = pageToHash(page, envelopeId)
@@ -308,6 +311,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         state,
         currentPage,
         selectedEnvelopeId,
+        highlightTransactionId,
         transactionDialogOpen,
         loading,
         navigateTo,

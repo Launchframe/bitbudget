@@ -15,7 +15,7 @@ interface EnrichedTransaction extends Transaction {
 }
 
 export function TopOpportunityCosts() {
-  const { state } = useApp()
+  const { state, navigateTo } = useApp()
   const { calculateOpportunityCost, getPriceOnDate, currentPrice } = useBtcPrices()
   const [selectedTxn, setSelectedTxn] = useState<EnrichedTransaction | null>(null)
 
@@ -128,7 +128,13 @@ export function TopOpportunityCosts() {
             <DialogDescription className="text-muted-foreground">Transaction details</DialogDescription>
           </DialogHeader>
 
-          {selectedTxn && <TransactionDetail txn={selectedTxn} envelopeName={envelopeMap[selectedTxn.envelopeId]} currentPrice={currentPrice} />}
+          {selectedTxn && (
+            <TransactionDetail
+              txn={selectedTxn}
+              envelopeName={envelopeMap[selectedTxn.envelopeId]}
+              onNavigateToEnvelope={(txnId) => { setSelectedTxn(null); navigateTo("envelope-detail", selectedTxn.envelopeId, { highlightTxnId: txnId }) }}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>
@@ -138,11 +144,11 @@ export function TopOpportunityCosts() {
 function TransactionDetail({
   txn,
   envelopeName,
-  currentPrice,
+  onNavigateToEnvelope,
 }: {
   txn: EnrichedTransaction
   envelopeName?: string
-  currentPrice: number | null
+  onNavigateToEnvelope: (txnId: string) => void
 }) {
   const btcAmount = txn.btcPriceAtTime > 0 ? txn.amount / txn.btcPriceAtTime : 0
   const multiplier = txn.amount > 0 ? txn.btcValueToday / txn.amount : 0
@@ -160,7 +166,19 @@ function TransactionDetail({
       }),
     },
     { label: "Amount Spent", value: formatUsd(txn.amount) },
-    ...(envelopeName ? [{ label: "Envelope", value: envelopeName }] : []),
+    ...(envelopeName
+      ? [{
+          label: "Envelope",
+          value: (
+            <button
+              onClick={() => onNavigateToEnvelope(txn.id)}
+              className="text-[#F7931A] hover:underline"
+            >
+              {envelopeName}
+            </button>
+          ),
+        }]
+      : []),
     ...(txn.tags.length > 0
       ? [{
           label: "Tags",
@@ -183,12 +201,6 @@ function TransactionDetail({
       label: "BTC Equivalent",
       value: `${btcAmount.toFixed(8)} BTC`,
     },
-    ...(currentPrice
-      ? [{
-          label: "BTC Price Today",
-          value: formatUsd(currentPrice),
-        }]
-      : []),
     {
       label: "BTC Value Today",
       value: (
