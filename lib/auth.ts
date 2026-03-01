@@ -3,7 +3,6 @@ import { PrismaAdapter } from "@auth/prisma-adapter"
 import Credentials from "next-auth/providers/credentials"
 import Google from "next-auth/providers/google"
 import GitHub from "next-auth/providers/github"
-import { compareSync } from "bcryptjs"
 import { prisma } from "@/lib/db"
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -14,20 +13,31 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   providers: [
     Credentials({
-      id: "credentials",
-      name: "Email & Password",
+      id: "email-code",
+      name: "Email Code",
       credentials: {
         email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
+        code: { label: "Code", type: "text" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null
-        const email = credentials.email as string
-        const password = credentials.password as string
+        if (!credentials?.email || !credentials?.code) return null
+        const email = (credentials.email as string).toLowerCase().trim()
+        const code = credentials.code as string
 
-        const user = await prisma.user.findUnique({ where: { email } })
-        if (!user?.passwordHash) return null
-        if (!compareSync(password, user.passwordHash)) return null
+        const record = await prisma.emailCode.findFirst({
+          where: { email, code, expiresAt: { gt: new Date() } },
+          orderBy: { createdAt: "desc" },
+        })
+        if (!record) return null
+
+        await prisma.emailCode.deleteMany({ where: { email } })
+
+        let user = await prisma.user.findUnique({ where: { email } })
+        if (!user) {
+          user = await prisma.user.create({
+            data: { email, name: email.split("@")[0] },
+          })
+        }
 
         return { id: user.id, name: user.name, email: user.email, image: user.image }
       },

@@ -1,27 +1,27 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Github, Mail, KeyRound, Zap, Eye, EyeOff, AlertCircle } from "lucide-react"
+import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft } from "lucide-react"
 
-type AuthMode = "signin" | "signup"
 type AuthMethod = "email" | "nostr" | null
+type EmailStep = "enter-email" | "enter-code"
 
 export default function AuthPage() {
   const router = useRouter()
-  const [mode, setMode] = useState<AuthMode>("signin")
   const [method, setMethod] = useState<AuthMethod>(null)
   const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [name, setName] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
+  const [code, setCode] = useState("")
+  const [emailStep, setEmailStep] = useState<EmailStep>("enter-email")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [nostrAvailable, setNostrAvailable] = useState(false)
+  const [cooldown, setCooldown] = useState(0)
+  const codeInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     document.cookie = "bitbudget_visited=1; path=/; max-age=31536000; SameSite=Lax"
@@ -46,40 +46,86 @@ export default function AuthPage() {
     return () => window.removeEventListener("pageshow", handlePageShow)
   }, [])
 
-  async function handleEmailAuth(e: React.FormEvent) {
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const timer = setTimeout(() => setCooldown(c => c - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [cooldown])
+
+  async function handleSendCode(e: React.FormEvent) {
     e.preventDefault()
+    if (!email.trim()) return
     setError("")
     setLoading(true)
 
     try {
-      if (mode === "signup") {
-        const res = await fetch("/api/user/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password, name }),
-        })
-        const data = await res.json()
-        if (!res.ok) {
-          setError(data.error || "Registration failed")
-          setLoading(false)
-          return
-        }
+      const res = await fetch("/api/auth/send-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || "Failed to send code")
+        return
       }
+      setEmailStep("enter-code")
+      setCode("")
+      setCooldown(60)
+      setTimeout(() => codeInputRef.current?.focus(), 100)
+    } catch {
+      setError("Something went wrong. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
 
-      const result = await signIn("credentials", {
-        email,
-        password,
+  async function handleVerifyCode(e: React.FormEvent) {
+    e.preventDefault()
+    if (!code.trim()) return
+    setError("")
+    setLoading(true)
+
+    try {
+      const result = await signIn("email-code", {
+        email: email.trim(),
+        code: code.trim(),
         redirect: false,
       })
 
       if (result?.error) {
-        setError(mode === "signup" ? "Account created but login failed. Try signing in." : "Invalid email or password")
+        setError("Invalid or expired code. Please try again.")
       } else {
         router.push("/")
         router.refresh()
       }
     } catch {
       setError("Something went wrong. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleResendCode() {
+    if (cooldown > 0) return
+    setError("")
+    setLoading(true)
+
+    try {
+      const res = await fetch("/api/auth/send-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || "Failed to resend code")
+        return
+      }
+      setCooldown(60)
+      setCode("")
+    } catch {
+      setError("Failed to resend code")
     } finally {
       setLoading(false)
     }
@@ -180,6 +226,14 @@ export default function AuthPage() {
     await signIn(provider, { callbackUrl: "/" })
   }
 
+  function resetToMethodPicker() {
+    setMethod(null)
+    setEmailStep("enter-email")
+    setCode("")
+    setError("")
+    setCooldown(0)
+  }
+
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-md flex flex-col items-center gap-8">
@@ -187,12 +241,10 @@ export default function AuthPage() {
 
         <div className="w-full bg-[#0D0D0D] rounded-2xl p-8">
           <h1 className="text-2xl font-bold text-foreground text-center mb-2">
-            {mode === "signin" ? "Welcome Back" : "Create Account"}
+            Welcome to BitBudget
           </h1>
           <p className="text-muted-foreground text-sm text-center mb-8">
-            {mode === "signin"
-              ? "Sign in to your BitBudget account"
-              : "Start tracking your opportunity costs"}
+            Sign in or create an account
           </p>
 
           {error && (
@@ -202,9 +254,9 @@ export default function AuthPage() {
             </div>
           )}
 
+          {/* Method picker */}
           {!method && (
             <div className="flex flex-col gap-3">
-              {/* Nostr — primary CTA per cypherpunk ethos */}
               <button
                 onClick={() => {
                   if (nostrAvailable) {
@@ -217,7 +269,7 @@ export default function AuthPage() {
                 className="flex items-center justify-center gap-3 w-full py-3 px-4 bg-[#8B5CF6] text-white rounded-xl font-semibold text-sm hover:bg-[#8B5CF6]/90 transition-colors disabled:opacity-50"
               >
                 <Zap className="h-5 w-5" />
-                {nostrAvailable ? "Sign in with Nostr" : "Sign in with Nostr Extension"}
+                {nostrAvailable ? "Continue with Nostr" : "Continue with Nostr Extension"}
               </button>
 
               <div className="flex items-center gap-4 my-2">
@@ -232,7 +284,7 @@ export default function AuthPage() {
                 className="flex items-center justify-center gap-3 w-full py-3 px-4 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] disabled:opacity-50"
               >
                 <Mail className="h-4 w-4" />
-                Email & Password
+                Email
               </button>
 
               <div className="grid grid-cols-2 gap-3">
@@ -261,27 +313,17 @@ export default function AuthPage() {
             </div>
           )}
 
-          {method === "email" && (
-            <form onSubmit={handleEmailAuth} className="flex flex-col gap-4">
+          {/* Email flow: enter email */}
+          {method === "email" && emailStep === "enter-email" && (
+            <form onSubmit={handleSendCode} className="flex flex-col gap-4">
               <button
                 type="button"
-                onClick={() => { setMethod(null); setError("") }}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors self-start mb-2"
+                onClick={resetToMethodPicker}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors self-start mb-2"
               >
-                &larr; Back to all options
+                <ArrowLeft className="h-3 w-3" />
+                Back to all options
               </button>
-
-              {mode === "signup" && (
-                <div className="flex flex-col gap-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Name</Label>
-                  <Input
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    placeholder="Your name"
-                    className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
-                  />
-                </div>
-              )}
 
               <div className="flex flex-col gap-2">
                 <Label className="text-muted-foreground text-xs uppercase tracking-wider">Email</Label>
@@ -292,49 +334,88 @@ export default function AuthPage() {
                   placeholder="you@example.com"
                   className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
                   required
+                  autoFocus
                 />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Label className="text-muted-foreground text-xs uppercase tracking-wider">Password</Label>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pr-10"
-                    required
-                    minLength={8}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(s => !s)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
               </div>
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !email.trim()}
                 className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 mt-2"
               >
-                {loading ? "Please wait..." : mode === "signin" ? "Sign In" : "Create Account"}
+                {loading ? "Sending code..." : "Send Login Code"}
+              </button>
+
+              <p className="text-xs text-muted-foreground text-center">
+                We&apos;ll send a 6-digit code to your email.
+              </p>
+            </form>
+          )}
+
+          {/* Email flow: enter code */}
+          {method === "email" && emailStep === "enter-code" && (
+            <form onSubmit={handleVerifyCode} className="flex flex-col gap-4">
+              <button
+                type="button"
+                onClick={() => { setEmailStep("enter-email"); setCode(""); setError("") }}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors self-start mb-2"
+              >
+                <ArrowLeft className="h-3 w-3" />
+                Use a different email
+              </button>
+
+              <div className="flex flex-col items-center gap-2 py-2">
+                <Mail className="h-8 w-8 text-[#F7931A]" />
+                <p className="text-sm text-foreground text-center">
+                  Enter the 6-digit code sent to
+                </p>
+                <p className="text-sm font-medium text-foreground">{email}</p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Input
+                  ref={codeInputRef}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={code}
+                  onChange={e => setCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="000000"
+                  className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] text-center text-2xl tracking-[0.3em] font-mono"
+                  autoFocus
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading || code.length !== 6}
+                className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
+              >
+                {loading ? "Verifying..." : "Continue"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResendCode}
+                disabled={loading || cooldown > 0}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+              >
+                {cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
               </button>
             </form>
           )}
 
+          {/* Nostr extension not found */}
           {method === "nostr" && !nostrAvailable && (
             <div className="flex flex-col gap-4">
               <button
                 type="button"
-                onClick={() => { setMethod(null); setError("") }}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors self-start mb-2"
+                onClick={resetToMethodPicker}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors self-start mb-2"
               >
-                &larr; Back to all options
+                <ArrowLeft className="h-3 w-3" />
+                Back to all options
               </button>
 
               <div className="flex flex-col items-center gap-4 py-4">
@@ -377,19 +458,6 @@ export default function AuthPage() {
                   I&apos;ve Installed It — Reload
                 </button>
               </div>
-            </div>
-          )}
-
-          {!method && (
-            <div className="mt-6 text-center">
-              <button
-                onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError("") }}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {mode === "signin"
-                  ? "Don't have an account? Sign up"
-                  : "Already have an account? Sign in"}
-              </button>
             </div>
           )}
         </div>

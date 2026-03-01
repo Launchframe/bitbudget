@@ -161,6 +161,16 @@ model Tag {
   @@index([userId])
 }
 
+model EmailCode {
+  id        String   @id @default(cuid())
+  email     String
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
 model BtcPriceCache {
   id       String   @id @default(cuid())
   date     String   @unique // YYYY-MM-DD

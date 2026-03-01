@@ -75,8 +75,10 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.9",
     "@types/node": "^22",
+    "@types/nodemailer": "^7.0.11",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "nodemailer": "^8.0.1",
     "postcss": "^8.5",
     "prisma": "^5.22.0",
     "tailwindcss": "^4.1.9",
