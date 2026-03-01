@@ -47,14 +47,14 @@ export function DashboardMetrics() {
       {metrics.map((metric) => {
         const Icon = metric.icon
         return (
-          <div key={metric.label} className="flex flex-col gap-3 p-5 bg-[#0D0D0D] rounded-2xl">
+          <div key={metric.label} className="flex flex-col gap-2 md:gap-3 p-3 md:p-5 bg-[#0D0D0D] rounded-2xl">
             <div className="flex items-center gap-2">
               <div className="p-2 rounded-lg" style={{ backgroundColor: `${metric.color}15` }}>
                 <Icon className="h-4 w-4" style={{ color: metric.color }} />
               </div>
               <span className="text-xs text-muted-foreground uppercase tracking-wider">{metric.label}</span>
             </div>
-            <span className="text-2xl lg:text-3xl font-bold text-foreground">{metric.value}</span>
+            <span className="text-lg md:text-2xl lg:text-3xl font-bold text-foreground">{metric.value}</span>
           </div>
         )
       })}

@@ -83,7 +83,7 @@ export function AnalyticsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 bg-[#0D0D0D] rounded-2xl">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl">
         <h2 className="text-xl font-semibold text-foreground">Analytics</h2>
         <div className="flex items-center gap-2">
           <input
@@ -102,9 +102,9 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+      <div className="p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
         <h3 className="text-lg font-semibold text-foreground mb-5">Cash Flow</h3>
-        <div className="h-[300px] w-full">
+        <div className="h-[220px] md:h-[300px] w-full">
           {cashFlowData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={cashFlowData} barGap={4}>
@@ -158,9 +158,9 @@ export function AnalyticsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
           <h3 className="text-lg font-semibold text-foreground mb-5">By Envelope</h3>
-          <div className="h-[300px] w-full">
+          <div className="h-[220px] md:h-[300px] w-full">
             {envelopePieData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -207,9 +207,9 @@ export function AnalyticsPage() {
           </div>
         </div>
 
-        <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
           <h3 className="text-lg font-semibold text-foreground mb-5">Opportunity Cost</h3>
-          <div className="h-[300px] w-full">
+          <div className="h-[220px] md:h-[300px] w-full">
             {opportunityCostData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={opportunityCostData} barGap={2}>

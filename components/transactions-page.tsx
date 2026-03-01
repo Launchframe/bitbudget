@@ -76,9 +76,9 @@ export function TransactionsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1 p-6 bg-[#0D0D0D] rounded-2xl">
+      <div className="flex flex-col gap-1 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
         <h2 className="text-xl font-semibold text-foreground">All Transactions</h2>
-        <div className="flex items-center gap-6 mt-2">
+        <div className="flex flex-wrap items-center gap-4 md:gap-6 mt-2">
           <div className="flex flex-col gap-0.5">
             <span className="text-xs text-muted-foreground uppercase tracking-wider">Total</span>
             <span className="text-lg font-semibold text-foreground">{filteredTransactions.length}</span>
@@ -157,7 +157,7 @@ export function TransactionsPage() {
                 <th className="py-3 px-4 text-left font-medium">Date</th>
                 <th className="py-3 px-4 text-left font-medium">Payee</th>
                 <th className="py-3 px-4 text-left font-medium hidden md:table-cell">Envelope</th>
-                <th className="py-3 px-4 text-left font-medium">Type</th>
+                <th className="py-3 px-4 text-left font-medium hidden sm:table-cell">Type</th>
                 <th className="py-3 px-4 text-right font-medium">Amount (USD)</th>
                 <th className="py-3 px-4 text-right font-medium hidden md:table-cell">Amount (sats)</th>
                 <th className="py-3 px-4 text-right font-medium hidden sm:table-cell">Opportunity Cost</th>
@@ -195,7 +195,7 @@ export function TransactionsPage() {
                         <span className="text-sm text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="py-3.5 px-4">
+                    <td className="py-3.5 px-4 hidden sm:table-cell">
                       <Badge
                         variant="outline"
                         className={
@@ -239,7 +239,7 @@ export function TransactionsPage() {
           </table>
         </div>
 
-        <div className="flex items-center justify-between px-4 py-3 border-t border-[#1F1F1F]">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-3 border-t border-[#1F1F1F]">
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
               {filteredTransactions.length > 0
@@ -269,6 +269,7 @@ export function TransactionsPage() {
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
+              <span className="text-xs text-muted-foreground px-2 sm:hidden">{page} / {totalPages}</span>
               {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
                 let p: number
                 if (totalPages <= 7) {
@@ -284,7 +285,7 @@ export function TransactionsPage() {
                   <button
                     key={p}
                     onClick={() => setPage(p)}
-                    className={`w-8 h-8 rounded-md text-xs font-medium transition-colors ${
+                    className={`hidden sm:inline-flex w-8 h-8 rounded-md text-xs font-medium transition-colors ${
                       p === page
                         ? "bg-[#F7931A] text-[#0D0D0D]"
                         : "text-muted-foreground hover:bg-[#1A1A1A] hover:text-foreground"

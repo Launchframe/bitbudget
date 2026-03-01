@@ -14,6 +14,7 @@ import { EnvelopeDetailPage } from "@/components/envelope-detail-page"
 import { TransactionsPage } from "@/components/transactions-page"
 import { BtcPricePage } from "@/components/btc-price-page"
 import { SettingsPage } from "@/components/settings-page"
+import { MobileNav } from "@/components/mobile-nav"
 import { Spinner } from "@/components/ui/spinner"
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
@@ -100,13 +101,14 @@ export default function Dashboard() {
         <div className="relative h-screen w-full bg-background text-foreground overflow-hidden">
           <Header />
           <div className="h-full overflow-y-auto no-scrollbar">
-            <main className="flex gap-6 p-6 pt-24 min-h-full">
+            <main className="flex gap-4 md:gap-6 px-3 md:px-6 pb-20 md:pb-8 pt-20 md:pt-24 min-h-full">
               <Sidebar />
-              <div className="flex-1 flex flex-col gap-6 min-w-0 pb-8">
+              <div className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
                 <PageContent />
               </div>
             </main>
           </div>
+          <MobileNav />
           <NewTransactionDialog />
         </div>
         </BtcPriceProvider>

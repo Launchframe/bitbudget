@@ -92,7 +92,7 @@ export function EnvelopeDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 p-6 bg-[#0D0D0D] rounded-2xl">
+      <div className="flex flex-col gap-4 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigateTo("envelopes")}
@@ -197,7 +197,7 @@ export function EnvelopeDetailPage() {
                 <th className="py-3 px-4 text-left font-medium">Type</th>
                 <th className="py-3 px-4 text-right font-medium">Amount (USD)</th>
                 <th className="py-3 px-4 text-right font-medium hidden md:table-cell">Amount (sats)</th>
-                <th className="py-3 px-4 text-right font-medium">Opportunity Cost</th>
+                <th className="py-3 px-4 text-right font-medium hidden sm:table-cell">Opportunity Cost</th>
                 <th className="py-3 px-4 text-right font-medium w-12"></th>
               </tr>
             </thead>
@@ -239,7 +239,7 @@ export function EnvelopeDetailPage() {
                     <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
                       {txn.satsAmount != null ? formatSats(txn.satsAmount) : "—"}
                     </td>
-                    <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A]">
+                    <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A] hidden sm:table-cell">
                       {txn.type === "expense" ? formatUsd(opCost) : "--"}
                     </td>
                     <td className="py-3.5 px-4 text-right">
@@ -265,7 +265,7 @@ export function EnvelopeDetailPage() {
           </table>
         </div>
 
-        <div className="flex items-center justify-between px-4 py-3 border-t border-[#1F1F1F]">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-3 border-t border-[#1F1F1F]">
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
               {filteredTransactions.length > 0
@@ -295,6 +295,7 @@ export function EnvelopeDetailPage() {
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
+              <span className="text-xs text-muted-foreground px-2 sm:hidden">{page} / {totalPages}</span>
               {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
                 let p: number
                 if (totalPages <= 7) {
@@ -310,7 +311,7 @@ export function EnvelopeDetailPage() {
                   <button
                     key={p}
                     onClick={() => setPage(p)}
-                    className={`w-8 h-8 rounded-md text-xs font-medium transition-colors ${
+                    className={`hidden sm:inline-flex w-8 h-8 rounded-md text-xs font-medium transition-colors ${
                       p === page
                         ? "bg-[#F7931A] text-[#0D0D0D]"
                         : "text-muted-foreground hover:bg-[#1A1A1A] hover:text-foreground"

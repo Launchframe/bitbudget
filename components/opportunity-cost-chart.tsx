@@ -106,13 +106,13 @@ export function OpportunityCostChart() {
   }, [filteredData])
 
   return (
-    <div className="flex flex-col gap-5 p-6 bg-[#0D0D0D] rounded-2xl">
+    <div className="flex flex-col gap-4 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <h2 className="text-xl font-semibold text-foreground">Opportunity Cost</h2>
 
           {spread && (
-            <div className="flex items-center gap-4 text-sm">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
               <span className="text-muted-foreground">
                 Spent: <span className="text-foreground font-medium">{formatUsd(spread.spent)}</span>
               </span>
@@ -126,7 +126,7 @@ export function OpportunityCostChart() {
           )}
         </div>
 
-        <div className="flex items-center gap-1 bg-[#1A1A1A] rounded-lg p-1 w-fit">
+        <div className="flex items-center gap-1 bg-[#1A1A1A] rounded-lg p-1 w-fit overflow-x-auto no-scrollbar">
           {RANGE_OPTIONS.map(({ key, label }) => (
             <button
               key={key}
@@ -144,11 +144,11 @@ export function OpportunityCostChart() {
       </div>
 
       {filteredData.length === 0 ? (
-        <div className="h-[350px] flex items-center justify-center text-muted-foreground text-sm">
+        <div className="h-[250px] md:h-[350px] flex items-center justify-center text-muted-foreground text-sm">
           No expense transactions to display.
         </div>
       ) : (
-        <div className="h-[350px] w-full">
+        <div className="h-[250px] md:h-[350px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={filteredData}>
               <defs>

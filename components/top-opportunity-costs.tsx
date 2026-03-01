@@ -38,7 +38,7 @@ export function TopOpportunityCosts() {
   }, [state.envelopes])
 
   return (
-    <div className="bg-[#0D0D0D] rounded-2xl p-6">
+    <div className="bg-[#0D0D0D] rounded-2xl p-4 md:p-6">
       <div className="flex flex-col gap-1 mb-5">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-foreground">Top Opportunity Costs</h2>

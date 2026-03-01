@@ -73,7 +73,7 @@ export function BtcPriceChart() {
   }, [activeRange])
 
   return (
-    <div className="flex flex-col gap-5 p-6 bg-[#0D0D0D] rounded-2xl">
+    <div className="flex flex-col gap-4 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -117,7 +117,7 @@ export function BtcPriceChart() {
         </div>
       </div>
 
-      <div className="h-[350px] w-full">
+      <div className="h-[250px] md:h-[350px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={filteredData}>
             <defs>
