@@ -43,6 +43,7 @@ interface AppContextValue {
   setTransactionDialogOpen: (open: boolean) => void
 
   addTransaction: (txn: Omit<Transaction, "id">) => void
+  editTransaction: (id: string, updates: Partial<Omit<Transaction, "id">>) => void
   deleteTransaction: (id: string) => void
 
   addEnvelope: (envelope: Omit<Envelope, "id">) => void
@@ -179,6 +180,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const editTransaction = useCallback(async (id: string, updates: Partial<Omit<Transaction, "id">>) => {
+    setState(prev => ({
+      ...prev,
+      transactions: prev.transactions.map(t => (t.id === id ? { ...t, ...updates } : t)),
+    }))
+
+    try {
+      await fetch("/api/transactions", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...updates }),
+      })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
   const deleteTransaction = useCallback(async (id: string) => {
     setState(prev => ({
       ...prev,
@@ -294,6 +312,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         navigateTo,
         setTransactionDialogOpen,
         addTransaction,
+        editTransaction,
         deleteTransaction,
         addEnvelope,
         editEnvelope,

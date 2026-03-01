@@ -9,6 +9,8 @@ import {
   formatUsd,
   type TransactionType,
 } from "@/lib/data"
+import type { Transaction } from "@/lib/data"
+import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -29,6 +31,7 @@ export function EnvelopeDetailPage() {
 
   const envelope = state.envelopes.find((e) => e.id === selectedEnvelopeId)
 
+  const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState<"all" | TransactionType>("all")
   const [startDate, setStartDate] = useState("")
@@ -199,7 +202,11 @@ export function EnvelopeDetailPage() {
               {paginatedTransactions.map((txn) => {
                 const opCost = calculateOpportunityCost(txn.amount, txn.date)
                 return (
-                  <tr key={txn.id} className="border-b border-[#1A1A1A] last:border-0 hover:bg-[#111] transition-colors group">
+                  <tr
+                    key={txn.id}
+                    className="border-b border-[#1A1A1A] last:border-0 hover:bg-[#111] transition-colors group cursor-pointer"
+                    onClick={() => setSelectedTxn(txn)}
+                  >
                     <td className="py-3.5 px-4 text-sm text-muted-foreground">
                       {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>
@@ -231,7 +238,7 @@ export function EnvelopeDetailPage() {
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <button
-                        onClick={() => deleteTransaction(txn.id)}
+                        onClick={(e) => { e.stopPropagation(); deleteTransaction(txn.id) }}
                         className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-all"
                         aria-label={`Delete transaction ${txn.payee}`}
                       >
@@ -291,6 +298,12 @@ export function EnvelopeDetailPage() {
           </div>
         )}
       </div>
+
+      <TransactionDetailDialog
+        transaction={selectedTxn}
+        open={!!selectedTxn}
+        onOpenChange={(open) => { if (!open) setSelectedTxn(null) }}
+      />
     </div>
   )
 }

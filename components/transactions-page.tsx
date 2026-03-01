@@ -4,9 +4,11 @@ import { useState, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, type TransactionType } from "@/lib/data"
+import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Search, ChevronLeft, ChevronRight, Trash2, Repeat } from "lucide-react"
+import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import {
   Select,
   SelectContent,
@@ -21,6 +23,7 @@ export function TransactionsPage() {
   const { state, navigateTo, deleteTransaction } = useApp()
   const { calculateOpportunityCost } = useBtcPrices()
 
+  const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState<"all" | TransactionType>("all")
   const [envelopeFilter, setEnvelopeFilter] = useState("all")
@@ -156,7 +159,11 @@ export function TransactionsPage() {
                 const opCost = calculateOpportunityCost(txn.amount, txn.date)
                 const env = envelopeMap[txn.envelopeId]
                 return (
-                  <tr key={txn.id} className="border-b border-[#1A1A1A] last:border-0 hover:bg-[#111] transition-colors group">
+                  <tr
+                    key={txn.id}
+                    className="border-b border-[#1A1A1A] last:border-0 hover:bg-[#111] transition-colors group cursor-pointer"
+                    onClick={() => setSelectedTxn(txn)}
+                  >
                     <td className="py-3.5 px-4 text-sm text-muted-foreground whitespace-nowrap">
                       {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>
@@ -170,13 +177,10 @@ export function TransactionsPage() {
                     </td>
                     <td className="py-3.5 px-4 hidden md:table-cell">
                       {env ? (
-                        <button
-                          onClick={() => navigateTo("envelope-detail", txn.envelopeId)}
-                          className="flex items-center gap-2 hover:underline text-sm text-muted-foreground hover:text-foreground transition-colors"
-                        >
+                        <span className="flex items-center gap-2 text-sm text-muted-foreground">
                           <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: env.color }} />
                           {env.name}
-                        </button>
+                        </span>
                       ) : (
                         <span className="text-sm text-muted-foreground">—</span>
                       )}
@@ -201,7 +205,7 @@ export function TransactionsPage() {
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <button
-                        onClick={() => deleteTransaction(txn.id)}
+                        onClick={(e) => { e.stopPropagation(); deleteTransaction(txn.id) }}
                         className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-all"
                         aria-label={`Delete transaction ${txn.payee}`}
                       >
@@ -273,6 +277,12 @@ export function TransactionsPage() {
           </div>
         )}
       </div>
+
+      <TransactionDetailDialog
+        transaction={selectedTxn}
+        open={!!selectedTxn}
+        onOpenChange={(open) => { if (!open) setSelectedTxn(null) }}
+      />
     </div>
   )
 }

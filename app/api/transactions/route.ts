@@ -91,6 +91,59 @@ export async function POST(req: NextRequest) {
   }, { status: 201 })
 }
 
+export async function PUT(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const body = await req.json()
+  const { id, date, payee, amount, type, envelopeId, tags } = body
+
+  if (!id) {
+    return NextResponse.json({ error: "Transaction ID required" }, { status: 400 })
+  }
+
+  const existing = await prisma.transaction.findFirst({
+    where: { id, userId: session.user.id },
+  })
+  if (!existing) {
+    return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
+  }
+
+  if (envelopeId && envelopeId !== existing.envelopeId) {
+    const envelope = await prisma.envelope.findFirst({
+      where: { id: envelopeId, userId: session.user.id },
+    })
+    if (!envelope) {
+      return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
+    }
+  }
+
+  const updated = await prisma.transaction.update({
+    where: { id },
+    data: {
+      ...(date !== undefined && { date: new Date(date) }),
+      ...(payee !== undefined && { payee }),
+      ...(amount !== undefined && { amount: Math.abs(amount) }),
+      ...(type !== undefined && { type }),
+      ...(envelopeId !== undefined && { envelopeId }),
+      ...(tags !== undefined && { tags: JSON.stringify(tags) }),
+    },
+  })
+
+  return NextResponse.json({
+    id: updated.id,
+    date: updated.date.toISOString().split("T")[0],
+    payee: updated.payee,
+    amount: updated.amount,
+    type: updated.type,
+    envelopeId: updated.envelopeId,
+    tags: JSON.parse(updated.tags),
+    recurringId: updated.recurringId ?? null,
+  })
+}
+
 export async function DELETE(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
