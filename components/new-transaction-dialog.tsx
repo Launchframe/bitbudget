@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { useApp } from "@/lib/app-context"
 import type { TransactionType } from "@/lib/data"
 import {
@@ -48,6 +48,59 @@ export function NewTransactionDialog() {
   const [cadence, setCadence] = useState<Cadence>("monthly")
   const [endDate, setEndDate] = useState("")
   const [submitting, setSubmitting] = useState(false)
+
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const suggestionsRef = useRef<HTMLDivElement>(null)
+  const payeeInputRef = useRef<HTMLInputElement>(null)
+
+  const payeeIndex = useMemo(() => {
+    const index = new Map<string, Map<string, number>>()
+    for (const txn of state.transactions) {
+      const key = txn.payee.toLowerCase()
+      if (!index.has(key)) index.set(key, new Map())
+      const envCounts = index.get(key)!
+      envCounts.set(txn.envelopeId, (envCounts.get(txn.envelopeId) ?? 0) + 1)
+    }
+    return index
+  }, [state.transactions])
+
+  const payeeSuggestions = useMemo(() => {
+    const q = payee.trim().toLowerCase()
+    if (q.length === 0) return []
+    const matches: { name: string; envelopeId: string; count: number }[] = []
+    for (const [key, envCounts] of payeeIndex) {
+      if (!key.includes(q)) continue
+      let bestEnv = ""
+      let bestCount = 0
+      let total = 0
+      for (const [envId, count] of envCounts) {
+        total += count
+        if (count > bestCount) { bestCount = count; bestEnv = envId }
+      }
+      const originalName = state.transactions.find(t => t.payee.toLowerCase() === key)?.payee ?? key
+      matches.push({ name: originalName, envelopeId: bestEnv, count: total })
+    }
+    return matches.sort((a, b) => b.count - a.count).slice(0, 8)
+  }, [payee, payeeIndex, state.transactions])
+
+  const selectPayeeSuggestion = useCallback((name: string, suggestedEnvelopeId: string) => {
+    setPayee(name)
+    if (suggestedEnvelopeId && state.envelopes.some(e => e.id === suggestedEnvelopeId)) {
+      setEnvelopeId(suggestedEnvelopeId)
+    }
+    setShowSuggestions(false)
+  }, [state.envelopes])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node) &&
+          payeeInputRef.current && !payeeInputRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
 
   function resetForm() {
     setType("expense")
@@ -160,18 +213,47 @@ export function NewTransactionDialog() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 relative">
             <Label htmlFor="payee" className="text-muted-foreground text-xs uppercase tracking-wider">
               {type === "expense" ? "Payee" : "Payer"}
             </Label>
             <Input
+              ref={payeeInputRef}
               id="payee"
               value={payee}
-              onChange={(e) => setPayee(e.target.value)}
+              onChange={(e) => { setPayee(e.target.value); setShowSuggestions(true) }}
+              onFocus={() => { if (payee.trim()) setShowSuggestions(true) }}
               placeholder={type === "expense" ? "Who did you pay?" : "Who paid you?"}
               className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
+              autoComplete="off"
               required
             />
+            {showSuggestions && payeeSuggestions.length > 0 && (
+              <div
+                ref={suggestionsRef}
+                className="absolute top-full left-0 right-0 z-50 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg shadow-xl overflow-hidden max-h-52 overflow-y-auto"
+              >
+                {payeeSuggestions.map((s) => {
+                  const env = state.envelopes.find(e => e.id === s.envelopeId)
+                  return (
+                    <button
+                      key={s.name}
+                      type="button"
+                      onClick={() => selectPayeeSuggestion(s.name, s.envelopeId)}
+                      className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[#252525] transition-colors"
+                    >
+                      <span className="text-sm text-foreground truncate">{s.name}</span>
+                      {env && (
+                        <span className="flex items-center gap-1.5 shrink-0 text-xs text-muted-foreground">
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: env.color }} />
+                          {env.name}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-2">
