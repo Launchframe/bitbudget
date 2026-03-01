@@ -11,12 +11,8 @@ export const metadata: Metadata = {
   description:
     "Track your spending and analyze the opportunity cost of your purchases in Bitcoin. Budget smarter by understanding what your dollars could have been worth.",
   icons: {
-    icon: [
-      { url: "/icon-light-32x32.png", media: "(prefers-color-scheme: light)" },
-      { url: "/icon-dark-32x32.png", media: "(prefers-color-scheme: dark)" },
-      { url: "/icon.svg", type: "image/svg+xml" },
-    ],
-    apple: "/apple-icon.png",
+    icon: { url: "/icon.svg", type: "image/svg+xml" },
+    apple: "/apple-icon.svg",
   },
 }
 
