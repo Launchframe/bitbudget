@@ -11,6 +11,7 @@ import { DashboardPage } from "@/components/dashboard-page"
 import { AnalyticsPage } from "@/components/analytics-page"
 import { EnvelopesPage } from "@/components/envelopes-page"
 import { EnvelopeDetailPage } from "@/components/envelope-detail-page"
+import { TransactionsPage } from "@/components/transactions-page"
 import { SettingsPage } from "@/components/settings-page"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -62,6 +63,8 @@ function PageContent() {
       return <DashboardPage />
     case "analytics":
       return <AnalyticsPage />
+    case "transactions":
+      return <TransactionsPage />
     case "envelopes":
       return <EnvelopesPage />
     case "envelope-detail":

@@ -1,12 +1,13 @@
 "use client"
 
 import { signOut } from "next-auth/react"
-import { LayoutDashboard, BarChart3, Wallet, Search, Landmark, Plus, SquareArrowOutUpRight, Settings2, LogOut } from "lucide-react"
+import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, SquareArrowOutUpRight, Settings2, LogOut } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 
 const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "DASHBOARD", icon: LayoutDashboard },
   { id: "analytics", label: "ANALYTICS", icon: BarChart3 },
+  { id: "transactions", label: "TRANSACTIONS", icon: List },
   { id: "envelopes", label: "ENVELOPES", icon: Wallet },
   { id: "researcher", label: "RESEARCHER", icon: Search },
   { id: "funds", label: "FUNDS", icon: Landmark },

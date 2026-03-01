@@ -9,6 +9,7 @@ export type PageId =
   | "analytics"
   | "envelopes"
   | "envelope-detail"
+  | "transactions"
   | "researcher"
   | "funds"
   | "settings"
