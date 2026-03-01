@@ -14,7 +14,6 @@ export async function GET(req: NextRequest) {
   const startDate = searchParams.get("startDate")
   const endDate = searchParams.get("endDate")
   const type = searchParams.get("type")
-  const search = searchParams.get("search")
 
   const where: Record<string, unknown> = { userId: session.user.id }
   if (envelopeId) where.envelopeId = envelopeId
@@ -24,9 +23,6 @@ export async function GET(req: NextRequest) {
       ...(startDate ? { gte: new Date(startDate) } : {}),
       ...(endDate ? { lte: new Date(endDate + "T23:59:59") } : {}),
     }
-  }
-  if (search) {
-    where.payee = { contains: search }
   }
 
   const transactions = await prisma.transaction.findMany({

@@ -132,6 +132,7 @@ model RecurringTransaction {
   amount     Float
   type       String   // "expense" | "credit"
   tags       String   @default("[]")
+  notes      String?  // encrypted for privacy
   cadence    String   // "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
   nextDueDate DateTime

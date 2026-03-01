@@ -18,6 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { parseCSVFile } from "@/lib/csv"
+import type { CsvParseResult } from "@/lib/csv"
+import { encryptField, hexToUint8 } from "@/lib/crypto"
 
 interface SampleTxn {
   date: string
@@ -39,17 +42,20 @@ interface ExistingEnvelope {
   color: string
 }
 
-interface PreviewData {
-  totalRows: number
-  csvEnvelopes: CsvEnvelope[]
-  existingEnvelopes: ExistingEnvelope[]
-}
-
 type Step = "preview" | "importing" | "done"
 
 const NEW_ENVELOPE = "__new__"
 const SKIP_ENVELOPE = "__skip__"
 const CSV_PREFIX = "__csv__:"
+
+export type EncryptFn = (plaintext: string) => Promise<string>
+
+function getSessionEncryptFn(): EncryptFn | null {
+  const hex = sessionStorage.getItem("bitbudget-privacy-key")
+  if (!hex) return null
+  const key = hexToUint8(hex)
+  return (plaintext: string) => encryptField(plaintext, key)
+}
 
 export function CSVImportDialog({
   open,
@@ -57,15 +63,19 @@ export function CSVImportDialog({
   file,
   onImportComplete,
   onDone,
+  encryptFn: encryptFnProp,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   file: File | null
   onImportComplete?: () => void
   onDone?: () => void
+  encryptFn?: EncryptFn
 }) {
   const [step, setStep] = useState<Step>("preview")
-  const [preview, setPreview] = useState<PreviewData | null>(null)
+  const [parseResult, setParseResult] = useState<CsvParseResult | null>(null)
+  const [csvEnvelopes, setCsvEnvelopes] = useState<CsvEnvelope[]>([])
+  const [existingEnvelopes, setExistingEnvelopes] = useState<ExistingEnvelope[]>([])
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -82,20 +92,38 @@ export function CSVImportDialog({
       setError(null)
       setStep("preview")
       setResult(null)
-      setPreview(null)
+      setParseResult(null)
+      setCsvEnvelopes([])
       try {
-        const formData = new FormData()
-        formData.append("file", file!)
-        const res = await fetch("/api/import/preview", { method: "POST", body: formData })
-        if (!res.ok) {
-          const data = await res.json()
-          throw new Error(data.error || "Preview failed")
+        const text = await file!.text()
+        const parsed = parseCSVFile(text)
+        setParseResult(parsed)
+
+        const envRes = await fetch("/api/envelopes")
+        const userEnvelopes: ExistingEnvelope[] = envRes.ok ? await envRes.json() : []
+        setExistingEnvelopes(userEnvelopes)
+
+        const existingByLower: Record<string, { id: string; name: string }> = {}
+        for (const e of userEnvelopes) {
+          existingByLower[e.name.toLowerCase()] = { id: e.id, name: e.name }
         }
-        const data: PreviewData = await res.json()
-        setPreview(data)
+
+        const envelopes = Object.entries(parsed.envelopeCounts)
+          .sort(([, a], [, b]) => b - a)
+          .map(([name, count]): CsvEnvelope => {
+            const match = existingByLower[name.toLowerCase()]
+            return {
+              csvName: name,
+              count,
+              autoMatchId: match?.id ?? null,
+              autoMatchName: match?.name ?? null,
+              samples: parsed.envelopeSamples[name] ?? [],
+            }
+          })
+        setCsvEnvelopes(envelopes)
 
         const initialMapping: Record<string, string> = {}
-        for (const env of data.csvEnvelopes) {
+        for (const env of envelopes) {
           initialMapping[env.csvName] = env.autoMatchId ?? NEW_ENVELOPE
         }
         setMapping(initialMapping)
@@ -112,7 +140,9 @@ export function CSVImportDialog({
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
       if (!isOpen) {
-        setPreview(null)
+        setParseResult(null)
+        setCsvEnvelopes([])
+        setExistingEnvelopes([])
         setMapping({})
         setError(null)
         setResult(null)
@@ -125,14 +155,55 @@ export function CSVImportDialog({
   )
 
   const handleImport = async () => {
-    if (!file) return
+    if (!parseResult) return
     setStep("importing")
     setError(null)
     try {
-      const formData = new FormData()
-      formData.append("file", file)
-      formData.append("envelopeMapping", JSON.stringify(mapping))
-      const res = await fetch("/api/import", { method: "POST", body: formData })
+      const encrypt = encryptFnProp ?? getSessionEncryptFn()
+      if (!encrypt) {
+        throw new Error("Encryption key not available. Please unlock your account and try again.")
+      }
+
+      const skippedNames = new Set(
+        Object.entries(mapping)
+          .filter(([, v]) => v === SKIP_ENVELOPE)
+          .map(([k]) => k.toLowerCase()),
+      )
+
+      const encryptedTxns: {
+        date: string
+        payee: string
+        amount: number
+        type: string
+        envelopeName: string
+        notes: string | null
+      }[] = []
+
+      for (const txn of parseResult.transactions) {
+        if (skippedNames.has(txn.envelopeName.toLowerCase())) continue
+
+        const encPayee = await encrypt(txn.payee)
+        const encNotes = txn.notes ? await encrypt(txn.notes) : null
+
+        encryptedTxns.push({
+          date: txn.date,
+          payee: encPayee,
+          amount: txn.amount,
+          type: txn.type,
+          envelopeName: txn.envelopeName,
+          notes: encNotes,
+        })
+      }
+
+      const res = await fetch("/api/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transactions: encryptedTxns,
+          envelopeMapping: mapping,
+        }),
+      })
+
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error || "Import failed")
@@ -147,29 +218,21 @@ export function CSVImportDialog({
     }
   }
 
-  const skippedEnvelopes = preview
-    ? preview.csvEnvelopes.filter(e => mapping[e.csvName] === SKIP_ENVELOPE)
-    : []
+  const totalRows = parseResult?.totalRows ?? 0
 
+  const skippedEnvelopes = csvEnvelopes.filter(e => mapping[e.csvName] === SKIP_ENVELOPE)
   const skippedTxnCount = skippedEnvelopes.reduce((sum, e) => sum + e.count, 0)
-  const importTxnCount = preview ? preview.totalRows - skippedTxnCount : 0
+  const importTxnCount = totalRows - parseResult?.skippedRows! - skippedTxnCount
 
-  const unmatchedCount = preview
-    ? preview.csvEnvelopes.filter(e => mapping[e.csvName] === NEW_ENVELOPE).length
-    : 0
+  const unmatchedCount = csvEnvelopes.filter(e => mapping[e.csvName] === NEW_ENVELOPE).length
+  const matchedCount = csvEnvelopes.filter(e => {
+    const v = mapping[e.csvName]
+    return v !== NEW_ENVELOPE && v !== SKIP_ENVELOPE
+  }).length
 
-  const matchedCount = preview
-    ? preview.csvEnvelopes.filter(e => {
-        const v = mapping[e.csvName]
-        return v !== NEW_ENVELOPE && v !== SKIP_ENVELOPE
-      }).length
-    : 0
-
-  const newEnvelopeNames = preview
-    ? preview.csvEnvelopes
-        .filter(e => mapping[e.csvName] === NEW_ENVELOPE)
-        .map(e => e.csvName)
-    : []
+  const newEnvelopeNames = csvEnvelopes
+    .filter(e => mapping[e.csvName] === NEW_ENVELOPE)
+    .map(e => e.csvName)
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -180,15 +243,15 @@ export function CSVImportDialog({
             {step === "done" ? "Import Complete" : "Import Transactions"}
           </DialogTitle>
           <DialogDescription>
-            {step === "preview" && preview && (
+            {step === "preview" && parseResult && (
               <>
-                {preview.totalRows} transactions found across {preview.csvEnvelopes.length} categories.
+                {totalRows} transactions found across {csvEnvelopes.length} categories.
                 {skippedTxnCount > 0 && (
                   <span className="text-yellow-500"> ({skippedTxnCount} will be skipped)</span>
                 )}
               </>
             )}
-            {step === "importing" && "Importing transactions..."}
+            {step === "importing" && "Encrypting and importing transactions..."}
             {step === "done" && result && (
               <>
                 {result.imported} transactions imported, {result.skipped} skipped.
@@ -209,7 +272,7 @@ export function CSVImportDialog({
           </div>
         )}
 
-        {step === "preview" && preview && !loading && (
+        {step === "preview" && parseResult && !loading && (
           <div className="flex-1 overflow-y-auto min-h-0 -mx-6 px-6">
             <div className="flex items-center gap-4 mb-4 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
@@ -229,11 +292,11 @@ export function CSVImportDialog({
             </div>
 
             <div className="space-y-2">
-              {preview.csvEnvelopes.map((env) => (
+              {csvEnvelopes.map((env) => (
                 <EnvelopeMappingRow
                   key={env.csvName}
                   csvEnvelope={env}
-                  existingEnvelopes={preview.existingEnvelopes}
+                  existingEnvelopes={existingEnvelopes}
                   newEnvelopeNames={newEnvelopeNames}
                   value={mapping[env.csvName] ?? NEW_ENVELOPE}
                   onChange={(val) =>
@@ -265,20 +328,20 @@ export function CSVImportDialog({
         )}
 
         <DialogFooter>
-          {step === "preview" && preview && !loading && (
+          {step === "preview" && parseResult && !loading && (
             <button
               onClick={handleImport}
-              disabled={importTxnCount === 0}
+              disabled={importTxnCount <= 0}
               className="flex items-center gap-2 px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Import {importTxnCount} Transaction{importTxnCount !== 1 ? "s" : ""}
+              Import {importTxnCount > 0 ? importTxnCount : 0} Transaction{importTxnCount !== 1 ? "s" : ""}
               <ArrowRight className="h-4 w-4" />
             </button>
           )}
           {step === "importing" && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Importing...
+              Encrypting &amp; importing...
             </div>
           )}
           {step === "done" && (

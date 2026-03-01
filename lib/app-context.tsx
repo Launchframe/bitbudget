@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
 import type { Transaction, Envelope, AppState, BtcDisplayUnit } from "@/lib/data"
 import { generateId, getDefaultState } from "@/lib/data"
+import { encryptField, decryptField, hexToUint8 } from "@/lib/crypto"
 
 export type PageId =
   | "dashboard"
@@ -33,6 +34,13 @@ function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
   return { page: "dashboard" }
 }
 
+interface EncryptionState {
+  ready: boolean
+  needsPinUnlock: boolean
+  encryptedPrivacyKey: string | null
+  privacyKeySalt: string | null
+}
+
 interface AppContextValue {
   state: AppState
   currentPage: PageId
@@ -40,6 +48,8 @@ interface AppContextValue {
   highlightTransactionId: string | null
   transactionDialogOpen: boolean
   loading: boolean
+  encryption: EncryptionState
+  unlockWithKey: (key: Uint8Array) => void
 
   navigateTo: (page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string }) => void
   setTransactionDialogOpen: (open: boolean) => void
@@ -56,7 +66,7 @@ interface AppContextValue {
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
   addTag: (tag: string) => void
   refreshData: () => Promise<void>
-  importCSV: (file: File) => Promise<{ imported: number; skipped: number; newEnvelopes: string[] }>
+  encryptForStorage: (plaintext: string) => Promise<string>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -65,6 +75,18 @@ export function useApp(): AppContextValue {
   const ctx = useContext(AppContext)
   if (!ctx) throw new Error("useApp must be used within AppProvider")
   return ctx
+}
+
+async function decryptTransactions(transactions: Transaction[], key: Uint8Array): Promise<Transaction[]> {
+  return Promise.all(transactions.map(async (t) => {
+    try {
+      const payee = await decryptField(t.payee, key)
+      const notes = t.notes ? await decryptField(t.notes, key) : t.notes
+      return { ...t, payee, notes }
+    } catch {
+      return t
+    }
+  }))
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -83,9 +105,72 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const mounted = useRef(false)
   const isPopstate = useRef(false)
 
+  const privacyKeyRef = useRef<Uint8Array | null>(null)
+  const [encryption, setEncryption] = useState<EncryptionState>({
+    ready: false,
+    needsPinUnlock: false,
+    encryptedPrivacyKey: null,
+    privacyKeySalt: null,
+  })
+
+  const initEncryption = useCallback(async () => {
+    try {
+      const res = await fetch("/api/user/encryption")
+      if (!res.ok) return
+
+      const data = await res.json() as {
+        encryptedPrivacyKey: string | null
+        privacyKeySalt: string | null
+        isNostr: boolean
+        nostrPubkey: string | null
+      }
+
+      if (!data.encryptedPrivacyKey) {
+        setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+        return
+      }
+
+      const cached = sessionStorage.getItem("bitbudget-privacy-key")
+      if (cached) {
+        privacyKeyRef.current = hexToUint8(cached)
+        setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+        return
+      }
+
+      if (data.isNostr && data.nostrPubkey) {
+        const nostrExt = (window as unknown as {
+          nostr?: { nip04?: { decrypt: (pubkey: string, ciphertext: string) => Promise<string> } }
+        }).nostr
+
+        if (nostrExt?.nip04) {
+          try {
+            const hexKey = await nostrExt.nip04.decrypt(data.nostrPubkey, data.encryptedPrivacyKey)
+            privacyKeyRef.current = hexToUint8(hexKey)
+            sessionStorage.setItem("bitbudget-privacy-key", hexKey)
+            setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+            return
+          } catch { /* fall through to show unlock needed */ }
+        }
+      }
+
+      setEncryption({
+        ready: false,
+        needsPinUnlock: true,
+        encryptedPrivacyKey: data.encryptedPrivacyKey,
+        privacyKeySalt: data.privacyKeySalt,
+      })
+    } catch {
+      setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+    }
+  }, [])
+
+  const unlockWithKey = useCallback((key: Uint8Array) => {
+    privacyKeyRef.current = key
+    setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+  }, [])
+
   const refreshData = useCallback(async () => {
     try {
-      // Process any due recurring transactions before fetching data
       await fetch("/api/recurring/process", { method: "POST" }).catch(() => {})
 
       const [txnRes, envRes, settingsRes] = await Promise.all([
@@ -98,11 +183,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Failed to fetch data")
       }
 
-      const [transactions, envelopes, settings] = await Promise.all([
-        txnRes.json(),
+      let [transactions, envelopes, settings] = await Promise.all([
+        txnRes.json() as Promise<Transaction[]>,
         envRes.json(),
         settingsRes.json(),
       ])
+
+      if (privacyKeyRef.current) {
+        transactions = await decryptTransactions(transactions, privacyKeyRef.current)
+      }
 
       setState(prev => ({
         ...prev,
@@ -121,9 +210,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true
+      initEncryption().then(() => refreshData())
+    }
+  }, [initEncryption, refreshData])
+
+  useEffect(() => {
+    if (encryption.ready && privacyKeyRef.current && mounted.current) {
       refreshData()
     }
-  }, [refreshData])
+  }, [encryption.ready, refreshData])
 
   const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string }) => {
     setCurrentPage(page)
@@ -164,13 +259,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
 
     try {
+      const payload = { ...txn }
+      if (privacyKeyRef.current) {
+        payload.payee = await encryptField(txn.payee, privacyKeyRef.current)
+        if (payload.notes) payload.notes = await encryptField(payload.notes, privacyKeyRef.current)
+      }
+
       const res = await fetch("/api/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(txn),
+        body: JSON.stringify(payload),
       })
       if (res.ok) {
         const created = await res.json()
+        if (privacyKeyRef.current) {
+          created.payee = await decryptField(created.payee, privacyKeyRef.current)
+          if (created.notes) created.notes = await decryptField(created.notes, privacyKeyRef.current)
+        }
         setState(prev => ({
           ...prev,
           transactions: prev.transactions.map(t =>
@@ -193,10 +298,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
 
     try {
+      const payload: Record<string, unknown> = { id, ...updates }
+      if (privacyKeyRef.current) {
+        if (typeof payload.payee === "string") payload.payee = await encryptField(payload.payee as string, privacyKeyRef.current)
+        if (typeof payload.notes === "string") payload.notes = await encryptField(payload.notes as string, privacyKeyRef.current)
+      }
+
       await fetch("/api/transactions", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, ...updates }),
+        body: JSON.stringify(payload),
       })
     } catch {
       refreshData()
@@ -311,14 +422,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [])
 
-  const importCSV = useCallback(async (file: File) => {
-    const formData = new FormData()
-    formData.append("file", file)
-    const res = await fetch("/api/import", { method: "POST", body: formData })
-    const result = await res.json()
-    await refreshData()
-    return result
-  }, [refreshData])
+  const encryptForStorage = useCallback(async (plaintext: string): Promise<string> => {
+    if (!privacyKeyRef.current || !plaintext) return plaintext
+    return encryptField(plaintext, privacyKeyRef.current)
+  }, [])
 
   return (
     <AppContext.Provider
@@ -329,6 +436,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         highlightTransactionId,
         transactionDialogOpen,
         loading,
+        encryption,
+        unlockWithKey,
         navigateTo,
         setTransactionDialogOpen,
         addTransaction,
@@ -341,7 +450,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setBtcDisplayUnit,
         addTag,
         refreshData,
-        importCSV,
+        encryptForStorage,
       }}
     >
       {children}

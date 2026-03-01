@@ -61,6 +61,7 @@ export async function processRecurringTransactions(userId: string): Promise<numb
           amount: rec.amount,
           type: rec.type,
           tags: rec.tags,
+          notes: rec.notes,
           recurringId: rec.id,
           satsAmount: btcPrice ? usdToSats(rec.amount, btcPrice) : null,
         },

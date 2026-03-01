@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function Header() {
-  const { setTransactionDialogOpen, navigateTo, refreshData } = useApp()
+  const { setTransactionDialogOpen, navigateTo, refreshData, encryptForStorage } = useApp()
   const { data: session } = useSession()
   const userImage = session?.user?.image
   const userName = session?.user?.name
@@ -89,6 +89,7 @@ export function Header() {
         file={importFile}
         onImportComplete={refreshData}
         onDone={() => navigateTo("envelopes")}
+        encryptFn={encryptForStorage}
       />
     </>
   )

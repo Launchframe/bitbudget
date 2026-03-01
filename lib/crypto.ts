@@ -91,8 +91,10 @@ export async function encryptField(plaintext: string, privacyKey: Uint8Array): P
   return uint8ToHex(iv) + ":" + uint8ToHex(new Uint8Array(ciphertext))
 }
 
+const ENCRYPTED_FIELD_RE = /^[0-9a-f]{24}:[0-9a-f]+$/
+
 export async function decryptField(encrypted: string, privacyKey: Uint8Array): Promise<string> {
-  if (!encrypted || !encrypted.includes(":")) return encrypted
+  if (!encrypted || !ENCRYPTED_FIELD_RE.test(encrypted)) return encrypted
   const [ivHex, ctHex] = encrypted.split(":")
   const key = await crypto.subtle.importKey(
     "raw",

@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { payee, amount, type, envelopeId, cadence, startDate, endDate, tags } = body
+  const { payee, amount, type, envelopeId, cadence, startDate, endDate, tags, notes } = body
 
   if (!payee || !amount || !type || !envelopeId || !cadence || !startDate) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
         amount: absAmount,
         type,
         tags: JSON.stringify(tags || []),
+        notes: notes || null,
         cadence,
         nextDueDate: nextDue,
         endDate: endDate ? new Date(endDate) : null,
@@ -93,6 +94,7 @@ export async function POST(req: NextRequest) {
         amount: absAmount,
         type,
         tags: JSON.stringify(tags || []),
+        notes: notes || null,
         recurringId: rec.id,
         satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
       },

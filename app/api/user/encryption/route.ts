@@ -17,6 +17,7 @@ export async function GET() {
     encryptedPrivacyKey: user?.encryptedPrivacyKey ?? null,
     privacyKeySalt: user?.privacyKeySalt ?? null,
     isNostr: !!user?.nostrPubkey,
+    nostrPubkey: user?.nostrPubkey ?? null,
   })
 }
 

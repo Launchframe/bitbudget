@@ -33,7 +33,7 @@ const CADENCE_OPTIONS: { value: Cadence; label: string }[] = [
 ]
 
 export function NewTransactionDialog() {
-  const { state, transactionDialogOpen, setTransactionDialogOpen, addTransaction, addTag, refreshData } = useApp()
+  const { state, transactionDialogOpen, setTransactionDialogOpen, addTransaction, addTag, refreshData, encryptForStorage } = useApp()
 
   const [type, setType] = useState<TransactionType>("expense")
   const [payee, setPayee] = useState("")
@@ -123,11 +123,13 @@ export function NewTransactionDialog() {
     if (isRecurring) {
       setSubmitting(true)
       try {
+        const encPayee = await encryptForStorage(payee.trim())
+        const encNotes = notes.trim() ? await encryptForStorage(notes.trim()) : null
         const res = await fetch("/api/recurring", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            payee: payee.trim(),
+            payee: encPayee,
             amount: Math.abs(parseFloat(amount)),
             type,
             envelopeId,
@@ -135,7 +137,7 @@ export function NewTransactionDialog() {
             startDate: date,
             endDate: endDate || null,
             tags: selectedTags,
-            notes: notes.trim() || null,
+            notes: encNotes,
           }),
         })
         if (res.ok) {

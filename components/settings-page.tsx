@@ -10,7 +10,7 @@ import { CSVImportDialog } from "@/components/csv-import-dialog"
 import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, User } from "lucide-react"
 
 export function SettingsPage() {
-  const { state, setMonthlyIncome, setBtcDisplayUnit, refreshData } = useApp()
+  const { state, setMonthlyIncome, setBtcDisplayUnit, refreshData, encryptForStorage } = useApp()
   const { data: session } = useSession()
   const userName = session?.user?.name
   const userEmail = session?.user?.email
@@ -288,6 +288,7 @@ export function SettingsPage() {
         file={importFile}
         onImportComplete={refreshData}
         onDone={() => {}}
+        encryptFn={encryptForStorage}
       />
     </div>
   )

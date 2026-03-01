@@ -14,6 +14,7 @@ import {
   generatePrivacyKey,
   encryptPrivacyKey,
   uint8ToHex,
+  hexToUint8,
 } from "@/lib/crypto"
 
 type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
@@ -64,6 +65,27 @@ export default function OnboardingPage() {
       const data = await res.json()
       if (data.isNostr) {
         setIsNostr(true)
+
+        if (!data.encryptedPrivacyKey && data.nostrPubkey) {
+          const nostrExt = (window as unknown as {
+            nostr?: {
+              getPublicKey: () => Promise<string>
+              nip04?: { encrypt: (pubkey: string, plaintext: string) => Promise<string> }
+            }
+          }).nostr
+
+          if (nostrExt?.nip04) {
+            const privacyKey = generatePrivacyKey()
+            const encrypted = await nostrExt.nip04.encrypt(data.nostrPubkey, uint8ToHex(privacyKey))
+            await fetch("/api/user/encryption", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ encryptedPrivacyKey: encrypted }),
+            })
+            sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
+          }
+        }
+
         setStep("income")
       }
     } catch { /* continue normally */ }
@@ -234,7 +256,7 @@ export default function OnboardingPage() {
         <div className="bg-[#0D0D0D] rounded-2xl p-8">
           {/* Security Step */}
           {step === "security" && !isNostr && (
-            <div className="flex flex-col gap-6">
+            <form onSubmit={e => { e.preventDefault(); handleSecuritySetup() }} className="flex flex-col gap-6">
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#F7931A]/10">
                   <Lock className="h-6 w-6 text-[#F7931A]" />
@@ -276,19 +298,19 @@ export default function OnboardingPage() {
               </div>
 
               <button
-                onClick={handleSecuritySetup}
+                type="submit"
                 disabled={loading || !pin || !pinConfirm}
                 className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {loading ? "Setting up..." : "Continue"}
                 {!loading && <ChevronRight className="h-4 w-4" />}
               </button>
-            </div>
+            </form>
           )}
 
           {/* Income Step */}
           {step === "income" && (
-            <div className="flex flex-col gap-6">
+            <form onSubmit={e => { e.preventDefault(); if (income) handleIncomeSave() }} className="flex flex-col gap-6">
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#22C55E]/10">
                   <DollarSign className="h-6 w-6 text-[#22C55E]" />
@@ -346,19 +368,19 @@ export default function OnboardingPage() {
               </div>
 
               <button
-                onClick={handleIncomeSave}
+                type="submit"
                 disabled={loading || !income}
                 className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {loading ? "Saving..." : "Continue"}
                 {!loading && <ChevronRight className="h-4 w-4" />}
               </button>
-            </div>
+            </form>
           )}
 
           {/* Envelopes Step */}
           {step === "envelopes" && (
-            <div className="flex flex-col gap-6">
+            <form onSubmit={e => { e.preventDefault(); if (envelopes.length > 0) handleEnvelopesSave() }} className="flex flex-col gap-6">
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#8B5CF6]/10">
                   <Wallet className="h-6 w-6 text-[#8B5CF6]" />
@@ -375,6 +397,7 @@ export default function OnboardingPage() {
                     <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: env.color }} />
                     <span className="flex-1 text-sm font-medium text-foreground">{env.name}</span>
                     <button
+                      type="button"
                       onClick={() => removeEnvelope(idx)}
                       className="p-1 text-muted-foreground hover:text-red-400 transition-colors"
                     >
@@ -393,6 +416,7 @@ export default function OnboardingPage() {
                   className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
                 />
                 <button
+                  type="button"
                   onClick={addEnvelope}
                   disabled={!newEnvName.trim()}
                   className="px-4 py-2 bg-[#1A1A1A] border border-[#333] text-foreground rounded-lg hover:bg-[#222] transition-colors disabled:opacity-30"
@@ -403,13 +427,14 @@ export default function OnboardingPage() {
 
               <div className="flex gap-3">
                 <button
+                  type="button"
                   onClick={() => setStep("income")}
                   className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
                 >
                   <ChevronLeft className="h-4 w-4" /> Back
                 </button>
                 <button
-                  onClick={handleEnvelopesSave}
+                  type="submit"
                   disabled={loading || envelopes.length === 0}
                   className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -417,12 +442,12 @@ export default function OnboardingPage() {
                   {!loading && <ChevronRight className="h-4 w-4" />}
                 </button>
               </div>
-            </div>
+            </form>
           )}
 
           {/* Allocations Step */}
           {step === "allocations" && (
-            <div className="flex flex-col gap-6">
+            <form onSubmit={e => { e.preventDefault(); handleAllocationsSave() }} className="flex flex-col gap-6">
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#3B82F6]/10">
                   <PieChart className="h-6 w-6 text-[#3B82F6]" />
@@ -468,13 +493,14 @@ export default function OnboardingPage() {
 
               <div className="flex gap-3">
                 <button
+                  type="button"
                   onClick={() => setStep("envelopes")}
                   className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
                 >
                   <ChevronLeft className="h-4 w-4" /> Back
                 </button>
                 <button
-                  onClick={handleAllocationsSave}
+                  type="submit"
                   disabled={loading}
                   className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -482,12 +508,12 @@ export default function OnboardingPage() {
                   {!loading && <ChevronRight className="h-4 w-4" />}
                 </button>
               </div>
-            </div>
+            </form>
           )}
 
           {/* Import Step */}
           {step === "import" && (
-            <div className="flex flex-col gap-6">
+            <form onSubmit={e => { e.preventDefault(); handleImport() }} className="flex flex-col gap-6">
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#06B6D4]/10">
                   <Upload className="h-6 w-6 text-[#06B6D4]" />
@@ -512,25 +538,26 @@ export default function OnboardingPage() {
 
               <div className="flex gap-3">
                 <button
+                  type="button"
                   onClick={() => setStep("allocations")}
                   className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
                 >
                   <ChevronLeft className="h-4 w-4" /> Back
                 </button>
                 <button
-                  onClick={handleImport}
+                  type="submit"
                   disabled={loading}
                   className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
                 >
                   {loading ? "Importing..." : importFile ? "Import & Continue" : "Skip"}
                 </button>
               </div>
-            </div>
+            </form>
           )}
 
           {/* Complete Step */}
           {step === "complete" && (
-            <div className="flex flex-col items-center gap-6 py-4">
+            <form onSubmit={e => { e.preventDefault(); handleComplete() }} className="flex flex-col items-center gap-6 py-4">
               <div className="p-4 rounded-full bg-[#22C55E]/10">
                 <svg className="h-10 w-10 text-[#22C55E]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -547,13 +574,13 @@ export default function OnboardingPage() {
                 </p>
               )}
               <button
-                onClick={handleComplete}
+                type="submit"
                 disabled={loading}
                 className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
               >
                 {loading ? "Finishing..." : "Go to Dashboard"}
               </button>
-            </div>
+            </form>
           )}
         </div>
       </div>
