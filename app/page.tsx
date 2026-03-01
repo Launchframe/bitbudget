@@ -25,14 +25,24 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
     async function check() {
       try {
         const res = await fetch("/api/user/settings")
+        if (res.status === 401 || res.status === 403) {
+          router.replace("/auth")
+          return
+        }
         if (res.ok) {
           const data = await res.json()
           if (!data.onboardingComplete) {
             router.replace("/onboarding")
             return
           }
+        } else {
+          router.replace("/auth")
+          return
         }
-      } catch { /* proceed to app */ }
+      } catch {
+        router.replace("/auth")
+        return
+      }
       setChecking(false)
     }
     check()
