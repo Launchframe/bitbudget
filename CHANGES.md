@@ -136,7 +136,7 @@ The app was transformed from a **client-only SPA** (localStorage, mock data, no 
 ### 3. OAuth: Conditionally enabled
 - **Decision**: Google and GitHub OAuth are only registered as providers when their env vars are set
 - **Rationale**: Prevents errors when running locally without OAuth credentials configured
-- **To enable**: Add `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET` to `.env`
+- **To enable**: Add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` to `.env`
 
 ### 4. Nostr Authentication
 - **Decision**: Implemented NIP-07 (`window.nostr`) based authentication with nos2x-compatible extensions

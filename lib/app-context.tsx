@@ -1,7 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
-import type { Transaction, Envelope, AppState } from "@/lib/data"
+import type { Transaction, Envelope, AppState, BtcDisplayUnit } from "@/lib/data"
 import { generateId, getDefaultState } from "@/lib/data"
 
 export type PageId =
@@ -53,6 +53,7 @@ interface AppContextValue {
   deleteEnvelope: (id: string) => void
 
   setMonthlyIncome: (income: number) => void
+  setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
   addTag: (tag: string) => void
   refreshData: () => Promise<void>
   importCSV: (file: File) => Promise<{ imported: number; skipped: number; newEnvelopes: string[] }>
@@ -108,6 +109,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         transactions,
         envelopes,
         monthlyIncome: settings.monthlyIncome || 0,
+        btcDisplayUnit: settings.btcDisplayUnit || "sats",
       }))
     } catch {
       // On error, keep current state (may be default/empty)
@@ -289,6 +291,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const setBtcDisplayUnit = useCallback(async (unit: BtcDisplayUnit) => {
+    setState(prev => ({ ...prev, btcDisplayUnit: unit }))
+    try {
+      await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ btcDisplayUnit: unit }),
+      })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
   const addTag = useCallback((tag: string) => {
     setState(prev => ({
       ...prev,
@@ -323,6 +338,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         editEnvelope,
         deleteEnvelope,
         setMonthlyIncome,
+        setBtcDisplayUnit,
         addTag,
         refreshData,
         importCSV,

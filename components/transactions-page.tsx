@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { formatUsd, formatSats, type TransactionType } from "@/lib/data"
+import { formatUsd, formatBtcAmountFromSats, type TransactionType } from "@/lib/data"
 import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -159,7 +159,7 @@ export function TransactionsPage() {
                 <th className="py-3 px-4 text-left font-medium hidden md:table-cell">Envelope</th>
                 <th className="py-3 px-4 text-left font-medium hidden sm:table-cell">Type</th>
                 <th className="py-3 px-4 text-right font-medium">Amount (USD)</th>
-                <th className="py-3 px-4 text-right font-medium hidden md:table-cell">Amount (sats)</th>
+                <th className="py-3 px-4 text-right font-medium hidden md:table-cell">Amount ({state.btcDisplayUnit === "sats" ? "sats" : "BTC"})</th>
                 <th className="py-3 px-4 text-right font-medium hidden sm:table-cell">Opportunity Cost</th>
                 <th className="py-3 px-4 text-right font-medium w-12"></th>
               </tr>
@@ -211,7 +211,7 @@ export function TransactionsPage() {
                       {formatUsd(txn.amount)}
                     </td>
                     <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
-                      {txn.satsAmount != null ? formatSats(txn.satsAmount) : "—"}
+                      {txn.satsAmount != null ? formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit) : "—"}
                     </td>
                     <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A] hidden sm:table-cell">
                       {txn.type === "expense" ? formatUsd(opCost) : "—"}

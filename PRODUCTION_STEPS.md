@@ -34,6 +34,6 @@ All done. Here's a summary of everything that was changed:
 1. Create a **Vercel Postgres** (Neon) database from the Vercel dashboard — Storage tab, "Create Database", pick Postgres.
 2. Vercel will auto-inject `DATABASE_URL` and `POSTGRES_URL_NON_POOLED`. Map `DIRECT_DATABASE_URL` to the non-pooled URL in your Vercel project settings.
 3. Set `AUTH_SECRET` (run `npx auth secret` to generate one).
-4. Set `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET` as you configure those.
+4. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` as you configure those.
 5. `CRON_SECRET` is auto-set by Vercel when you have cron jobs configured.
 6. Push to your connected repo — the build script handles `prisma generate`, `prisma migrate deploy`, and `next build`.

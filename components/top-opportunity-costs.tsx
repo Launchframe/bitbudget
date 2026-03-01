@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { formatUsd } from "@/lib/data"
+import { formatUsd, formatBtcAmount } from "@/lib/data"
 import { TrendingUp, TrendingDown } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 
@@ -88,7 +88,7 @@ export function TopOpportunityCosts() {
                     {formatUsd(txn.amount)}
                   </td>
                   <td className="py-3 text-right text-muted-foreground text-sm hidden lg:table-cell font-mono">
-                    {txn.btcPriceAtTime > 0 ? (txn.amount / txn.btcPriceAtTime).toFixed(6) : "—"}
+                    {txn.btcPriceAtTime > 0 ? formatBtcAmount(txn.amount / txn.btcPriceAtTime, state.btcDisplayUnit) : "—"}
                   </td>
                   <td className="py-3 text-right pr-2 rounded-r-xl">
                     <div className="flex items-center justify-end gap-2">
@@ -150,6 +150,7 @@ function TransactionDetail({
   envelopeName?: string
   onNavigateToEnvelope: (txnId: string) => void
 }) {
+  const { state } = useApp()
   const btcAmount = txn.btcPriceAtTime > 0 ? txn.amount / txn.btcPriceAtTime : 0
   const multiplier = txn.amount > 0 ? txn.btcValueToday / txn.amount : 0
   const gained = multiplier >= 1
@@ -199,7 +200,7 @@ function TransactionDetail({
     },
     {
       label: "BTC Equivalent",
-      value: `${btcAmount.toFixed(8)} BTC`,
+      value: formatBtcAmount(btcAmount, state.btcDisplayUnit),
     },
     {
       label: "BTC Value Today",

@@ -279,16 +279,35 @@ export default function AuthPage() {
                 <div className="p-4 rounded-full bg-[#8B5CF6]/10">
                   <KeyRound className="h-8 w-8 text-[#8B5CF6]" />
                 </div>
-                <h3 className="text-lg font-semibold text-foreground">Set Up Nostr</h3>
+                <h3 className="text-lg font-semibold text-foreground">No Nostr Extension Detected</h3>
                 <p className="text-sm text-muted-foreground text-center leading-relaxed">
-                  Nostr is a decentralized protocol that lets you own your identity.
-                  To sign in with Nostr, you need a browser extension like <strong>nos2x</strong> or <strong>Alby</strong>.
+                  To sign in with Nostr you need a browser extension that manages your keys.
+                  Install one of these, create or import your keypair, then reload this page.
                 </p>
-                <ol className="text-sm text-muted-foreground space-y-2 w-full">
-                  <li className="flex gap-2"><span className="text-[#F7931A] font-bold">1.</span> Install the <a href="https://github.com/nicehash/nos2x" target="_blank" rel="noopener noreferrer" className="text-[#8B5CF6] hover:underline">nos2x extension</a> for your browser</li>
-                  <li className="flex gap-2"><span className="text-[#F7931A] font-bold">2.</span> Create or import your Nostr keypair (nsec)</li>
-                  <li className="flex gap-2"><span className="text-[#F7931A] font-bold">3.</span> Reload this page and click &ldquo;Sign in with Nostr&rdquo;</li>
-                </ol>
+
+                <div className="flex flex-col gap-3 w-full">
+                  {([
+                    { name: "Alby", href: "https://getalby.com/", img: "https://www.satlantis.io/images/alby-logo.svg" },
+                    { name: "Keys.band", href: "https://keys.band/", img: "https://www.satlantis.io/images/keys-band-logo.png" },
+                    { name: "nos2x", href: "https://nostrapps.com/nos2x", img: "https://www.satlantis.io/images/nos2x-logo.png" },
+                  ] as const).map((ext) => (
+                    <a
+                      key={ext.name}
+                      href={ext.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-4 w-full py-3 px-4 bg-[#1A1A1A] rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={ext.img} alt={ext.name} className="h-8 w-8 rounded-md object-contain" />
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-foreground">{ext.name}</span>
+                        <span className="text-xs text-muted-foreground">{ext.href.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+
                 <button
                   onClick={() => window.location.reload()}
                   className="w-full py-3 bg-[#8B5CF6] text-white rounded-xl font-semibold text-sm hover:bg-[#8B5CF6]/90 transition-colors mt-2"

@@ -73,6 +73,7 @@ export function Header() {
         onOpenChange={setImportOpen}
         file={importFile}
         onImportComplete={refreshData}
+        onDone={() => navigateTo("envelopes")}
       />
     </>
   )

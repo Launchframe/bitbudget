@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { formatUsd } from "@/lib/data"
+import { formatUsd, formatBtcAmount } from "@/lib/data"
 import type { Transaction, TransactionType } from "@/lib/data"
 import {
   Dialog,
@@ -309,6 +309,7 @@ function ViewMode({
   btcValueToday: number
   currentPrice: number | null
 }) {
+  const { state } = useApp()
   const multiplier = transaction.amount > 0 && btcValueToday > 0 ? btcValueToday / transaction.amount : 0
   const gained = multiplier >= 1
 
@@ -371,7 +372,7 @@ function ViewMode({
   if (transaction.type === "expense" && btcPrice > 0) {
     rows.push(
       { label: "BTC Price at Time", value: formatUsd(btcPrice) },
-      { label: "BTC Equivalent", value: <span className="font-mono text-sm">{btcEquiv.toFixed(8)} BTC</span> },
+      { label: "BTC Equivalent", value: <span className="font-mono text-sm">{formatBtcAmount(btcEquiv, state.btcDisplayUnit)}</span> },
     )
 
     if (currentPrice) {

@@ -238,7 +238,7 @@ export function OpportunityCostChart() {
               <Area
                 type="monotone"
                 dataKey="btcValue"
-                name="BTC Opportunity Value"
+                name="Equivalent BTC Savings"
                 stroke="#F7931A"
                 strokeWidth={2}
                 fillOpacity={1}

@@ -29,6 +29,7 @@ model User {
   monthlyIncome      Float    @default(0)
   payCadence         String   @default("monthly") // "monthly" | "bimonthly"
   onboardingComplete Boolean  @default(false)
+  btcDisplayUnit     String   @default("sats") // "sats" | "btc"
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

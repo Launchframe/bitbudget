@@ -12,6 +12,7 @@ CREATE TABLE "User" (
     "monthlyIncome" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "payCadence" TEXT NOT NULL DEFAULT 'monthly',
     "onboardingComplete" BOOLEAN NOT NULL DEFAULT false,
+    "btcDisplayUnit" TEXT NOT NULL DEFAULT 'sats',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -77,6 +78,7 @@ CREATE TABLE "Transaction" (
     "amount" DOUBLE PRECISION NOT NULL,
     "type" TEXT NOT NULL,
     "tags" TEXT NOT NULL DEFAULT '[]',
+    "notes" TEXT,
     "satsAmount" INTEGER,
     "recurringId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

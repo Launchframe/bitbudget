@@ -67,11 +67,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
       },
     }),
-    ...(process.env.AUTH_GOOGLE_ID
-      ? [Google({ clientId: process.env.AUTH_GOOGLE_ID, clientSecret: process.env.AUTH_GOOGLE_SECRET! })]
+    ...(process.env.GOOGLE_CLIENT_ID
+      ? [Google({ clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET! })]
       : []),
-    ...(process.env.AUTH_GITHUB_ID
-      ? [GitHub({ clientId: process.env.AUTH_GITHUB_ID, clientSecret: process.env.AUTH_GITHUB_SECRET! })]
+    ...(process.env.GITHUB_CLIENT_ID
+      ? [GitHub({ clientId: process.env.GITHUB_CLIENT_ID, clientSecret: process.env.GITHUB_CLIENT_SECRET! })]
       : []),
   ],
   callbacks: {

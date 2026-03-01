@@ -22,11 +22,14 @@ export interface Envelope {
   color: string
 }
 
+export type BtcDisplayUnit = "sats" | "btc"
+
 export interface AppState {
   transactions: Transaction[]
   envelopes: Envelope[]
   tags: string[]
   monthlyIncome: number
+  btcDisplayUnit: BtcDisplayUnit
 }
 
 // ─── Mock BTC Price Data (client-side fallback) ─────────────────────
@@ -145,6 +148,23 @@ export function formatSats(sats: number): string {
   return new Intl.NumberFormat("en-US").format(sats) + " sats"
 }
 
+const SATS_PER_BTC = 100_000_000
+
+export function formatBtcAmount(btcValue: number, unit: BtcDisplayUnit): string {
+  if (unit === "sats") {
+    const sats = Math.round(btcValue * SATS_PER_BTC)
+    return new Intl.NumberFormat("en-US").format(sats) + " sats"
+  }
+  return btcValue.toFixed(8) + " BTC"
+}
+
+export function formatBtcAmountFromSats(sats: number, unit: BtcDisplayUnit): string {
+  if (unit === "sats") {
+    return new Intl.NumberFormat("en-US").format(sats) + " sats"
+  }
+  return (sats / SATS_PER_BTC).toFixed(8) + " BTC"
+}
+
 export function formatNumber(n: number): string {
   return new Intl.NumberFormat("en-US").format(n)
 }
@@ -159,6 +179,7 @@ export function getDefaultState(): AppState {
     envelopes: [],
     tags: DEFAULT_TAGS,
     monthlyIncome: 0,
+    btcDisplayUnit: "sats",
   }
 }
 

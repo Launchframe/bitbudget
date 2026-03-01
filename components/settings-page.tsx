@@ -7,10 +7,10 @@ import { formatUsd } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
-import { Upload, Shield, DollarSign, Trash2, UserX } from "lucide-react"
+import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin } from "lucide-react"
 
 export function SettingsPage() {
-  const { state, setMonthlyIncome, refreshData } = useApp()
+  const { state, setMonthlyIncome, setBtcDisplayUnit, refreshData } = useApp()
   const [editingIncome, setEditingIncome] = useState(false)
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
   const [importFile, setImportFile] = useState<File | null>(null)
@@ -92,6 +92,46 @@ export function SettingsPage() {
             {formatUsd(state.monthlyIncome)}
           </button>
         )}
+      </div>
+
+      {/* BTC Display */}
+      <div className="p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-[#F7931A]/10">
+            <Bitcoin className="h-5 w-5 text-[#F7931A]" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground">BTC Display</h3>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Choose how Bitcoin amounts are shown throughout the app.
+        </p>
+        <div className="flex rounded-lg bg-[#1A1A1A] p-1 w-fit">
+          <button
+            onClick={() => setBtcDisplayUnit("sats")}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              state.btcDisplayUnit === "sats"
+                ? "bg-[#F7931A] text-[#0D0D0D]"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Sats
+          </button>
+          <button
+            onClick={() => setBtcDisplayUnit("btc")}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              state.btcDisplayUnit === "btc"
+                ? "bg-[#F7931A] text-[#0D0D0D]"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            BTC
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground mt-3">
+          {state.btcDisplayUnit === "sats"
+            ? "Showing values in satoshis (1 BTC = 100,000,000 sats)"
+            : "Showing values as decimal BTC (e.g. 0.00004013 BTC)"}
+        </p>
       </div>
 
       {/* CSV Import */}
@@ -217,6 +257,7 @@ export function SettingsPage() {
         onOpenChange={setImportOpen}
         file={importFile}
         onImportComplete={refreshData}
+        onDone={() => {}}
       />
     </div>
   )

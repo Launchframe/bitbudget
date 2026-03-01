@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { useApp } from "@/lib/app-context"
 import { Upload, ArrowRight, Plus, CheckCircle2, Loader2, ChevronDown, ChevronRight as ChevronRightIcon, Ban } from "lucide-react"
 import {
   Dialog,
@@ -57,13 +56,14 @@ export function CSVImportDialog({
   onOpenChange,
   file,
   onImportComplete,
+  onDone,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   file: File | null
   onImportComplete?: () => void
+  onDone?: () => void
 }) {
-  const { navigateTo } = useApp()
   const [step, setStep] = useState<Step>("preview")
   const [preview, setPreview] = useState<PreviewData | null>(null)
   const [mapping, setMapping] = useState<Record<string, string>>({})
@@ -283,7 +283,7 @@ export function CSVImportDialog({
           )}
           {step === "done" && (
             <button
-              onClick={() => { navigateTo("envelopes"); handleOpenChange(false) }}
+              onClick={() => { onDone?.(); handleOpenChange(false) }}
               className="px-5 py-2.5 bg-[#1A1A1A] border border-[#333] text-foreground rounded-lg text-sm font-medium hover:bg-[#252525] transition-colors"
             >
               Done

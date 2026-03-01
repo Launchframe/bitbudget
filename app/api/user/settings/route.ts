@@ -14,6 +14,7 @@ export async function GET() {
       monthlyIncome: true,
       payCadence: true,
       onboardingComplete: true,
+      btcDisplayUnit: true,
       nostrPubkey: true,
       encryptedPrivacyKey: true,
       privacyKeySalt: true,
@@ -40,6 +41,7 @@ export async function PUT(req: NextRequest) {
     "monthlyIncome",
     "payCadence",
     "onboardingComplete",
+    "btcDisplayUnit",
     "encryptedPrivacyKey",
     "privacyKeySalt",
     "name",
@@ -59,6 +61,7 @@ export async function PUT(req: NextRequest) {
       monthlyIncome: true,
       payCadence: true,
       onboardingComplete: true,
+      btcDisplayUnit: true,
       name: true,
     },
   })
