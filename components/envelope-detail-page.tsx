@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-const PAGE_SIZE = 10
+const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 
 export function EnvelopeDetailPage() {
   const { state, selectedEnvelopeId, navigateTo, deleteTransaction } = useApp()
@@ -36,6 +36,7 @@ export function EnvelopeDetailPage() {
   const [typeFilter, setTypeFilter] = useState<"all" | TransactionType>("all")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+  const [pageSize, setPageSize] = useState(10)
   const [page, setPage] = useState(1)
 
   const currentMonth = getCurrentMonthKey()
@@ -67,8 +68,8 @@ export function EnvelopeDetailPage() {
     return result.sort((a, b) => b.date.localeCompare(a.date))
   }, [envelopeTransactions, searchQuery, typeFilter, startDate, endDate])
 
-  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE))
-  const paginatedTransactions = filteredTransactions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
+  const paginatedTransactions = filteredTransactions.slice((page - 1) * pageSize, page * pageSize)
 
   if (!envelope) {
     return (
@@ -259,11 +260,27 @@ export function EnvelopeDetailPage() {
           </table>
         </div>
 
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-[#1F1F1F]">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-[#1F1F1F]">
+          <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
-              Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filteredTransactions.length)} of {filteredTransactions.length}
+              {filteredTransactions.length > 0
+                ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, filteredTransactions.length)} of ${filteredTransactions.length}`
+                : "0 results"}
             </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Per page</span>
+              <select
+                value={pageSize}
+                onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }}
+                className="bg-[#1A1A1A] border border-[#333] rounded-md px-2 py-1 text-xs text-foreground"
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {totalPages > 1 && (
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -273,19 +290,31 @@ export function EnvelopeDetailPage() {
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setPage(p)}
-                  className={`w-8 h-8 rounded-md text-xs font-medium transition-colors ${
-                    p === page
-                      ? "bg-[#F7931A] text-[#0D0D0D]"
-                      : "text-muted-foreground hover:bg-[#1A1A1A] hover:text-foreground"
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
+              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                let p: number
+                if (totalPages <= 7) {
+                  p = i + 1
+                } else if (page <= 4) {
+                  p = i + 1
+                } else if (page >= totalPages - 3) {
+                  p = totalPages - 6 + i
+                } else {
+                  p = page - 3 + i
+                }
+                return (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p)}
+                    className={`w-8 h-8 rounded-md text-xs font-medium transition-colors ${
+                      p === page
+                        ? "bg-[#F7931A] text-[#0D0D0D]"
+                        : "text-muted-foreground hover:bg-[#1A1A1A] hover:text-foreground"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              })}
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
@@ -295,8 +324,8 @@ export function EnvelopeDetailPage() {
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <TransactionDetailDialog
