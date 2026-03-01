@@ -2,26 +2,31 @@
 
 import { useState, useMemo } from "react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts"
-import { getBtcPriceHistory, satsPerDollar, formatUsd, formatNumber } from "@/lib/data"
+import { useBtcPrices } from "@/lib/btc-price-context"
+import { formatUsd, formatNumber } from "@/lib/data"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 
 export function BtcPriceChart() {
   const [showSats, setShowSats] = useState(false)
-  const [startDate, setStartDate] = useState("2024-01-01")
-  const [endDate, setEndDate] = useState("2026-02-28")
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date()
+    d.setFullYear(d.getFullYear() - 1)
+    return d.toISOString().split("T")[0]
+  })
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0])
 
-  const history = getBtcPriceHistory()
+  const { priceHistory } = useBtcPrices()
 
   const filteredData = useMemo(() => {
-    return history
+    return priceHistory
       .filter((p) => p.date >= startDate && p.date <= endDate)
       .map((p) => ({
         date: p.date,
-        value: showSats ? satsPerDollar(p.price) : p.price,
+        value: showSats ? Math.round(100_000_000 / p.price) : p.price,
         btcPrice: p.price,
       }))
-  }, [history, startDate, endDate, showSats])
+  }, [priceHistory, startDate, endDate, showSats])
 
   const yDomain = useMemo(() => {
     if (filteredData.length === 0) return [0, 100]
@@ -34,7 +39,6 @@ export function BtcPriceChart() {
 
   return (
     <div className="flex flex-col gap-5 p-6 bg-[#0D0D0D] rounded-2xl">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-semibold text-foreground">BTC Price</h2>
@@ -44,7 +48,6 @@ export function BtcPriceChart() {
         </div>
 
         <div className="flex items-center gap-4 flex-wrap">
-          {/* Date pickers */}
           <div className="flex items-center gap-2">
             <input
               type="date"
@@ -61,7 +64,6 @@ export function BtcPriceChart() {
             />
           </div>
 
-          {/* Sats toggle */}
           <div className="flex items-center gap-2">
             <Label htmlFor="sats-toggle" className="text-xs text-muted-foreground cursor-pointer">BTC/USD</Label>
             <Switch
@@ -75,7 +77,6 @@ export function BtcPriceChart() {
         </div>
       </div>
 
-      {/* Chart */}
       <div className="h-[350px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={filteredData}>
@@ -88,7 +89,7 @@ export function BtcPriceChart() {
             <CartesianGrid strokeDasharray="3 3" stroke="#1F1F1F" vertical={false} />
             <XAxis
               dataKey="date"
-              tick={{ fill: '#666', fontSize: 11 }}
+              tick={{ fill: "#666", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
               interval={Math.max(1, Math.floor(filteredData.length / 8))}
@@ -100,7 +101,7 @@ export function BtcPriceChart() {
             <YAxis
               domain={yDomain}
               orientation="right"
-              tick={{ fill: '#666', fontSize: 11 }}
+              tick={{ fill: "#666", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(val: number) =>

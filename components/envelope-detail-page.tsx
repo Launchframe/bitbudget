@@ -2,10 +2,10 @@
 
 import { useState, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
+import { useBtcPrices } from "@/lib/btc-price-context"
 import {
   getEnvelopeBalance,
   getCurrentMonthKey,
-  calculateOpportunityCost,
   formatUsd,
   type TransactionType,
 } from "@/lib/data"
@@ -25,6 +25,7 @@ const PAGE_SIZE = 10
 
 export function EnvelopeDetailPage() {
   const { state, selectedEnvelopeId, navigateTo, deleteTransaction } = useApp()
+  const { calculateOpportunityCost } = useBtcPrices()
 
   const envelope = state.envelopes.find((e) => e.id === selectedEnvelopeId)
 
@@ -36,13 +37,11 @@ export function EnvelopeDetailPage() {
 
   const currentMonth = getCurrentMonthKey()
 
-  // All transactions for this envelope
   const envelopeTransactions = useMemo(
     () => state.transactions.filter((t) => t.envelopeId === selectedEnvelopeId),
-    [state.transactions, selectedEnvelopeId]
+    [state.transactions, selectedEnvelopeId],
   )
 
-  // Filtered transactions
   const filteredTransactions = useMemo(() => {
     let result = envelopeTransactions
 
@@ -62,7 +61,6 @@ export function EnvelopeDetailPage() {
       result = result.filter((t) => t.date <= endDate)
     }
 
-    // Sort by date descending (newest first)
     return result.sort((a, b) => b.date.localeCompare(a.date))
   }, [envelopeTransactions, searchQuery, typeFilter, startDate, endDate])
 
@@ -89,7 +87,6 @@ export function EnvelopeDetailPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 p-6 bg-[#0D0D0D] rounded-2xl">
         <div className="flex items-center gap-3">
           <button
@@ -105,7 +102,6 @@ export function EnvelopeDetailPage() {
           </div>
         </div>
 
-        {/* Summary */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 mt-2">
           <div className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground uppercase tracking-wider">Monthly Allotment</span>
@@ -130,7 +126,6 @@ export function EnvelopeDetailPage() {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -187,7 +182,6 @@ export function EnvelopeDetailPage() {
         </div>
       </div>
 
-      {/* Transaction Table */}
       <div className="bg-[#0D0D0D] rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -251,7 +245,6 @@ export function EnvelopeDetailPage() {
           </table>
         </div>
 
-        {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-[#1F1F1F]">
             <span className="text-xs text-muted-foreground">

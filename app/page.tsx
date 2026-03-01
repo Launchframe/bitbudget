@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { AppProvider, useApp } from "@/lib/app-context"
+import { BtcPriceProvider } from "@/lib/btc-price-context"
 import { Sidebar } from "@/components/sidebar"
 import { Header } from "@/components/header"
 import { NewTransactionDialog } from "@/components/new-transaction-dialog"
@@ -89,6 +90,7 @@ export default function Dashboard() {
   return (
     <OnboardingGate>
       <AppProvider>
+        <BtcPriceProvider>
         <div className="relative h-screen w-full bg-background text-foreground overflow-hidden">
           <Header />
           <div className="h-full overflow-y-auto no-scrollbar">
@@ -101,6 +103,7 @@ export default function Dashboard() {
           </div>
           <NewTransactionDialog />
         </div>
+        </BtcPriceProvider>
       </AppProvider>
     </OnboardingGate>
   )

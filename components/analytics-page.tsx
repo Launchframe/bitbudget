@@ -15,20 +15,20 @@ import {
   Legend,
 } from "recharts"
 import { useApp } from "@/lib/app-context"
-import { calculateOpportunityCost, formatUsd, getMonthKey } from "@/lib/data"
+import { useBtcPrices } from "@/lib/btc-price-context"
+import { formatUsd, getMonthKey } from "@/lib/data"
 
 export function AnalyticsPage() {
   const { state } = useApp()
+  const { calculateOpportunityCost } = useBtcPrices()
   const [startDate, setStartDate] = useState("2025-09-01")
-  const [endDate, setEndDate] = useState("2026-02-28")
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0])
 
-  // Filtered transactions within date window
   const filtered = useMemo(
     () => state.transactions.filter((t) => t.date >= startDate && t.date <= endDate),
-    [state.transactions, startDate, endDate]
+    [state.transactions, startDate, endDate],
   )
 
-  // ─── Cash Flow data (monthly buckets) ────────────────────────────
   const cashFlowData = useMemo(() => {
     const months: Record<string, { income: number; expenses: number }> = {}
     for (const txn of filtered) {
@@ -46,7 +46,6 @@ export function AnalyticsPage() {
       }))
   }, [filtered])
 
-  // ─── By Envelope pie data ────────────────────────────────────────
   const envelopePieData = useMemo(() => {
     const envelopeMap: Record<string, number> = {}
     for (const txn of filtered) {
@@ -63,7 +62,6 @@ export function AnalyticsPage() {
       .filter((d) => d.value > 0)
   }, [filtered, state.envelopes])
 
-  // ─── Opportunity Cost by Envelope ────────────────────────────────
   const opportunityCostData = useMemo(() => {
     const byEnvelope: Record<string, { spent: number; opCost: number }> = {}
     for (const txn of filtered) {
@@ -81,11 +79,10 @@ export function AnalyticsPage() {
         "Opportunity Cost": Math.round(byEnvelope[env.id].opCost),
         color: env.color,
       }))
-  }, [filtered, state.envelopes])
+  }, [filtered, state.envelopes, calculateOpportunityCost])
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Date window selector */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 bg-[#0D0D0D] rounded-2xl">
         <h2 className="text-xl font-semibold text-foreground">Analytics</h2>
         <div className="flex items-center gap-2">
@@ -105,7 +102,6 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      {/* Cash Flow Chart */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
         <h3 className="text-lg font-semibold text-foreground mb-5">Cash Flow</h3>
         <div className="h-[300px] w-full">
@@ -161,9 +157,7 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      {/* Row: Pie + Opportunity Cost */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* By Envelope Pie */}
         <div className="p-6 bg-[#0D0D0D] rounded-2xl">
           <h3 className="text-lg font-semibold text-foreground mb-5">By Envelope</h3>
           <div className="h-[300px] w-full">
@@ -213,7 +207,6 @@ export function AnalyticsPage() {
           </div>
         </div>
 
-        {/* Opportunity Cost by Envelope */}
         <div className="p-6 bg-[#0D0D0D] rounded-2xl">
           <h3 className="text-lg font-semibold text-foreground mb-5">Opportunity Cost</h3>
           <div className="h-[300px] w-full">

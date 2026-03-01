@@ -2,11 +2,13 @@
 
 import { useMemo } from "react"
 import { useApp } from "@/lib/app-context"
-import { calculateOpportunityCost, formatUsd } from "@/lib/data"
+import { useBtcPrices } from "@/lib/btc-price-context"
+import { formatUsd } from "@/lib/data"
 import { TrendingUp } from "lucide-react"
 
 export function TopOpportunityCosts() {
   const { state } = useApp()
+  const { calculateOpportunityCost } = useBtcPrices()
 
   const topTransactions = useMemo(() => {
     return state.transactions
@@ -17,7 +19,7 @@ export function TopOpportunityCosts() {
       }))
       .sort((a, b) => b.opportunityCost - a.opportunityCost)
       .slice(0, 10)
-  }, [state.transactions])
+  }, [state.transactions, calculateOpportunityCost])
 
   return (
     <div className="bg-[#0D0D0D] rounded-2xl p-6">

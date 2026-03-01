@@ -1,15 +1,15 @@
 "use client"
 
-import { DollarSign, TrendingDown, Bitcoin, Zap } from 'lucide-react'
+import { DollarSign, TrendingDown, Bitcoin, Zap } from "lucide-react"
 import { useApp } from "@/lib/app-context"
-import { getCurrentBtcPrice, getCurrentMonthKey, formatUsd, formatNumber, satsPerDollar } from "@/lib/data"
+import { useBtcPrices } from "@/lib/btc-price-context"
+import { getCurrentMonthKey, formatUsd, formatNumber } from "@/lib/data"
 
 export function DashboardMetrics() {
   const { state } = useApp()
+  const { currentPrice, satsPerDollar } = useBtcPrices()
 
   const currentMonth = getCurrentMonthKey()
-  const currentBtcPrice = getCurrentBtcPrice()
-  const currentSatsPerDollar = satsPerDollar(currentBtcPrice)
 
   const monthlySpend = state.transactions
     .filter((t) => t.type === "expense" && t.date.startsWith(currentMonth))
@@ -30,13 +30,13 @@ export function DashboardMetrics() {
     },
     {
       label: "BTC Price",
-      value: formatUsd(currentBtcPrice),
+      value: currentPrice ? formatUsd(currentPrice) : "—",
       icon: Bitcoin,
       color: "#F7931A",
     },
     {
       label: "Sats per Dollar",
-      value: formatNumber(currentSatsPerDollar),
+      value: satsPerDollar ? formatNumber(satsPerDollar) : "—",
       icon: Zap,
       color: "#EAB308",
     },

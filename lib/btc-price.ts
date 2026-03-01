@@ -3,8 +3,90 @@ import { prisma } from "@/lib/db"
 const COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 
 /**
- * Fetch the current BTC/USD price from CoinGecko (with DB cache).
- * Falls back to the most recent cached price on API failure.
+ * Fetch BTC/USD daily price history from CoinGecko and cache to DB.
+ * Uses /market_chart?days=N which is the most reliable free-tier endpoint.
+ * Returns a date-keyed map of prices plus the latest price.
+ */
+export async function fetchBtcPriceHistory(
+  days: number = 365,
+): Promise<{ prices: Record<string, number>; currentPrice: number }> {
+  // Check what we already have cached
+  const cached = await prisma.btcPriceCache.findMany({
+    orderBy: { date: "asc" },
+  })
+  const priceMap: Record<string, number> = {}
+  for (const p of cached) priceMap[p.date] = p.priceUsd
+
+  const today = new Date().toISOString().split("T")[0]
+  const cachedCount = Object.keys(priceMap).length
+
+  // If we have a good cache (>= 80% of requested days and includes today),
+  // return it without hitting CoinGecko
+  if (cachedCount >= days * 0.8 && priceMap[today]) {
+    return { prices: priceMap, currentPrice: priceMap[today] }
+  }
+
+  // Fetch from CoinGecko
+  const url = `${COINGECKO_BASE}/coins/bitcoin/market_chart?vs_currency=usd&days=${days}&precision=2`
+  console.log(`[btc-price] Fetching from CoinGecko: days=${days}, cached=${cachedCount}`)
+
+  try {
+    const res = await fetch(url)
+    if (!res.ok) {
+      const body = await res.text().catch(() => "")
+      console.error(`[btc-price] CoinGecko returned ${res.status}: ${body.slice(0, 200)}`)
+      throw new Error(`CoinGecko ${res.status}`)
+    }
+
+    const data = await res.json()
+    const rawPrices: [number, number][] = data.prices ?? []
+    console.log(`[btc-price] Got ${rawPrices.length} data points from CoinGecko`)
+
+    if (rawPrices.length === 0) {
+      throw new Error("CoinGecko returned empty prices array")
+    }
+
+    // Deduplicate by day (CoinGecko can return multiple points per day)
+    const dayPrices: Record<string, number> = {}
+    for (const [ts, price] of rawPrices) {
+      const day = new Date(ts).toISOString().split("T")[0]
+      dayPrices[day] = price
+    }
+
+    // Persist to DB cache (batch upserts)
+    const entries = Object.entries(dayPrices)
+    const BATCH = 50
+    for (let i = 0; i < entries.length; i += BATCH) {
+      const batch = entries.slice(i, i + BATCH)
+      await Promise.all(
+        batch.map(([date, priceUsd]) =>
+          prisma.btcPriceCache.upsert({
+            where: { date },
+            update: { priceUsd, fetchedAt: new Date() },
+            create: { date, priceUsd },
+          }),
+        ),
+      )
+    }
+    console.log(`[btc-price] Cached ${entries.length} daily prices to DB`)
+
+    const merged = { ...priceMap, ...dayPrices }
+    const latestPrice = rawPrices[rawPrices.length - 1][1]
+    return { prices: merged, currentPrice: latestPrice }
+  } catch (err) {
+    console.error("[btc-price] Failed to fetch from CoinGecko:", err)
+    // Return whatever we have cached
+    const latestEntry = cached[cached.length - 1]
+    return {
+      prices: priceMap,
+      currentPrice: latestEntry?.priceUsd ?? 0,
+    }
+  }
+}
+
+/**
+ * Get just the current BTC price (uses simple/price endpoint).
+ * Used as a lightweight fallback when full history isn't needed.
  */
 export async function getCurrentBtcPrice(): Promise<number> {
   const today = new Date().toISOString().split("T")[0]
@@ -29,93 +111,7 @@ export async function getCurrentBtcPrice(): Promise<number> {
     return price
   } catch {
     const latest = await prisma.btcPriceCache.findFirst({ orderBy: { date: "desc" } })
-    return latest?.priceUsd ?? 100000
-  }
-}
-
-/**
- * Retrieve the BTC price for a specific date.
- * Checks DB cache first, then falls back to CoinGecko's historical endpoint.
- */
-export async function getBtcPriceOnDate(dateStr: string): Promise<number> {
-  const cached = await prisma.btcPriceCache.findUnique({ where: { date: dateStr } })
-  if (cached) return cached.priceUsd
-
-  try {
-    const [y, m, d] = dateStr.split("-")
-    const res = await fetch(
-      `${COINGECKO_BASE}/coins/bitcoin/history?date=${d}-${m}-${y}&localization=false`,
-    )
-    if (!res.ok) throw new Error(`CoinGecko API error: ${res.status}`)
-    const data = await res.json()
-    const price = data.market_data?.current_price?.usd as number
-
-    if (price) {
-      await prisma.btcPriceCache.upsert({
-        where: { date: dateStr },
-        update: { priceUsd: price, fetchedAt: new Date() },
-        create: { date: dateStr, priceUsd: price },
-      })
-    }
-    return price ?? 100000
-  } catch {
-    const nearest = await prisma.btcPriceCache.findFirst({
-      where: { date: { lte: dateStr } },
-      orderBy: { date: "desc" },
-    })
-    return nearest?.priceUsd ?? 100000
-  }
-}
-
-/**
- * Bulk-fetch a date range of BTC prices from CoinGecko's "market_chart/range" endpoint.
- * Caches every day's closing price to the DB.
- */
-export async function fetchBtcPriceRange(fromDate: string, toDate: string): Promise<Record<string, number>> {
-  const existing = await prisma.btcPriceCache.findMany({
-    where: { date: { gte: fromDate, lte: toDate } },
-  })
-  const priceMap: Record<string, number> = {}
-  for (const p of existing) priceMap[p.date] = p.priceUsd
-
-  const from = new Date(fromDate)
-  const to = new Date(toDate)
-  const allDays: string[] = []
-  for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
-    allDays.push(d.toISOString().split("T")[0])
-  }
-
-  const missingDays = allDays.filter(d => !priceMap[d])
-  if (missingDays.length === 0) return priceMap
-
-  try {
-    const fromTs = Math.floor(new Date(missingDays[0]).getTime() / 1000)
-    const toTs = Math.floor(new Date(missingDays[missingDays.length - 1]).getTime() / 1000) + 86400
-    const res = await fetch(
-      `${COINGECKO_BASE}/coins/bitcoin/market_chart/range?vs_currency=usd&from=${fromTs}&to=${toTs}`,
-    )
-    if (!res.ok) throw new Error(`CoinGecko range API error: ${res.status}`)
-    const data = await res.json()
-    const prices: [number, number][] = data.prices ?? []
-
-    const dayPrices: Record<string, number> = {}
-    for (const [ts, price] of prices) {
-      const day = new Date(ts).toISOString().split("T")[0]
-      dayPrices[day] = price
-    }
-
-    const upserts = Object.entries(dayPrices).map(([date, priceUsd]) =>
-      prisma.btcPriceCache.upsert({
-        where: { date },
-        update: { priceUsd, fetchedAt: new Date() },
-        create: { date, priceUsd },
-      }),
-    )
-    await Promise.all(upserts)
-
-    return { ...priceMap, ...dayPrices }
-  } catch {
-    return priceMap
+    return latest?.priceUsd ?? 0
   }
 }
 

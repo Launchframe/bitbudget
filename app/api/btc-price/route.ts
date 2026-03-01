@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import { getCurrentBtcPrice, getBtcPriceOnDate, fetchBtcPriceRange } from "@/lib/btc-price"
+import { prisma } from "@/lib/db"
+import { fetchBtcPriceHistory, getCurrentBtcPrice } from "@/lib/btc-price"
 
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -9,20 +10,27 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = req.nextUrl
-  const date = searchParams.get("date")
-  const from = searchParams.get("from")
-  const to = searchParams.get("to")
+  const days = searchParams.get("days")
 
-  if (from && to) {
-    const prices = await fetchBtcPriceRange(from, to)
-    return NextResponse.json({ prices })
+  // Primary endpoint: fetch history + current price in one call
+  // GET /api/btc-price?days=730
+  if (days) {
+    const result = await fetchBtcPriceHistory(parseInt(days, 10))
+    return NextResponse.json(result)
   }
 
-  if (date) {
-    const price = await getBtcPriceOnDate(date)
-    return NextResponse.json({ date, price })
-  }
-
+  // Lightweight: just current price
+  // GET /api/btc-price
   const price = await getCurrentBtcPrice()
   return NextResponse.json({ price })
+}
+
+export async function DELETE() {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const { count } = await prisma.btcPriceCache.deleteMany({})
+  return NextResponse.json({ cleared: count })
 }
