@@ -61,7 +61,7 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
 }
 
 function EncryptionGate({ children }: { children: React.ReactNode }) {
-  const { encryption, unlockWithKey } = useApp()
+  const { encryption, unlockWithKey, logout } = useApp()
 
   if (encryption.needsPinUnlock && encryption.encryptedPrivacyKey && encryption.privacyKeySalt) {
     return (
@@ -69,6 +69,7 @@ function EncryptionGate({ children }: { children: React.ReactNode }) {
         encryptedPrivacyKey={encryption.encryptedPrivacyKey}
         privacyKeySalt={encryption.privacyKeySalt}
         onUnlock={unlockWithKey}
+        onLogout={logout}
       />
     )
   }

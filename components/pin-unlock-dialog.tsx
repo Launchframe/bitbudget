@@ -4,7 +4,7 @@ import { useState } from "react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Lock, AlertCircle } from "lucide-react"
+import { Lock, AlertCircle, LogOut } from "lucide-react"
 import {
   deriveKeyFromPin,
   decryptPrivacyKey,
@@ -16,9 +16,10 @@ interface PinUnlockDialogProps {
   encryptedPrivacyKey: string
   privacyKeySalt: string
   onUnlock: (privacyKey: Uint8Array) => void
+  onLogout?: () => void
 }
 
-export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock }: PinUnlockDialogProps) {
+export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock, onLogout }: PinUnlockDialogProps) {
   const [pin, setPin] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
@@ -87,6 +88,16 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock 
             </button>
           </form>
         </div>
+
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out &amp; switch account
+          </button>
+        )}
 
         <p className="text-xs text-muted-foreground text-center max-w-sm">
           Your data is encrypted end-to-end. This PIN never leaves your device.
