@@ -14,6 +14,24 @@ export type PageId =
   | "funds"
   | "settings"
 
+function pageToHash(page: PageId, envelopeId?: string | null): string {
+  if (page === "envelope-detail" && envelopeId) return `#/envelope/${envelopeId}`
+  return `#/${page}`
+}
+
+function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
+  const path = hash.replace(/^#\/?/, "")
+  if (!path || path === "/") return { page: "dashboard" }
+
+  const envelopeMatch = path.match(/^envelope\/(.+)$/)
+  if (envelopeMatch) return { page: "envelope-detail", envelopeId: envelopeMatch[1] }
+
+  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "researcher", "funds", "settings"]
+  if (validPages.includes(path as PageId)) return { page: path as PageId }
+
+  return { page: "dashboard" }
+}
+
 interface AppContextValue {
   state: AppState
   currentPage: PageId
@@ -47,11 +65,18 @@ export function useApp(): AppContextValue {
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(getDefaultState)
-  const [currentPage, setCurrentPage] = useState<PageId>("dashboard")
-  const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState<PageId>(() => {
+    if (typeof window === "undefined") return "dashboard"
+    return hashToPage(window.location.hash).page
+  })
+  const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null
+    return hashToPage(window.location.hash).envelopeId ?? null
+  })
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const mounted = useRef(false)
+  const isPopstate = useRef(false)
 
   const refreshData = useCallback(async () => {
     try {
@@ -97,6 +122,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const navigateTo = useCallback((page: PageId, envelopeId?: string) => {
     setCurrentPage(page)
     if (envelopeId) setSelectedEnvelopeId(envelopeId)
+
+    if (!isPopstate.current) {
+      const hash = pageToHash(page, envelopeId)
+      if (window.location.hash !== hash) {
+        window.history.pushState({ page, envelopeId }, "", hash)
+      }
+    }
+    isPopstate.current = false
+  }, [])
+
+  useEffect(() => {
+    function onPopState() {
+      const { page, envelopeId } = hashToPage(window.location.hash)
+      isPopstate.current = true
+      setCurrentPage(page)
+      if (envelopeId) setSelectedEnvelopeId(envelopeId)
+    }
+
+    window.addEventListener("popstate", onPopState)
+
+    if (!window.location.hash) {
+      window.history.replaceState({ page: "dashboard" }, "", "#/dashboard")
+    }
+
+    return () => window.removeEventListener("popstate", onPopState)
   }, [])
 
   const addTransaction = useCallback(async (txn: Omit<Transaction, "id">) => {
