@@ -10,17 +10,23 @@
 
 const PBKDF2_ITERATIONS = 600_000
 
+function toBuffer(arr: Uint8Array): ArrayBuffer {
+  const buf = new ArrayBuffer(arr.byteLength)
+  new Uint8Array(buf).set(arr)
+  return buf
+}
+
 export async function deriveKeyFromPin(pin: string, salt: Uint8Array): Promise<CryptoKey> {
   const enc = new TextEncoder()
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
-    enc.encode(pin),
+    toBuffer(enc.encode(pin)),
     "PBKDF2",
     false,
     ["deriveKey"],
   )
   return crypto.subtle.deriveKey(
-    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+    { name: "PBKDF2", salt: toBuffer(salt), iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
     false,
@@ -42,9 +48,9 @@ export async function encryptPrivacyKey(
 ): Promise<{ iv: string; ciphertext: string }> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: toBuffer(iv) },
     wrappingKey,
-    privacyKey,
+    toBuffer(privacyKey),
   )
   return {
     iv: uint8ToHex(iv),
@@ -59,9 +65,9 @@ export async function decryptPrivacyKey(
   const iv = hexToUint8(encryptedData.iv)
   const ciphertext = hexToUint8(encryptedData.ciphertext)
   const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: toBuffer(iv) },
     wrappingKey,
-    ciphertext,
+    toBuffer(ciphertext),
   )
   return new Uint8Array(decrypted)
 }
@@ -70,7 +76,7 @@ export async function encryptField(plaintext: string, privacyKey: Uint8Array): P
   if (!plaintext) return plaintext
   const key = await crypto.subtle.importKey(
     "raw",
-    privacyKey,
+    toBuffer(privacyKey),
     { name: "AES-GCM" },
     false,
     ["encrypt"],
@@ -78,9 +84,9 @@ export async function encryptField(plaintext: string, privacyKey: Uint8Array): P
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const enc = new TextEncoder()
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: toBuffer(iv) },
     key,
-    enc.encode(plaintext),
+    toBuffer(enc.encode(plaintext)),
   )
   return uint8ToHex(iv) + ":" + uint8ToHex(new Uint8Array(ciphertext))
 }
@@ -90,15 +96,15 @@ export async function decryptField(encrypted: string, privacyKey: Uint8Array): P
   const [ivHex, ctHex] = encrypted.split(":")
   const key = await crypto.subtle.importKey(
     "raw",
-    privacyKey,
+    toBuffer(privacyKey),
     { name: "AES-GCM" },
     false,
     ["decrypt"],
   )
   const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: hexToUint8(ivHex) },
+    { name: "AES-GCM", iv: toBuffer(hexToUint8(ivHex)) },
     key,
-    hexToUint8(ctHex),
+    toBuffer(hexToUint8(ctHex)),
   )
   return new TextDecoder().decode(decrypted)
 }

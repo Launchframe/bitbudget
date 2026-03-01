@@ -61,13 +61,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
   }
 
+  const userId = session.user.id
   const firstDate = new Date(startDate)
   const nextDue = advanceDate(firstDate, cadence as Cadence)
 
   const [recurring, transaction] = await prisma.$transaction(async (tx) => {
     const rec = await tx.recurringTransaction.create({
       data: {
-        userId: session.user.id,
+        userId,
         envelopeId,
         payee,
         amount: Math.abs(amount),
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
 
     const txn = await tx.transaction.create({
       data: {
-        userId: session.user.id,
+        userId,
         envelopeId,
         date: firstDate,
         payee,

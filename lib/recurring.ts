@@ -83,3 +83,21 @@ export async function processRecurringTransactions(userId: string): Promise<numb
 
   return created
 }
+
+/**
+ * Process recurring transactions for ALL active users.
+ * Intended for cron job context where there is no user session.
+ */
+export async function processAllRecurringTransactions(): Promise<number> {
+  const users = await prisma.recurringTransaction.findMany({
+    where: { active: true },
+    select: { userId: true },
+    distinct: ["userId"],
+  })
+
+  let total = 0
+  for (const { userId } of users) {
+    total += await processRecurringTransactions(userId)
+  }
+  return total
+}

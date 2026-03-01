@@ -246,8 +246,8 @@ export function EnvelopesPage() {
                     }`}
                     style={{
                       backgroundColor: color,
-                      ringColor: color,
-                    }}
+                      "--tw-ring-color": color,
+                    } as React.CSSProperties}
                     aria-label={`Select color ${color}`}
                   />
                 ))}
