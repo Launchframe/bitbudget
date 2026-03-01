@@ -38,6 +38,14 @@ export default function AuthPage() {
     return () => clearTimeout(timer)
   }, [])
 
+  useEffect(() => {
+    function handlePageShow(e: PageTransitionEvent) {
+      if (e.persisted) setLoading(false)
+    }
+    window.addEventListener("pageshow", handlePageShow)
+    return () => window.removeEventListener("pageshow", handlePageShow)
+  }, [])
+
   async function handleEmailAuth(e: React.FormEvent) {
     e.preventDefault()
     setError("")
