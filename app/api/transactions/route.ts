@@ -42,6 +42,7 @@ export async function GET(req: NextRequest) {
     type: t.type,
     envelopeId: t.envelopeId,
     tags: JSON.parse(t.tags),
+    notes: t.notes ?? null,
     satsAmount: t.satsAmount ?? null,
     recurringId: t.recurringId ?? null,
   }))
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { date, payee, amount, type, envelopeId, tags } = body
+  const { date, payee, amount, type, envelopeId, tags, notes } = body
 
   if (!date || !payee || !amount || !type || !envelopeId) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
@@ -83,6 +84,7 @@ export async function POST(req: NextRequest) {
       amount: absAmount,
       type,
       tags: JSON.stringify(tags || []),
+      notes: notes || null,
       satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
     },
   })
@@ -95,6 +97,7 @@ export async function POST(req: NextRequest) {
     type: transaction.type,
     envelopeId: transaction.envelopeId,
     tags: JSON.parse(transaction.tags),
+    notes: transaction.notes ?? null,
     satsAmount: transaction.satsAmount ?? null,
     recurringId: transaction.recurringId ?? null,
   }, { status: 201 })
@@ -107,7 +110,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { id, date, payee, amount, type, envelopeId, tags } = body
+  const { id, date, payee, amount, type, envelopeId, tags, notes } = body
 
   if (!id) {
     return NextResponse.json({ error: "Transaction ID required" }, { status: 400 })
@@ -148,6 +151,7 @@ export async function PUT(req: NextRequest) {
       ...(type !== undefined && { type }),
       ...(envelopeId !== undefined && { envelopeId }),
       ...(tags !== undefined && { tags: JSON.stringify(tags) }),
+      ...(notes !== undefined && { notes: notes || null }),
       satsAmount,
     },
   })
@@ -160,6 +164,7 @@ export async function PUT(req: NextRequest) {
     type: updated.type,
     envelopeId: updated.envelopeId,
     tags: JSON.parse(updated.tags),
+    notes: updated.notes ?? null,
     satsAmount: updated.satsAmount ?? null,
     recurringId: updated.recurringId ?? null,
   })

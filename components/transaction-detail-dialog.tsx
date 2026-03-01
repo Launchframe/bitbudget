@@ -41,6 +41,7 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
   const [date, setDate] = useState("")
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [newTag, setNewTag] = useState("")
+  const [notes, setNotes] = useState("")
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -51,6 +52,7 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
       setEnvelopeId(transaction.envelopeId)
       setDate(transaction.date)
       setSelectedTags(transaction.tags)
+      setNotes(transaction.notes ?? "")
       setEditing(false)
       setNewTag("")
     }
@@ -79,6 +81,7 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
         envelopeId,
         date,
         tags: selectedTags,
+        notes: notes.trim() || null,
       })
       setEditing(false)
       onOpenChange(false)
@@ -249,6 +252,17 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
               </div>
             </div>
 
+            <div className="flex flex-col gap-2">
+              <Label className="text-muted-foreground text-xs uppercase tracking-wider">Notes</Label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Add any notes..."
+                rows={2}
+                className="w-full rounded-md bg-[#1A1A1A] border border-[#333] text-foreground placeholder:text-[#555] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#F7931A]/50 focus:border-[#F7931A]/50"
+              />
+            </div>
+
             <div className="flex items-center gap-3 pt-2">
               <button
                 onClick={() => setEditing(false)}
@@ -348,6 +362,9 @@ function ViewMode({
             </div>
           ),
         }]
+      : []),
+    ...(transaction.notes
+      ? [{ label: "Notes", value: <span className="text-sm text-muted-foreground italic">{transaction.notes}</span> }]
       : []),
   ]
 

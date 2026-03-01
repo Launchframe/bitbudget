@@ -77,6 +77,7 @@ CREATE TABLE "Transaction" (
     "amount" DOUBLE PRECISION NOT NULL,
     "type" TEXT NOT NULL,
     "tags" TEXT NOT NULL DEFAULT '[]',
+    "satsAmount" INTEGER,
     "recurringId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -161,10 +162,10 @@ CREATE INDEX "RecurringTransaction_userId_idx" ON "RecurringTransaction"("userId
 CREATE INDEX "RecurringTransaction_active_nextDueDate_idx" ON "RecurringTransaction"("active", "nextDueDate");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Tag_userId_name_key" ON "Tag"("userId", "name");
+CREATE INDEX "Tag_userId_idx" ON "Tag"("userId");
 
 -- CreateIndex
-CREATE INDEX "Tag_userId_idx" ON "Tag"("userId");
+CREATE UNIQUE INDEX "Tag_userId_name_key" ON "Tag"("userId", "name");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "BtcPriceCache_date_key" ON "BtcPriceCache"("date");

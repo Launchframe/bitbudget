@@ -10,7 +10,8 @@ export interface Transaction {
   type: TransactionType
   envelopeId: string
   tags: string[]
-  satsAmount?: number | null // BTC equivalent in satoshis (1 BTC = 100,000,000 sats)
+  notes?: string | null
+  satsAmount?: number | null
   recurringId?: string | null
 }
 

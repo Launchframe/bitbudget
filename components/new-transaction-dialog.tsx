@@ -42,6 +42,7 @@ export function NewTransactionDialog() {
   const [date, setDate] = useState(new Date().toISOString().split("T")[0])
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [newTag, setNewTag] = useState("")
+  const [notes, setNotes] = useState("")
 
   const [isRecurring, setIsRecurring] = useState(false)
   const [cadence, setCadence] = useState<Cadence>("monthly")
@@ -56,6 +57,7 @@ export function NewTransactionDialog() {
     setDate(new Date().toISOString().split("T")[0])
     setSelectedTags([])
     setNewTag("")
+    setNotes("")
     setIsRecurring(false)
     setCadence("monthly")
     setEndDate("")
@@ -80,6 +82,7 @@ export function NewTransactionDialog() {
             startDate: date,
             endDate: endDate || null,
             tags: selectedTags,
+            notes: notes.trim() || null,
           }),
         })
         if (res.ok) {
@@ -96,6 +99,7 @@ export function NewTransactionDialog() {
         type,
         envelopeId,
         tags: selectedTags,
+        notes: notes.trim() || null,
       })
     }
 
@@ -218,6 +222,20 @@ export function NewTransactionDialog() {
               onChange={(e) => setDate(e.target.value)}
               className="bg-[#1A1A1A] border-[#333] text-foreground"
               required
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="notes" className="text-muted-foreground text-xs uppercase tracking-wider">
+              Notes <span className="text-[#555] normal-case">(optional)</span>
+            </Label>
+            <textarea
+              id="notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Add any notes..."
+              rows={2}
+              className="w-full rounded-md bg-[#1A1A1A] border border-[#333] text-foreground placeholder:text-[#555] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#F7931A]/50 focus:border-[#F7931A]/50"
             />
           </div>
 

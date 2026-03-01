@@ -116,6 +116,7 @@ export async function POST(req: NextRequest) {
       type: transaction.type,
       envelopeId: transaction.envelopeId,
       tags: JSON.parse(transaction.tags),
+      notes: transaction.notes ?? null,
       satsAmount: transaction.satsAmount ?? null,
       recurringId: transaction.recurringId,
     },
