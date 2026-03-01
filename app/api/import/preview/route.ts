@@ -54,13 +54,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "CSV must have Date and Amount columns" }, { status: 400 })
   }
 
-  // Count transactions per envelope name in the CSV
+  const nameIdx = headers.findIndex(h => h === "name" || h === "payee" || h === "description")
+
+  interface SampleTxn { date: string; payee: string; amount: number }
   const envelopeCounts: Record<string, number> = {}
+  const envelopeSamples: Record<string, SampleTxn[]> = {}
+  const MAX_SAMPLES = 3
+
   for (let i = 1; i < lines.length; i++) {
     const cols = parseCSVLine(lines[i])
     if (cols.length <= Math.max(dateIdx, amountIdx)) continue
     const name = envelopeIdx >= 0 ? (cols[envelopeIdx] || "Uncategorized") : "Uncategorized"
     envelopeCounts[name] = (envelopeCounts[name] || 0) + 1
+
+    if (!envelopeSamples[name]) envelopeSamples[name] = []
+    if (envelopeSamples[name].length < MAX_SAMPLES) {
+      const rawAmount = parseFloat(cols[amountIdx]?.replace(/[$,]/g, ""))
+      envelopeSamples[name].push({
+        date: cols[dateIdx] || "",
+        payee: nameIdx >= 0 ? (cols[nameIdx] || "Unknown") : "Unknown",
+        amount: isNaN(rawAmount) ? 0 : rawAmount,
+      })
+    }
   }
 
   // Get the user's existing envelopes
@@ -86,6 +101,7 @@ export async function POST(req: NextRequest) {
         count,
         autoMatchId: match?.id ?? null,
         autoMatchName: match?.name ?? null,
+        samples: envelopeSamples[name] ?? [],
       }
     })
 

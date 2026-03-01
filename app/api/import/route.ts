@@ -83,10 +83,18 @@ export async function POST(req: NextRequest) {
     envelopeByName[e.name.toLowerCase()] = e.id
   }
 
-  // Pre-resolve the mapping: create any "__new__" envelopes up front
+  const SKIP = "__skip__"
+  const CSV_PREFIX = "__csv__:"
+
   const resolvedMapping: Record<string, string> = {}
+
+  // First pass: resolve __new__ and direct ID mappings
   for (const [csvName, target] of Object.entries(envelopeMapping)) {
-    if (target === "__new__") {
+    if (target === SKIP) {
+      resolvedMapping[csvName.toLowerCase()] = SKIP
+    } else if (target.startsWith(CSV_PREFIX)) {
+      // Defer — resolved in second pass
+    } else if (target === "__new__") {
       const existing = envelopeByName[csvName.toLowerCase()]
       if (existing) {
         resolvedMapping[csvName.toLowerCase()] = existing
@@ -104,6 +112,17 @@ export async function POST(req: NextRequest) {
       }
     } else {
       resolvedMapping[csvName.toLowerCase()] = target
+    }
+  }
+
+  // Second pass: resolve __csv__:Name references to whatever that name resolved to
+  for (const [csvName, target] of Object.entries(envelopeMapping)) {
+    if (target.startsWith(CSV_PREFIX)) {
+      const refName = target.slice(CSV_PREFIX.length).toLowerCase()
+      const resolved = resolvedMapping[refName] ?? envelopeByName[refName]
+      if (resolved && resolved !== SKIP) {
+        resolvedMapping[csvName.toLowerCase()] = resolved
+      }
     }
   }
 
@@ -127,7 +146,8 @@ export async function POST(req: NextRequest) {
     const envelopeName = envelopeIdx >= 0 ? cols[envelopeIdx] || "Uncategorized" : "Uncategorized"
     const lowerName = envelopeName.toLowerCase()
 
-    // Resolve envelope: check mapping first, then fall back to name match, then auto-create
+    if (resolvedMapping[lowerName] === SKIP) { skipped++; continue }
+
     let envelopeId = resolvedMapping[lowerName] ?? envelopeByName[lowerName]
     if (!envelopeId) {
       const newEnv = await prisma.envelope.create({

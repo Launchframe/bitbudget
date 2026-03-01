@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { Upload, ArrowRight, Plus, CheckCircle2, Loader2 } from "lucide-react"
+import { useApp } from "@/lib/app-context"
+import { Upload, ArrowRight, Plus, CheckCircle2, Loader2, ChevronDown, ChevronRight as ChevronRightIcon, Ban } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -19,11 +20,18 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
+interface SampleTxn {
+  date: string
+  payee: string
+  amount: number
+}
+
 interface CsvEnvelope {
   csvName: string
   count: number
   autoMatchId: string | null
   autoMatchName: string | null
+  samples: SampleTxn[]
 }
 
 interface ExistingEnvelope {
@@ -41,6 +49,8 @@ interface PreviewData {
 type Step = "preview" | "importing" | "done"
 
 const NEW_ENVELOPE = "__new__"
+const SKIP_ENVELOPE = "__skip__"
+const CSV_PREFIX = "__csv__:"
 
 export function CSVImportDialog({
   open,
@@ -53,12 +63,13 @@ export function CSVImportDialog({
   file: File | null
   onImportComplete?: () => void
 }) {
+  const { navigateTo } = useApp()
   const [step, setStep] = useState<Step>("preview")
   const [preview, setPreview] = useState<PreviewData | null>(null)
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<{ imported: number; skipped: number } | null>(null)
+  const [result, setResult] = useState<{ imported: number; skipped: number; newEnvelopes: string[] } | null>(null)
 
   const lastLoadedFile = useRef<File | null>(null)
 
@@ -127,7 +138,7 @@ export function CSVImportDialog({
         throw new Error(data.error || "Import failed")
       }
       const data = await res.json()
-      setResult({ imported: data.imported, skipped: data.skipped })
+      setResult({ imported: data.imported, skipped: data.skipped, newEnvelopes: data.newEnvelopes ?? [] })
       setStep("done")
       if (onImportComplete) await onImportComplete()
     } catch (err) {
@@ -136,13 +147,29 @@ export function CSVImportDialog({
     }
   }
 
+  const skippedEnvelopes = preview
+    ? preview.csvEnvelopes.filter(e => mapping[e.csvName] === SKIP_ENVELOPE)
+    : []
+
+  const skippedTxnCount = skippedEnvelopes.reduce((sum, e) => sum + e.count, 0)
+  const importTxnCount = preview ? preview.totalRows - skippedTxnCount : 0
+
   const unmatchedCount = preview
     ? preview.csvEnvelopes.filter(e => mapping[e.csvName] === NEW_ENVELOPE).length
     : 0
 
   const matchedCount = preview
-    ? preview.csvEnvelopes.length - unmatchedCount
+    ? preview.csvEnvelopes.filter(e => {
+        const v = mapping[e.csvName]
+        return v !== NEW_ENVELOPE && v !== SKIP_ENVELOPE
+      }).length
     : 0
+
+  const newEnvelopeNames = preview
+    ? preview.csvEnvelopes
+        .filter(e => mapping[e.csvName] === NEW_ENVELOPE)
+        .map(e => e.csvName)
+    : []
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -155,7 +182,10 @@ export function CSVImportDialog({
           <DialogDescription>
             {step === "preview" && preview && (
               <>
-                {preview.totalRows} transactions found. Map CSV envelope names to your existing envelopes below.
+                {preview.totalRows} transactions found across {preview.csvEnvelopes.length} categories.
+                {skippedTxnCount > 0 && (
+                  <span className="text-yellow-500"> ({skippedTxnCount} will be skipped)</span>
+                )}
               </>
             )}
             {step === "importing" && "Importing transactions..."}
@@ -190,6 +220,12 @@ export function CSVImportDialog({
                 <Plus className="h-3.5 w-3.5 text-[#F7931A]" />
                 {unmatchedCount} new
               </span>
+              {skippedEnvelopes.length > 0 && (
+                <span className="flex items-center gap-1.5">
+                  <Ban className="h-3.5 w-3.5 text-yellow-500" />
+                  {skippedEnvelopes.length} skipped
+                </span>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -198,6 +234,7 @@ export function CSVImportDialog({
                   key={env.csvName}
                   csvEnvelope={env}
                   existingEnvelopes={preview.existingEnvelopes}
+                  newEnvelopeNames={newEnvelopeNames}
                   value={mapping[env.csvName] ?? NEW_ENVELOPE}
                   onChange={(val) =>
                     setMapping((prev) => ({ ...prev, [env.csvName]: val }))
@@ -209,8 +246,21 @@ export function CSVImportDialog({
         )}
 
         {step === "done" && (
-          <div className="flex items-center justify-center py-8">
-            <CheckCircle2 className="h-16 w-16 text-green-500" />
+          <div className="flex flex-col items-center gap-4 py-6">
+            <CheckCircle2 className="h-14 w-14 text-green-500" />
+            {result && result.newEnvelopes.length > 0 && (
+              <div className="w-full rounded-lg bg-[#F7931A]/10 border border-[#F7931A]/20 px-4 py-3 text-sm">
+                <p className="font-medium text-foreground mb-1">
+                  {result.newEnvelopes.length} new envelope{result.newEnvelopes.length !== 1 ? "s" : ""} created
+                </p>
+                <p className="text-muted-foreground text-xs mb-2">
+                  {result.newEnvelopes.join(", ")}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  These envelopes have no monthly allotment yet. Set your income allocations on the Envelopes page.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -218,9 +268,10 @@ export function CSVImportDialog({
           {step === "preview" && preview && !loading && (
             <button
               onClick={handleImport}
-              className="flex items-center gap-2 px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors"
+              disabled={importTxnCount === 0}
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Import {preview.totalRows} Transactions
+              Import {importTxnCount} Transaction{importTxnCount !== 1 ? "s" : ""}
               <ArrowRight className="h-4 w-4" />
             </button>
           )}
@@ -232,7 +283,7 @@ export function CSVImportDialog({
           )}
           {step === "done" && (
             <button
-              onClick={() => handleOpenChange(false)}
+              onClick={() => { navigateTo("envelopes"); handleOpenChange(false) }}
               className="px-5 py-2.5 bg-[#1A1A1A] border border-[#333] text-foreground rounded-lg text-sm font-medium hover:bg-[#252525] transition-colors"
             >
               Done
@@ -247,64 +298,124 @@ export function CSVImportDialog({
 function EnvelopeMappingRow({
   csvEnvelope,
   existingEnvelopes,
+  newEnvelopeNames,
   value,
   onChange,
 }: {
   csvEnvelope: CsvEnvelope
   existingEnvelopes: ExistingEnvelope[]
+  newEnvelopeNames: string[]
   value: string
   onChange: (value: string) => void
 }) {
+  const [expanded, setExpanded] = useState(false)
   const isNew = value === NEW_ENVELOPE
+  const isSkipped = value === SKIP_ENVELOPE
+  const isCsvRef = value.startsWith(CSV_PREFIX)
+  const hasSamples = csvEnvelope.samples.length > 0
+
+  const otherNewEnvelopes = newEnvelopeNames.filter(n => n !== csvEnvelope.csvName)
+
+  const statusLabel = isSkipped ? "Skip" : isNew ? "New" : "Mapped"
+  const statusColor = isSkipped ? "text-yellow-500" : isNew ? "text-[#F7931A]" : "text-green-500"
 
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg bg-[#1A1A1A] border border-[#252525]">
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-foreground truncate">
-          {csvEnvelope.csvName}
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {csvEnvelope.count} transaction{csvEnvelope.count !== 1 ? "s" : ""}
-        </div>
-      </div>
+    <div className={`rounded-lg border transition-colors ${isSkipped ? "bg-[#1A1A1A]/50 border-[#252525] opacity-60" : "bg-[#1A1A1A] border-[#252525]"}`}>
+      <div className="flex items-center gap-3 p-3">
+        {hasSamples && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="p-0.5 rounded hover:bg-[#252525] text-muted-foreground transition-colors shrink-0"
+            aria-label={expanded ? "Collapse samples" : "Show samples"}
+          >
+            {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRightIcon className="h-4 w-4" />}
+          </button>
+        )}
+        {!hasSamples && <div className="w-5 shrink-0" />}
 
-      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium text-foreground truncate">
+            {csvEnvelope.csvName}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {csvEnvelope.count} transaction{csvEnvelope.count !== 1 ? "s" : ""}
+          </div>
+        </div>
 
-      <div className="w-52 shrink-0">
-        <Select value={value} onValueChange={onChange}>
-          <SelectTrigger className="w-full bg-[#0D0D0D] border-[#333] text-sm h-9">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-[#0D0D0D] border-[#333]">
-            <SelectItem value={NEW_ENVELOPE}>
-              <span className="flex items-center gap-1.5">
-                <Plus className="h-3 w-3 text-[#F7931A]" />
-                Create new envelope
-              </span>
-            </SelectItem>
-            {existingEnvelopes.length > 0 && <SelectSeparator />}
-            {existingEnvelopes.map((env) => (
-              <SelectItem key={env.id} value={env.id}>
+        <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground hidden sm:block" />
+
+        <div className="w-44 sm:w-52 shrink-0">
+          <Select value={value} onValueChange={onChange}>
+            <SelectTrigger className="w-full bg-[#0D0D0D] border-[#333] text-sm h-9">
+              <SelectValue>
+                {isCsvRef ? (
+                  <span className="flex items-center gap-1.5 text-sm">
+                    <Plus className="h-3 w-3 text-[#F7931A] shrink-0" />
+                    <span className="truncate">{value.slice(CSV_PREFIX.length)}</span>
+                  </span>
+                ) : undefined}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent className="bg-[#0D0D0D] border-[#333]">
+              <SelectItem value={NEW_ENVELOPE}>
                 <span className="flex items-center gap-1.5">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: env.color }}
-                  />
-                  {env.name}
+                  <Plus className="h-3 w-3 text-[#F7931A]" />
+                  Create &ldquo;{csvEnvelope.csvName}&rdquo;
                 </span>
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+              <SelectItem value={SKIP_ENVELOPE}>
+                <span className="flex items-center gap-1.5">
+                  <Ban className="h-3 w-3 text-yellow-500" />
+                  Skip
+                </span>
+              </SelectItem>
+              {existingEnvelopes.length > 0 && <SelectSeparator />}
+              {existingEnvelopes.map((env) => (
+                <SelectItem key={env.id} value={env.id}>
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: env.color }}
+                    />
+                    {env.name}
+                  </span>
+                </SelectItem>
+              ))}
+              {otherNewEnvelopes.length > 0 && <SelectSeparator />}
+              {otherNewEnvelopes.map((name) => (
+                <SelectItem key={`csv-${name}`} value={`${CSV_PREFIX}${name}`}>
+                  <span className="flex items-center gap-1.5">
+                    <Plus className="h-3 w-3 text-[#F7931A]" />
+                    <span className="truncate">{name}</span>
+                    <span className="text-[10px] text-muted-foreground">(new)</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <span className={`text-xs shrink-0 w-14 text-right hidden sm:block ${statusColor}`}>
+          {statusLabel}
+        </span>
       </div>
 
-      <span className="text-xs shrink-0 w-14 text-right">
-        {isNew ? (
-          <span className="text-[#F7931A]">New</span>
-        ) : (
-          <span className="text-green-500">Mapped</span>
-        )}
-      </span>
+      {expanded && hasSamples && (
+        <div className="border-t border-[#252525] px-3 py-2 ml-5 sm:ml-8">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Sample transactions</p>
+          <div className="space-y-1">
+            {csvEnvelope.samples.map((s, i) => (
+              <div key={i} className="flex items-center justify-between gap-4 text-xs">
+                <span className="text-muted-foreground shrink-0">{s.date}</span>
+                <span className="text-foreground truncate flex-1">{s.payee}</span>
+                <span className={`shrink-0 font-medium ${s.amount < 0 ? "text-[#F7931A]" : "text-green-500"}`}>
+                  ${Math.abs(s.amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
