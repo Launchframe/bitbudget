@@ -1,17 +1,8 @@
 "use client"
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from "react"
-import {
-  type AppState,
-  type Transaction,
-  type Envelope,
-  loadState,
-  saveState,
-  getDefaultState,
-  generateId,
-} from "@/lib/data"
-
-// ─── Page routing ────────────────────────────────────────────────────
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
+import type { Transaction, Envelope, AppState } from "@/lib/data"
+import { generateId, getDefaultState } from "@/lib/data"
 
 export type PageId =
   | "dashboard"
@@ -20,31 +11,29 @@ export type PageId =
   | "envelope-detail"
   | "researcher"
   | "funds"
-
-// ─── Context shape ───────────────────────────────────────────────────
+  | "settings"
 
 interface AppContextValue {
   state: AppState
   currentPage: PageId
   selectedEnvelopeId: string | null
   transactionDialogOpen: boolean
+  loading: boolean
 
-  // Navigation
   navigateTo: (page: PageId, envelopeId?: string) => void
   setTransactionDialogOpen: (open: boolean) => void
 
-  // Transaction actions
   addTransaction: (txn: Omit<Transaction, "id">) => void
   deleteTransaction: (id: string) => void
 
-  // Envelope actions
   addEnvelope: (envelope: Omit<Envelope, "id">) => void
   editEnvelope: (id: string, updates: Partial<Omit<Envelope, "id">>) => void
   deleteEnvelope: (id: string) => void
 
-  // Settings
   setMonthlyIncome: (income: number) => void
   addTag: (tag: string) => void
+  refreshData: () => Promise<void>
+  importCSV: (file: File) => Promise<{ imported: number; skipped: number; newEnvelopes: string[] }>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -55,86 +44,190 @@ export function useApp(): AppContextValue {
   return ctx
 }
 
-// ─── Provider ────────────────────────────────────────────────────────
-
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(getDefaultState)
-  const [hydrated, setHydrated] = useState(false)
   const [currentPage, setCurrentPage] = useState<PageId>("dashboard")
   const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const mounted = useRef(false)
 
-  // Hydrate from localStorage on mount
-  useEffect(() => {
-    setState(loadState())
-    setHydrated(true)
+  const refreshData = useCallback(async () => {
+    try {
+      const [txnRes, envRes, settingsRes] = await Promise.all([
+        fetch("/api/transactions"),
+        fetch("/api/envelopes"),
+        fetch("/api/user/settings"),
+      ])
+
+      if (!txnRes.ok || !envRes.ok || !settingsRes.ok) {
+        throw new Error("Failed to fetch data")
+      }
+
+      const [transactions, envelopes, settings] = await Promise.all([
+        txnRes.json(),
+        envRes.json(),
+        settingsRes.json(),
+      ])
+
+      setState(prev => ({
+        ...prev,
+        transactions,
+        envelopes,
+        monthlyIncome: settings.monthlyIncome || 0,
+      }))
+    } catch {
+      // On error, keep current state (may be default/empty)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
-  // Persist to localStorage on state changes (after hydration)
   useEffect(() => {
-    if (hydrated) {
-      saveState(state)
+    if (!mounted.current) {
+      mounted.current = true
+      refreshData()
     }
-  }, [state, hydrated])
+  }, [refreshData])
 
   const navigateTo = useCallback((page: PageId, envelopeId?: string) => {
     setCurrentPage(page)
     if (envelopeId) setSelectedEnvelopeId(envelopeId)
   }, [])
 
-  // ─── Transaction actions ─────────────────────────────────────────
-
-  const addTransaction = useCallback((txn: Omit<Transaction, "id">) => {
-    setState((prev) => ({
+  const addTransaction = useCallback(async (txn: Omit<Transaction, "id">) => {
+    const optimisticId = generateId()
+    setState(prev => ({
       ...prev,
-      transactions: [{ ...txn, id: generateId() }, ...prev.transactions],
+      transactions: [{ ...txn, id: optimisticId }, ...prev.transactions],
     }))
+
+    try {
+      const res = await fetch("/api/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(txn),
+      })
+      if (res.ok) {
+        const created = await res.json()
+        setState(prev => ({
+          ...prev,
+          transactions: prev.transactions.map(t =>
+            t.id === optimisticId ? created : t,
+          ),
+        }))
+      }
+    } catch {
+      setState(prev => ({
+        ...prev,
+        transactions: prev.transactions.filter(t => t.id !== optimisticId),
+      }))
+    }
   }, [])
 
-  const deleteTransaction = useCallback((id: string) => {
-    setState((prev) => ({
+  const deleteTransaction = useCallback(async (id: string) => {
+    setState(prev => ({
       ...prev,
-      transactions: prev.transactions.filter((t) => t.id !== id),
+      transactions: prev.transactions.filter(t => t.id !== id),
     }))
-  }, [])
 
-  // ─── Envelope actions ────────────────────────────────────────────
+    try {
+      await fetch(`/api/transactions?id=${id}`, { method: "DELETE" })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
 
-  const addEnvelope = useCallback((envelope: Omit<Envelope, "id">) => {
-    setState((prev) => ({
+  const addEnvelope = useCallback(async (envelope: Omit<Envelope, "id">) => {
+    const optimisticId = generateId()
+    setState(prev => ({
       ...prev,
-      envelopes: [...prev.envelopes, { ...envelope, id: generateId() }],
+      envelopes: [...prev.envelopes, { ...envelope, id: optimisticId }],
     }))
+
+    try {
+      const res = await fetch("/api/envelopes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(envelope),
+      })
+      if (res.ok) {
+        const created = await res.json()
+        setState(prev => ({
+          ...prev,
+          envelopes: prev.envelopes.map(e =>
+            e.id === optimisticId ? created : e,
+          ),
+        }))
+      }
+    } catch {
+      setState(prev => ({
+        ...prev,
+        envelopes: prev.envelopes.filter(e => e.id !== optimisticId),
+      }))
+    }
   }, [])
 
-  const editEnvelope = useCallback((id: string, updates: Partial<Omit<Envelope, "id">>) => {
-    setState((prev) => ({
+  const editEnvelope = useCallback(async (id: string, updates: Partial<Omit<Envelope, "id">>) => {
+    setState(prev => ({
       ...prev,
-      envelopes: prev.envelopes.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+      envelopes: prev.envelopes.map(e => (e.id === id ? { ...e, ...updates } : e)),
     }))
-  }, [])
 
-  const deleteEnvelope = useCallback((id: string) => {
-    setState((prev) => ({
+    try {
+      await fetch("/api/envelopes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...updates }),
+      })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
+  const deleteEnvelope = useCallback(async (id: string) => {
+    setState(prev => ({
       ...prev,
-      envelopes: prev.envelopes.filter((e) => e.id !== id),
-      // Also remove transactions associated with this envelope
-      transactions: prev.transactions.filter((t) => t.envelopeId !== id),
+      envelopes: prev.envelopes.filter(e => e.id !== id),
+      transactions: prev.transactions.filter(t => t.envelopeId !== id),
     }))
-  }, [])
 
-  // ─── Settings ────────────────────────────────────────────────────
+    try {
+      await fetch(`/api/envelopes?id=${id}`, { method: "DELETE" })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
 
-  const setMonthlyIncome = useCallback((income: number) => {
-    setState((prev) => ({ ...prev, monthlyIncome: income }))
-  }, [])
+  const setMonthlyIncome = useCallback(async (income: number) => {
+    setState(prev => ({ ...prev, monthlyIncome: income }))
+
+    try {
+      await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ monthlyIncome: income }),
+      })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
 
   const addTag = useCallback((tag: string) => {
-    setState((prev) => ({
+    setState(prev => ({
       ...prev,
       tags: prev.tags.includes(tag) ? prev.tags : [...prev.tags, tag],
     }))
   }, [])
+
+  const importCSV = useCallback(async (file: File) => {
+    const formData = new FormData()
+    formData.append("file", file)
+    const res = await fetch("/api/import", { method: "POST", body: formData })
+    const result = await res.json()
+    await refreshData()
+    return result
+  }, [refreshData])
 
   return (
     <AppContext.Provider
@@ -143,6 +236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         currentPage,
         selectedEnvelopeId,
         transactionDialogOpen,
+        loading,
         navigateTo,
         setTransactionDialogOpen,
         addTransaction,
@@ -152,6 +246,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteEnvelope,
         setMonthlyIncome,
         addTag,
+        refreshData,
+        importCSV,
       }}
     >
       {children}

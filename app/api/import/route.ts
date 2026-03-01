@@ -1,0 +1,138 @@
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/db"
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = []
+  let current = ""
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i]
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"'
+        i++
+      } else {
+        inQuotes = !inQuotes
+      }
+    } else if (char === "," && !inQuotes) {
+      result.push(current.trim())
+      current = ""
+    } else {
+      current += char
+    }
+  }
+  result.push(current.trim())
+  return result
+}
+
+function parseDate(dateStr: string): string | null {
+  const mmddyyyy = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (mmddyyyy) {
+    const [, m, d, y] = mmddyyyy
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`
+  }
+  const iso = dateStr.match(/^\d{4}-\d{2}-\d{2}$/)
+  if (iso) return dateStr
+  return null
+}
+
+export async function POST(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const formData = await req.formData()
+  const file = formData.get("file") as File | null
+  if (!file) {
+    return NextResponse.json({ error: "No file provided" }, { status: 400 })
+  }
+
+  const text = await file.text()
+  const lines = text.split("\n").filter(l => l.trim())
+  if (lines.length < 2) {
+    return NextResponse.json({ error: "CSV file is empty or has no data rows" }, { status: 400 })
+  }
+
+  const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/['"]/g, ""))
+
+  const dateIdx = headers.findIndex(h => h === "date")
+  const envelopeIdx = headers.findIndex(h => h === "envelope" || h === "category")
+  const nameIdx = headers.findIndex(h => h === "name" || h === "payee" || h === "description")
+  const amountIdx = headers.findIndex(h => h === "amount")
+  const notesIdx = headers.findIndex(h => h === "notes" || h === "memo")
+
+  if (dateIdx === -1 || amountIdx === -1) {
+    return NextResponse.json({ error: "CSV must have Date and Amount columns" }, { status: 400 })
+  }
+
+  const userEnvelopes = await prisma.envelope.findMany({
+    where: { userId: session.user.id },
+  })
+  const envelopeByName: Record<string, string> = {}
+  for (const e of userEnvelopes) {
+    envelopeByName[e.name.toLowerCase()] = e.id
+  }
+
+  let created = 0
+  let skipped = 0
+  const newEnvelopes: string[] = []
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i])
+    if (cols.length <= Math.max(dateIdx, amountIdx)) { skipped++; continue }
+
+    const dateStr = parseDate(cols[dateIdx])
+    if (!dateStr) { skipped++; continue }
+
+    const rawAmount = parseFloat(cols[amountIdx]?.replace(/[$,]/g, ""))
+    if (isNaN(rawAmount)) { skipped++; continue }
+
+    const payee = nameIdx >= 0 ? cols[nameIdx] || "Unknown" : "Unknown"
+    const type = rawAmount < 0 ? "expense" : "credit"
+    const amount = Math.abs(rawAmount)
+    const envelopeName = envelopeIdx >= 0 ? cols[envelopeIdx] || "Uncategorized" : "Uncategorized"
+
+    let envelopeId = envelopeByName[envelopeName.toLowerCase()]
+    if (!envelopeId) {
+      const newEnv = await prisma.envelope.create({
+        data: {
+          userId: session.user.id,
+          name: envelopeName,
+          monthlyAllotment: 0,
+          color: `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, "0")}`,
+        },
+      })
+      envelopeId = newEnv.id
+      envelopeByName[envelopeName.toLowerCase()] = envelopeId
+      newEnvelopes.push(envelopeName)
+    }
+
+    const tags: string[] = []
+    if (notesIdx >= 0 && cols[notesIdx]) {
+      tags.push(cols[notesIdx])
+    }
+
+    await prisma.transaction.create({
+      data: {
+        userId: session.user.id,
+        envelopeId,
+        date: new Date(dateStr),
+        payee,
+        amount,
+        type,
+        tags: JSON.stringify(tags),
+      },
+    })
+    created++
+  }
+
+  return NextResponse.json({
+    imported: created,
+    skipped,
+    newEnvelopes,
+    totalRows: lines.length - 1,
+  })
+}

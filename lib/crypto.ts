@@ -1,0 +1,116 @@
+/**
+ * Client-side E2E encryption utilities.
+ *
+ * For Web 2.0 users: a PIN derives an AES-GCM key via PBKDF2. That key wraps
+ * a random "privacy key" which is stored (encrypted) server-side.
+ *
+ * For Nostr users: encryption uses the nostr extension (NIP-04 or NIP-44).
+ * The app never sees the user's nsec.
+ */
+
+const PBKDF2_ITERATIONS = 600_000
+
+export async function deriveKeyFromPin(pin: string, salt: Uint8Array): Promise<CryptoKey> {
+  const enc = new TextEncoder()
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(pin),
+    "PBKDF2",
+    false,
+    ["deriveKey"],
+  )
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  )
+}
+
+export function generateSalt(): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(16))
+}
+
+export function generatePrivacyKey(): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(32))
+}
+
+export async function encryptPrivacyKey(
+  privacyKey: Uint8Array,
+  wrappingKey: CryptoKey,
+): Promise<{ iv: string; ciphertext: string }> {
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    wrappingKey,
+    privacyKey,
+  )
+  return {
+    iv: uint8ToHex(iv),
+    ciphertext: uint8ToHex(new Uint8Array(ciphertext)),
+  }
+}
+
+export async function decryptPrivacyKey(
+  encryptedData: { iv: string; ciphertext: string },
+  wrappingKey: CryptoKey,
+): Promise<Uint8Array> {
+  const iv = hexToUint8(encryptedData.iv)
+  const ciphertext = hexToUint8(encryptedData.ciphertext)
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    wrappingKey,
+    ciphertext,
+  )
+  return new Uint8Array(decrypted)
+}
+
+export async function encryptField(plaintext: string, privacyKey: Uint8Array): Promise<string> {
+  if (!plaintext) return plaintext
+  const key = await crypto.subtle.importKey(
+    "raw",
+    privacyKey,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt"],
+  )
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const enc = new TextEncoder()
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    enc.encode(plaintext),
+  )
+  return uint8ToHex(iv) + ":" + uint8ToHex(new Uint8Array(ciphertext))
+}
+
+export async function decryptField(encrypted: string, privacyKey: Uint8Array): Promise<string> {
+  if (!encrypted || !encrypted.includes(":")) return encrypted
+  const [ivHex, ctHex] = encrypted.split(":")
+  const key = await crypto.subtle.importKey(
+    "raw",
+    privacyKey,
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"],
+  )
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: hexToUint8(ivHex) },
+    key,
+    hexToUint8(ctHex),
+  )
+  return new TextDecoder().decode(decrypted)
+}
+
+export function uint8ToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("")
+}
+
+export function hexToUint8(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16)
+  }
+  return bytes
+}

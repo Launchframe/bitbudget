@@ -1,6 +1,7 @@
 "use client"
 
-import { LayoutDashboard, BarChart3, Wallet, Search, Landmark, Plus, SquareArrowOutUpRight, Settings2, LogOut } from 'lucide-react'
+import { signOut } from "next-auth/react"
+import { LayoutDashboard, BarChart3, Wallet, Search, Landmark, Plus, SquareArrowOutUpRight, Settings2, LogOut } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 
 const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
@@ -47,7 +48,6 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* New Transaction CTA */}
       <button
         onClick={() => setTransactionDialogOpen(true)}
         className="mt-8 flex items-center gap-3 px-4 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
@@ -61,11 +61,19 @@ export function Sidebar() {
           <SquareArrowOutUpRight className="h-6 w-6" />
           <span className="text-sm font-medium tracking-wide">SUPPORT</span>
         </button>
-        <button className="flex items-center gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left">
+        <button
+          onClick={() => navigateTo("settings")}
+          className={`flex items-center gap-4 transition-colors text-left ${
+            currentPage === "settings" ? "text-[#F7931A]" : "text-[#919191] hover:text-[#E7E7E7]"
+          }`}
+        >
           <Settings2 className="h-6 w-6" />
           <span className="text-sm font-medium tracking-wide">SETTINGS</span>
         </button>
-        <button className="flex items-center gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left">
+        <button
+          onClick={() => signOut({ callbackUrl: "/auth" })}
+          className="flex items-center gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left"
+        >
           <LogOut className="h-6 w-6" />
           <span className="text-sm font-medium tracking-wide">LOGOUT</span>
         </button>

@@ -1,5 +1,7 @@
 "use client"
 
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { AppProvider, useApp } from "@/lib/app-context"
 import { Sidebar } from "@/components/sidebar"
 import { Header } from "@/components/header"
@@ -8,9 +10,51 @@ import { DashboardPage } from "@/components/dashboard-page"
 import { AnalyticsPage } from "@/components/analytics-page"
 import { EnvelopesPage } from "@/components/envelopes-page"
 import { EnvelopeDetailPage } from "@/components/envelope-detail-page"
+import { SettingsPage } from "@/components/settings-page"
+import { Spinner } from "@/components/ui/spinner"
+
+function OnboardingGate({ children }: { children: React.ReactNode }) {
+  const router = useRouter()
+  const [checking, setChecking] = useState(true)
+
+  useEffect(() => {
+    async function check() {
+      try {
+        const res = await fetch("/api/user/settings")
+        if (res.ok) {
+          const data = await res.json()
+          if (!data.onboardingComplete) {
+            router.replace("/onboarding")
+            return
+          }
+        }
+      } catch { /* proceed to app */ }
+      setChecking(false)
+    }
+    check()
+  }, [router])
+
+  if (checking) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-background">
+        <Spinner className="h-8 w-8 text-[#F7931A]" />
+      </div>
+    )
+  }
+
+  return <>{children}</>
+}
 
 function PageContent() {
-  const { currentPage } = useApp()
+  const { currentPage, loading } = useApp()
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Spinner className="h-8 w-8 text-[#F7931A]" />
+      </div>
+    )
+  }
 
   switch (currentPage) {
     case "dashboard":
@@ -21,6 +65,8 @@ function PageContent() {
       return <EnvelopesPage />
     case "envelope-detail":
       return <EnvelopeDetailPage />
+    case "settings":
+      return <SettingsPage />
     case "researcher":
     case "funds":
       return (
@@ -41,19 +87,21 @@ function PageContent() {
 
 export default function Dashboard() {
   return (
-    <AppProvider>
-      <div className="relative h-screen w-full bg-background text-foreground overflow-hidden">
-        <Header />
-        <div className="h-full overflow-y-auto no-scrollbar">
-          <main className="flex gap-6 p-6 pt-24 min-h-full">
-            <Sidebar />
-            <div className="flex-1 flex flex-col gap-6 min-w-0 pb-8">
-              <PageContent />
-            </div>
-          </main>
+    <OnboardingGate>
+      <AppProvider>
+        <div className="relative h-screen w-full bg-background text-foreground overflow-hidden">
+          <Header />
+          <div className="h-full overflow-y-auto no-scrollbar">
+            <main className="flex gap-6 p-6 pt-24 min-h-full">
+              <Sidebar />
+              <div className="flex-1 flex flex-col gap-6 min-w-0 pb-8">
+                <PageContent />
+              </div>
+            </main>
+          </div>
+          <NewTransactionDialog />
         </div>
-        <NewTransactionDialog />
-      </div>
-    </AppProvider>
+      </AppProvider>
+    </OnboardingGate>
   )
 }

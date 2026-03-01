@@ -1,0 +1,117 @@
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/db"
+
+export async function GET() {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const envelopes = await prisma.envelope.findMany({
+    where: { userId: session.user.id },
+    orderBy: { createdAt: "asc" },
+  })
+
+  return NextResponse.json(
+    envelopes.map(e => ({
+      id: e.id,
+      name: e.name,
+      monthlyAllotment: e.monthlyAllotment,
+      color: e.color,
+      icon: e.icon,
+    })),
+  )
+}
+
+export async function POST(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const { name, monthlyAllotment, color, icon } = await req.json()
+  if (!name) {
+    return NextResponse.json({ error: "Name is required" }, { status: 400 })
+  }
+
+  const envelope = await prisma.envelope.create({
+    data: {
+      userId: session.user.id,
+      name,
+      monthlyAllotment: monthlyAllotment || 0,
+      color: color || "#F7931A",
+      icon,
+    },
+  })
+
+  return NextResponse.json({
+    id: envelope.id,
+    name: envelope.name,
+    monthlyAllotment: envelope.monthlyAllotment,
+    color: envelope.color,
+    icon: envelope.icon,
+  }, { status: 201 })
+}
+
+export async function PUT(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const { id, name, monthlyAllotment, color, icon } = await req.json()
+  if (!id) {
+    return NextResponse.json({ error: "Envelope ID is required" }, { status: 400 })
+  }
+
+  const existing = await prisma.envelope.findFirst({
+    where: { id, userId: session.user.id },
+  })
+  if (!existing) {
+    return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
+  }
+
+  const updated = await prisma.envelope.update({
+    where: { id },
+    data: {
+      ...(name !== undefined ? { name } : {}),
+      ...(monthlyAllotment !== undefined ? { monthlyAllotment } : {}),
+      ...(color !== undefined ? { color } : {}),
+      ...(icon !== undefined ? { icon } : {}),
+    },
+  })
+
+  return NextResponse.json({
+    id: updated.id,
+    name: updated.name,
+    monthlyAllotment: updated.monthlyAllotment,
+    color: updated.color,
+    icon: updated.icon,
+  })
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const { searchParams } = req.nextUrl
+  const id = searchParams.get("id")
+  if (!id) {
+    return NextResponse.json({ error: "Envelope ID required" }, { status: 400 })
+  }
+
+  const existing = await prisma.envelope.findFirst({
+    where: { id, userId: session.user.id },
+  })
+  if (!existing) {
+    return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
+  }
+
+  await prisma.transaction.deleteMany({ where: { envelopeId: id, userId: session.user.id } })
+  await prisma.envelope.delete({ where: { id } })
+
+  return NextResponse.json({ success: true })
+}
