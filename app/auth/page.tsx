@@ -24,6 +24,10 @@ export default function AuthPage() {
   const [nostrAvailable, setNostrAvailable] = useState(false)
 
   useEffect(() => {
+    document.cookie = "bitbudget_visited=1; path=/; max-age=31536000; SameSite=Lax"
+  }, [])
+
+  useEffect(() => {
     if ("nostr" in window) {
       setNostrAvailable(true)
       return
