@@ -67,12 +67,21 @@ export function TransactionsPage() {
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
   const paginatedTransactions = filteredTransactions.slice((page - 1) * pageSize, page * pageSize)
 
-  const totalExpenses = filteredTransactions
-    .filter(t => t.type === "expense")
-    .reduce((sum, t) => sum + t.amount, 0)
+  const expenseTxns = filteredTransactions.filter(t => t.type === "expense")
+  const totalExpenses = expenseTxns.reduce((sum, t) => sum + t.amount, 0)
   const totalCredits = filteredTransactions
     .filter(t => t.type === "credit")
     .reduce((sum, t) => sum + t.amount, 0)
+
+  const totalOpportunityCost = useMemo(() => {
+    return expenseTxns.reduce((sum, t) => sum + calculateOpportunityCost(t.amount, t.date), 0)
+  }, [expenseTxns, calculateOpportunityCost])
+
+  const totalSats = useMemo(() => {
+    return expenseTxns.reduce((sum, t) => sum + (t.satsAmount ?? 0), 0)
+  }, [expenseTxns])
+
+  const hasActiveFilter = searchQuery.trim() || typeFilter !== "all" || envelopeFilter !== "all" || startDate || endDate
 
   return (
     <div className="flex flex-col gap-6">
@@ -92,6 +101,20 @@ export function TransactionsPage() {
               <span className="text-xs text-muted-foreground uppercase tracking-wider">Credits</span>
               <span className="text-lg font-semibold text-[#22C55E]">{formatUsd(totalCredits)}</span>
             </div>
+          )}
+          {hasActiveFilter && expenseTxns.length > 0 && (
+            <>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">BTC Equivalent</span>
+                <span className="text-lg font-semibold text-foreground">
+                  {formatBtcAmountFromSats(totalSats, state.btcDisplayUnit)}
+                </span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">Opportunity Cost</span>
+                <span className="text-lg font-semibold text-[#F7931A]">{formatUsd(totalOpportunityCost)}</span>
+              </div>
+            </>
           )}
         </div>
       </div>

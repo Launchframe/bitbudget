@@ -9,7 +9,7 @@ const spaceGrotesk = Space_Grotesk({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "BitBudget - Bitcoin Opportunity Cost Tracker",
   description:
-    "Track your spending and analyze the opportunity cost of your purchases in Bitcoin. Budget smarter by understanding what your dollars could have been worth.",
+    "Track your spending and analyze the opportunity cost of your purchases in Bitcoin terms. Budget smarter by understanding what your dollars could have been worth.",
   icons: {
     icon: { url: "/icon.svg", type: "image/svg+xml" },
     apple: "/apple-icon.svg",
