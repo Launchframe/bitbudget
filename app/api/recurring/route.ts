@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { advanceDate } from "@/lib/recurring"
 import type { Cadence } from "@/lib/recurring"
+import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 
 const VALID_CADENCES = ["weekly", "biweekly", "monthly", "quarterly", "annual"]
 
@@ -62,8 +63,11 @@ export async function POST(req: NextRequest) {
   }
 
   const userId = session.user.id
+  const absAmount = Math.abs(amount)
   const firstDate = new Date(startDate)
   const nextDue = advanceDate(firstDate, cadence as Cadence)
+  const dateStr = firstDate.toISOString().split("T")[0]
+  const btcPrice = await getBtcPriceForDate(dateStr)
 
   const [recurring, transaction] = await prisma.$transaction(async (tx) => {
     const rec = await tx.recurringTransaction.create({
@@ -71,7 +75,7 @@ export async function POST(req: NextRequest) {
         userId,
         envelopeId,
         payee,
-        amount: Math.abs(amount),
+        amount: absAmount,
         type,
         tags: JSON.stringify(tags || []),
         cadence,
@@ -86,10 +90,11 @@ export async function POST(req: NextRequest) {
         envelopeId,
         date: firstDate,
         payee,
-        amount: Math.abs(amount),
+        amount: absAmount,
         type,
         tags: JSON.stringify(tags || []),
         recurringId: rec.id,
+        satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
       },
     })
 
@@ -111,6 +116,7 @@ export async function POST(req: NextRequest) {
       type: transaction.type,
       envelopeId: transaction.envelopeId,
       tags: JSON.parse(transaction.tags),
+      satsAmount: transaction.satsAmount ?? null,
       recurringId: transaction.recurringId,
     },
   }, { status: 201 })

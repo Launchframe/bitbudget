@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 
 function parseCSVLine(line: string): string[] {
   const result: string[] = []
@@ -147,6 +148,8 @@ export async function POST(req: NextRequest) {
       tags.push(cols[notesIdx])
     }
 
+    const btcPrice = await getBtcPriceForDate(dateStr)
+
     await prisma.transaction.create({
       data: {
         userId: session.user.id,
@@ -156,6 +159,7 @@ export async function POST(req: NextRequest) {
         amount,
         type,
         tags: JSON.stringify(tags),
+        satsAmount: btcPrice ? usdToSats(amount, btcPrice) : null,
       },
     })
     created++

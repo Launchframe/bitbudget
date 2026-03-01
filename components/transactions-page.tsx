@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { formatUsd, type TransactionType } from "@/lib/data"
+import { formatUsd, formatSats, type TransactionType } from "@/lib/data"
 import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -67,10 +67,12 @@ export function TransactionsPage() {
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
   const paginatedTransactions = filteredTransactions.slice((page - 1) * pageSize, page * pageSize)
 
-  const totalAmount = filteredTransactions.reduce(
-    (sum, t) => sum + (t.type === "expense" ? t.amount : -t.amount),
-    0,
-  )
+  const totalExpenses = filteredTransactions
+    .filter(t => t.type === "expense")
+    .reduce((sum, t) => sum + t.amount, 0)
+  const totalCredits = filteredTransactions
+    .filter(t => t.type === "credit")
+    .reduce((sum, t) => sum + t.amount, 0)
 
   return (
     <div className="flex flex-col gap-6">
@@ -82,9 +84,15 @@ export function TransactionsPage() {
             <span className="text-lg font-semibold text-foreground">{filteredTransactions.length}</span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Net Expenses</span>
-            <span className="text-lg font-semibold text-foreground">{formatUsd(totalAmount)}</span>
+            <span className="text-xs text-muted-foreground uppercase tracking-wider">Expenses</span>
+            <span className="text-lg font-semibold text-foreground">{formatUsd(totalExpenses)}</span>
           </div>
+          {totalCredits > 0 && (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">Credits</span>
+              <span className="text-lg font-semibold text-[#22C55E]">{formatUsd(totalCredits)}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -150,7 +158,8 @@ export function TransactionsPage() {
                 <th className="py-3 px-4 text-left font-medium">Payee</th>
                 <th className="py-3 px-4 text-left font-medium hidden md:table-cell">Envelope</th>
                 <th className="py-3 px-4 text-left font-medium">Type</th>
-                <th className="py-3 px-4 text-right font-medium">Amount</th>
+                <th className="py-3 px-4 text-right font-medium">Amount (USD)</th>
+                <th className="py-3 px-4 text-right font-medium hidden md:table-cell">Amount (sats)</th>
                 <th className="py-3 px-4 text-right font-medium hidden sm:table-cell">Opportunity Cost</th>
                 <th className="py-3 px-4 text-right font-medium w-12"></th>
               </tr>
@@ -201,6 +210,9 @@ export function TransactionsPage() {
                     <td className="py-3.5 px-4 text-right text-sm font-medium text-foreground">
                       {formatUsd(txn.amount)}
                     </td>
+                    <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
+                      {txn.satsAmount != null ? formatSats(txn.satsAmount) : "—"}
+                    </td>
                     <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A] hidden sm:table-cell">
                       {txn.type === "expense" ? formatUsd(opCost) : "—"}
                     </td>
@@ -218,7 +230,7 @@ export function TransactionsPage() {
               })}
               {paginatedTransactions.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-muted-foreground text-sm">
+                  <td colSpan={8} className="py-10 text-center text-muted-foreground text-sm">
                     No transactions found.
                   </td>
                 </tr>

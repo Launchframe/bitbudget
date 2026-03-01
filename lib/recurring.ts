@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db"
+import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 
 export type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -48,6 +49,9 @@ export async function processRecurringTransactions(userId: string): Promise<numb
     let dueDate = new Date(rec.nextDueDate)
 
     while (dueDate <= today) {
+      const dateStr = dueDate.toISOString().split("T")[0]
+      const btcPrice = await getBtcPriceForDate(dateStr)
+
       await prisma.transaction.create({
         data: {
           userId: rec.userId,
@@ -58,6 +62,7 @@ export async function processRecurringTransactions(userId: string): Promise<numb
           type: rec.type,
           tags: rec.tags,
           recurringId: rec.id,
+          satsAmount: btcPrice ? usdToSats(rec.amount, btcPrice) : null,
         },
       })
       created++

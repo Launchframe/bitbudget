@@ -10,6 +10,7 @@ export type PageId =
   | "envelopes"
   | "envelope-detail"
   | "transactions"
+  | "btc-price"
   | "researcher"
   | "funds"
   | "settings"

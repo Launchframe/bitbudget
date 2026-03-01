@@ -7,6 +7,7 @@ import {
   getEnvelopeBalance,
   getCurrentMonthKey,
   formatUsd,
+  formatSats,
   type TransactionType,
 } from "@/lib/data"
 import type { Transaction } from "@/lib/data"
@@ -194,7 +195,8 @@ export function EnvelopeDetailPage() {
                 <th className="py-3 px-4 text-left font-medium">Date</th>
                 <th className="py-3 px-4 text-left font-medium">Payee</th>
                 <th className="py-3 px-4 text-left font-medium">Type</th>
-                <th className="py-3 px-4 text-right font-medium">Amount</th>
+                <th className="py-3 px-4 text-right font-medium">Amount (USD)</th>
+                <th className="py-3 px-4 text-right font-medium hidden md:table-cell">Amount (sats)</th>
                 <th className="py-3 px-4 text-right font-medium">Opportunity Cost</th>
                 <th className="py-3 px-4 text-right font-medium w-12"></th>
               </tr>
@@ -234,6 +236,9 @@ export function EnvelopeDetailPage() {
                     <td className="py-3.5 px-4 text-right text-sm font-medium text-foreground">
                       {formatUsd(txn.amount)}
                     </td>
+                    <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
+                      {txn.satsAmount != null ? formatSats(txn.satsAmount) : "—"}
+                    </td>
                     <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A]">
                       {txn.type === "expense" ? formatUsd(opCost) : "--"}
                     </td>
@@ -251,7 +256,7 @@ export function EnvelopeDetailPage() {
               })}
               {paginatedTransactions.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-10 text-center text-muted-foreground text-sm">
+                  <td colSpan={7} className="py-10 text-center text-muted-foreground text-sm">
                     No transactions found.
                   </td>
                 </tr>

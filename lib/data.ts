@@ -10,6 +10,7 @@ export interface Transaction {
   type: TransactionType
   envelopeId: string
   tags: string[]
+  satsAmount?: number | null // BTC equivalent in satoshis (1 BTC = 100,000,000 sats)
   recurringId?: string | null
 }
 
@@ -137,6 +138,10 @@ export function formatUsdPrecise(amount: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount)
+}
+
+export function formatSats(sats: number): string {
+  return new Intl.NumberFormat("en-US").format(sats) + " sats"
 }
 
 export function formatNumber(n: number): string {

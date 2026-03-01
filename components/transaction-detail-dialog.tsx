@@ -359,7 +359,6 @@ function ViewMode({
 
     if (currentPrice) {
       rows.push(
-        { label: "BTC Price Today", value: formatUsd(currentPrice) },
         {
           label: "BTC Value Today",
           value: (

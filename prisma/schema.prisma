@@ -106,6 +106,7 @@ model Transaction {
   amount     Float
   type       String   // "expense" | "credit"
   tags       String   @default("[]") // JSON array of tag names
+  satsAmount Int?     // BTC equivalent in satoshis (1 BTC = 100,000,000 sats)
 
   recurringId String?
 

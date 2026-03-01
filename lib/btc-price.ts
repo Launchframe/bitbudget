@@ -187,3 +187,27 @@ export function calculateOpportunityCost(amount: number, priceAtPurchase: number
 export function satsPerDollar(btcPrice: number): number {
   return Math.round(100_000_000 / btcPrice)
 }
+
+const SATS_PER_BTC = 100_000_000
+
+export function usdToSats(usd: number, btcPriceUsd: number): number {
+  return Math.round((usd / btcPriceUsd) * SATS_PER_BTC)
+}
+
+/**
+ * Look up the cached BTC price for a specific date (YYYY-MM-DD).
+ * Falls back to the nearest earlier cached price, then to getCurrentBtcPrice.
+ */
+export async function getBtcPriceForDate(date: string): Promise<number | null> {
+  const exact = await prisma.btcPriceCache.findUnique({ where: { date } })
+  if (exact) return exact.priceUsd
+
+  const nearest = await prisma.btcPriceCache.findFirst({
+    where: { date: { lte: date } },
+    orderBy: { date: "desc" },
+  })
+  if (nearest) return nearest.priceUsd
+
+  const current = await getCurrentBtcPrice()
+  return current > 0 ? current : null
+}

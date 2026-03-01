@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -41,6 +42,7 @@ export async function GET(req: NextRequest) {
     type: t.type,
     envelopeId: t.envelopeId,
     tags: JSON.parse(t.tags),
+    satsAmount: t.satsAmount ?? null,
     recurringId: t.recurringId ?? null,
   }))
 
@@ -67,15 +69,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
   }
 
+  const txnDate = new Date(date)
+  const dateStr = txnDate.toISOString().split("T")[0]
+  const btcPrice = await getBtcPriceForDate(dateStr)
+  const absAmount = Math.abs(amount)
+
   const transaction = await prisma.transaction.create({
     data: {
       userId: session.user.id,
       envelopeId,
-      date: new Date(date),
+      date: txnDate,
       payee,
-      amount: Math.abs(amount),
+      amount: absAmount,
       type,
       tags: JSON.stringify(tags || []),
+      satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
     },
   })
 
@@ -87,6 +95,7 @@ export async function POST(req: NextRequest) {
     type: transaction.type,
     envelopeId: transaction.envelopeId,
     tags: JSON.parse(transaction.tags),
+    satsAmount: transaction.satsAmount ?? null,
     recurringId: transaction.recurringId ?? null,
   }, { status: 201 })
 }
@@ -120,15 +129,26 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  const newDate = date !== undefined ? new Date(date) : existing.date
+  const newAmount = amount !== undefined ? Math.abs(amount) : existing.amount
+
+  let satsAmount: number | null = existing.satsAmount
+  if (date !== undefined || amount !== undefined) {
+    const dateStr = newDate.toISOString().split("T")[0]
+    const btcPrice = await getBtcPriceForDate(dateStr)
+    satsAmount = btcPrice ? usdToSats(newAmount, btcPrice) : null
+  }
+
   const updated = await prisma.transaction.update({
     where: { id },
     data: {
-      ...(date !== undefined && { date: new Date(date) }),
+      ...(date !== undefined && { date: newDate }),
       ...(payee !== undefined && { payee }),
-      ...(amount !== undefined && { amount: Math.abs(amount) }),
+      ...(amount !== undefined && { amount: newAmount }),
       ...(type !== undefined && { type }),
       ...(envelopeId !== undefined && { envelopeId }),
       ...(tags !== undefined && { tags: JSON.stringify(tags) }),
+      satsAmount,
     },
   })
 
@@ -140,6 +160,7 @@ export async function PUT(req: NextRequest) {
     type: updated.type,
     envelopeId: updated.envelopeId,
     tags: JSON.parse(updated.tags),
+    satsAmount: updated.satsAmount ?? null,
     recurringId: updated.recurringId ?? null,
   })
 }
