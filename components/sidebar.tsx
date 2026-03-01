@@ -6,10 +6,10 @@ import { useApp, type PageId } from "@/lib/app-context"
 
 const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "DASHBOARD", icon: LayoutDashboard },
-  { id: "analytics", label: "ANALYTICS", icon: BarChart3 },
-  { id: "transactions", label: "TRANSACTIONS", icon: List },
-  { id: "btc-price", label: "BTC PRICE", icon: Bitcoin },
   { id: "envelopes", label: "ENVELOPES", icon: Wallet },
+  { id: "transactions", label: "TRANSACTIONS", icon: List },
+  { id: "analytics", label: "ANALYTICS", icon: BarChart3 },
+  { id: "btc-price", label: "BTC PRICE", icon: Bitcoin },
   { id: "researcher", label: "RESEARCHER", icon: Search },
   { id: "funds", label: "FUNDS", icon: Landmark },
 ]
