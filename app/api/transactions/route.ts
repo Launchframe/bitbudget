@@ -97,6 +97,15 @@ export async function DELETE(req: NextRequest) {
 
   const { searchParams } = req.nextUrl
   const id = searchParams.get("id")
+  const all = searchParams.get("all")
+
+  if (all === "true") {
+    const { count } = await prisma.transaction.deleteMany({
+      where: { userId: session.user.id },
+    })
+    return NextResponse.json({ deleted: count })
+  }
+
   if (!id) {
     return NextResponse.json({ error: "Transaction ID required" }, { status: 400 })
   }

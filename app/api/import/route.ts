@@ -50,6 +50,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 })
   }
 
+  // envelopeMapping: JSON string of { "CSV Envelope Name": "existing-envelope-id" | "__new__" }
+  // If a CSV name maps to "__new__", a new envelope is created with that name.
+  // If a CSV name maps to an existing ID, transactions go to that envelope.
+  const rawMapping = formData.get("envelopeMapping") as string | null
+  const envelopeMapping: Record<string, string> = rawMapping ? JSON.parse(rawMapping) : {}
+
   const text = await file.text()
   const lines = text.split("\n").filter(l => l.trim())
   if (lines.length < 2) {
@@ -76,6 +82,30 @@ export async function POST(req: NextRequest) {
     envelopeByName[e.name.toLowerCase()] = e.id
   }
 
+  // Pre-resolve the mapping: create any "__new__" envelopes up front
+  const resolvedMapping: Record<string, string> = {}
+  for (const [csvName, target] of Object.entries(envelopeMapping)) {
+    if (target === "__new__") {
+      const existing = envelopeByName[csvName.toLowerCase()]
+      if (existing) {
+        resolvedMapping[csvName.toLowerCase()] = existing
+      } else {
+        const newEnv = await prisma.envelope.create({
+          data: {
+            userId: session.user.id,
+            name: csvName,
+            monthlyAllotment: 0,
+            color: `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, "0")}`,
+          },
+        })
+        resolvedMapping[csvName.toLowerCase()] = newEnv.id
+        envelopeByName[csvName.toLowerCase()] = newEnv.id
+      }
+    } else {
+      resolvedMapping[csvName.toLowerCase()] = target
+    }
+  }
+
   let created = 0
   let skipped = 0
   const newEnvelopes: string[] = []
@@ -94,8 +124,10 @@ export async function POST(req: NextRequest) {
     const type = rawAmount < 0 ? "expense" : "credit"
     const amount = Math.abs(rawAmount)
     const envelopeName = envelopeIdx >= 0 ? cols[envelopeIdx] || "Uncategorized" : "Uncategorized"
+    const lowerName = envelopeName.toLowerCase()
 
-    let envelopeId = envelopeByName[envelopeName.toLowerCase()]
+    // Resolve envelope: check mapping first, then fall back to name match, then auto-create
+    let envelopeId = resolvedMapping[lowerName] ?? envelopeByName[lowerName]
     if (!envelopeId) {
       const newEnv = await prisma.envelope.create({
         data: {
@@ -106,7 +138,7 @@ export async function POST(req: NextRequest) {
         },
       })
       envelopeId = newEnv.id
-      envelopeByName[envelopeName.toLowerCase()] = envelopeId
+      envelopeByName[lowerName] = envelopeId
       newEnvelopes.push(envelopeName)
     }
 

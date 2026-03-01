@@ -98,6 +98,14 @@ export async function DELETE(req: NextRequest) {
   }
 
   const { searchParams } = req.nextUrl
+  const all = searchParams.get("all")
+
+  if (all === "true") {
+    await prisma.transaction.deleteMany({ where: { userId: session.user.id } })
+    const { count } = await prisma.envelope.deleteMany({ where: { userId: session.user.id } })
+    return NextResponse.json({ deleted: count })
+  }
+
   const id = searchParams.get("id")
   if (!id) {
     return NextResponse.json({ error: "Envelope ID required" }, { status: 400 })

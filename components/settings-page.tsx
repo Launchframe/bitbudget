@@ -1,33 +1,50 @@
 "use client"
 
 import { useState, useRef } from "react"
+import { signOut } from "next-auth/react"
 import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Upload, Shield, DollarSign } from "lucide-react"
+import { CSVImportDialog } from "@/components/csv-import-dialog"
+import { Upload, Shield, DollarSign, Trash2, UserX } from "lucide-react"
 
 export function SettingsPage() {
-  const { state, setMonthlyIncome, importCSV } = useApp()
+  const { state, setMonthlyIncome, refreshData } = useApp()
   const [editingIncome, setEditingIncome] = useState(false)
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
-  const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState<string | null>(null)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleClearAll() {
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    setDeleting(true)
+    try {
+      await Promise.all([
+        fetch("/api/transactions?all=true", { method: "DELETE" }),
+        fetch("/api/envelopes?all=true", { method: "DELETE" }),
+      ])
+      await refreshData()
+    } finally {
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
+
+  function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    setImporting(true)
-    try {
-      const result = await importCSV(file)
-      setImportResult(`Imported ${result.imported} transactions (${result.skipped} skipped). ${result.newEnvelopes.length > 0 ? `New envelopes: ${result.newEnvelopes.join(", ")}` : ""}`)
-    } catch {
-      setImportResult("Import failed. Check your CSV format.")
-    } finally {
-      setImporting(false)
-      e.target.value = ""
-    }
+    setImportFile(file)
+    setImportOpen(true)
+    e.target.value = ""
   }
 
   return (
@@ -93,20 +110,16 @@ export function SettingsPage() {
             ref={fileRef}
             type="file"
             accept=".csv"
-            onChange={handleImport}
+            onChange={handleFileSelected}
             className="hidden"
           />
           <button
             onClick={() => fileRef.current?.click()}
-            disabled={importing}
-            className="flex items-center justify-center gap-2 py-3 px-6 bg-[#1A1A1A] text-foreground rounded-xl text-sm font-medium hover:bg-[#222] transition-colors border border-[#333] disabled:opacity-50"
+            className="flex items-center justify-center gap-2 py-3 px-6 bg-[#1A1A1A] text-foreground rounded-xl text-sm font-medium hover:bg-[#222] transition-colors border border-[#333]"
           >
             <Upload className="h-4 w-4" />
-            {importing ? "Importing..." : "Choose CSV File"}
+            Choose CSV File
           </button>
-          {importResult && (
-            <p className="text-sm text-muted-foreground">{importResult}</p>
-          )}
         </div>
       </div>
 
@@ -144,6 +157,67 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Danger Zone */}
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl border border-red-500/20">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-red-500/10">
+            <Trash2 className="h-5 w-5 text-red-500" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground">Danger Zone</h3>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Permanently delete all {state.transactions.length} transaction{state.transactions.length !== 1 ? "s" : ""} and {state.envelopes.length} envelope{state.envelopes.length !== 1 ? "s" : ""}. This cannot be undone.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={handleClearAll}
+            onBlur={() => setConfirmDelete(false)}
+            disabled={deleting || (state.transactions.length === 0 && state.envelopes.length === 0)}
+            className={`flex items-center justify-center gap-2 py-3 px-6 rounded-xl text-sm font-medium transition-colors border disabled:opacity-50 ${
+              confirmDelete
+                ? "bg-red-600 text-white border-red-600 hover:bg-red-700"
+                : "bg-[#1A1A1A] text-red-400 border-red-500/30 hover:bg-red-500/10"
+            }`}
+          >
+            <Trash2 className="h-4 w-4" />
+            {deleting ? "Deleting..." : confirmDelete ? "Click again to confirm" : "Clear All Data"}
+          </button>
+          <button
+            onClick={async () => {
+              if (!confirmDeleteAccount) {
+                setConfirmDeleteAccount(true)
+                return
+              }
+              setDeletingAccount(true)
+              try {
+                await fetch("/api/user/delete", { method: "DELETE" })
+                signOut({ callbackUrl: "/auth" })
+              } finally {
+                setDeletingAccount(false)
+                setConfirmDeleteAccount(false)
+              }
+            }}
+            onBlur={() => setConfirmDeleteAccount(false)}
+            disabled={deletingAccount}
+            className={`flex items-center justify-center gap-2 py-3 px-6 rounded-xl text-sm font-medium transition-colors border disabled:opacity-50 ${
+              confirmDeleteAccount
+                ? "bg-red-600 text-white border-red-600 hover:bg-red-700"
+                : "bg-[#1A1A1A] text-red-400 border-red-500/30 hover:bg-red-500/10"
+            }`}
+          >
+            <UserX className="h-4 w-4" />
+            {deletingAccount ? "Deleting..." : confirmDeleteAccount ? "Click again to confirm" : "Delete My Account"}
+          </button>
+        </div>
+      </div>
+
+      <CSVImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        file={importFile}
+        onImportComplete={refreshData}
+      />
     </div>
   )
 }

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Plus, Trash2, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PieChart, Upload } from "lucide-react"
+import { CSVImportDialog } from "@/components/csv-import-dialog"
 import {
   deriveKeyFromPin,
   generateSalt,
@@ -51,6 +52,7 @@ export default function OnboardingPage() {
 
   // Import
   const [importFile, setImportFile] = useState<File | null>(null)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; newEnvelopes: string[] } | null>(null)
 
   const stepIndex = STEPS.indexOf(step)
@@ -186,18 +188,15 @@ export default function OnboardingPage() {
     }
   }
 
-  async function handleImport() {
+  function handleImport() {
     if (!importFile) { setStep("complete"); return }
-    setLoading(true)
-    try {
-      const formData = new FormData()
-      formData.append("file", importFile)
-      const res = await fetch("/api/import", { method: "POST", body: formData })
-      const data = await res.json()
-      setImportResult(data)
+    setImportDialogOpen(true)
+  }
+
+  function handleImportDialogClose(isOpen: boolean) {
+    setImportDialogOpen(isOpen)
+    if (!isOpen) {
       setStep("complete")
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -558,6 +557,11 @@ export default function OnboardingPage() {
           )}
         </div>
       </div>
+      <CSVImportDialog
+        open={importDialogOpen}
+        onOpenChange={handleImportDialogClose}
+        file={importFile}
+      />
     </div>
   )
 }
