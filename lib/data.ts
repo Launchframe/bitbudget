@@ -10,6 +10,7 @@ export interface Transaction {
   type: TransactionType
   envelopeId: string
   tags: string[]
+  recurringId?: string | null
 }
 
 export interface Envelope {

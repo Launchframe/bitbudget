@@ -19,10 +19,21 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { X } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { X, Repeat } from "lucide-react"
+
+type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
+
+const CADENCE_OPTIONS: { value: Cadence; label: string }[] = [
+  { value: "weekly", label: "Weekly" },
+  { value: "biweekly", label: "Biweekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "quarterly", label: "Quarterly" },
+  { value: "annual", label: "Annual" },
+]
 
 export function NewTransactionDialog() {
-  const { state, transactionDialogOpen, setTransactionDialogOpen, addTransaction, addTag } = useApp()
+  const { state, transactionDialogOpen, setTransactionDialogOpen, addTransaction, addTag, refreshData } = useApp()
 
   const [type, setType] = useState<TransactionType>("expense")
   const [payee, setPayee] = useState("")
@@ -32,6 +43,11 @@ export function NewTransactionDialog() {
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [newTag, setNewTag] = useState("")
 
+  const [isRecurring, setIsRecurring] = useState(false)
+  const [cadence, setCadence] = useState<Cadence>("monthly")
+  const [endDate, setEndDate] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+
   function resetForm() {
     setType("expense")
     setPayee("")
@@ -40,20 +56,48 @@ export function NewTransactionDialog() {
     setDate(new Date().toISOString().split("T")[0])
     setSelectedTags([])
     setNewTag("")
+    setIsRecurring(false)
+    setCadence("monthly")
+    setEndDate("")
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!payee.trim() || !amount || !envelopeId) return
 
-    addTransaction({
-      date,
-      payee: payee.trim(),
-      amount: Math.abs(parseFloat(amount)),
-      type,
-      envelopeId,
-      tags: selectedTags,
-    })
+    if (isRecurring) {
+      setSubmitting(true)
+      try {
+        const res = await fetch("/api/recurring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            payee: payee.trim(),
+            amount: Math.abs(parseFloat(amount)),
+            type,
+            envelopeId,
+            cadence,
+            startDate: date,
+            endDate: endDate || null,
+            tags: selectedTags,
+          }),
+        })
+        if (res.ok) {
+          await refreshData()
+        }
+      } finally {
+        setSubmitting(false)
+      }
+    } else {
+      addTransaction({
+        date,
+        payee: payee.trim(),
+        amount: Math.abs(parseFloat(amount)),
+        type,
+        envelopeId,
+        tags: selectedTags,
+      })
+    }
 
     resetForm()
     setTransactionDialogOpen(false)
@@ -84,7 +128,6 @@ export function NewTransactionDialog() {
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-          {/* Type Toggle */}
           <div className="flex flex-col gap-2">
             <Label className="text-muted-foreground text-xs uppercase tracking-wider">Type</Label>
             <div className="flex rounded-lg bg-[#1A1A1A] p-1">
@@ -113,7 +156,6 @@ export function NewTransactionDialog() {
             </div>
           </div>
 
-          {/* Payee */}
           <div className="flex flex-col gap-2">
             <Label htmlFor="payee" className="text-muted-foreground text-xs uppercase tracking-wider">
               {type === "expense" ? "Payee" : "Payer"}
@@ -128,7 +170,6 @@ export function NewTransactionDialog() {
             />
           </div>
 
-          {/* Amount */}
           <div className="flex flex-col gap-2">
             <Label htmlFor="amount" className="text-muted-foreground text-xs uppercase tracking-wider">Amount (USD)</Label>
             <div className="relative">
@@ -147,7 +188,6 @@ export function NewTransactionDialog() {
             </div>
           </div>
 
-          {/* Envelope */}
           <div className="flex flex-col gap-2">
             <Label className="text-muted-foreground text-xs uppercase tracking-wider">Envelope</Label>
             <Select value={envelopeId} onValueChange={setEnvelopeId} required>
@@ -167,9 +207,10 @@ export function NewTransactionDialog() {
             </Select>
           </div>
 
-          {/* Date */}
           <div className="flex flex-col gap-2">
-            <Label htmlFor="date" className="text-muted-foreground text-xs uppercase tracking-wider">Date</Label>
+            <Label htmlFor="date" className="text-muted-foreground text-xs uppercase tracking-wider">
+              {isRecurring ? "Start Date" : "Date"}
+            </Label>
             <Input
               id="date"
               type="date"
@@ -180,7 +221,54 @@ export function NewTransactionDialog() {
             />
           </div>
 
-          {/* Tags */}
+          <div className="flex items-center justify-between p-3 bg-[#1A1A1A] rounded-lg">
+            <div className="flex items-center gap-2">
+              <Repeat className="h-4 w-4 text-muted-foreground" />
+              <Label htmlFor="recurring-toggle" className="text-sm text-foreground cursor-pointer">
+                Recurring
+              </Label>
+            </div>
+            <Switch
+              id="recurring-toggle"
+              checked={isRecurring}
+              onCheckedChange={setIsRecurring}
+              className="data-[state=checked]:bg-[#F7931A]"
+            />
+          </div>
+
+          {isRecurring && (
+            <div className="flex flex-col gap-4 p-3 bg-[#1A1A1A]/50 rounded-lg border border-[#1F1F1F]">
+              <div className="flex flex-col gap-2">
+                <Label className="text-muted-foreground text-xs uppercase tracking-wider">Cadence</Label>
+                <Select value={cadence} onValueChange={(v) => setCadence(v as Cadence)}>
+                  <SelectTrigger className="bg-[#1A1A1A] border-[#333] text-foreground">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1A1A1A] border-[#333]">
+                    {CADENCE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="end-date" className="text-muted-foreground text-xs uppercase tracking-wider">
+                  End Date <span className="text-[#555] normal-case">(optional)</span>
+                </Label>
+                <Input
+                  id="end-date"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="bg-[#1A1A1A] border-[#333] text-foreground"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col gap-2">
             <Label className="text-muted-foreground text-xs uppercase tracking-wider">Tags</Label>
             <div className="flex flex-wrap gap-2">
@@ -216,12 +304,12 @@ export function NewTransactionDialog() {
             </div>
           </div>
 
-          {/* Submit */}
           <button
             type="submit"
-            className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-lg font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors mt-2"
+            disabled={submitting}
+            className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-lg font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors mt-2 disabled:opacity-50"
           >
-            {type === "expense" ? "Add Expense" : "Add Credit"}
+            {submitting ? "Creating..." : isRecurring ? `Add Recurring ${type === "expense" ? "Expense" : "Credit"}` : type === "expense" ? "Add Expense" : "Add Credit"}
           </button>
         </form>
       </DialogContent>

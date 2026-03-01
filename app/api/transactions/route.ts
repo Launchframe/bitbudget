@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
     type: t.type,
     envelopeId: t.envelopeId,
     tags: JSON.parse(t.tags),
+    recurringId: t.recurringId ?? null,
   }))
 
   return NextResponse.json(formatted)
@@ -86,6 +87,7 @@ export async function POST(req: NextRequest) {
     type: transaction.type,
     envelopeId: transaction.envelopeId,
     tags: JSON.parse(transaction.tags),
+    recurringId: transaction.recurringId ?? null,
   }, { status: 201 })
 }
 

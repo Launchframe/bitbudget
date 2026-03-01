@@ -55,6 +55,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const refreshData = useCallback(async () => {
     try {
+      // Process any due recurring transactions before fetching data
+      await fetch("/api/recurring/process", { method: "POST" }).catch(() => {})
+
       const [txnRes, envRes, settingsRes] = await Promise.all([
         fetch("/api/transactions"),
         fetch("/api/envelopes"),

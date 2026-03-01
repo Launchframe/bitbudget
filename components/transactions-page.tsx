@@ -6,7 +6,7 @@ import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, type TransactionType } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Search, ChevronLeft, ChevronRight, Trash2 } from "lucide-react"
+import { Search, ChevronLeft, ChevronRight, Trash2, Repeat } from "lucide-react"
 import {
   Select,
   SelectContent,
@@ -160,7 +160,14 @@ export function TransactionsPage() {
                     <td className="py-3.5 px-4 text-sm text-muted-foreground whitespace-nowrap">
                       {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>
-                    <td className="py-3.5 px-4 text-sm font-medium text-foreground">{txn.payee}</td>
+                    <td className="py-3.5 px-4 text-sm font-medium text-foreground">
+                      <span className="flex items-center gap-1.5">
+                        {txn.payee}
+                        {txn.recurringId && (
+                          <span title="Recurring transaction"><Repeat className="h-3 w-3 text-muted-foreground shrink-0" /></span>
+                        )}
+                      </span>
+                    </td>
                     <td className="py-3.5 px-4 hidden md:table-cell">
                       {env ? (
                         <button
