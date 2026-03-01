@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
@@ -21,9 +21,18 @@ export default function AuthPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
-  const [nostrAvailable] = useState(() =>
-    typeof window !== "undefined" && "nostr" in window,
-  )
+  const [nostrAvailable, setNostrAvailable] = useState(false)
+
+  useEffect(() => {
+    if ("nostr" in window) {
+      setNostrAvailable(true)
+      return
+    }
+    const timer = setTimeout(() => {
+      if ("nostr" in window) setNostrAvailable(true)
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [])
 
   async function handleEmailAuth(e: React.FormEvent) {
     e.preventDefault()
