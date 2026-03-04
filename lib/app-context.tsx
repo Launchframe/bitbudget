@@ -42,18 +42,27 @@ interface EncryptionState {
   privacyKeySalt: string | null
 }
 
+export interface TransactionPrefill {
+  payee?: string
+  amount?: string
+  date?: string
+  notes?: string
+}
+
 interface AppContextValue {
   state: AppState
   currentPage: PageId
   selectedEnvelopeId: string | null
   highlightTransactionId: string | null
   transactionDialogOpen: boolean
+  transactionPrefill: TransactionPrefill | null
   loading: boolean
   encryption: EncryptionState
   unlockWithKey: (key: Uint8Array) => void
 
   navigateTo: (page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string }) => void
   setTransactionDialogOpen: (open: boolean) => void
+  openNewTransaction: (prefill?: TransactionPrefill) => void
 
   addTransaction: (txn: Omit<Transaction, "id">) => void
   editTransaction: (id: string, updates: Partial<Omit<Transaction, "id">>) => void
@@ -103,6 +112,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   })
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
+  const [transactionPrefill, setTransactionPrefill] = useState<TransactionPrefill | null>(null)
   const [loading, setLoading] = useState(true)
   const mounted = useRef(false)
   const isPopstate = useRef(false)
@@ -438,6 +448,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [])
 
+  const openNewTransaction = useCallback((prefill?: TransactionPrefill) => {
+    setTransactionPrefill(prefill ?? null)
+    setTransactionDialogOpen(true)
+  }, [])
+
   const encryptForStorage = useCallback(async (plaintext: string): Promise<string> => {
     if (!privacyKeyRef.current || !plaintext) return plaintext
     return encryptField(plaintext, privacyKeyRef.current)
@@ -459,11 +474,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         selectedEnvelopeId,
         highlightTransactionId,
         transactionDialogOpen,
+        transactionPrefill,
         loading,
         encryption,
         unlockWithKey,
         navigateTo,
         setTransactionDialogOpen,
+        openNewTransaction,
         addTransaction,
         editTransaction,
         deleteTransaction,

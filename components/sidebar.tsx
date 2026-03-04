@@ -1,7 +1,9 @@
 "use client"
 
-import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin } from "lucide-react"
+import { useState } from "react"
+import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, ScanLine, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
+import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
 
 const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "DASHBOARD", icon: LayoutDashboard },
@@ -14,7 +16,8 @@ const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
 ]
 
 export function Sidebar() {
-  const { currentPage, navigateTo, setTransactionDialogOpen, logout } = useApp()
+  const { currentPage, navigateTo, openNewTransaction, logout } = useApp()
+  const [scanOpen, setScanOpen] = useState(false)
 
   return (
     <aside className="sticky top-24 h-[calc(100vh-8rem)] md:w-48 lg:w-64 bg-[#0D0D0D] rounded-2xl hidden md:flex flex-col p-8 overflow-y-auto">
@@ -49,13 +52,24 @@ export function Sidebar() {
         })}
       </nav>
 
-      <button
-        onClick={() => setTransactionDialogOpen(true)}
-        className="mt-8 flex items-center gap-3 px-4 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
-      >
-        <Plus className="h-5 w-5" />
-        <span>New Transaction</span>
-      </button>
+      <div className="mt-8 flex flex-col gap-2">
+        <button
+          onClick={() => openNewTransaction()}
+          className="flex items-center gap-3 px-4 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
+        >
+          <Plus className="h-5 w-5" />
+          <span>New Transaction</span>
+        </button>
+        <button
+          onClick={() => setScanOpen(true)}
+          className="flex items-center gap-3 px-4 py-2.5 bg-[#1A1A1A] text-foreground rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
+        >
+          <ScanLine className="h-4 w-4 text-[#F7931A]" />
+          <span>Scan Receipt</span>
+        </button>
+      </div>
+
+      <ScanReceiptDialog open={scanOpen} onOpenChange={setScanOpen} />
 
       <div className="mt-auto pt-8 border-t border-[#1F1F1F] flex flex-col gap-8">
         <button className="flex items-center gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left">

@@ -4,6 +4,7 @@ import { Fragment } from "react"
 import { LayoutDashboard, BarChart3, List, Bitcoin, Wallet, Plus } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 
+
 const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "Home", icon: LayoutDashboard },
   { id: "transactions", label: "Txns", icon: List },
@@ -13,7 +14,7 @@ const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
 ]
 
 export function MobileNav() {
-  const { currentPage, navigateTo, setTransactionDialogOpen } = useApp()
+  const { currentPage, navigateTo, openNewTransaction } = useApp()
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-[#0D0D0D] border-t border-[#1F1F1F] pb-[env(safe-area-inset-bottom)]">
@@ -26,7 +27,7 @@ export function MobileNav() {
             <Fragment key={item.id}>
               {i === 2 && (
                 <button
-                  onClick={() => setTransactionDialogOpen(true)}
+                  onClick={() => openNewTransaction()}
                   className="flex items-center justify-center w-12 h-12 -mt-5 rounded-full bg-[#F7931A] text-[#0D0D0D] shadow-lg shadow-[#F7931A]/20"
                   aria-label="New transaction"
                 >

@@ -33,7 +33,7 @@ const CADENCE_OPTIONS: { value: Cadence; label: string }[] = [
 ]
 
 export function NewTransactionDialog() {
-  const { state, transactionDialogOpen, setTransactionDialogOpen, addTransaction, addTag, refreshData, encryptForStorage } = useApp()
+  const { state, transactionDialogOpen, transactionPrefill, setTransactionDialogOpen, addTransaction, addTag, refreshData, encryptForStorage } = useApp()
 
   const [type, setType] = useState<TransactionType>("expense")
   const [payee, setPayee] = useState("")
@@ -48,6 +48,15 @@ export function NewTransactionDialog() {
   const [cadence, setCadence] = useState<Cadence>("monthly")
   const [endDate, setEndDate] = useState("")
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (transactionDialogOpen && transactionPrefill) {
+      if (transactionPrefill.payee) setPayee(transactionPrefill.payee)
+      if (transactionPrefill.amount) setAmount(transactionPrefill.amount)
+      if (transactionPrefill.date) setDate(transactionPrefill.date)
+      if (transactionPrefill.notes) setNotes(transactionPrefill.notes)
+    }
+  }, [transactionDialogOpen, transactionPrefill])
 
   const [showSuggestions, setShowSuggestions] = useState(false)
   const suggestionsRef = useRef<HTMLDivElement>(null)

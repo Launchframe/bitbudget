@@ -3,9 +3,10 @@
 import { useState } from "react"
 import { useSession } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
-import { Settings2, LogOut, Upload } from "lucide-react"
+import { Settings2, LogOut, Upload, ScanLine } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
+import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,13 +15,14 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function Header() {
-  const { setTransactionDialogOpen, navigateTo, refreshData, encryptForStorage, logout } = useApp()
+  const { navigateTo, refreshData, encryptForStorage, logout } = useApp()
   const { data: session } = useSession()
   const userImage = session?.user?.image
   const userName = session?.user?.name
   const userEmail = session?.user?.email
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [scanOpen, setScanOpen] = useState(false)
 
   function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -35,6 +37,13 @@ export function Header() {
       <header className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-3 py-4 md:p-6 bg-background/80 backdrop-blur-[120px]">
         <BitbudgetLogo />
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setScanOpen(true)}
+            className="h-10 w-10 rounded-full flex items-center justify-center bg-[#1A1A1A] border border-[#333] hover:bg-[#222] transition-colors md:hidden"
+            aria-label="Scan receipt"
+          >
+            <ScanLine className="h-4 w-4 text-[#F7931A]" />
+          </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="h-10 w-10 rounded-full overflow-hidden bg-gradient-to-br from-[#F7931A] to-[#E2761B] hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-[#F7931A]/30" aria-label="User menu">
@@ -57,6 +66,13 @@ export function Header() {
               >
                 <Settings2 className="mr-2 h-4 w-4 text-muted-foreground" />
                 <span>Settings</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setScanOpen(true)}
+                className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
+              >
+                <ScanLine className="mr-2 h-4 w-4 text-muted-foreground" />
+                <span>Scan Receipt</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => document.getElementById("csv-import-input")?.click()}
@@ -91,6 +107,7 @@ export function Header() {
         onDone={() => navigateTo("envelopes")}
         encryptFn={encryptForStorage}
       />
+      <ScanReceiptDialog open={scanOpen} onOpenChange={setScanOpen} />
     </>
   )
 }
