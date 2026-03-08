@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Camera, FileText, Loader2, AlertCircle, X } from "lucide-react"
+import { Camera, Upload, Loader2, AlertCircle, X } from "lucide-react"
 
 export function ScanReceiptDialog({
   open,
@@ -113,7 +113,7 @@ export function ScanReceiptDialog({
         ) : (
           <div className="flex flex-col gap-3 py-2">
             <p className="text-sm text-muted-foreground mb-2">
-              Take a photo of a receipt or import a PDF to auto-fill a new transaction.
+              Scan a receipt to auto-fill a new transaction.
             </p>
 
             <button
@@ -136,11 +136,11 @@ export function ScanReceiptDialog({
               className="flex items-center gap-4 w-full py-4 px-4 bg-[#1A1A1A] rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
             >
               <div className="p-2.5 rounded-lg bg-[#8B5CF6]/10">
-                <FileText className="h-5 w-5 text-[#8B5CF6]" />
+                <Upload className="h-5 w-5 text-[#8B5CF6]" />
               </div>
               <div className="flex flex-col text-left">
-                <span className="font-semibold text-foreground">Import PDF</span>
-                <span className="text-xs text-muted-foreground">Upload a receipt or invoice PDF</span>
+                <span className="font-semibold text-foreground">Upload File</span>
+                <span className="text-xs text-muted-foreground">Image or PDF from your device</span>
               </div>
             </button>
 
@@ -155,7 +155,7 @@ export function ScanReceiptDialog({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*,application/pdf"
+              accept="image/jpeg,image/png,image/heic,image/heif,image/webp,application/pdf"
               onChange={handleFileChange}
               className="hidden"
             />
