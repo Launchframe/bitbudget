@@ -5,6 +5,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
+import { Info } from "lucide-react"
 
 type RangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "5y" | "all"
 
@@ -118,6 +119,20 @@ export function OpportunityCostChart() {
     return { spent: last.spent, btcValue: last.btcValue, diff, pct }
   }, [filteredData])
 
+  const earliestTxnDate = useMemo(() => {
+    if (activeTransactions.length === 0) return null
+    const sorted = activeTransactions
+      .filter(t => t.type === "expense")
+      .map(t => t.date.split("T")[0])
+      .sort()
+    return sorted[0] ?? null
+  }, [activeTransactions])
+
+  const earliestFormatted = useMemo(() => {
+    if (!earliestTxnDate) return null
+    return new Date(earliestTxnDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+  }, [earliestTxnDate])
+
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
       <div className="flex flex-col gap-4">
@@ -154,6 +169,15 @@ export function OpportunityCostChart() {
             </button>
           ))}
         </div>
+
+        {activeRange === "all" && earliestFormatted && (
+          <div className="flex items-start gap-2 text-xs text-muted-foreground leading-relaxed">
+            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <span>
+              Although Bitcoin has been running without interruption since 2010, your transaction history begins on {earliestFormatted}.
+            </span>
+          </div>
+        )}
       </div>
 
       {filteredData.length === 0 ? (
@@ -180,7 +204,9 @@ export function OpportunityCostChart() {
                 tick={{ fill: "#666", fontSize: isMobile ? 10 : 11 }}
                 axisLine={false}
                 tickLine={false}
-                interval={Math.max(1, Math.floor(filteredData.length / (isMobile ? 4 : 8)))}
+                interval="preserveStartEnd"
+                tickCount={isMobile ? 5 : 8}
+                minTickGap={isMobile ? 40 : 50}
                 tickFormatter={(val: string) => {
                   const d = new Date(val)
                   const yearOnly = activeRange === "5y" || activeRange === "all"
