@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft } from "lucide-react"
+import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft, HelpCircle, ChevronLeft, ChevronRight, X } from "lucide-react"
 
 type AuthMethod = "email" | "nostr" | null
 type EmailStep = "enter-email" | "enter-code"
@@ -21,6 +21,8 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false)
   const [nostrAvailable, setNostrAvailable] = useState(false)
   const [cooldown, setCooldown] = useState(0)
+  const [keysGuideOpen, setKeysGuideOpen] = useState(false)
+  const [keysGuideStep, setKeysGuideStep] = useState(0)
   const codeInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -208,7 +210,7 @@ export default function AuthPage() {
       if (lower.includes("nos2x")) {
         setError("nos2x needs to be set up first. Open the nos2x extension, add or import a private key, then try logging in again.")
       } else if (lower.includes("keys.band")) {
-        setError("Keys.band needs an active account. Open the Keys.band extension, select or create an account, then try logging in again.")
+        setError("keys.band-setup")
       } else if (lower.includes("alby")) {
         setError("Alby needs to be set up first. Open the Alby extension, make sure you're logged in with a Nostr key, then try logging in again.")
       } else if (lower.includes("reject") || lower.includes("denied") || lower.includes("cancel") || lower.includes("no private key") || lower.includes("not available")) {
@@ -248,9 +250,23 @@ export default function AuthPage() {
           </p>
 
           {error && (
-            <div className="flex items-center gap-2 p-3 mb-6 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{error}</span>
+            <div className="flex items-start gap-2 p-3 mb-6 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              {error === "keys.band-setup" ? (
+                <div className="flex flex-col gap-1.5 flex-1">
+                  <span>keys.band needs an active account. Open the keys.band extension, select or create an account, then try logging in again.</span>
+                  <button
+                    type="button"
+                    onClick={() => { setKeysGuideStep(0); setKeysGuideOpen(true) }}
+                    className="flex items-center gap-1 text-xs text-[#3B82F6] hover:text-[#60A5FA] transition-colors self-start"
+                  >
+                    <HelpCircle className="h-3.5 w-3.5" />
+                    Show me how
+                  </button>
+                </div>
+              ) : (
+                <span>{error}</span>
+              )}
             </div>
           )}
 
@@ -430,8 +446,8 @@ export default function AuthPage() {
 
                 <div className="flex flex-col gap-3 w-full">
                   {([
+                    { name: "keys.band", href: "https://keys.band/", img: "https://www.satlantis.io/images/keys-band-logo.png" },
                     { name: "Alby", href: "https://getalby.com/", img: "https://www.satlantis.io/images/alby-logo.svg" },
-                    { name: "Keys.band", href: "https://keys.band/", img: "https://www.satlantis.io/images/keys-band-logo.png" },
                     { name: "nos2x", href: "https://nostrapps.com/nos2x", img: "https://www.satlantis.io/images/nos2x-logo.png" },
                   ] as const).map((ext) => (
                     <a
@@ -446,6 +462,7 @@ export default function AuthPage() {
                       <div className="flex flex-col">
                         <span className="font-semibold text-foreground">{ext.name}</span>
                         <span className="text-xs text-muted-foreground">{ext.href.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
+                        {ext.name === 'keys.band' && <span className="text-xs text-btc-orange">Recommended</span>}
                       </div>
                     </a>
                   ))}
@@ -466,6 +483,73 @@ export default function AuthPage() {
           Your data is encrypted end-to-end. BitBudget cannot read your transaction details.
         </p>
       </div>
+
+      {keysGuideOpen && (() => {
+        const steps = [
+          { img: "/onboarding/keys-band/1-add-account.jpeg", title: "Add an account", desc: "Open keys.band from your browser's extensions, and click to add your first account." },
+          { img: "/onboarding/keys-band/2-credentials.jpeg", title: "Set up your key", desc: "Generate a new key, or enter an existing one if you already have one." },
+          { img: "/onboarding/keys-band/3-select-account.jpeg", title: "Select your account", desc: "Open the Accounts selector and choose your account." },
+          { img: "/onboarding/keys-band/4-confirm-account-selected.jpeg", title: "You\u2019re ready!", desc: "Once your account is selected, come back here and try logging in again." },
+        ]
+        const s = steps[keysGuideStep]
+        const isLast = keysGuideStep === steps.length - 1
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setKeysGuideOpen(false)}>
+            <div className="relative bg-[#0D0D0D] border border-[#1F1F1F] rounded-2xl max-w-md w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => setKeysGuideOpen(false)}
+                className="absolute top-3 right-3 z-10 p-1.5 rounded-lg bg-[#1A1A1A] text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={s.img} alt={s.title} className="w-full aspect-[4/3] object-contain bg-[#1A1A1A]" />
+
+              <div className="p-5 flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Step {keysGuideStep + 1} of {steps.length}</span>
+                  <div className="flex gap-1 ml-auto">
+                    {steps.map((_, i) => (
+                      <div key={i} className={`h-1.5 rounded-full transition-colors ${i === keysGuideStep ? "w-4 bg-[#3B82F6]" : "w-1.5 bg-[#333]"}`} />
+                    ))}
+                  </div>
+                </div>
+
+                <h3 className="text-lg font-bold text-foreground">{s.title}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{s.desc}</p>
+
+                <div className="flex gap-2 mt-1">
+                  {keysGuideStep > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setKeysGuideStep(keysGuideStep - 1)}
+                      className="flex-1 py-2.5 bg-[#1A1A1A] text-foreground rounded-xl text-sm font-medium hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-1"
+                    >
+                      <ChevronLeft className="h-4 w-4" /> Back
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isLast) {
+                        setKeysGuideOpen(false)
+                      } else {
+                        setKeysGuideStep(keysGuideStep + 1)
+                      }
+                    }}
+                    className="flex-1 py-2.5 bg-[#3B82F6] text-white rounded-xl text-sm font-medium hover:bg-[#3B82F6]/90 transition-colors flex items-center justify-center gap-1"
+                  >
+                    {isLast ? "Got it" : <>Next <ChevronRight className="h-4 w-4" /></>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
