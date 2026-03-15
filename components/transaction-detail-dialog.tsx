@@ -30,7 +30,7 @@ interface TransactionDetailDialogProps {
 }
 
 export function TransactionDetailDialog({ transaction, open, onOpenChange }: TransactionDetailDialogProps) {
-  const { state, editTransaction, deleteTransaction, addTag } = useApp()
+  const { state, activeEnvelopes, editTransaction, deleteTransaction, addTag } = useApp()
   const { getPriceOnDate, currentPrice } = useBtcPrices()
 
   const [editing, setEditing] = useState(false)
@@ -198,7 +198,7 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-[#1A1A1A] border-[#333]">
-                  {state.envelopes.map((env) => (
+                  {activeEnvelopes.map((env) => (
                     <SelectItem key={env.id} value={env.id} className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">
                       <span className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: env.color }} />

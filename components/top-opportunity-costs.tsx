@@ -15,12 +15,12 @@ interface EnrichedTransaction extends Transaction {
 }
 
 export function TopOpportunityCosts() {
-  const { state, navigateTo } = useApp()
+  const { state, activeTransactions, navigateTo } = useApp()
   const { calculateOpportunityCost, getPriceOnDate, currentPrice } = useBtcPrices()
   const [selectedTxn, setSelectedTxn] = useState<EnrichedTransaction | null>(null)
 
   const topTransactions = useMemo(() => {
-    return state.transactions
+    return activeTransactions
       .filter((t) => t.type === "expense")
       .map((t) => ({
         ...t,
@@ -29,7 +29,7 @@ export function TopOpportunityCosts() {
       }))
       .sort((a, b) => b.btcValueToday - a.btcValueToday)
       .slice(0, 10)
-  }, [state.transactions, calculateOpportunityCost, getPriceOnDate])
+  }, [activeTransactions, calculateOpportunityCost, getPriceOnDate])
 
   const envelopeMap = useMemo(() => {
     const map: Record<string, string> = {}

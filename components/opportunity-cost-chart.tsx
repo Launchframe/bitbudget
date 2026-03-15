@@ -35,7 +35,7 @@ function getStartDateForRange(key: RangeKey): string {
 const SATS_PER_BTC = 100_000_000
 
 export function OpportunityCostChart() {
-  const { state } = useApp()
+  const { state, activeTransactions } = useApp()
   const { getPriceOnDate, currentPrice } = useBtcPrices()
   const [activeRange, setActiveRange] = useState<RangeKey>("12m")
   const [startDate, setStartDate] = useState(() => getStartDateForRange("12m"))
@@ -46,9 +46,9 @@ export function OpportunityCostChart() {
   }, [])
 
   const filteredData = useMemo(() => {
-    if (!currentPrice || state.transactions.length === 0) return []
+    if (!currentPrice || activeTransactions.length === 0) return []
 
-    const expenses = state.transactions
+    const expenses = activeTransactions
       .filter((t) => t.type === "expense" && t.date.split("T")[0] >= startDate)
       .sort((a, b) => a.date.localeCompare(b.date))
 
@@ -88,7 +88,7 @@ export function OpportunityCostChart() {
     }
 
     return points
-  }, [state.transactions, currentPrice, getPriceOnDate, startDate])
+  }, [activeTransactions, currentPrice, getPriceOnDate, startDate])
 
   const yDomain = useMemo(() => {
     if (filteredData.length === 0) return [0, 100]

@@ -33,7 +33,7 @@ const CADENCE_OPTIONS: { value: Cadence; label: string }[] = [
 ]
 
 export function NewTransactionDialog() {
-  const { state, transactionDialogOpen, transactionPrefill, setTransactionDialogOpen, addTransaction, addTag, refreshData, encryptForStorage } = useApp()
+  const { state, activeEnvelopes, transactionDialogOpen, transactionPrefill, setTransactionDialogOpen, addTransaction, addTag, refreshData, encryptForStorage } = useApp()
 
   const [type, setType] = useState<TransactionType>("expense")
   const [payee, setPayee] = useState("")
@@ -94,11 +94,11 @@ export function NewTransactionDialog() {
 
   const selectPayeeSuggestion = useCallback((name: string, suggestedEnvelopeId: string) => {
     setPayee(name)
-    if (suggestedEnvelopeId && state.envelopes.some(e => e.id === suggestedEnvelopeId)) {
+    if (suggestedEnvelopeId && activeEnvelopes.some(e => e.id === suggestedEnvelopeId)) {
       setEnvelopeId(suggestedEnvelopeId)
     }
     setShowSuggestions(false)
-  }, [state.envelopes])
+  }, [activeEnvelopes])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -292,7 +292,7 @@ export function NewTransactionDialog() {
                 <SelectValue placeholder="Select an envelope" />
               </SelectTrigger>
               <SelectContent className="bg-[#1A1A1A] border-[#333]">
-                {state.envelopes.map((env) => (
+                {activeEnvelopes.map((env) => (
                   <SelectItem key={env.id} value={env.id} className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">
                     <span className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: env.color }} />

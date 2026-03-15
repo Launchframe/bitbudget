@@ -87,6 +87,7 @@ model Envelope {
   monthlyAllotment Float  @default(0)
   color           String  @default("#F7931A")
   icon            String?
+  archived        Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

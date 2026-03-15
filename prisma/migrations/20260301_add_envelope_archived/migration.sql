@@ -1,0 +1,1 @@
+ALTER TABLE "Envelope" ADD COLUMN "archived" BOOLEAN NOT NULL DEFAULT false;

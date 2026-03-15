@@ -20,6 +20,7 @@ export async function GET() {
       monthlyAllotment: e.monthlyAllotment,
       color: e.color,
       icon: e.icon,
+      archived: e.archived,
     })),
   )
 }
@@ -51,6 +52,7 @@ export async function POST(req: NextRequest) {
     monthlyAllotment: envelope.monthlyAllotment,
     color: envelope.color,
     icon: envelope.icon,
+    archived: envelope.archived,
   }, { status: 201 })
 }
 
@@ -60,7 +62,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { id, name, monthlyAllotment, color, icon } = await req.json()
+  const { id, name, monthlyAllotment, color, icon, archived } = await req.json()
   if (!id) {
     return NextResponse.json({ error: "Envelope ID is required" }, { status: 400 })
   }
@@ -79,6 +81,7 @@ export async function PUT(req: NextRequest) {
       ...(monthlyAllotment !== undefined ? { monthlyAllotment } : {}),
       ...(color !== undefined ? { color } : {}),
       ...(icon !== undefined ? { icon } : {}),
+      ...(archived !== undefined ? { archived } : {}),
     },
   })
 
@@ -88,6 +91,7 @@ export async function PUT(req: NextRequest) {
     monthlyAllotment: updated.monthlyAllotment,
     color: updated.color,
     icon: updated.icon,
+    archived: updated.archived,
   })
 }
 

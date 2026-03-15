@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react"
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { signOut } from "next-auth/react"
 import type { Transaction, Envelope, AppState, BtcDisplayUnit } from "@/lib/data"
 import { generateId, getDefaultState } from "@/lib/data"
@@ -51,6 +51,8 @@ export interface TransactionPrefill {
 
 interface AppContextValue {
   state: AppState
+  activeEnvelopes: Envelope[]
+  activeTransactions: Transaction[]
   currentPage: PageId
   selectedEnvelopeId: string | null
   highlightTransactionId: string | null
@@ -72,6 +74,8 @@ interface AppContextValue {
 
   addEnvelope: (envelope: Omit<Envelope, "id">) => void
   editEnvelope: (id: string, updates: Partial<Omit<Envelope, "id">>) => void
+  archiveEnvelope: (id: string) => void
+  restoreEnvelope: (id: string) => void
   deleteEnvelope: (id: string) => void
   mergeEnvelope: (sourceId: string, targetId: string) => Promise<void>
 
@@ -422,6 +426,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const archiveEnvelope = useCallback(async (id: string) => {
+    setState(prev => ({
+      ...prev,
+      envelopes: prev.envelopes.map(e => e.id === id ? { ...e, archived: true } : e),
+    }))
+
+    try {
+      await fetch("/api/envelopes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, archived: true }),
+      })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
+  const restoreEnvelope = useCallback(async (id: string) => {
+    setState(prev => ({
+      ...prev,
+      envelopes: prev.envelopes.map(e => e.id === id ? { ...e, archived: false } : e),
+    }))
+
+    try {
+      await fetch("/api/envelopes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, archived: false }),
+      })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
   const deleteEnvelope = useCallback(async (id: string) => {
     setState(prev => ({
       ...prev,
@@ -508,10 +546,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     signOut({ callbackUrl: "/auth" })
   }, [])
 
+  const activeEnvelopes = useMemo(
+    () => state.envelopes.filter(e => !e.archived),
+    [state.envelopes]
+  )
+
+  const archivedEnvelopeIds = useMemo(
+    () => new Set(state.envelopes.filter(e => e.archived).map(e => e.id)),
+    [state.envelopes]
+  )
+
+  const activeTransactions = useMemo(
+    () => state.transactions.filter(t => !archivedEnvelopeIds.has(t.envelopeId)),
+    [state.transactions, archivedEnvelopeIds]
+  )
+
   return (
     <AppContext.Provider
       value={{
         state,
+        activeEnvelopes,
+        activeTransactions,
         currentPage,
         selectedEnvelopeId,
         highlightTransactionId,
@@ -530,6 +585,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteTransaction,
         addEnvelope,
         editEnvelope,
+        archiveEnvelope,
+        restoreEnvelope,
         deleteEnvelope,
         mergeEnvelope,
         setMonthlyIncome,

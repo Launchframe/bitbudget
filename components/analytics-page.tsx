@@ -19,14 +19,14 @@ import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, getMonthKey } from "@/lib/data"
 
 export function AnalyticsPage() {
-  const { state } = useApp()
+  const { state, activeEnvelopes, activeTransactions } = useApp()
   const { calculateOpportunityCost } = useBtcPrices()
   const [startDate, setStartDate] = useState("2025-09-01")
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0])
 
   const filtered = useMemo(
-    () => state.transactions.filter((t) => t.date >= startDate && t.date <= endDate),
-    [state.transactions, startDate, endDate],
+    () => activeTransactions.filter((t) => t.date >= startDate && t.date <= endDate),
+    [activeTransactions, startDate, endDate],
   )
 
   const cashFlowData = useMemo(() => {
@@ -53,14 +53,14 @@ export function AnalyticsPage() {
         envelopeMap[txn.envelopeId] = (envelopeMap[txn.envelopeId] || 0) + txn.amount
       }
     }
-    return state.envelopes
+    return activeEnvelopes
       .map((env) => ({
         name: env.name,
         value: envelopeMap[env.id] || 0,
         color: env.color,
       }))
       .filter((d) => d.value > 0)
-  }, [filtered, state.envelopes])
+  }, [filtered, activeEnvelopes])
 
   const opportunityCostData = useMemo(() => {
     const byEnvelope: Record<string, { spent: number; opCost: number }> = {}
@@ -71,7 +71,7 @@ export function AnalyticsPage() {
         byEnvelope[txn.envelopeId].opCost += calculateOpportunityCost(txn.amount, txn.date)
       }
     }
-    return state.envelopes
+    return activeEnvelopes
       .filter((env) => byEnvelope[env.id])
       .map((env) => ({
         name: env.name,
@@ -79,7 +79,7 @@ export function AnalyticsPage() {
         "Opportunity Cost": Math.round(byEnvelope[env.id].opCost),
         color: env.color,
       }))
-  }, [filtered, state.envelopes, calculateOpportunityCost])
+  }, [filtered, activeEnvelopes, calculateOpportunityCost])
 
   return (
     <div className="flex flex-col gap-6">

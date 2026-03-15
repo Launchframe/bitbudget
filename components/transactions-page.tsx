@@ -22,7 +22,7 @@ const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 export function TransactionsPage() {
-  const { state, navigateTo, deleteTransaction, highlightTransactionId, transactionEnvelopeFilter, clearTransactionEnvelopeFilter } = useApp()
+  const { state, activeEnvelopes, activeTransactions, navigateTo, deleteTransaction, highlightTransactionId, transactionEnvelopeFilter, clearTransactionEnvelopeFilter } = useApp()
   const { calculateOpportunityCost } = useBtcPrices()
 
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
@@ -59,7 +59,7 @@ export function TransactionsPage() {
   }, [state.envelopes])
 
   const filteredTransactions = useMemo(() => {
-    let result = state.transactions
+    let result = activeTransactions
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
@@ -82,7 +82,7 @@ export function TransactionsPage() {
     }
 
     return result.sort((a, b) => b.date.localeCompare(a.date))
-  }, [state.transactions, searchQuery, typeFilter, envelopeFilters, startDate, endDate])
+  }, [activeTransactions, searchQuery, typeFilter, envelopeFilters, startDate, endDate])
 
   useEffect(() => {
     if (!highlightTransactionId) return
@@ -278,9 +278,9 @@ export function TransactionsPage() {
         </div>
 
         {/* Envelope quick-filter bubbles */}
-        {state.envelopes.length > 0 && (
+        {activeEnvelopes.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
-            {state.envelopes.map((env) => {
+            {activeEnvelopes.map((env) => {
               const Icon = getEnvelopeIcon(env.icon)
               const active = envelopeFilters.has(env.id)
               return (

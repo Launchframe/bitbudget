@@ -6,12 +6,12 @@ import { useBtcPrices } from "@/lib/btc-price-context"
 import { getCurrentMonthKey, formatUsd, formatNumber } from "@/lib/data"
 
 export function DashboardMetrics() {
-  const { state } = useApp()
+  const { state, activeTransactions } = useApp()
   const { currentPrice, satsPerDollar } = useBtcPrices()
 
   const currentMonth = getCurrentMonthKey()
 
-  const monthlySpend = state.transactions
+  const monthlySpend = activeTransactions
     .filter((t) => t.type === "expense" && t.date.startsWith(currentMonth))
     .reduce((sum, t) => sum + t.amount, 0)
 
