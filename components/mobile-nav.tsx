@@ -1,14 +1,13 @@
 "use client"
 
 import { Fragment } from "react"
-import { LayoutDashboard, BarChart3, List, Bitcoin, Wallet, Plus } from "lucide-react"
+import { LayoutDashboard, BarChart3, List, Wallet, Plus } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 
 
 const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "Home", icon: LayoutDashboard },
   { id: "transactions", label: "Txns", icon: List },
-  { id: "btc-price", label: "BTC", icon: Bitcoin },
   { id: "analytics", label: "Stats", icon: BarChart3 },
   { id: "envelopes", label: "Budget", icon: Wallet },
 ]

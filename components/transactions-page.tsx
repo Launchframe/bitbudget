@@ -1,13 +1,14 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, formatBtcAmountFromSats, type TransactionType } from "@/lib/data"
 import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Search, ChevronLeft, ChevronRight, Trash2, Repeat } from "lucide-react"
+import { getEnvelopeIcon } from "@/lib/envelope-icons"
+import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X } from "lucide-react"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import {
   Select,
@@ -18,23 +19,42 @@ import {
 } from "@/components/ui/select"
 
 const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
+const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 export function TransactionsPage() {
-  const { state, navigateTo, deleteTransaction } = useApp()
+  const { state, navigateTo, deleteTransaction, highlightTransactionId, transactionEnvelopeFilter, clearTransactionEnvelopeFilter } = useApp()
   const { calculateOpportunityCost } = useBtcPrices()
 
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState<"all" | TransactionType>("all")
-  const [envelopeFilter, setEnvelopeFilter] = useState("all")
+  const [envelopeFilters, setEnvelopeFilters] = useState<Set<string>>(() => transactionEnvelopeFilter)
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [pageSize, setPageSize] = useState(15)
   const [page, setPage] = useState(1)
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false)
+  const moreFiltersRef = useRef<HTMLDivElement>(null)
+  const highlightedRef = useRef<HTMLTableRowElement>(null)
+
+  useEffect(() => {
+    if (transactionEnvelopeFilter.size > 0) clearTransactionEnvelopeFilter()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (moreFiltersRef.current && !moreFiltersRef.current.contains(e.target as Node)) {
+        setMoreFiltersOpen(false)
+      }
+    }
+    if (moreFiltersOpen) document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [moreFiltersOpen])
 
   const envelopeMap = useMemo(() => {
-    const map: Record<string, { name: string; color: string }> = {}
-    for (const e of state.envelopes) map[e.id] = { name: e.name, color: e.color }
+    const map: Record<string, { name: string; color: string; icon?: string | null }> = {}
+    for (const e of state.envelopes) map[e.id] = { name: e.name, color: e.color, icon: e.icon }
     return map
   }, [state.envelopes])
 
@@ -50,8 +70,8 @@ export function TransactionsPage() {
       result = result.filter((t) => t.type === typeFilter)
     }
 
-    if (envelopeFilter !== "all") {
-      result = result.filter((t) => t.envelopeId === envelopeFilter)
+    if (envelopeFilters.size > 0) {
+      result = result.filter((t) => envelopeFilters.has(t.envelopeId))
     }
 
     if (startDate) {
@@ -62,7 +82,21 @@ export function TransactionsPage() {
     }
 
     return result.sort((a, b) => b.date.localeCompare(a.date))
-  }, [state.transactions, searchQuery, typeFilter, envelopeFilter, startDate, endDate])
+  }, [state.transactions, searchQuery, typeFilter, envelopeFilters, startDate, endDate])
+
+  useEffect(() => {
+    if (!highlightTransactionId) return
+    const idx = filteredTransactions.findIndex(t => t.id === highlightTransactionId)
+    if (idx === -1) return
+    const targetPage = Math.floor(idx / pageSize) + 1
+    if (targetPage !== page) setPage(targetPage)
+  }, [highlightTransactionId, filteredTransactions, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (highlightTransactionId && highlightedRef.current) {
+      highlightedRef.current.scrollIntoView({ behavior: "smooth", block: "center" })
+    }
+  }, [highlightTransactionId, page])
 
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
   const paginatedTransactions = filteredTransactions.slice((page - 1) * pageSize, page * pageSize)
@@ -81,7 +115,17 @@ export function TransactionsPage() {
     return expenseTxns.reduce((sum, t) => sum + (t.satsAmount ?? 0), 0)
   }, [expenseTxns])
 
-  const hasActiveFilter = searchQuery.trim() || typeFilter !== "all" || envelopeFilter !== "all" || startDate || endDate
+  const hasActiveFilter = searchQuery.trim() || typeFilter !== "all" || envelopeFilters.size > 0 || startDate || endDate
+
+  function toggleEnvelopeFilter(id: string) {
+    setEnvelopeFilters(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    setPage(1)
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -119,57 +163,159 @@ export function TransactionsPage() {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setPage(1) }}
-            placeholder="Search payee..."
-            className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground placeholder:text-[#555] pl-10"
-          />
-        </div>
-
-        <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v as "all" | TransactionType); setPage(1) }}>
-          <SelectTrigger className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground w-[140px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-[#1A1A1A] border-[#333]">
-            <SelectItem value="all" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">All Types</SelectItem>
-            <SelectItem value="expense" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Expenses</SelectItem>
-            <SelectItem value="credit" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Credits</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={envelopeFilter} onValueChange={(v) => { setEnvelopeFilter(v); setPage(1) }}>
-          <SelectTrigger className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground w-[180px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-[#1A1A1A] border-[#333]">
-            <SelectItem value="all" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">All Envelopes</SelectItem>
-            {state.envelopes.map((e) => (
-              <SelectItem key={e.id} value={e.id} className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">
-                {e.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
+      <div className="flex flex-col gap-3">
+        {/* Search + mobile overflow trigger */}
         <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => { setStartDate(e.target.value); setPage(1) }}
-            className="bg-[#0D0D0D] border border-[#1F1F1F] rounded-lg px-3 py-1.5 text-sm text-foreground"
-          />
-          <span className="text-muted-foreground text-sm">to</span>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => { setEndDate(e.target.value); setPage(1) }}
-            className="bg-[#0D0D0D] border border-[#1F1F1F] rounded-lg px-3 py-1.5 text-sm text-foreground"
-          />
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setPage(1) }}
+              placeholder="Search payee..."
+              className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground placeholder:text-[#555] pl-10"
+            />
+          </div>
+
+          {/* Mobile: "More filters" toggle */}
+          <div className="relative sm:hidden" ref={moreFiltersRef}>
+            <button
+              type="button"
+              onClick={() => setMoreFiltersOpen(o => !o)}
+              className={`flex items-center justify-center w-10 h-10 rounded-lg border transition-colors ${
+                moreFiltersOpen || typeFilter !== "all" || startDate || endDate
+                  ? "bg-[#F7931A]/10 border-[#F7931A]/40 text-[#F7931A]"
+                  : "bg-[#0D0D0D] border-[#1F1F1F] text-muted-foreground"
+              }`}
+              aria-label="More filters"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </button>
+
+            {moreFiltersOpen && (
+              <div className="absolute right-0 top-full mt-2 z-30 bg-[#1A1A1A] border border-[#333] rounded-xl p-4 flex flex-col gap-4 min-w-[260px] shadow-xl">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Filters</span>
+                  <button type="button" onClick={() => setMoreFiltersOpen(false)} className="text-muted-foreground hover:text-foreground">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-muted-foreground">Type</span>
+                  <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v as "all" | TransactionType); setPage(1) }}>
+                    <SelectTrigger className="bg-[#0D0D0D] border-[#333] text-foreground w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#1A1A1A] border-[#333]">
+                      <SelectItem value="all" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">All Types</SelectItem>
+                      <SelectItem value="expense" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Expenses</SelectItem>
+                      <SelectItem value="credit" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Credits</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-muted-foreground">Date range</span>
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => { setStartDate(e.target.value); setPage(1) }}
+                      className="bg-[#0D0D0D] border border-[#333] rounded-lg px-3 py-1.5 text-sm text-foreground w-full"
+                    />
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => { setEndDate(e.target.value); setPage(1) }}
+                      className="bg-[#0D0D0D] border border-[#333] rounded-lg px-3 py-1.5 text-sm text-foreground w-full"
+                    />
+                  </div>
+                </div>
+
+                {(typeFilter !== "all" || startDate || endDate) && (
+                  <button
+                    type="button"
+                    onClick={() => { setTypeFilter("all"); setStartDate(""); setEndDate(""); setMoreFiltersOpen(false) }}
+                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 self-start transition-colors"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Desktop: Type select */}
+          <div className="hidden sm:block">
+            <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v as "all" | TransactionType); setPage(1) }}>
+              <SelectTrigger className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[#1A1A1A] border-[#333]">
+                <SelectItem value="all" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">All Types</SelectItem>
+                <SelectItem value="expense" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Expenses</SelectItem>
+                <SelectItem value="credit" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Credits</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Desktop: date range */}
+          <div className="hidden sm:flex items-center gap-2">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => { setStartDate(e.target.value); setPage(1) }}
+              className="bg-[#0D0D0D] border border-[#1F1F1F] rounded-lg px-3 py-1.5 text-sm text-foreground"
+            />
+            <span className="text-muted-foreground text-sm">to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => { setEndDate(e.target.value); setPage(1) }}
+              className="bg-[#0D0D0D] border border-[#1F1F1F] rounded-lg px-3 py-1.5 text-sm text-foreground"
+            />
+          </div>
         </div>
+
+        {/* Envelope quick-filter bubbles */}
+        {state.envelopes.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {state.envelopes.map((env) => {
+              const Icon = getEnvelopeIcon(env.icon)
+              const active = envelopeFilters.has(env.id)
+              return (
+                <button
+                  key={env.id}
+                  type="button"
+                  onClick={() => toggleEnvelopeFilter(env.id)}
+                  title={env.name}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium transition-all border ${
+                    active
+                      ? "border-transparent"
+                      : "bg-[#0D0D0D] border-[#1F1F1F] text-muted-foreground hover:border-[#333] hover:text-foreground"
+                  }`}
+                  style={active ? {
+                    backgroundColor: `${env.color}22`,
+                    borderColor: env.color,
+                    color: env.color,
+                  } : undefined}
+                >
+                  <Icon className="h-3 w-3 shrink-0" />
+                  <span>{env.name}</span>
+                </button>
+              )
+            })}
+            {envelopeFilters.size > 0 && (
+              <button
+                type="button"
+                onClick={() => { setEnvelopeFilters(new Set()); setPage(1) }}
+                className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors ml-1"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="bg-[#0D0D0D] rounded-2xl overflow-hidden">
@@ -191,10 +337,12 @@ export function TransactionsPage() {
               {paginatedTransactions.map((txn) => {
                 const opCost = calculateOpportunityCost(txn.amount, txn.date)
                 const env = envelopeMap[txn.envelopeId]
+                const isHighlighted = txn.id === highlightTransactionId
                 return (
                   <tr
                     key={txn.id}
-                    className="border-b border-[#1A1A1A] last:border-0 hover:bg-[#111] transition-colors group cursor-pointer"
+                    ref={isHighlighted ? highlightedRef : undefined}
+                    className={`border-b border-[#1A1A1A] last:border-0 hover:bg-[#111] transition-colors group cursor-pointer${isHighlighted ? " bg-[#F7931A]/10" : ""}`}
                     onClick={() => setSelectedTxn(txn)}
                   >
                     <td className="py-3.5 px-4 text-sm text-muted-foreground whitespace-nowrap">
@@ -264,17 +412,32 @@ export function TransactionsPage() {
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-3 border-t border-[#1F1F1F]">
           <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">
+            <span className="text-sm text-muted-foreground">
               {filteredTransactions.length > 0
                 ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, filteredTransactions.length)} of ${filteredTransactions.length}`
                 : "0 results"}
             </span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Per page</span>
+            <div className="flex items-center gap-1.5 sm:hidden">
+              {MOBILE_PAGE_SIZE_OPTIONS.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => { setPageSize(n); setPage(1) }}
+                  className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                    pageSize === n
+                      ? "bg-[#F7931A] text-[#0D0D0D]"
+                      : "bg-[#1A1A1A] text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <div className="hidden sm:flex items-center gap-1.5">
+              <span className="text-sm text-muted-foreground">Per page</span>
               <select
                 value={pageSize}
                 onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }}
-                className="bg-[#1A1A1A] border border-[#333] rounded-md px-2 py-1 text-xs text-foreground"
+                className="bg-[#1A1A1A] border border-[#333] rounded-md px-2 py-1.5 text-sm text-foreground"
               >
                 {PAGE_SIZE_OPTIONS.map((n) => (
                   <option key={n} value={n}>{n}</option>
@@ -308,7 +471,7 @@ export function TransactionsPage() {
                   <button
                     key={p}
                     onClick={() => setPage(p)}
-                    className={`hidden sm:inline-flex w-8 h-8 rounded-md text-xs font-medium transition-colors ${
+                    className={`hidden sm:inline-flex items-center justify-center w-8 h-8 rounded-md text-xs font-medium transition-colors ${
                       p === page
                         ? "bg-[#F7931A] text-[#0D0D0D]"
                         : "text-muted-foreground hover:bg-[#1A1A1A] hover:text-foreground"

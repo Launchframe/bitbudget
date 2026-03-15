@@ -444,73 +444,68 @@ export function EnvelopesPage() {
           const Icon = getEnvelopeIcon(env.icon)
 
           return (
-            <button
+            <div
               key={env.id}
-              onClick={() => navigateTo("envelope-detail", env.id)}
-              className="flex flex-col gap-4 p-5 bg-[#0D0D0D] rounded-2xl hover:bg-[#111] transition-colors text-left group"
+              className="flex flex-col bg-[#0D0D0D] rounded-2xl hover:bg-[#111] transition-colors overflow-hidden"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigateTo("transactions", undefined, { envelopeFilter: env.id })}
+                className="flex flex-col gap-4 p-5 text-left flex-1"
+              >
+                <div className="flex items-center gap-3 min-w-0">
                   <div
                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                     style={{ backgroundColor: `${env.color}22` }}
                   >
                     <Icon className="h-4 w-4" style={{ color: env.color }} />
                   </div>
-                  <span className="font-semibold text-foreground">{env.name}</span>
+                  <span className="font-semibold text-foreground truncate">{env.name}</span>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      openEditDialog(env.id)
-                    }}
-                    className="p-1.5 rounded-md hover:bg-[#1F1F1F] text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label={`Edit ${env.name}`}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setMergeSourceId(env.id)
-                      setMergeDialogOpen(true)
-                    }}
-                    className="p-1.5 rounded-md hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#3B82F6] transition-colors"
-                    aria-label={`Merge ${env.name}`}
-                  >
-                    <Merge className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      deleteEnvelope(env.id)
-                    }}
-                    className="p-1.5 rounded-md hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-colors"
-                    aria-label={`Delete ${env.name}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
 
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{formatUsd(env.monthlyAllotment)}/mo</span>
-                  <span style={{ color: healthColor }} className="font-medium">
-                    {formatUsd(balance)} left
-                  </span>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{formatUsd(env.monthlyAllotment)}/mo</span>
+                    <span style={{ color: healthColor }} className="font-medium">
+                      {formatUsd(balance)} left
+                    </span>
+                  </div>
+                  <Progress
+                    value={Math.min(100, percentage)}
+                    className="h-2"
+                    style={{
+                      // @ts-expect-error - CSS custom properties
+                      "--progress-color": healthColor,
+                    }}
+                  />
                 </div>
-                <Progress
-                  value={Math.min(100, percentage)}
-                  className="h-2"
-                  style={{
-                    // @ts-expect-error - CSS custom properties
-                    "--progress-color": healthColor,
-                  }}
-                />
+              </button>
+
+              <div className="flex items-center border-t border-[#1A1A1A]">
+                <button
+                  onClick={() => openEditDialog(env.id)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-foreground hover:bg-[#1A1A1A] transition-colors"
+                  aria-label={`Edit ${env.name}`}
+                >
+                  <Pencil className="h-3 w-3" /> Edit
+                </button>
+                <div className="w-px h-5 bg-[#1A1A1A]" />
+                <button
+                  onClick={() => { setMergeSourceId(env.id); setMergeDialogOpen(true) }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-[#3B82F6] hover:bg-[#1A1A1A] transition-colors"
+                  aria-label={`Merge ${env.name}`}
+                >
+                  <Merge className="h-3 w-3" /> Merge
+                </button>
+                <div className="w-px h-5 bg-[#1A1A1A]" />
+                <button
+                  onClick={() => deleteEnvelope(env.id)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-[#EF4444] hover:bg-[#1A1A1A] transition-colors"
+                  aria-label={`Delete ${env.name}`}
+                >
+                  <Trash2 className="h-3 w-3" /> Delete
+                </button>
               </div>
-            </button>
+            </div>
           )
         })}
 

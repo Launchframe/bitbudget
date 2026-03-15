@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select"
 
 const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
+const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 export function EnvelopeDetailPage() {
   const { state, selectedEnvelopeId, highlightTransactionId, navigateTo, deleteTransaction } = useApp()
@@ -284,17 +285,32 @@ export function EnvelopeDetailPage() {
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-3 border-t border-[#1F1F1F]">
           <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">
+            <span className="text-sm text-muted-foreground">
               {filteredTransactions.length > 0
                 ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, filteredTransactions.length)} of ${filteredTransactions.length}`
                 : "0 results"}
             </span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Per page</span>
+            <div className="flex items-center gap-1.5 sm:hidden">
+              {MOBILE_PAGE_SIZE_OPTIONS.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => { setPageSize(n); setPage(1) }}
+                  className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                    pageSize === n
+                      ? "bg-[#F7931A] text-[#0D0D0D]"
+                      : "bg-[#1A1A1A] text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <div className="hidden sm:flex items-center gap-1.5">
+              <span className="text-sm text-muted-foreground">Per page</span>
               <select
                 value={pageSize}
                 onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }}
-                className="bg-[#1A1A1A] border border-[#333] rounded-md px-2 py-1 text-xs text-foreground"
+                className="bg-[#1A1A1A] border border-[#333] rounded-md px-2 py-1.5 text-sm text-foreground"
               >
                 {PAGE_SIZE_OPTIONS.map((n) => (
                   <option key={n} value={n}>{n}</option>
@@ -328,7 +344,7 @@ export function EnvelopeDetailPage() {
                   <button
                     key={p}
                     onClick={() => setPage(p)}
-                    className={`hidden sm:inline-flex w-8 h-8 rounded-md text-xs font-medium transition-colors ${
+                    className={`hidden sm:inline-flex items-center justify-center w-8 h-8 rounded-md text-xs font-medium transition-colors ${
                       p === page
                         ? "bg-[#F7931A] text-[#0D0D0D]"
                         : "text-muted-foreground hover:bg-[#1A1A1A] hover:text-foreground"

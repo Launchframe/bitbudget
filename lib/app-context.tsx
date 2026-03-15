@@ -60,7 +60,9 @@ interface AppContextValue {
   encryption: EncryptionState
   unlockWithKey: (key: Uint8Array) => void
 
-  navigateTo: (page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string }) => void
+  transactionEnvelopeFilter: Set<string>
+  clearTransactionEnvelopeFilter: () => void
+  navigateTo: (page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string }) => void
   setTransactionDialogOpen: (open: boolean) => void
   openNewTransaction: (prefill?: TransactionPrefill) => void
 
@@ -105,7 +107,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(getDefaultState)
   const [currentPage, setCurrentPage] = useState<PageId>(() => {
     if (typeof window === "undefined") return "dashboard"
-    return hashToPage(window.location.hash).page
+    const { page } = hashToPage(window.location.hash)
+    return page === "envelope-detail" ? "transactions" : page
   })
   const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null
@@ -114,6 +117,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
   const [transactionPrefill, setTransactionPrefill] = useState<TransactionPrefill | null>(null)
+  const [transactionEnvelopeFilter, setTransactionEnvelopeFilter] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set()
+    const { page, envelopeId } = hashToPage(window.location.hash)
+    return page === "envelope-detail" && envelopeId ? new Set([envelopeId]) : new Set()
+  })
   const [loading, setLoading] = useState(true)
   const mounted = useRef(false)
   const isPopstate = useRef(false)
@@ -247,10 +255,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [encryption.ready, refreshData])
 
-  const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string }) => {
+  const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string }) => {
     setCurrentPage(page)
     if (envelopeId) setSelectedEnvelopeId(envelopeId)
     setHighlightTransactionId(opts?.highlightTxnId ?? null)
+    if (opts?.envelopeFilter) setTransactionEnvelopeFilter(new Set([opts.envelopeFilter]))
 
     if (!isPopstate.current) {
       const hash = pageToHash(page, envelopeId)
@@ -265,13 +274,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     function onPopState() {
       const { page, envelopeId } = hashToPage(window.location.hash)
       isPopstate.current = true
-      setCurrentPage(page)
-      if (envelopeId) setSelectedEnvelopeId(envelopeId)
+      if (page === "envelope-detail" && envelopeId) {
+        setCurrentPage("transactions")
+        setTransactionEnvelopeFilter(new Set([envelopeId]))
+        window.history.replaceState({ page: "transactions" }, "", "#/transactions")
+      } else {
+        setCurrentPage(page)
+        if (envelopeId) setSelectedEnvelopeId(envelopeId)
+      }
     }
 
     window.addEventListener("popstate", onPopState)
 
-    if (!window.location.hash) {
+    // Redirect initial envelope-detail URLs (e.g. direct link or old bookmark)
+    const initial = hashToPage(window.location.hash)
+    if (initial.page === "envelope-detail" && initial.envelopeId) {
+      setCurrentPage("transactions")
+      setTransactionEnvelopeFilter(new Set([initial.envelopeId]))
+      window.history.replaceState({ page: "transactions" }, "", "#/transactions")
+    } else if (!window.location.hash) {
       window.history.replaceState({ page: "dashboard" }, "", "#/dashboard")
     }
 
@@ -499,6 +520,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         loading,
         encryption,
         unlockWithKey,
+        transactionEnvelopeFilter,
+        clearTransactionEnvelopeFilter: () => setTransactionEnvelopeFilter(new Set()),
         navigateTo,
         setTransactionDialogOpen,
         openNewTransaction,

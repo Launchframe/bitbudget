@@ -372,7 +372,7 @@ function ViewMode({
   if (transaction.type === "expense" && btcPrice > 0) {
     rows.push(
       { label: "BTC Price at Time", value: formatUsd(btcPrice) },
-      { label: "BTC Equivalent", value: <span className="font-mono text-sm">{formatBtcAmount(btcEquiv, state.btcDisplayUnit)}</span> },
+      { label: "BTC Equivalent", value: <span className="text-sm">{formatBtcAmount(btcEquiv, state.btcDisplayUnit)}</span> },
     )
 
     if (currentPrice) {

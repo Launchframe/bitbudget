@@ -87,7 +87,7 @@ export function TopOpportunityCosts() {
                   <td className="py-3 text-right text-muted-foreground text-sm">
                     {formatUsd(txn.amount)}
                   </td>
-                  <td className="py-3 text-right text-muted-foreground text-sm hidden lg:table-cell font-mono">
+                  <td className="py-3 text-right text-muted-foreground text-sm hidden lg:table-cell">
                     {txn.btcPriceAtTime > 0 ? formatBtcAmount(txn.amount / txn.btcPriceAtTime, state.btcDisplayUnit) : "—"}
                   </td>
                   <td className="py-3 text-right pr-2 rounded-r-xl">
@@ -132,7 +132,7 @@ export function TopOpportunityCosts() {
             <TransactionDetail
               txn={selectedTxn}
               envelopeName={envelopeMap[selectedTxn.envelopeId]}
-              onNavigateToEnvelope={(txnId) => { setSelectedTxn(null); navigateTo("envelope-detail", selectedTxn.envelopeId, { highlightTxnId: txnId }) }}
+              onNavigateToEnvelope={(txnId) => { setSelectedTxn(null); navigateTo("transactions", undefined, { envelopeFilter: selectedTxn.envelopeId, highlightTxnId: txnId }) }}
             />
           )}
         </DialogContent>
