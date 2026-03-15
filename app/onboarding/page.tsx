@@ -1,14 +1,14 @@
 "use client"
 
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X } from "lucide-react"
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck } from "lucide-react"
 import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
-import { suggestIcon, getEnvelopeIcon } from "@/lib/envelope-icons"
+import { suggestIcon, getEnvelopeIcon, filterSuggestions } from "@/lib/envelope-icons"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import {
   deriveKeyFromPin,
@@ -54,16 +54,63 @@ export default function OnboardingPage() {
     { name: "Transportation", color: ENVELOPE_COLORS[4], icon: suggestIcon("Transportation"), monthlyAllotment: 0 },
   ])
   const [newEnvName, setNewEnvName] = useState("")
+  const [showEnvSuggestions, setShowEnvSuggestions] = useState(false)
   const [expandedEnvIdx, setExpandedEnvIdx] = useState<number | null>(null)
 
   // Allocations
   const [activeEnvIdx, setActiveEnvIdx] = useState<number | null>(null)
   const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
+  const allocSnapshotRef = useRef<string>("")
+
+  function enterAllocations() {
+    const snapshot = `${income}|${envelopes.map(e => e.name).join(",")}`
+    if (snapshot !== allocSnapshotRef.current) {
+      setEnvelopes(prev => prev.map(e => ({ ...e, monthlyAllotment: 0 })))
+      setActiveEnvIdx(null)
+      allocSnapshotRef.current = snapshot
+    }
+    setStep("allocations")
+  }
 
   // Import
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; newEnvelopes: string[] } | null>(null)
+
+  const STORAGE_KEY = "bitbudget-onboarding"
+  const [hydrated, setHydrated] = useState(false)
+  const [restoredSession, setRestoredSession] = useState(false)
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY)
+      if (raw) {
+        const saved = JSON.parse(raw)
+        if (saved.step && saved.step !== "security") {
+          setStep(saved.step)
+          setRestoredSession(true)
+        }
+        if (saved.income) setIncome(saved.income)
+        if (saved.cadence) setCadence(saved.cadence)
+        if (saved.envelopes?.length) setEnvelopes(saved.envelopes)
+        if (saved.allocSnapshot) allocSnapshotRef.current = saved.allocSnapshot
+      }
+    } catch { /* ignore corrupt data */ }
+    setHydrated(true)
+  }, [])
+
+  useEffect(() => {
+    if (!hydrated) return
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+        step,
+        income,
+        cadence,
+        envelopes,
+        allocSnapshot: allocSnapshotRef.current,
+      }))
+    } catch { /* storage full or unavailable */ }
+  }, [hydrated, step, income, cadence, envelopes])
 
   const stepIndex = STEPS.indexOf(step)
   const progress = ((stepIndex + 1) / STEPS.length) * 100
@@ -97,7 +144,7 @@ export default function OnboardingPage() {
           }
         }
 
-        setStep("income")
+        setStep(prev => prev === "security" ? "income" : prev)
       }
     } catch { /* continue normally */ }
   }, [])
@@ -161,19 +208,23 @@ export default function OnboardingPage() {
     }
   }
 
-  function addEnvelope() {
-    if (!newEnvName.trim()) return
-    const name = newEnvName.trim()
+  function addEnvelopeWithName(name: string) {
+    if (!name.trim()) return
+    const trimmed = name.trim()
     setEnvelopes(prev => [
       ...prev,
       {
-        name,
+        name: trimmed,
         color: ENVELOPE_COLORS[prev.length % ENVELOPE_COLORS.length],
-        icon: suggestIcon(name),
+        icon: suggestIcon(trimmed),
         monthlyAllotment: 0,
       },
     ])
     setNewEnvName("")
+  }
+
+  function addEnvelope() {
+    addEnvelopeWithName(newEnvName)
   }
 
   function removeEnvelope(idx: number) {
@@ -191,7 +242,7 @@ export default function OnboardingPage() {
           body: JSON.stringify({ name: env.name, color: env.color, icon: env.icon, monthlyAllotment: env.monthlyAllotment }),
         })
       }
-      setStep("allocations")
+      enterAllocations()
     } finally {
       setLoading(false)
     }
@@ -244,6 +295,7 @@ export default function OnboardingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ onboardingComplete: true }),
       })
+      try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
       router.push("/")
       router.refresh()
     } finally {
@@ -269,6 +321,32 @@ export default function OnboardingPage() {
         <Progress value={progress} className="h-1.5" />
 
         <div className="bg-[#0D0D0D] rounded-2xl p-8">
+          {restoredSession && step !== "security" && step !== "complete" && (
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
+              <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                <p className="text-sm text-[#93C5FD] leading-snug">
+                  Your progress was restored. Don't remember your password?
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { setRestoredSession(false); setStep("security") }}
+                  className="self-start text-xs font-medium text-[#3B82F6] hover:text-[#60A5FA] underline underline-offset-2 transition-colors"
+                >
+                  Set a new password
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRestoredSession(false)}
+                className="text-[#3B82F6]/60 hover:text-[#3B82F6] transition-colors shrink-0"
+                aria-label="Dismiss"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
           {/* Security Step */}
           {step === "security" && !isNostr && (
             <form onSubmit={e => { e.preventDefault(); handleSecuritySetup() }} className="flex flex-col gap-6">
@@ -406,6 +484,10 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Add envelopes for each area you spend money on. Any income you don&apos;t allocate to an envelope will automatically go into <span className="text-[#22C55E] font-medium">Savings</span>.
+              </p>
+
               <div className="flex flex-col gap-2">
                 {envelopes.map((env, idx) => {
                   const Icon = getEnvelopeIcon(env.icon)
@@ -471,17 +553,53 @@ export default function OnboardingPage() {
                 })}
               </div>
 
-              <div className="flex gap-2">
-                <Input
-                  value={newEnvName}
-                  onChange={e => setNewEnvName(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addEnvelope() } }}
-                  placeholder="Add new envelope..."
-                  className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
-                />
+              <div className="relative flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    value={newEnvName}
+                    onChange={e => { setNewEnvName(e.target.value); setShowEnvSuggestions(true) }}
+                    onFocus={() => setShowEnvSuggestions(true)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") { e.preventDefault(); addEnvelope(); setShowEnvSuggestions(false) }
+                      if (e.key === "Escape") setShowEnvSuggestions(false)
+                    }}
+                    onBlur={() => setTimeout(() => setShowEnvSuggestions(false), 150)}
+                    placeholder="Add new envelope..."
+                    className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
+                    autoComplete="off"
+                  />
+                  {showEnvSuggestions && (() => {
+                    const existingNames = new Set(envelopes.map(e => e.name.toLowerCase()))
+                    const filtered = filterSuggestions(newEnvName, existingNames)
+                    if (filtered.length === 0) return null
+                    return (
+                      <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg max-h-48 overflow-y-auto shadow-xl">
+                        {filtered.map(name => {
+                          const SugIcon = getEnvelopeIcon(suggestIcon(name))
+                          return (
+                            <button
+                              key={name}
+                              type="button"
+                              onMouseDown={e => e.preventDefault()}
+                              onClick={() => {
+                                setNewEnvName(name)
+                                setShowEnvSuggestions(false)
+                                setTimeout(() => addEnvelopeWithName(name), 0)
+                              }}
+                              className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-[#252525] transition-colors text-left"
+                            >
+                              <SugIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              {name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()}
+                </div>
                 <button
                   type="button"
-                  onClick={addEnvelope}
+                  onClick={() => { addEnvelope(); setShowEnvSuggestions(false) }}
                   disabled={!newEnvName.trim()}
                   className="px-4 py-2 bg-[#1A1A1A] border border-[#333] text-foreground rounded-lg hover:bg-[#222] transition-colors disabled:opacity-30"
                 >
@@ -532,6 +650,7 @@ export default function OnboardingPage() {
                   border: 3px solid #0D0D0D;
                   box-shadow: 0 0 0 2px var(--slider-color);
                   cursor: grab;
+                  margin-top: -8px;
                 }
                 input[type="range"].alloc-slider::-webkit-slider-thumb:active {
                   cursor: grabbing;
@@ -587,8 +706,8 @@ export default function OnboardingPage() {
                 <div className="flex flex-col gap-2">
                   <div className="flex h-10 rounded-xl overflow-hidden bg-[#1A1A1A]">
                     {envelopes.map((env, idx) => {
+                      if (env.monthlyAllotment <= 0) return null
                       const pct = (env.monthlyAllotment / monthlyIncome) * 100
-                      if (pct <= 0) return null
                       const Icon = getEnvelopeIcon(env.icon)
                       return (
                         <button
@@ -598,13 +717,13 @@ export default function OnboardingPage() {
                             setActiveEnvIdx(idx)
                             sliderRowRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "center" })
                           }}
-                          className={`flex items-center justify-center transition-all relative ${
+                          className={`flex items-center justify-center relative ${
                             activeEnvIdx === idx ? "brightness-110" : "hover:brightness-110"
                           }`}
                           style={{
-                            width: `${pct}%`,
+                            flex: `${env.monthlyAllotment} 0 0px`,
                             backgroundColor: env.color,
-                            minWidth: pct > 0 ? 4 : 0,
+                            minWidth: 4,
                           }}
                           title={`${env.name}: $${env.monthlyAllotment.toLocaleString()} (${Math.round(pct)}%)`}
                         >
@@ -616,7 +735,7 @@ export default function OnboardingPage() {
                       <div
                         className="flex items-center justify-center"
                         style={{
-                          width: `${savingsPct}%`,
+                          flex: `${savings} 0 0px`,
                           backgroundColor: "rgba(34, 197, 94, 0.25)",
                           minWidth: 4,
                         }}
@@ -683,7 +802,7 @@ export default function OnboardingPage() {
                         className="alloc-slider"
                         min={0}
                         max={sliderMax}
-                        step={50}
+                        step={1}
                         value={env.monthlyAllotment}
                         onChange={e => {
                           const val = parseInt(e.target.value, 10) || 0

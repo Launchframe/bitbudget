@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
-import { suggestIcon, getEnvelopeIcon } from "@/lib/envelope-icons"
+import { suggestIcon, getEnvelopeIcon, filterSuggestions } from "@/lib/envelope-icons"
 
 export function EnvelopesPage() {
   const { state, navigateTo, addEnvelope, editEnvelope, deleteEnvelope, setMonthlyIncome } = useApp()
@@ -26,6 +26,7 @@ export function EnvelopesPage() {
   const [formColor, setFormColor] = useState("#F7931A")
   const [formIcon, setFormIcon] = useState("Wallet")
   const [iconCustomized, setIconCustomized] = useState(false)
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false)
   const [editingIncome, setEditingIncome] = useState(false)
   const [incomeValue, setIncomeValue] = useState("")
 
@@ -242,13 +243,43 @@ export function EnvelopesPage() {
             {/* Name */}
             <div className="flex flex-col gap-2">
               <Label className="text-muted-foreground text-xs uppercase tracking-wider">Name</Label>
-              <Input
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="e.g. Groceries"
-                className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
-                required
-              />
+              <div className="relative">
+                <Input
+                  value={formName}
+                  onChange={(e) => { setFormName(e.target.value); setShowNameSuggestions(true) }}
+                  onFocus={() => setShowNameSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowNameSuggestions(false), 150)}
+                  onKeyDown={(e) => { if (e.key === "Escape") setShowNameSuggestions(false) }}
+                  placeholder="e.g. Groceries"
+                  className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
+                  required
+                  autoComplete="off"
+                />
+                {showNameSuggestions && !editingId && (() => {
+                  const existingNames = new Set(state.envelopes.map(e => e.name.toLowerCase()))
+                  const filtered = filterSuggestions(formName, existingNames)
+                  if (filtered.length === 0) return null
+                  return (
+                    <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg max-h-48 overflow-y-auto shadow-xl">
+                      {filtered.map(name => {
+                        const SugIcon = getEnvelopeIcon(suggestIcon(name))
+                        return (
+                          <button
+                            key={name}
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => { setFormName(name); setShowNameSuggestions(false) }}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-[#252525] transition-colors text-left"
+                          >
+                            <SugIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            {name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
+              </div>
             </div>
 
             {/* Monthly Allotment */}
