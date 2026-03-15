@@ -33,7 +33,7 @@ export function Sidebar() {
                 if (!isPlaceholder) navigateTo(item.id)
               }}
               title={item.label}
-              className={`flex items-center gap-4 transition-colors text-left ${
+              className={`flex items-center justify-center lg:justify-start gap-4 transition-colors text-left ${
                 isActive
                   ? "text-[#F7931A]"
                   : isPlaceholder
@@ -75,14 +75,14 @@ export function Sidebar() {
       <ScanReceiptDialog open={scanOpen} onOpenChange={setScanOpen} />
 
       <div className="mt-auto pt-8 border-t border-[#1F1F1F] flex flex-col gap-8">
-        <button title="Support" className="flex items-center gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left">
+        <button title="Support" className="flex items-center justify-center lg:justify-start gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left">
           <SquareArrowOutUpRight className="h-6 w-6 shrink-0" />
           <span className="hidden lg:inline text-sm font-medium tracking-wide">SUPPORT</span>
         </button>
         <button
           onClick={() => navigateTo("settings")}
           title="Settings"
-          className={`flex items-center gap-4 transition-colors text-left ${
+          className={`flex items-center justify-center lg:justify-start gap-4 transition-colors text-left ${
             currentPage === "settings" ? "text-[#F7931A]" : "text-[#919191] hover:text-[#E7E7E7]"
           }`}
         >
@@ -92,7 +92,7 @@ export function Sidebar() {
         <button
           onClick={logout}
           title="Logout"
-          className="flex items-center gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left"
+          className="flex items-center justify-center lg:justify-start gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left"
         >
           <LogOut className="h-6 w-6 shrink-0" />
           <span className="hidden lg:inline text-sm font-medium tracking-wide">LOGOUT</span>
