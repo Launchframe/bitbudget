@@ -71,6 +71,7 @@ interface AppContextValue {
   addEnvelope: (envelope: Omit<Envelope, "id">) => void
   editEnvelope: (id: string, updates: Partial<Omit<Envelope, "id">>) => void
   deleteEnvelope: (id: string) => void
+  mergeEnvelope: (sourceId: string, targetId: string) => Promise<void>
 
   setMonthlyIncome: (income: number) => void
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
@@ -414,6 +415,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const mergeEnvelope = useCallback(async (sourceId: string, targetId: string) => {
+    setState(prev => ({
+      ...prev,
+      envelopes: prev.envelopes.filter(e => e.id !== sourceId),
+      transactions: prev.transactions.map(t =>
+        t.envelopeId === sourceId ? { ...t, envelopeId: targetId } : t,
+      ),
+    }))
+
+    try {
+      await fetch("/api/envelopes/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceId, targetId }),
+      })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
   const setMonthlyIncome = useCallback(async (income: number) => {
     setState(prev => ({ ...prev, monthlyIncome: income }))
 
@@ -487,6 +508,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addEnvelope,
         editEnvelope,
         deleteEnvelope,
+        mergeEnvelope,
         setMonthlyIncome,
         setBtcDisplayUnit,
         addTag,

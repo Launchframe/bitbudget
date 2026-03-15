@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { getEnvelopeBalance, getCurrentMonthKey, formatUsd } from "@/lib/data"
 import { Progress } from "@/components/ui/progress"
-import { Pencil, Trash2, Plus, PiggyBank, SlidersHorizontal, Check } from "lucide-react"
+import { Pencil, Trash2, Plus, PiggyBank, SlidersHorizontal, Check, Merge, Info, X } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -17,7 +17,7 @@ import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picke
 import { suggestIcon, getEnvelopeIcon, filterSuggestions } from "@/lib/envelope-icons"
 
 export function EnvelopesPage() {
-  const { state, navigateTo, addEnvelope, editEnvelope, deleteEnvelope, setMonthlyIncome } = useApp()
+  const { state, navigateTo, addEnvelope, editEnvelope, deleteEnvelope, mergeEnvelope, setMonthlyIncome } = useApp()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -29,10 +29,20 @@ export function EnvelopesPage() {
   const [showNameSuggestions, setShowNameSuggestions] = useState(false)
   const [editingIncome, setEditingIncome] = useState(false)
   const [incomeValue, setIncomeValue] = useState("")
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
+  const [mergeSourceId, setMergeSourceId] = useState<string | null>(null)
   const [allocating, setAllocating] = useState(false)
   const [draftAllotments, setDraftAllotments] = useState<Record<string, number>>({})
   const [activeSliderEnvId, setActiveSliderEnvId] = useState<string | null>(null)
+  const [mergeHintDismissed, setMergeHintDismissed] = useState(() => {
+    try { return localStorage.getItem("bitbudget-merge-hint-dismissed") === "1" } catch { return false }
+  })
   const sliderRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  function dismissMergeHint() {
+    setMergeHintDismissed(true)
+    try { localStorage.setItem("bitbudget-merge-hint-dismissed", "1") } catch {}
+  }
 
   const currentMonth = getCurrentMonthKey()
 
@@ -251,6 +261,32 @@ export function EnvelopesPage() {
             }
           `}</style>
 
+          {!mergeHintDismissed && state.envelopes.length > 10 && (
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20">
+              <Info className="h-4 w-4 text-[#3B82F6] shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-1 flex-1 min-w-0">
+                <p className="text-sm text-[#93C5FD] leading-snug">
+                  You have {state.envelopes.length} envelopes. Consider merging similar ones to simplify your budget.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { dismissMergeHint(); setAllocating(false) }}
+                  className="self-start text-xs font-medium text-[#3B82F6] hover:text-[#60A5FA] underline underline-offset-2 transition-colors"
+                >
+                  Merge envelopes
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={dismissMergeHint}
+                className="text-[#3B82F6]/60 hover:text-[#3B82F6] transition-colors shrink-0"
+                aria-label="Dismiss"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
           {/* Stacked bar */}
           <div className="flex flex-col gap-2">
             <div className="flex h-10 rounded-xl overflow-hidden bg-[#1A1A1A]">
@@ -437,6 +473,17 @@ export function EnvelopesPage() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
+                      setMergeSourceId(env.id)
+                      setMergeDialogOpen(true)
+                    }}
+                    className="p-1.5 rounded-md hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#3B82F6] transition-colors"
+                    aria-label={`Merge ${env.name}`}
+                  >
+                    <Merge className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
                       deleteEnvelope(env.id)
                     }}
                     className="p-1.5 rounded-md hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-colors"
@@ -564,6 +611,78 @@ export function EnvelopesPage() {
               {editingId ? "Save Changes" : "Create Envelope"}
             </button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Merge Dialog */}
+      <Dialog open={mergeDialogOpen} onOpenChange={setMergeDialogOpen}>
+        <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Merge Envelope</DialogTitle>
+          </DialogHeader>
+          {(() => {
+            const source = state.envelopes.find(e => e.id === mergeSourceId)
+            if (!source) return null
+            const txnCount = state.transactions.filter(t => t.envelopeId === source.id).length
+            const targets = state.envelopes.filter(e => e.id !== mergeSourceId)
+            const SourceIcon = getEnvelopeIcon(source.icon)
+
+            return (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-[#1A1A1A]">
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: `${source.color}22` }}
+                  >
+                    <SourceIcon className="h-4 w-4" style={{ color: source.color }} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-foreground">{source.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {txnCount} transaction{txnCount !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  All transactions will be moved to the destination envelope. <span className="font-medium text-foreground">{source.name}</span> will then be removed.
+                </p>
+
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Merge into</span>
+                  <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
+                    {targets.map(target => {
+                      const TargetIcon = getEnvelopeIcon(target.icon)
+                      return (
+                        <button
+                          key={target.id}
+                          type="button"
+                          onClick={async () => {
+                            await mergeEnvelope(source.id, target.id)
+                            setMergeDialogOpen(false)
+                            setMergeSourceId(null)
+                          }}
+                          className="flex items-center gap-3 p-3 rounded-xl hover:bg-[#1A1A1A] transition-colors text-left"
+                        >
+                          <div
+                            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                            style={{ backgroundColor: `${target.color}22` }}
+                          >
+                            <TargetIcon className="h-4 w-4" style={{ color: target.color }} />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-foreground">{target.name}</span>
+                            <span className="text-xs text-muted-foreground">{formatUsd(target.monthlyAllotment)}/mo</span>
+                          </div>
+                          <Merge className="h-4 w-4 text-muted-foreground ml-auto" />
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
         </DialogContent>
       </Dialog>
     </div>
