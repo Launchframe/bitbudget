@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { signOut } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -929,6 +930,17 @@ export default function OnboardingPage() {
             </form>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
+            signOut({ callbackUrl: "/auth" })
+          }}
+          className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors py-4"
+        >
+          Wrong account? Sign out
+        </button>
       </div>
       <CSVImportDialog
         open={importDialogOpen}

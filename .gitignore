@@ -8,6 +8,7 @@ transaction_history.csv
 # next.js
 /.next/
 /out/
+/.worktrees/
 
 # production
 /build
