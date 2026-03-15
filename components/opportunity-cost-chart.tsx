@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useCallback } from "react"
+import { useMemo, useState, useCallback, useEffect } from "react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Legend } from "recharts"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
@@ -34,11 +34,24 @@ function getStartDateForRange(key: RangeKey): string {
 
 const SATS_PER_BTC = 100_000_000
 
+function useIsMobile(breakpoint = 640) {
+  const [mobile, setMobile] = useState(false)
+  useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`)
+    setMobile(mql.matches)
+    const handler = (e: MediaQueryListEvent) => setMobile(e.matches)
+    mql.addEventListener("change", handler)
+    return () => mql.removeEventListener("change", handler)
+  }, [breakpoint])
+  return mobile
+}
+
 export function OpportunityCostChart() {
   const { state, activeTransactions } = useApp()
   const { getPriceOnDate, currentPrice } = useBtcPrices()
   const [activeRange, setActiveRange] = useState<RangeKey>("12m")
   const [startDate, setStartDate] = useState(() => getStartDateForRange("12m"))
+  const isMobile = useIsMobile()
 
   const selectRange = useCallback((key: RangeKey) => {
     setActiveRange(key)
@@ -164,12 +177,15 @@ export function OpportunityCostChart() {
               <CartesianGrid strokeDasharray="3 3" stroke="#1F1F1F" vertical={false} />
               <XAxis
                 dataKey="date"
-                tick={{ fill: "#666", fontSize: 11 }}
+                tick={{ fill: "#666", fontSize: isMobile ? 10 : 11 }}
                 axisLine={false}
                 tickLine={false}
-                interval={Math.max(1, Math.floor(filteredData.length / 8))}
+                interval={Math.max(1, Math.floor(filteredData.length / (isMobile ? 4 : 8)))}
                 tickFormatter={(val: string) => {
                   const d = new Date(val)
+                  const yearOnly = activeRange === "5y" || activeRange === "all"
+                  if (yearOnly) return d.getFullYear().toString()
+                  if (isMobile) return d.toLocaleDateString("en-US", { month: "short" })
                   return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
                 }}
               />
@@ -185,6 +201,7 @@ export function OpportunityCostChart() {
                     : `$${val}`
                 }
                 width={65}
+                hide={isMobile}
               />
               <Tooltip
                 content={({ active, payload }) => {
@@ -218,14 +235,16 @@ export function OpportunityCostChart() {
                   return null
                 }}
               />
-              <Legend
-                verticalAlign="top"
-                align="right"
-                height={30}
-                formatter={(value: string) => (
-                  <span className="text-xs text-muted-foreground">{value}</span>
-                )}
-              />
+              {!isMobile && (
+                <Legend
+                  verticalAlign="top"
+                  align="right"
+                  height={30}
+                  formatter={(value: string) => (
+                    <span className="text-xs text-muted-foreground">{value}</span>
+                  )}
+                />
+              )}
               <Area
                 type="monotone"
                 dataKey="spent"
