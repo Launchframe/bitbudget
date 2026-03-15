@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { getEnvelopeBalance, getCurrentMonthKey, formatUsd } from "@/lib/data"
 import { Progress } from "@/components/ui/progress"
@@ -13,8 +13,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-
-const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#EAB308", "#EC4899", "#06B6D4"]
+import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
+import { suggestIcon, getEnvelopeIcon } from "@/lib/envelope-icons"
 
 export function EnvelopesPage() {
   const { state, navigateTo, addEnvelope, editEnvelope, deleteEnvelope, setMonthlyIncome } = useApp()
@@ -23,7 +23,9 @@ export function EnvelopesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formName, setFormName] = useState("")
   const [formAllotment, setFormAllotment] = useState("")
-  const [formColor, setFormColor] = useState(ENVELOPE_COLORS[0])
+  const [formColor, setFormColor] = useState("#F7931A")
+  const [formIcon, setFormIcon] = useState("Wallet")
+  const [iconCustomized, setIconCustomized] = useState(false)
   const [editingIncome, setEditingIncome] = useState(false)
   const [incomeValue, setIncomeValue] = useState("")
 
@@ -39,7 +41,9 @@ export function EnvelopesPage() {
     setEditingId(null)
     setFormName("")
     setFormAllotment("")
-    setFormColor(ENVELOPE_COLORS[state.envelopes.length % ENVELOPE_COLORS.length])
+    setFormColor("#F7931A")
+    setFormIcon("Wallet")
+    setIconCustomized(false)
     setDialogOpen(true)
   }
 
@@ -50,7 +54,27 @@ export function EnvelopesPage() {
     setFormName(env.name)
     setFormAllotment(String(env.monthlyAllotment))
     setFormColor(env.color)
+    setFormIcon(env.icon || suggestIcon(env.name))
+    setIconCustomized(true)
     setDialogOpen(true)
+  }
+
+  // Auto-suggest icon when name changes (unless user has manually chosen one)
+  useEffect(() => {
+    if (!iconCustomized && formName.trim()) {
+      setFormIcon(suggestIcon(formName))
+    }
+  }, [formName, iconCustomized])
+
+  function handleIconChange(icon: string) {
+    setFormIcon(icon)
+    setIconCustomized(true)
+  }
+
+  function handleReassignIcon(fromEnvelopeId: string) {
+    setFormIcon(formIcon) // keep current icon for this envelope
+    editEnvelope(fromEnvelopeId, { icon: null })
+    setIconCustomized(true)
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -61,12 +85,14 @@ export function EnvelopesPage() {
         name: formName.trim(),
         monthlyAllotment: parseFloat(formAllotment),
         color: formColor,
+        icon: formIcon,
       })
     } else {
       addEnvelope({
         name: formName.trim(),
         monthlyAllotment: parseFloat(formAllotment),
         color: formColor,
+        icon: formIcon,
       })
     }
     setDialogOpen(false)
@@ -132,6 +158,7 @@ export function EnvelopesPage() {
           const balance = getEnvelopeBalance(state.transactions, env.id, currentMonth, env.monthlyAllotment)
           const percentage = env.monthlyAllotment > 0 ? Math.max(0, (balance / env.monthlyAllotment) * 100) : 0
           const healthColor = percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
+          const Icon = getEnvelopeIcon(env.icon)
 
           return (
             <button
@@ -141,7 +168,12 @@ export function EnvelopesPage() {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: env.color }} />
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: `${env.color}22` }}
+                  >
+                    <Icon className="h-4 w-4" style={{ color: env.color }} />
+                  </div>
                   <span className="font-semibold text-foreground">{env.name}</span>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -202,11 +234,12 @@ export function EnvelopesPage() {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-sm">
+        <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-sm max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingId ? "Edit Envelope" : "New Envelope"}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+            {/* Name */}
             <div className="flex flex-col gap-2">
               <Label className="text-muted-foreground text-xs uppercase tracking-wider">Name</Label>
               <Input
@@ -217,6 +250,8 @@ export function EnvelopesPage() {
                 required
               />
             </div>
+
+            {/* Monthly Allotment */}
             <div className="flex flex-col gap-2">
               <Label className="text-muted-foreground text-xs uppercase tracking-wider">Monthly Allotment</Label>
               <div className="relative">
@@ -233,29 +268,21 @@ export function EnvelopesPage() {
                 />
               </div>
             </div>
-            <div className="flex flex-col gap-2">
-              <Label className="text-muted-foreground text-xs uppercase tracking-wider">Color</Label>
-              <div className="flex gap-2">
-                {ENVELOPE_COLORS.map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    onClick={() => setFormColor(color)}
-                    className={`w-8 h-8 rounded-full transition-all ${
-                      formColor === color ? "ring-2 ring-offset-2 ring-offset-[#0D0D0D]" : ""
-                    }`}
-                    style={{
-                      backgroundColor: color,
-                      "--tw-ring-color": color,
-                    } as React.CSSProperties}
-                    aria-label={`Select color ${color}`}
-                  />
-                ))}
-              </div>
-            </div>
+
+            {/* Color + Icon picker */}
+            <EnvelopeAppearancePicker
+              color={formColor}
+              icon={formIcon}
+              existingEnvelopes={state.envelopes}
+              editingId={editingId}
+              onColorChange={setFormColor}
+              onIconChange={handleIconChange}
+              onReassignIcon={handleReassignIcon}
+            />
+
             <button
               type="submit"
-              className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-lg font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors mt-2"
+              className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-lg font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors mt-1"
             >
               {editingId ? "Save Changes" : "Create Envelope"}
             </button>

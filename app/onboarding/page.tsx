@@ -1,12 +1,14 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Plus, Trash2, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PieChart, Upload } from "lucide-react"
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X } from "lucide-react"
+import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
+import { suggestIcon, getEnvelopeIcon } from "@/lib/envelope-icons"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import {
   deriveKeyFromPin,
@@ -25,6 +27,7 @@ const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", 
 interface DraftEnvelope {
   name: string
   color: string
+  icon: string
   monthlyAllotment: number
 }
 
@@ -46,11 +49,16 @@ export default function OnboardingPage() {
 
   // Envelopes
   const [envelopes, setEnvelopes] = useState<DraftEnvelope[]>([
-    { name: "Rent", color: ENVELOPE_COLORS[0], monthlyAllotment: 0 },
-    { name: "Food", color: ENVELOPE_COLORS[2], monthlyAllotment: 0 },
-    { name: "Transportation", color: ENVELOPE_COLORS[4], monthlyAllotment: 0 },
+    { name: "Rent", color: ENVELOPE_COLORS[0], icon: suggestIcon("Rent"), monthlyAllotment: 0 },
+    { name: "Food", color: ENVELOPE_COLORS[2], icon: suggestIcon("Food"), monthlyAllotment: 0 },
+    { name: "Transportation", color: ENVELOPE_COLORS[4], icon: suggestIcon("Transportation"), monthlyAllotment: 0 },
   ])
   const [newEnvName, setNewEnvName] = useState("")
+  const [expandedEnvIdx, setExpandedEnvIdx] = useState<number | null>(null)
+
+  // Allocations
+  const [activeEnvIdx, setActiveEnvIdx] = useState<number | null>(null)
+  const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
 
   // Import
   const [importFile, setImportFile] = useState<File | null>(null)
@@ -155,11 +163,13 @@ export default function OnboardingPage() {
 
   function addEnvelope() {
     if (!newEnvName.trim()) return
+    const name = newEnvName.trim()
     setEnvelopes(prev => [
       ...prev,
       {
-        name: newEnvName.trim(),
+        name,
         color: ENVELOPE_COLORS[prev.length % ENVELOPE_COLORS.length],
+        icon: suggestIcon(name),
         monthlyAllotment: 0,
       },
     ])
@@ -178,7 +188,7 @@ export default function OnboardingPage() {
         await fetch("/api/envelopes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(env),
+          body: JSON.stringify({ name: env.name, color: env.color, icon: env.icon, monthlyAllotment: env.monthlyAllotment }),
         })
       }
       setStep("allocations")
@@ -243,7 +253,8 @@ export default function OnboardingPage() {
 
   const totalAllocated = envelopes.reduce((s, e) => s + e.monthlyAllotment, 0)
   const monthlyIncome = parseFloat(income) || 0
-  const unallocated = monthlyIncome - totalAllocated
+  const savings = Math.max(0, monthlyIncome - totalAllocated)
+  const savingsPct = monthlyIncome > 0 ? Math.round((savings / monthlyIncome) * 100) : 0
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center p-6">
@@ -396,19 +407,68 @@ export default function OnboardingPage() {
               </div>
 
               <div className="flex flex-col gap-2">
-                {envelopes.map((env, idx) => (
-                  <div key={idx} className="flex items-center gap-3 p-3 bg-[#1A1A1A] rounded-xl">
-                    <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: env.color }} />
-                    <span className="flex-1 text-sm font-medium text-foreground">{env.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeEnvelope(idx)}
-                      className="p-1 text-muted-foreground hover:text-red-400 transition-colors"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
+                {envelopes.map((env, idx) => {
+                  const Icon = getEnvelopeIcon(env.icon)
+                  const isExpanded = expandedEnvIdx === idx
+                  return (
+                    <div key={idx} className="flex flex-col bg-[#1A1A1A] rounded-xl overflow-hidden">
+                      <div className="flex items-center gap-3 p-3">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedEnvIdx(isExpanded ? null : idx)}
+                          className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:opacity-80"
+                          style={{ backgroundColor: `${env.color}22` }}
+                          title="Customize appearance"
+                        >
+                          <Icon className="h-4 w-4" style={{ color: env.color }} />
+                        </button>
+                        <span className="flex-1 text-sm font-medium text-foreground">{env.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedEnvIdx(isExpanded ? null : idx)}
+                          className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                          title="Edit appearance"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { removeEnvelope(idx); if (expandedEnvIdx === idx) setExpandedEnvIdx(null) }}
+                          className="p-1 text-muted-foreground hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="border-t border-[#2A2A2A] px-3 pb-3 pt-3">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Appearance</span>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedEnvIdx(null)}
+                              className="text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <EnvelopeAppearancePicker
+                            color={env.color}
+                            icon={env.icon}
+                            existingEnvelopes={envelopes.map((e, i) => ({ id: String(i), name: e.name, icon: e.icon }))}
+                            editingId={String(idx)}
+                            onColorChange={color => setEnvelopes(prev => prev.map((e, i) => i === idx ? { ...e, color } : e))}
+                            onIconChange={icon => setEnvelopes(prev => prev.map((e, i) => i === idx ? { ...e, icon } : e))}
+                            onReassignIcon={fromId => {
+                              const fromIdx = parseInt(fromId)
+                              setEnvelopes(prev => prev.map((e, i) => i === fromIdx ? { ...e, icon: "Wallet" } : e))
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
 
               <div className="flex gap-2">
@@ -452,6 +512,66 @@ export default function OnboardingPage() {
           {/* Allocations Step */}
           {step === "allocations" && (
             <form onSubmit={e => { e.preventDefault(); handleAllocationsSave() }} className="flex flex-col gap-6">
+              <style>{`
+                input[type="range"].alloc-slider {
+                  -webkit-appearance: none;
+                  appearance: none;
+                  width: 100%;
+                  height: 6px;
+                  border-radius: 3px;
+                  outline: none;
+                  cursor: pointer;
+                }
+                input[type="range"].alloc-slider::-webkit-slider-thumb {
+                  -webkit-appearance: none;
+                  appearance: none;
+                  width: 22px;
+                  height: 22px;
+                  border-radius: 50%;
+                  background: var(--slider-color);
+                  border: 3px solid #0D0D0D;
+                  box-shadow: 0 0 0 2px var(--slider-color);
+                  cursor: grab;
+                }
+                input[type="range"].alloc-slider::-webkit-slider-thumb:active {
+                  cursor: grabbing;
+                  transform: scale(1.15);
+                }
+                input[type="range"].alloc-slider::-moz-range-thumb {
+                  width: 22px;
+                  height: 22px;
+                  border-radius: 50%;
+                  background: var(--slider-color);
+                  border: 3px solid #0D0D0D;
+                  box-shadow: 0 0 0 2px var(--slider-color);
+                  cursor: grab;
+                }
+                input[type="range"].alloc-slider::-moz-range-thumb:active {
+                  cursor: grabbing;
+                }
+                input[type="range"].alloc-slider::-webkit-slider-runnable-track {
+                  height: 6px;
+                  border-radius: 3px;
+                  background: linear-gradient(
+                    to right,
+                    var(--slider-color) 0%,
+                    var(--slider-color) var(--slider-pct),
+                    #1F1F1F var(--slider-pct),
+                    #1F1F1F 100%
+                  );
+                }
+                input[type="range"].alloc-slider::-moz-range-track {
+                  height: 6px;
+                  border-radius: 3px;
+                  background: #1F1F1F;
+                }
+                input[type="range"].alloc-slider::-moz-range-progress {
+                  height: 6px;
+                  border-radius: 3px;
+                  background: var(--slider-color);
+                }
+              `}</style>
+
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#3B82F6]/10">
                   <PieChart className="h-6 w-6 text-[#3B82F6]" />
@@ -462,38 +582,141 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between p-3 rounded-xl bg-[#1A1A1A]">
-                <span className="text-sm text-muted-foreground">Unallocated</span>
-                <span className={`text-lg font-bold ${unallocated >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
-                  ${unallocated.toLocaleString()}
-                </span>
-              </div>
+              {/* Stacked bar */}
+              {monthlyIncome > 0 && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex h-10 rounded-xl overflow-hidden bg-[#1A1A1A]">
+                    {envelopes.map((env, idx) => {
+                      const pct = (env.monthlyAllotment / monthlyIncome) * 100
+                      if (pct <= 0) return null
+                      const Icon = getEnvelopeIcon(env.icon)
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setActiveEnvIdx(idx)
+                            sliderRowRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "center" })
+                          }}
+                          className={`flex items-center justify-center transition-all relative ${
+                            activeEnvIdx === idx ? "brightness-110" : "hover:brightness-110"
+                          }`}
+                          style={{
+                            width: `${pct}%`,
+                            backgroundColor: env.color,
+                            minWidth: pct > 0 ? 4 : 0,
+                          }}
+                          title={`${env.name}: $${env.monthlyAllotment.toLocaleString()} (${Math.round(pct)}%)`}
+                        >
+                          {pct > 8 && <Icon className="h-4 w-4 text-[#0D0D0D]/70" />}
+                        </button>
+                      )
+                    })}
+                    {savings > 0 && (
+                      <div
+                        className="flex items-center justify-center"
+                        style={{
+                          width: `${savingsPct}%`,
+                          backgroundColor: "rgba(34, 197, 94, 0.25)",
+                          minWidth: 4,
+                        }}
+                        title={`Savings: $${savings.toLocaleString()} (${savingsPct}%)`}
+                      >
+                        {savingsPct > 8 && <PiggyBank className="h-4 w-4 text-[#22C55E]/60" />}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+                    <span>${totalAllocated.toLocaleString()} allocated</span>
+                    <span>${monthlyIncome.toLocaleString()} income</span>
+                  </div>
+                </div>
+              )}
 
-              <div className="flex flex-col gap-3">
-                {envelopes.map((env, idx) => (
-                  <div key={idx} className="flex items-center gap-3">
-                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: env.color }} />
-                    <span className="text-sm font-medium text-foreground w-32 truncate">{env.name}</span>
-                    <div className="relative flex-1">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input
-                        type="number"
-                        value={env.monthlyAllotment || ""}
+              {/* Per-envelope slider rows */}
+              <div className="flex flex-col gap-4">
+                {envelopes.map((env, idx) => {
+                  const Icon = getEnvelopeIcon(env.icon)
+                  const sliderMax = env.monthlyAllotment + savings
+                  const pct = monthlyIncome > 0 ? Math.round((env.monthlyAllotment / monthlyIncome) * 100) : 0
+                  const sliderPct = sliderMax > 0 ? (env.monthlyAllotment / sliderMax) * 100 : 0
+
+                  return (
+                    <div
+                      key={idx}
+                      ref={el => { sliderRowRefs.current[idx] = el }}
+                      className={`flex flex-col gap-2 p-3 rounded-xl transition-colors ${
+                        activeEnvIdx === idx ? "bg-[#1A1A1A]" : "bg-transparent"
+                      }`}
+                      onClick={() => setActiveEnvIdx(idx)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: `${env.color}22` }}
+                        >
+                          <Icon className="h-4 w-4" style={{ color: env.color }} />
+                        </div>
+                        <span className="flex-1 text-sm font-medium text-foreground truncate">{env.name}</span>
+                        <div className="flex items-baseline gap-1.5 shrink-0">
+                          <span className="text-xs text-muted-foreground">$</span>
+                          <input
+                            type="number"
+                            value={env.monthlyAllotment || ""}
+                            onChange={e => {
+                              const raw = parseFloat(e.target.value)
+                              const clamped = isNaN(raw) ? 0 : Math.min(Math.max(0, raw), sliderMax)
+                              setEnvelopes(prev => prev.map((en, i) =>
+                                i === idx ? { ...en, monthlyAllotment: clamped } : en,
+                              ))
+                            }}
+                            placeholder="0"
+                            min="0"
+                            className="w-20 bg-transparent border-b border-[#333] text-right text-foreground text-sm font-semibold py-0.5 focus:outline-none focus:border-[#F7931A] transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          />
+                          <span className="text-xs text-muted-foreground w-10 text-right">{pct}%</span>
+                        </div>
+                      </div>
+
+                      <input
+                        type="range"
+                        className="alloc-slider"
+                        min={0}
+                        max={sliderMax}
+                        step={50}
+                        value={env.monthlyAllotment}
                         onChange={e => {
-                          const val = parseFloat(e.target.value) || 0
+                          const val = parseInt(e.target.value, 10) || 0
                           setEnvelopes(prev => prev.map((en, i) =>
                             i === idx ? { ...en, monthlyAllotment: val } : en,
                           ))
                         }}
-                        placeholder="0"
-                        className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7 h-9 text-sm"
-                        min="0"
-                        step="50"
+                        onFocus={() => setActiveEnvIdx(idx)}
+                        style={{
+                          "--slider-color": env.color,
+                          "--slider-pct": `${sliderPct}%`,
+                        } as React.CSSProperties}
                       />
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
+
+              {/* Implicit Savings row */}
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-[#1A1A1A]/60 border border-[#1F1F1F]">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-[#22C55E]/10">
+                  <PiggyBank className="h-4 w-4 text-[#22C55E]" />
+                </div>
+                <span className="flex-1 text-sm font-medium text-muted-foreground">Savings</span>
+                <div className="flex items-baseline gap-1.5 shrink-0">
+                  <span className="text-sm font-semibold text-[#22C55E]">${savings.toLocaleString()}</span>
+                  <span className="text-xs text-muted-foreground w-10 text-right">{savingsPct}%</span>
+                </div>
+              </div>
+
+              {savings === 0 && totalAllocated > 0 && (
+                <p className="text-xs text-amber-400/80 text-center">All income allocated — nothing goes to savings</p>
+              )}
 
               <div className="flex gap-3">
                 <button

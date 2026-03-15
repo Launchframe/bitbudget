@@ -20,6 +20,7 @@ export interface Envelope {
   name: string
   monthlyAllotment: number
   color: string
+  icon?: string | null
 }
 
 export type BtcDisplayUnit = "sats" | "btc"
