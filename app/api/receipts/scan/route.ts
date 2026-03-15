@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import pdfParse from "pdf-parse"
+import { PDFParse } from "pdf-parse"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 const EXTRACTION_PROMPT = `You are a receipt parser. Extract the following from this receipt:
@@ -80,11 +80,13 @@ export async function POST(req: NextRequest) {
     let result: { payee: string; amount: string; date: string }
 
     if (file.type === "application/pdf") {
-      const pdf = await pdfParse(buffer)
-      if (!pdf.text?.trim()) {
+      const parser = new PDFParse({ data: buffer })
+      const textResult = await parser.getText()
+      await parser.destroy()
+      if (!textResult.text?.trim()) {
         return NextResponse.json({ error: "Could not extract text from PDF" }, { status: 422 })
       }
-      result = await extractFromPdfText(pdf.text)
+      result = await extractFromPdfText(textResult.text)
     } else if (file.type.startsWith("image/")) {
       const base64 = buffer.toString("base64")
       result = await extractFromImage(base64, file.type)
