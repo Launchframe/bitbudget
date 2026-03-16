@@ -173,9 +173,6 @@ export function formatBtcAmountFromSats(sats: number, unit: BtcDisplayUnit): str
   return formatBtcFixed(sats / SATS_PER_BTC)
 }
 
-export function isBtcUnit(unit: BtcDisplayUnit): boolean {
-  return unit === "btc"
-}
 
 export function formatNumber(n: number): string {
   return new Intl.NumberFormat("en-US").format(n)

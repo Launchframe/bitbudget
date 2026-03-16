@@ -4,10 +4,6 @@ import { useState, useMemo, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, formatBtcAmountFromSats, type TransactionType } from "@/lib/data"
-
-function BtcAmount({ value, unit, className }: { value: string; unit: string; className?: string }) {
-  return <span className={`${unit === "btc" ? "font-ibm-plex-mono" : ""} ${className ?? ""}`}>{value}</span>
-}
 import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -21,6 +17,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+
+function BtcAmount({ value, unit, className }: { value: string; unit: string; className?: string }) {
+  return <span className={`${unit === "btc" ? "font-ibm-plex-mono" : ""} ${className ?? ""}`}>{value}</span>
+}
 
 const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]

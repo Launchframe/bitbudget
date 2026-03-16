@@ -812,8 +812,9 @@ export default function OnboardingPage() {
                             value={fromMonthly(env.monthlyAllotment, env.allocationCadence) || ""}
                             onChange={e => {
                               const raw = parseFloat(e.target.value)
-                              const cadenceAmount = isNaN(raw) ? 0 : Math.max(0, raw)
-                              const monthly = Math.min(toMonthly(cadenceAmount, env.allocationCadence), sliderMax)
+                              const cadenceMax = fromMonthly(sliderMax, env.allocationCadence ?? "monthly")
+                              const cadenceAmount = isNaN(raw) ? 0 : Math.min(Math.max(0, raw), cadenceMax)
+                              const monthly = toMonthly(cadenceAmount, env.allocationCadence ?? "monthly")
                               setEnvelopes(prev => prev.map((en, i) =>
                                 i === idx ? { ...en, monthlyAllotment: monthly } : en,
                               ))

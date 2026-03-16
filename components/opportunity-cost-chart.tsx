@@ -48,7 +48,7 @@ function useIsMobile(breakpoint = 640) {
 }
 
 export function OpportunityCostChart() {
-  const { state, activeTransactions } = useApp()
+  const { activeTransactions } = useApp()
   const { getPriceOnDate, currentPrice, priceHistory } = useBtcPrices()
   const [activeRange, setActiveRange] = useState<RangeKey>("12m")
   const [startDate, setStartDate] = useState(() => getStartDateForRange("12m"))

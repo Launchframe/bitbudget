@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import { PRESET_ENVELOPE_COLORS } from "@/lib/constants"
 
-const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#EAB308", "#EC4899", "#06B6D4"]
+const ENVELOPE_COLORS = PRESET_ENVELOPE_COLORS
 
 interface ImportedTransaction {
   date: string

@@ -16,7 +16,7 @@ interface EnrichedTransaction extends Transaction {
 
 export function TopOpportunityCosts() {
   const { activeTransactions, state } = useApp()
-  const { calculateOpportunityCost, getPriceOnDate, currentPrice } = useBtcPrices()
+  const { calculateOpportunityCost, getPriceOnDate } = useBtcPrices()
   const [selectedTxn, setSelectedTxn] = useState<EnrichedTransaction | null>(null)
 
   const topTransactions = useMemo(() => {
