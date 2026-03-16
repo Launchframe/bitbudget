@@ -5,7 +5,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
-import { Info } from "lucide-react"
+import { Info, BarChart3 } from "lucide-react"
 
 type RangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "5y" | "all"
 
@@ -180,9 +180,14 @@ export function OpportunityCostChart() {
         )}
       </div>
 
-      {filteredData.length === 0 ? (
-        <div className="h-[250px] md:h-[350px] flex items-center justify-center text-muted-foreground text-sm">
-          No expense transactions to display.
+      {filteredData.length < 3 ? (
+        <div className="h-[250px] md:h-[350px] flex flex-col items-center justify-center gap-3 text-muted-foreground">
+          <BarChart3 className="h-8 w-8 text-[#333]" />
+          <p className="text-sm text-center max-w-xs">
+            {filteredData.length === 0
+              ? "No expense transactions to display."
+              : "Add a few more transactions to see your opportunity cost trends."}
+          </p>
         </div>
       ) : (
         <div className="h-[250px] md:h-[350px] w-full">
