@@ -505,8 +505,19 @@ export default function AuthPage() {
                 <X className="h-4 w-4" />
               </button>
 
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={s.img} alt={s.title} className="w-full aspect-[4/3] object-contain bg-[#1A1A1A]" />
+              <div className="px-4 pt-4 pb-2">
+                <p className="text-xs font-medium text-[#3B82F6] bg-[#3B82F6]/10 rounded-lg px-3 py-2 text-center">
+                  Follow these steps in your keys.band browser extension
+                </p>
+              </div>
+
+              <div className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={s.img} alt={s.title} className="w-full aspect-[4/3] object-contain bg-[#1A1A1A]" />
+                <span className="absolute top-2 left-2 text-[10px] font-medium bg-black/60 text-white/70 px-2 py-0.5 rounded-full">
+                  Screenshot
+                </span>
+              </div>
 
               <div className="p-5 flex flex-col gap-3">
                 <div className="flex items-center gap-2">
