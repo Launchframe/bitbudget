@@ -481,12 +481,12 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your Envelopes</h2>
-                  <p className="text-sm text-muted-foreground">Create spending categories</p>
+                  <p className="text-sm text-muted-foreground">Create your spending categories — you&apos;ll set budget amounts in the next step</p>
                 </div>
               </div>
 
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Add envelopes for each area you spend money on. Any income you don&apos;t allocate to an envelope will automatically go into <span className="text-[#22C55E] font-medium">Savings</span>.
+                Add envelopes for each area you spend money on. Don&apos;t worry about amounts yet — the next step lets you allocate your income across these envelopes. Anything you don&apos;t allocate automatically goes into <span className="text-[#22C55E] font-medium">Savings</span>.
               </p>
 
               <div className="flex flex-col gap-2">
