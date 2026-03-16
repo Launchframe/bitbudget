@@ -5,7 +5,7 @@ import { AlertTriangle } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { ENVELOPE_ICON_LIST, getEnvelopeIcon } from "@/lib/envelope-icons"
 
-const PRESET_COLORS = [
+export const PRESET_COLORS = [
   "#F7931A", "#3B82F6", "#10B981", "#8B5CF6",
   "#EF4444", "#EAB308", "#EC4899", "#06B6D4",
   "#F97316", "#84CC16", "#14B8A6", "#A855F7",

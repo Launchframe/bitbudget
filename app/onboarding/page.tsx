@@ -212,15 +212,20 @@ export default function OnboardingPage() {
   function addEnvelopeWithName(name: string) {
     if (!name.trim()) return
     const trimmed = name.trim()
-    setEnvelopes(prev => [
-      ...prev,
-      {
-        name: trimmed,
-        color: ENVELOPE_COLORS[prev.length % ENVELOPE_COLORS.length],
-        icon: suggestIcon(trimmed),
-        monthlyAllotment: 0,
-      },
-    ])
+    setEnvelopes(prev => {
+      const usedColors = new Set(prev.map(e => e.color))
+      const nextColor = ENVELOPE_COLORS.find(c => !usedColors.has(c))
+        ?? ENVELOPE_COLORS[prev.length % ENVELOPE_COLORS.length]
+      return [
+        ...prev,
+        {
+          name: trimmed,
+          color: nextColor,
+          icon: suggestIcon(trimmed),
+          monthlyAllotment: 0,
+        },
+      ]
+    })
     setNewEnvName("")
   }
 

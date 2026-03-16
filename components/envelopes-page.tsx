@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
+import { EnvelopeAppearancePicker, PRESET_COLORS } from "@/components/envelope-appearance-picker"
 import { suggestIcon, getEnvelopeIcon, filterSuggestions } from "@/lib/envelope-icons"
 
 export function EnvelopesPage() {
@@ -84,7 +84,9 @@ export function EnvelopesPage() {
     setEditingId(null)
     setFormName("")
     setFormAllotment("")
-    setFormColor("#F7931A")
+    const usedColors = new Set(activeEnvelopes.map(e => e.color))
+    const nextColor = PRESET_COLORS.find(c => !usedColors.has(c)) ?? "#F7931A"
+    setFormColor(nextColor)
     setFormIcon("Wallet")
     setIconCustomized(false)
     setDialogOpen(true)
