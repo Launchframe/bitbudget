@@ -136,6 +136,7 @@ export function NewTransactionDialog() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (modalView !== "main") return
     const errors: Record<string, string> = {}
     if (!payee.trim()) errors.payee = "Please enter a payee"
     if (!amount || parseFloat(amount) <= 0) errors.amount = "Please enter an amount"

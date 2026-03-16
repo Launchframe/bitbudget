@@ -59,6 +59,11 @@ export function OpportunityCostChart() {
     setStartDate(getStartDateForRange(key))
   }, [])
 
+  const hasAnyExpenses = useMemo(
+    () => activeTransactions.some((t) => t.type === "expense"),
+    [activeTransactions],
+  )
+
   const filteredData = useMemo(() => {
     if (!currentPrice || activeTransactions.length === 0 || priceHistory.length === 0) return []
 
@@ -195,11 +200,11 @@ export function OpportunityCostChart() {
         <div className="h-[250px] md:h-[350px] flex flex-col items-center justify-center gap-3 text-muted-foreground">
           <BarChart3 className="h-8 w-8 text-[#333]" />
           <p className="text-sm text-center max-w-xs">
-            {filteredData.length === 0
-              ? "No expense transactions to display."
-              : activeTransactions.length > 0 
-                ? "No transactions to display in this timeframe." 
-                : "Add more transactions to see your opportunity cost trends."
+            {activeTransactions.length === 0
+              ? "Add more transactions to see your opportunity cost trends."
+              : !hasAnyExpenses
+                ? "No expense transactions to display."
+                : "No expense transactions to display in this timeframe."
             }
           </p>
         </div>

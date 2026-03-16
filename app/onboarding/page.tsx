@@ -109,7 +109,12 @@ export default function OnboardingPage() {
         }
         if (saved.income) setIncome(saved.income)
         if (saved.cadence) setCadence(saved.cadence)
-        if (saved.envelopes?.length) setEnvelopes(saved.envelopes)
+        if (saved.envelopes?.length) setEnvelopes(
+          saved.envelopes.map((e: { allocationCadence?: string }) => ({
+            ...e,
+            allocationCadence: e.allocationCadence ?? "monthly",
+          }))
+        )
         if (saved.allocSnapshot) allocSnapshotRef.current = saved.allocSnapshot
       }
     } catch { /* ignore corrupt data */ }
@@ -818,7 +823,7 @@ export default function OnboardingPage() {
                             className="w-20 bg-transparent border-b border-[#333] text-right text-foreground text-sm font-semibold py-0.5 focus:outline-none focus:border-[#F7931A] transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           />
                           <select
-                            value={env.allocationCadence}
+                            value={env.allocationCadence ?? "monthly"}
                             onChange={e => {
                               const newCadence = e.target.value as "weekly" | "biweekly" | "monthly"
                               setEnvelopes(prev => prev.map((en, i) =>

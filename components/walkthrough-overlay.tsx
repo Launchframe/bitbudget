@@ -36,7 +36,7 @@ const STORAGE_KEY = "bitbudget-walkthrough-completed"
 export function WalkthroughOverlay() {
   const [currentStep, setCurrentStep] = useState(0)
   const [visible, setVisible] = useState(false)
-  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 })
+  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0, centred: false })
   const tooltipRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -51,16 +51,23 @@ export function WalkthroughOverlay() {
     const step = STEPS[currentStep]
     const el = document.querySelector(`[data-walkthrough="${step.target}"]`)
     if (!el) {
-      if (step.target === "dashboard-area") {
-        setTooltipPos({ top: 200, left: window.innerWidth / 2 })
+      // Fallback positions when the target element doesn't exist (e.g. on mobile where sidebar items are hidden)
+      const cx = window.innerWidth / 2
+      const cy = window.innerHeight / 2
+      if (step.target === "new-transaction") {
+        setTooltipPos({ top: window.innerHeight - 180, left: cx, centred: true })
+      } else if (step.target === "dashboard-area") {
+        setTooltipPos({ top: 200, left: cx, centred: true })
+      } else {
+        setTooltipPos({ top: cy - 80, left: cx, centred: true })
       }
       return
     }
     const rect = el.getBoundingClientRect()
     if (step.position === "right") {
-      setTooltipPos({ top: rect.top + rect.height / 2, left: rect.right + 16 })
+      setTooltipPos({ top: rect.top + rect.height / 2, left: rect.right + 16, centred: false })
     } else {
-      setTooltipPos({ top: rect.bottom + 16, left: rect.left + rect.width / 2 })
+      setTooltipPos({ top: rect.bottom + 16, left: rect.left + rect.width / 2, centred: false })
     }
   }, [currentStep])
 
@@ -98,7 +105,11 @@ export function WalkthroughOverlay() {
         style={{
           top: tooltipPos.top,
           left: tooltipPos.left,
-          transform: step.position === "bottom" ? "translateX(-50%)" : "translateY(-50%)",
+          transform: tooltipPos.centred
+            ? "translate(-50%, -50%)"
+            : step.position === "bottom"
+              ? "translateX(-50%)"
+              : "translateY(-50%)",
         }}
       >
         <button
