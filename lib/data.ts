@@ -152,19 +152,29 @@ export function formatSats(sats: number): string {
 
 const SATS_PER_BTC = 100_000_000
 
+function formatBtcFixed(btcValue: number): string {
+  const s = btcValue.toFixed(8)
+  // Insert a space before the last 4 decimal digits: 0.00000000 → 0.0000 0000
+  return "₿" + s.slice(0, -4) + "\u2009" + s.slice(-4)
+}
+
 export function formatBtcAmount(btcValue: number, unit: BtcDisplayUnit): string {
   if (unit === "sats") {
     const sats = Math.round(btcValue * SATS_PER_BTC)
     return new Intl.NumberFormat("en-US").format(sats) + " sats"
   }
-  return btcValue.toFixed(8) + " BTC"
+  return formatBtcFixed(btcValue)
 }
 
 export function formatBtcAmountFromSats(sats: number, unit: BtcDisplayUnit): string {
   if (unit === "sats") {
     return new Intl.NumberFormat("en-US").format(sats) + " sats"
   }
-  return (sats / SATS_PER_BTC).toFixed(8) + " BTC"
+  return formatBtcFixed(sats / SATS_PER_BTC)
+}
+
+export function isBtcUnit(unit: BtcDisplayUnit): boolean {
+  return unit === "btc"
 }
 
 export function formatNumber(n: number): string {

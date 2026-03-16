@@ -49,7 +49,7 @@ function useIsMobile(breakpoint = 640) {
 
 export function OpportunityCostChart() {
   const { state, activeTransactions } = useApp()
-  const { getPriceOnDate, currentPrice } = useBtcPrices()
+  const { getPriceOnDate, currentPrice, priceHistory } = useBtcPrices()
   const [activeRange, setActiveRange] = useState<RangeKey>("12m")
   const [startDate, setStartDate] = useState(() => getStartDateForRange("12m"))
   const isMobile = useIsMobile()
@@ -60,7 +60,7 @@ export function OpportunityCostChart() {
   }, [])
 
   const filteredData = useMemo(() => {
-    if (!currentPrice || activeTransactions.length === 0) return []
+    if (!currentPrice || activeTransactions.length === 0 || priceHistory.length === 0) return []
 
     const expenses = activeTransactions
       .filter((t) => t.type === "expense" && t.date.split("T")[0] >= startDate)
@@ -68,41 +68,52 @@ export function OpportunityCostChart() {
 
     if (expenses.length === 0) return []
 
-    const dailyMap = new Map<string, { usd: number; sats: number }>()
-
+    const dailyTxns = new Map<string, { usd: number; sats: number }>()
     for (const txn of expenses) {
       const day = txn.date.split("T")[0]
-      const entry = dailyMap.get(day) ?? { usd: 0, sats: 0 }
+      const entry = dailyTxns.get(day) ?? { usd: 0, sats: 0 }
       entry.usd += txn.amount
-
       if (txn.satsAmount != null) {
         entry.sats += txn.satsAmount
       } else {
         const price = getPriceOnDate(day)
         if (price > 0) entry.sats += Math.round((txn.amount / price) * SATS_PER_BTC)
       }
-
-      dailyMap.set(day, entry)
+      dailyTxns.set(day, entry)
     }
 
-    const sortedDays = Array.from(dailyMap.keys()).sort()
+    const txnDays = Array.from(dailyTxns.keys()).sort()
+    const firstTxnDate = txnDays[0]
+    const today = new Date().toISOString().split("T")[0]
+
+    const priceDates = priceHistory
+      .filter(p => p.date >= firstTxnDate && p.date <= today)
+      .map(p => p.date)
+
+    const allDates = new Set([...priceDates, ...txnDays])
+    const sortedDates = Array.from(allDates).sort()
 
     let cumUsd = 0
     let cumSats = 0
+    let txnIdx = 0
     const points: { date: string; spent: number; btcValue: number }[] = []
 
-    for (const day of sortedDays) {
-      const { usd, sats } = dailyMap.get(day)!
-      cumUsd += usd
-      cumSats += sats
+    for (const day of sortedDates) {
+      while (txnIdx < txnDays.length && txnDays[txnIdx] <= day) {
+        const d = dailyTxns.get(txnDays[txnIdx])!
+        cumUsd += d.usd
+        cumSats += d.sats
+        txnIdx++
+      }
 
-      const btcValue = (cumSats / SATS_PER_BTC) * currentPrice
+      const priceOnDay = getPriceOnDate(day)
+      const btcValue = (cumSats / SATS_PER_BTC) * priceOnDay
 
       points.push({ date: day, spent: Math.round(cumUsd), btcValue: Math.round(btcValue) })
     }
 
     return points
-  }, [activeTransactions, currentPrice, getPriceOnDate, startDate])
+  }, [activeTransactions, currentPrice, priceHistory, getPriceOnDate, startDate])
 
   const yDomain = useMemo(() => {
     if (filteredData.length === 0) return [0, 100]
@@ -186,7 +197,10 @@ export function OpportunityCostChart() {
           <p className="text-sm text-center max-w-xs">
             {filteredData.length === 0
               ? "No expense transactions to display."
-              : "Add a few more transactions to see your opportunity cost trends."}
+              : activeTransactions.length > 0 
+                ? "No transactions to display in this timeframe." 
+                : "Add more transactions to see your opportunity cost trends."
+            }
           </p>
         </div>
       ) : (

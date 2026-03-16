@@ -4,6 +4,10 @@ import { useState, useMemo, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, formatBtcAmountFromSats, type TransactionType } from "@/lib/data"
+
+function BtcAmount({ value, unit, className }: { value: string; unit: string; className?: string }) {
+  return <span className={`${unit === "btc" ? "font-ibm-plex-mono" : ""} ${className ?? ""}`}>{value}</span>
+}
 import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -149,10 +153,12 @@ export function TransactionsPage() {
           {hasActiveFilter && expenseTxns.length > 0 && (
             <>
               <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">BTC Equivalent</span>
-                <span className="text-lg font-semibold text-foreground">
-                  {formatBtcAmountFromSats(totalSats, state.btcDisplayUnit)}
-                </span>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">You could have stacked</span>
+                <BtcAmount
+                  value={formatBtcAmountFromSats(totalSats, state.btcDisplayUnit)}
+                  unit={state.btcDisplayUnit}
+                  className="text-lg font-semibold text-foreground"
+                />
               </div>
               <div className="flex flex-col gap-0.5">
                 <span className="text-xs text-muted-foreground uppercase tracking-wider">Opportunity Cost</span>
@@ -389,7 +395,7 @@ export function TransactionsPage() {
                       {formatUsd(txn.amount)}
                     </td>
                     <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
-                      {txn.satsAmount != null ? formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit) : "—"}
+                      {txn.satsAmount != null ? <BtcAmount value={formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit)} unit={state.btcDisplayUnit} /> : "—"}
                     </td>
                     <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A] hidden sm:table-cell">
                       {txn.type === "expense" ? formatUsd(opCost) : "—"}

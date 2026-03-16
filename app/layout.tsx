@@ -1,10 +1,15 @@
 import type { Metadata, Viewport } from "next"
-import { Space_Grotesk } from "next/font/google"
+import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { SessionProvider } from "@/components/session-provider"
 import "./globals.css"
 
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"] })
+const ibmPlexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-ibm-plex-mono",
+})
 
 export const metadata: Metadata = {
   title: "BitBudget - Bitcoin Opportunity Cost Tracker",
@@ -28,7 +33,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`${spaceGrotesk.className} antialiased`}>
+      <body className={`${spaceGrotesk.className} ${ibmPlexMono.variable} antialiased`}>
         <SessionProvider>{children}</SessionProvider>
         <Analytics />
       </body>

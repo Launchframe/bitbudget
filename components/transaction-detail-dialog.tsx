@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Pencil, Trash2, Repeat, X } from "lucide-react"
+import { Pencil, Trash2, Repeat, X, Bitcoin } from "lucide-react"
 
 interface TransactionDetailDialogProps {
   transaction: Transaction | null
@@ -110,35 +110,15 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] max-w-md">
+      <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] max-w-md pb-0 overflow-hidden">
         <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle className="text-foreground">
-              {editing ? "Edit Transaction" : "Transaction Details"}
-            </DialogTitle>
-            {!editing && (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setEditing(true)}
-                  className="p-1.5 rounded-lg hover:bg-[#1A1A1A] text-muted-foreground hover:text-foreground transition-colors"
-                  aria-label="Edit transaction"
-                >
-                  <Pencil className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={handleDelete}
-                  className="p-1.5 rounded-lg hover:bg-[#1A1A1A] text-muted-foreground hover:text-[#EF4444] transition-colors"
-                  aria-label="Delete transaction"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-          </div>
+          <DialogTitle className="text-foreground">
+            {editing ? "Edit Transaction" : "Transaction Details"}
+          </DialogTitle>
         </DialogHeader>
 
         {editing ? (
-          <div className="flex flex-col gap-4 pt-2">
+          <div className="flex flex-col gap-4 pt-2 max-h-[70vh] overflow-y-auto pr-1">
             <div className="flex flex-col gap-2">
               <Label className="text-muted-foreground text-xs uppercase tracking-wider">Type</Label>
               <div className="flex rounded-lg bg-[#1A1A1A] p-1">
@@ -287,10 +267,21 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
             btcEquiv={btcEquiv}
             btcValueToday={btcValueToday}
             currentPrice={currentPrice}
+            onDelete={handleDelete}
+            onEdit={() => setEditing(true)}
           />
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <span className="text-sm text-muted-foreground shrink-0">{label}</span>
+      <span className="text-sm text-foreground text-right">{value}</span>
+    </div>
   )
 }
 
@@ -301,6 +292,8 @@ function ViewMode({
   btcEquiv,
   btcValueToday,
   currentPrice,
+  onDelete,
+  onEdit,
 }: {
   transaction: Transaction
   envelope?: { name: string; color: string; monthlyAllotment: number }
@@ -308,98 +301,133 @@ function ViewMode({
   btcEquiv: number
   btcValueToday: number
   currentPrice: number | null
+  onDelete: () => void
+  onEdit: () => void
 }) {
   const { state } = useApp()
   const multiplier = transaction.amount > 0 && btcValueToday > 0 ? btcValueToday / transaction.amount : 0
   const gained = multiplier >= 1
-
-  const rows: { label: string; value: React.ReactNode }[] = [
-    {
-      label: "Date",
-      value: new Date(transaction.date).toLocaleDateString("en-US", {
-        weekday: "long", month: "long", day: "numeric", year: "numeric",
-      }),
-    },
-    {
-      label: "Type",
-      value: (
-        <Badge
-          variant="outline"
-          className={
-            transaction.type === "expense"
-              ? "border-[#F7931A]/30 text-[#F7931A] bg-[#F7931A]/5"
-              : "border-[#22C55E]/30 text-[#22C55E] bg-[#22C55E]/5"
-          }
-        >
-          {transaction.type === "expense" ? "Expense" : "Credit"}
-          {transaction.recurringId && (
-            <span className="ml-1 inline-flex"><Repeat className="h-3 w-3" /></span>
-          )}
-        </Badge>
-      ),
-    },
-    { label: "Amount", value: <span className="font-semibold">{formatUsd(transaction.amount)}</span> },
-    ...(envelope
-      ? [{
-          label: "Envelope",
-          value: (
-            <span className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: envelope.color }} />
-              {envelope.name}
-            </span>
-          ),
-        }]
-      : []),
-    ...(transaction.tags.length > 0
-      ? [{
-          label: "Tags",
-          value: (
-            <div className="flex flex-wrap gap-1 justify-end">
-              {transaction.tags.map((tag) => (
-                <span key={tag} className="text-xs bg-[#1A1A1A] text-muted-foreground px-2 py-0.5 rounded-full">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          ),
-        }]
-      : []),
-    ...(transaction.notes
-      ? [{ label: "Notes", value: <span className="text-sm text-muted-foreground italic">{transaction.notes}</span> }]
-      : []),
-  ]
-
-  if (transaction.type === "expense" && btcPrice > 0) {
-    rows.push(
-      { label: "BTC Price at Time", value: formatUsd(btcPrice) },
-      { label: "BTC Equivalent", value: <span className="text-sm">{formatBtcAmount(btcEquiv, state.btcDisplayUnit)}</span> },
-    )
-
-    if (currentPrice) {
-      rows.push(
-        {
-          label: "BTC Value Today",
-          value: (
-            <span className={`font-semibold ${gained ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
-              {formatUsd(btcValueToday)}
-              <span className="ml-1.5 text-xs font-normal opacity-80">
-                ({gained ? "+" : ""}{((multiplier - 1) * 100).toFixed(0)}%)
-              </span>
-            </span>
-          ),
-        },
-      )
-    }
-  }
+  const showBtc = transaction.type === "expense" && btcPrice > 0
 
   return (
-    <div className="flex flex-col gap-3.5 pt-2">
-      {rows.map((row) => (
-        <div key={row.label} className="flex items-start justify-between gap-4">
-          <span className="text-sm text-muted-foreground shrink-0">{row.label}</span>
-          <span className="text-sm text-foreground text-right">{row.value}</span>
+    <div className="flex flex-col gap-4 pt-2">
+      {/* Transaction details */}
+      <div className="flex flex-col gap-3.5">
+        <DetailRow
+          label="Payee"
+          value={<span className="font-medium">{transaction.payee}</span>}
+        />
+        <DetailRow
+          label="Date"
+          value={new Date(transaction.date + "T00:00:00").toLocaleDateString("en-US", {
+            weekday: "long", month: "long", day: "numeric", year: "numeric",
+          })}
+        />
+        <DetailRow
+          label="Type"
+          value={
+            <Badge
+              variant="outline"
+              className={
+                transaction.type === "expense"
+                  ? "border-[#F7931A]/30 text-[#F7931A] bg-[#F7931A]/5"
+                  : "border-[#22C55E]/30 text-[#22C55E] bg-[#22C55E]/5"
+              }
+            >
+              {transaction.type === "expense" ? "Expense" : "Credit"}
+              {transaction.recurringId && (
+                <span className="ml-1 inline-flex"><Repeat className="h-3 w-3" /></span>
+              )}
+            </Badge>
+          }
+        />
+        <DetailRow
+          label="Amount"
+          value={<span className="font-semibold">{formatUsd(transaction.amount)}</span>}
+        />
+        {envelope && (
+          <DetailRow
+            label="Envelope"
+            value={
+              <span className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: envelope.color }} />
+                {envelope.name}
+              </span>
+            }
+          />
+        )}
+        {transaction.tags.length > 0 && (
+          <DetailRow
+            label="Tags"
+            value={
+              <div className="flex flex-wrap gap-1 justify-end">
+                {transaction.tags.map((tag) => (
+                  <span key={tag} className="text-xs bg-[#1A1A1A] text-muted-foreground px-2 py-0.5 rounded-full">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            }
+          />
+        )}
+        {transaction.notes && (
+          <DetailRow
+            label="Notes"
+            value={<span className="text-sm text-muted-foreground italic">{transaction.notes}</span>}
+          />
+        )}
+      </div>
+
+      {/* BTC section */}
+      {showBtc && (
+        <div className="rounded-xl border border-[#F7931A]/30 bg-[#F7931A]/5 p-4 flex flex-col gap-3">
+          <div className="flex items-center gap-2 mb-0.5">
+            <Bitcoin className="h-3.5 w-3.5 text-[#F7931A]" />
+            <span className="text-xs font-medium text-[#F7931A] uppercase tracking-wider">Bitcoin</span>
+          </div>
+
+          <DetailRow label="Price at time" value={formatUsd(btcPrice)} />
+
+          <DetailRow
+            label="Could have stacked"
+            value={
+              <span className={`font-medium${state.btcDisplayUnit === "btc" ? " font-ibm-plex-mono" : ""}`}>
+                {formatBtcAmount(btcEquiv, state.btcDisplayUnit)}
+              </span>
+            }
+          />
+
+          {currentPrice && (
+            <DetailRow
+              label="Value today"
+              value={
+                <span className={`font-semibold ${gained ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
+                  {formatUsd(btcValueToday)}
+                  <span className="ml-1.5 text-xs font-normal opacity-80">
+                    ({gained ? "+" : ""}{((multiplier - 1) * 100).toFixed(0)}%)
+                  </span>
+                </span>
+              }
+            />
+          )}
         </div>
-      ))}
+      )}
+
+      <div className="flex items-center border-t border-[#1A1A1A] mt-1 -mx-6">
+        <button
+          onClick={onEdit}
+          className="flex-1 flex items-center justify-center gap-1.5 py-4 text-xs text-muted-foreground hover:text-foreground hover:bg-[#1A1A1A] transition-colors"
+        >
+          <Pencil className="h-3 w-3" /> Edit
+        </button>
+        <div className="w-px h-5 bg-[#1A1A1A]" />
+        <button
+          onClick={onDelete}
+          className="flex-1 flex items-center justify-center gap-1.5 py-4 text-xs text-muted-foreground hover:text-[#EF4444] hover:bg-[#1A1A1A] transition-colors"
+        >
+          <Trash2 className="h-3 w-3" /> Delete
+        </button>
+      </div>
     </div>
   )
 }

@@ -255,7 +255,7 @@ export function EnvelopeDetailPage() {
                       {formatUsd(txn.amount)}
                     </td>
                     <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
-                      {txn.satsAmount != null ? formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit) : "—"}
+                      {txn.satsAmount != null ? <span className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}>{formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit)}</span> : "—"}
                     </td>
                     <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A] hidden sm:table-cell">
                       {txn.type === "expense" ? formatUsd(opCost) : "--"}
