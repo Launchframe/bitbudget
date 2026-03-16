@@ -48,6 +48,7 @@ export function NewTransactionDialog() {
   const [cadence, setCadence] = useState<Cadence>("monthly")
   const [endDate, setEndDate] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
 
   type ModalView = "main" | "recurring" | "tags"
   const [modalView, setModalView] = useState<ModalView>("main")
@@ -130,11 +131,20 @@ export function NewTransactionDialog() {
     setCadence("monthly")
     setEndDate("")
     setModalView("main")
+    setValidationErrors({})
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!payee.trim() || !amount || !envelopeId) return
+    const errors: Record<string, string> = {}
+    if (!payee.trim()) errors.payee = "Please enter a payee"
+    if (!amount || parseFloat(amount) <= 0) errors.amount = "Please enter an amount"
+    if (!envelopeId) errors.envelope = "Please select an envelope"
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors)
+      return
+    }
+    setValidationErrors({})
 
     if (isRecurring) {
       setSubmitting(true)
@@ -243,7 +253,11 @@ export function NewTransactionDialog() {
                   ref={payeeInputRef}
                   id="payee"
                   value={payee}
-                  onChange={(e) => { setPayee(e.target.value); setShowSuggestions(true) }}
+                  onChange={(e) => {
+                    setPayee(e.target.value)
+                    if (validationErrors.payee) setValidationErrors(prev => { const next = { ...prev }; delete next.payee; return next })
+                    setShowSuggestions(true)
+                  }}
                   onFocus={() => { if (payee.trim()) setShowSuggestions(true) }}
                   placeholder={type === "expense" ? "Who did you pay?" : "Who paid you?"}
                   className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
@@ -276,6 +290,9 @@ export function NewTransactionDialog() {
                     })}
                   </div>
                 )}
+                {validationErrors.payee && (
+                  <p className="text-xs text-red-400 mt-1">{validationErrors.payee}</p>
+                )}
               </div>
 
               {/* Amount */}
@@ -289,18 +306,31 @@ export function NewTransactionDialog() {
                     min="0.01"
                     step="0.01"
                     value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
+                    onChange={(e) => {
+                      setAmount(e.target.value)
+                      if (validationErrors.amount) setValidationErrors(prev => { const next = { ...prev }; delete next.amount; return next })
+                    }}
                     placeholder="0.00"
                     className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7"
                     required
                   />
                 </div>
+                {validationErrors.amount && (
+                  <p className="text-xs text-red-400 mt-1">{validationErrors.amount}</p>
+                )}
               </div>
 
               {/* Envelope */}
               <div className="flex flex-col gap-2">
                 <Label className="text-muted-foreground text-xs uppercase tracking-wider">Envelope</Label>
-                <Select value={envelopeId} onValueChange={setEnvelopeId} required>
+                <Select
+                  value={envelopeId}
+                  onValueChange={(v) => {
+                    setEnvelopeId(v)
+                    if (validationErrors.envelope) setValidationErrors(prev => { const next = { ...prev }; delete next.envelope; return next })
+                  }}
+                  required
+                >
                   <SelectTrigger className="bg-[#1A1A1A] border-[#333] text-foreground">
                     <SelectValue placeholder="Select an envelope" />
                   </SelectTrigger>
@@ -315,6 +345,9 @@ export function NewTransactionDialog() {
                     ))}
                   </SelectContent>
                 </Select>
+                {validationErrors.envelope && (
+                  <p className="text-xs text-red-400 mt-1">{validationErrors.envelope}</p>
+                )}
               </div>
 
               {/* Date */}
