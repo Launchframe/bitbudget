@@ -8,7 +8,7 @@ import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { getEnvelopeIcon } from "@/lib/envelope-icons"
-import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X } from "lucide-react"
+import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X, Plus } from "lucide-react"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import {
   Select,
@@ -22,7 +22,7 @@ const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 export function TransactionsPage() {
-  const { state, activeEnvelopes, activeTransactions, navigateTo, deleteTransaction, highlightTransactionId, transactionEnvelopeFilter, clearTransactionEnvelopeFilter } = useApp()
+  const { state, activeEnvelopes, activeTransactions, navigateTo, deleteTransaction, highlightTransactionId, transactionEnvelopeFilter, clearTransactionEnvelopeFilter, setTransactionDialogOpen } = useApp()
   const { calculateOpportunityCost } = useBtcPrices()
 
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
@@ -161,6 +161,13 @@ export function TransactionsPage() {
             </>
           )}
         </div>
+        <button
+          onClick={() => setTransactionDialogOpen(true)}
+          className="self-start flex items-center gap-2 mt-3 px-4 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          New Transaction
+        </button>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -171,7 +178,7 @@ export function TransactionsPage() {
             <Input
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); setPage(1) }}
-              placeholder="Search payee..."
+              placeholder="Search existing transactions..."
               className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground placeholder:text-[#555] pl-10"
             />
           </div>
