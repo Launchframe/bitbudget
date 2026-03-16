@@ -322,7 +322,7 @@ export default function OnboardingPage() {
         <Progress value={progress} className="h-1.5" />
 
         <div className="bg-[#0D0D0D] rounded-2xl p-8">
-          {restoredSession && step !== "security" && step !== "complete" && (
+          {restoredSession && !isNostr && step !== "security" && step !== "complete" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
               <div className="flex flex-col gap-1.5 flex-1 min-w-0">
