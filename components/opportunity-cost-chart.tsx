@@ -5,7 +5,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
-import { Info } from "lucide-react"
+import { Info, BarChart3 } from "lucide-react"
 
 type RangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "5y" | "all"
 
@@ -48,8 +48,8 @@ function useIsMobile(breakpoint = 640) {
 }
 
 export function OpportunityCostChart() {
-  const { state, activeTransactions } = useApp()
-  const { getPriceOnDate, currentPrice } = useBtcPrices()
+  const { activeTransactions } = useApp()
+  const { getPriceOnDate, currentPrice, priceHistory } = useBtcPrices()
   const [activeRange, setActiveRange] = useState<RangeKey>("12m")
   const [startDate, setStartDate] = useState(() => getStartDateForRange("12m"))
   const isMobile = useIsMobile()
@@ -59,8 +59,13 @@ export function OpportunityCostChart() {
     setStartDate(getStartDateForRange(key))
   }, [])
 
+  const hasAnyExpenses = useMemo(
+    () => activeTransactions.some((t) => t.type === "expense"),
+    [activeTransactions],
+  )
+
   const filteredData = useMemo(() => {
-    if (!currentPrice || activeTransactions.length === 0) return []
+    if (!currentPrice || activeTransactions.length === 0 || priceHistory.length === 0) return []
 
     const expenses = activeTransactions
       .filter((t) => t.type === "expense" && t.date.split("T")[0] >= startDate)
@@ -68,41 +73,52 @@ export function OpportunityCostChart() {
 
     if (expenses.length === 0) return []
 
-    const dailyMap = new Map<string, { usd: number; sats: number }>()
-
+    const dailyTxns = new Map<string, { usd: number; sats: number }>()
     for (const txn of expenses) {
       const day = txn.date.split("T")[0]
-      const entry = dailyMap.get(day) ?? { usd: 0, sats: 0 }
+      const entry = dailyTxns.get(day) ?? { usd: 0, sats: 0 }
       entry.usd += txn.amount
-
       if (txn.satsAmount != null) {
         entry.sats += txn.satsAmount
       } else {
         const price = getPriceOnDate(day)
         if (price > 0) entry.sats += Math.round((txn.amount / price) * SATS_PER_BTC)
       }
-
-      dailyMap.set(day, entry)
+      dailyTxns.set(day, entry)
     }
 
-    const sortedDays = Array.from(dailyMap.keys()).sort()
+    const txnDays = Array.from(dailyTxns.keys()).sort()
+    const firstTxnDate = txnDays[0]
+    const today = new Date().toISOString().split("T")[0]
+
+    const priceDates = priceHistory
+      .filter(p => p.date >= firstTxnDate && p.date <= today)
+      .map(p => p.date)
+
+    const allDates = new Set([...priceDates, ...txnDays])
+    const sortedDates = Array.from(allDates).sort()
 
     let cumUsd = 0
     let cumSats = 0
+    let txnIdx = 0
     const points: { date: string; spent: number; btcValue: number }[] = []
 
-    for (const day of sortedDays) {
-      const { usd, sats } = dailyMap.get(day)!
-      cumUsd += usd
-      cumSats += sats
+    for (const day of sortedDates) {
+      while (txnIdx < txnDays.length && txnDays[txnIdx] <= day) {
+        const d = dailyTxns.get(txnDays[txnIdx])!
+        cumUsd += d.usd
+        cumSats += d.sats
+        txnIdx++
+      }
 
-      const btcValue = (cumSats / SATS_PER_BTC) * currentPrice
+      const priceOnDay = getPriceOnDate(day)
+      const btcValue = (cumSats / SATS_PER_BTC) * priceOnDay
 
       points.push({ date: day, spent: Math.round(cumUsd), btcValue: Math.round(btcValue) })
     }
 
     return points
-  }, [activeTransactions, currentPrice, getPriceOnDate, startDate])
+  }, [activeTransactions, currentPrice, priceHistory, getPriceOnDate, startDate])
 
   const yDomain = useMemo(() => {
     if (filteredData.length === 0) return [0, 100]
@@ -180,9 +196,17 @@ export function OpportunityCostChart() {
         )}
       </div>
 
-      {filteredData.length === 0 ? (
-        <div className="h-[250px] md:h-[350px] flex items-center justify-center text-muted-foreground text-sm">
-          No expense transactions to display.
+      {filteredData.length < 3 ? (
+        <div className="h-[250px] md:h-[350px] flex flex-col items-center justify-center gap-3 text-muted-foreground">
+          <BarChart3 className="h-8 w-8 text-[#333]" />
+          <p className="text-sm text-center max-w-xs">
+            {activeTransactions.length === 0
+              ? "Add more transactions to see your opportunity cost trends."
+              : !hasAnyExpenses
+                ? "No expense transactions to display."
+                : "No expense transactions to display in this timeframe."
+            }
+          </p>
         </div>
       ) : (
         <div className="h-[250px] md:h-[350px] w-full">

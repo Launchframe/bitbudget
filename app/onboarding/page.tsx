@@ -30,6 +30,22 @@ interface DraftEnvelope {
   color: string
   icon: string
   monthlyAllotment: number
+  allocationCadence: "weekly" | "biweekly" | "monthly"
+}
+
+const CADENCE_MULTIPLIERS: Record<string, number> = {
+  weekly: 52 / 12,
+  biweekly: 26 / 12,
+  monthly: 1,
+}
+
+function toMonthly(amount: number, cadence: string): number {
+  return Math.round(amount * (CADENCE_MULTIPLIERS[cadence] ?? 1) * 100) / 100
+}
+
+function fromMonthly(monthly: number, cadence: string): number {
+  const mult = CADENCE_MULTIPLIERS[cadence] ?? 1
+  return Math.round((monthly / mult) * 100) / 100
 }
 
 export default function OnboardingPage() {
@@ -50,9 +66,9 @@ export default function OnboardingPage() {
 
   // Envelopes
   const [envelopes, setEnvelopes] = useState<DraftEnvelope[]>([
-    { name: "Rent", color: ENVELOPE_COLORS[0], icon: suggestIcon("Rent"), monthlyAllotment: 0 },
-    { name: "Food", color: ENVELOPE_COLORS[2], icon: suggestIcon("Food"), monthlyAllotment: 0 },
-    { name: "Transportation", color: ENVELOPE_COLORS[4], icon: suggestIcon("Transportation"), monthlyAllotment: 0 },
+    { name: "Rent", color: ENVELOPE_COLORS[0], icon: suggestIcon("Rent"), monthlyAllotment: 0, allocationCadence: "monthly" },
+    { name: "Food", color: ENVELOPE_COLORS[2], icon: suggestIcon("Food"), monthlyAllotment: 0, allocationCadence: "monthly" },
+    { name: "Transportation", color: ENVELOPE_COLORS[4], icon: suggestIcon("Transportation"), monthlyAllotment: 0, allocationCadence: "monthly" },
   ])
   const [newEnvName, setNewEnvName] = useState("")
   const [showEnvSuggestions, setShowEnvSuggestions] = useState(false)
@@ -93,7 +109,12 @@ export default function OnboardingPage() {
         }
         if (saved.income) setIncome(saved.income)
         if (saved.cadence) setCadence(saved.cadence)
-        if (saved.envelopes?.length) setEnvelopes(saved.envelopes)
+        if (saved.envelopes?.length) setEnvelopes(
+          saved.envelopes.map((e: { allocationCadence?: string }) => ({
+            ...e,
+            allocationCadence: e.allocationCadence ?? "monthly",
+          }))
+        )
         if (saved.allocSnapshot) allocSnapshotRef.current = saved.allocSnapshot
       }
     } catch { /* ignore corrupt data */ }
@@ -212,15 +233,21 @@ export default function OnboardingPage() {
   function addEnvelopeWithName(name: string) {
     if (!name.trim()) return
     const trimmed = name.trim()
-    setEnvelopes(prev => [
-      ...prev,
-      {
-        name: trimmed,
-        color: ENVELOPE_COLORS[prev.length % ENVELOPE_COLORS.length],
-        icon: suggestIcon(trimmed),
-        monthlyAllotment: 0,
-      },
-    ])
+    setEnvelopes(prev => {
+      const usedColors = new Set(prev.map(e => e.color))
+      const nextColor = ENVELOPE_COLORS.find(c => !usedColors.has(c))
+        ?? ENVELOPE_COLORS[prev.length % ENVELOPE_COLORS.length]
+      return [
+        ...prev,
+        {
+          name: trimmed,
+          color: nextColor,
+          icon: suggestIcon(trimmed),
+          monthlyAllotment: 0,
+          allocationCadence: "monthly",
+        },
+      ]
+    })
     setNewEnvName("")
   }
 
@@ -322,7 +349,7 @@ export default function OnboardingPage() {
         <Progress value={progress} className="h-1.5" />
 
         <div className="bg-[#0D0D0D] rounded-2xl p-8">
-          {restoredSession && step !== "security" && step !== "complete" && (
+          {restoredSession && !isNostr && step !== "security" && step !== "complete" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
               <div className="flex flex-col gap-1.5 flex-1 min-w-0">
@@ -481,12 +508,12 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your Envelopes</h2>
-                  <p className="text-sm text-muted-foreground">Create spending categories</p>
+                  <p className="text-sm text-muted-foreground">Create your spending categories — you&apos;ll set budget amounts in the next step</p>
                 </div>
               </div>
 
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Add envelopes for each area you spend money on. Any income you don&apos;t allocate to an envelope will automatically go into <span className="text-[#22C55E] font-medium">Savings</span>.
+                Add envelopes for each area you spend money on. Don&apos;t worry about amounts yet — the next step lets you allocate your income across these envelopes. Anything you don&apos;t allocate automatically goes into <span className="text-[#22C55E] font-medium">Savings</span>.
               </p>
 
               <div className="flex flex-col gap-2">
@@ -778,22 +805,38 @@ export default function OnboardingPage() {
                           <Icon className="h-4 w-4" style={{ color: env.color }} />
                         </div>
                         <span className="flex-1 text-sm font-medium text-foreground truncate">{env.name}</span>
-                        <div className="flex items-baseline gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <span className="text-xs text-muted-foreground">$</span>
                           <input
                             type="number"
-                            value={env.monthlyAllotment || ""}
+                            value={fromMonthly(env.monthlyAllotment, env.allocationCadence) || ""}
                             onChange={e => {
                               const raw = parseFloat(e.target.value)
-                              const clamped = isNaN(raw) ? 0 : Math.min(Math.max(0, raw), sliderMax)
+                              const cadenceMax = fromMonthly(sliderMax, env.allocationCadence ?? "monthly")
+                              const cadenceAmount = isNaN(raw) ? 0 : Math.min(Math.max(0, raw), cadenceMax)
+                              const monthly = toMonthly(cadenceAmount, env.allocationCadence ?? "monthly")
                               setEnvelopes(prev => prev.map((en, i) =>
-                                i === idx ? { ...en, monthlyAllotment: clamped } : en,
+                                i === idx ? { ...en, monthlyAllotment: monthly } : en,
                               ))
                             }}
                             placeholder="0"
                             min="0"
                             className="w-20 bg-transparent border-b border-[#333] text-right text-foreground text-sm font-semibold py-0.5 focus:outline-none focus:border-[#F7931A] transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           />
+                          <select
+                            value={env.allocationCadence ?? "monthly"}
+                            onChange={e => {
+                              const newCadence = e.target.value as "weekly" | "biweekly" | "monthly"
+                              setEnvelopes(prev => prev.map((en, i) =>
+                                i === idx ? { ...en, allocationCadence: newCadence } : en
+                              ))
+                            }}
+                            className="bg-[#1A1A1A] border border-[#333] rounded-md text-xs text-muted-foreground px-1.5 py-1 focus:outline-none focus:border-[#F7931A]"
+                          >
+                            <option value="weekly">/wk</option>
+                            <option value="biweekly">/2wk</option>
+                            <option value="monthly">/mo</option>
+                          </select>
                           <span className="text-xs text-muted-foreground w-10 text-right">{pct}%</span>
                         </div>
                       </div>
@@ -817,6 +860,11 @@ export default function OnboardingPage() {
                           "--slider-pct": `${sliderPct}%`,
                         } as React.CSSProperties}
                       />
+                      {env.allocationCadence !== "monthly" && env.monthlyAllotment > 0 && (
+                        <span className="text-[10px] text-muted-foreground mt-0.5">
+                          = ${Math.round(env.monthlyAllotment).toLocaleString()}/mo
+                        </span>
+                      )}
                     </div>
                   )
                 })}

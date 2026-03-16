@@ -123,3 +123,9 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  .font-ibm-plex-mono {
+    font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
+  }
+}

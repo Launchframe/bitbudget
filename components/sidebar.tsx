@@ -33,6 +33,7 @@ export function Sidebar() {
                 if (!isPlaceholder) navigateTo(item.id)
               }}
               title={item.label}
+              {...(item.id === "transactions" ? { "data-walkthrough": "transactions" } : {})}
               className={`flex items-center justify-center lg:justify-start gap-4 transition-colors text-left ${
                 isActive
                   ? "text-[#F7931A]"
@@ -57,6 +58,7 @@ export function Sidebar() {
         <button
           onClick={() => openNewTransaction()}
           title="New Transaction"
+          data-walkthrough="new-transaction"
           className="flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-4 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
         >
           <Plus className="h-5 w-5 shrink-0" />

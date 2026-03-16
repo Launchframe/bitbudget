@@ -8,7 +8,7 @@ import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { getEnvelopeIcon } from "@/lib/envelope-icons"
-import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X } from "lucide-react"
+import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X, Plus } from "lucide-react"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import {
   Select,
@@ -18,11 +18,15 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
+function BtcAmount({ value, unit, className }: { value: string; unit: string; className?: string }) {
+  return <span className={`${unit === "btc" ? "font-ibm-plex-mono" : ""} ${className ?? ""}`}>{value}</span>
+}
+
 const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 export function TransactionsPage() {
-  const { state, activeEnvelopes, activeTransactions, navigateTo, deleteTransaction, highlightTransactionId, transactionEnvelopeFilter, clearTransactionEnvelopeFilter } = useApp()
+  const { state, activeEnvelopes, activeTransactions, navigateTo, deleteTransaction, highlightTransactionId, transactionEnvelopeFilter, clearTransactionEnvelopeFilter, openNewTransaction } = useApp()
   const { calculateOpportunityCost } = useBtcPrices()
 
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
@@ -149,10 +153,12 @@ export function TransactionsPage() {
           {hasActiveFilter && expenseTxns.length > 0 && (
             <>
               <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">BTC Equivalent</span>
-                <span className="text-lg font-semibold text-foreground">
-                  {formatBtcAmountFromSats(totalSats, state.btcDisplayUnit)}
-                </span>
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">You could have stacked</span>
+                <BtcAmount
+                  value={formatBtcAmountFromSats(totalSats, state.btcDisplayUnit)}
+                  unit={state.btcDisplayUnit}
+                  className="text-lg font-semibold text-foreground"
+                />
               </div>
               <div className="flex flex-col gap-0.5">
                 <span className="text-xs text-muted-foreground uppercase tracking-wider">Opportunity Cost</span>
@@ -161,6 +167,13 @@ export function TransactionsPage() {
             </>
           )}
         </div>
+        <button
+          onClick={() => openNewTransaction()}
+          className="self-start flex items-center gap-2 mt-3 px-4 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          New Transaction
+        </button>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -171,7 +184,7 @@ export function TransactionsPage() {
             <Input
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); setPage(1) }}
-              placeholder="Search payee..."
+              placeholder="Search existing transactions..."
               className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground placeholder:text-[#555] pl-10"
             />
           </div>
@@ -382,7 +395,7 @@ export function TransactionsPage() {
                       {formatUsd(txn.amount)}
                     </td>
                     <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
-                      {txn.satsAmount != null ? formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit) : "—"}
+                      {txn.satsAmount != null ? <BtcAmount value={formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit)} unit={state.btcDisplayUnit} /> : "—"}
                     </td>
                     <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A] hidden sm:table-cell">
                       {txn.type === "expense" ? formatUsd(opCost) : "—"}

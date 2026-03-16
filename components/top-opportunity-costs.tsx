@@ -5,7 +5,7 @@ import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, formatBtcAmount } from "@/lib/data"
 import { TrendingUp, TrendingDown } from "lucide-react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 
 import type { Transaction } from "@/lib/data"
 
@@ -15,8 +15,8 @@ interface EnrichedTransaction extends Transaction {
 }
 
 export function TopOpportunityCosts() {
-  const { state, activeTransactions, navigateTo } = useApp()
-  const { calculateOpportunityCost, getPriceOnDate, currentPrice } = useBtcPrices()
+  const { activeTransactions, state } = useApp()
+  const { calculateOpportunityCost, getPriceOnDate } = useBtcPrices()
   const [selectedTxn, setSelectedTxn] = useState<EnrichedTransaction | null>(null)
 
   const topTransactions = useMemo(() => {
@@ -31,22 +31,14 @@ export function TopOpportunityCosts() {
       .slice(0, 10)
   }, [activeTransactions, calculateOpportunityCost, getPriceOnDate])
 
-  const envelopeMap = useMemo(() => {
-    const map: Record<string, string> = {}
-    for (const e of state.envelopes) map[e.id] = e.name
-    return map
-  }, [state.envelopes])
-
   return (
     <div className="bg-[#0D0D0D] rounded-2xl p-4 md:p-6">
       <div className="flex flex-col gap-1 mb-5">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-foreground">Top Opportunity Costs</h2>
-          <span className="text-xs text-muted-foreground uppercase tracking-wider">BTC what-if</span>
         </div>
         <p className="text-xs text-muted-foreground">
-          What each expense would be worth today if you&apos;d bought BTC instead
-          {currentPrice ? ` (BTC @ ${formatUsd(currentPrice)})` : ""}
+          What each expense would be worth today if you&apos;d saved in BTC instead.
         </p>
       </div>
 
@@ -88,7 +80,11 @@ export function TopOpportunityCosts() {
                     {formatUsd(txn.amount)}
                   </td>
                   <td className="py-3 text-right text-muted-foreground text-sm hidden lg:table-cell">
-                    {txn.btcPriceAtTime > 0 ? formatBtcAmount(txn.amount / txn.btcPriceAtTime, state.btcDisplayUnit) : "—"}
+                    {txn.btcPriceAtTime > 0
+                      ? <span className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}>
+                          {formatBtcAmount(txn.amount / txn.btcPriceAtTime, state.btcDisplayUnit)}
+                        </span>
+                      : "—"}
                   </td>
                   <td className="py-3 text-right pr-2 rounded-r-xl">
                     <div className="flex items-center justify-end gap-2">
@@ -121,117 +117,12 @@ export function TopOpportunityCosts() {
         </table>
       </div>
 
-      <Dialog open={!!selectedTxn} onOpenChange={(open) => { if (!open) setSelectedTxn(null) }}>
-        <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-foreground">{selectedTxn?.payee}</DialogTitle>
-            <DialogDescription className="text-muted-foreground">Transaction details</DialogDescription>
-          </DialogHeader>
-
-          {selectedTxn && (
-            <TransactionDetail
-              txn={selectedTxn}
-              envelopeName={envelopeMap[selectedTxn.envelopeId]}
-              onNavigateToEnvelope={(txnId) => { setSelectedTxn(null); navigateTo("transactions", undefined, { envelopeFilter: selectedTxn.envelopeId, highlightTxnId: txnId }) }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      <TransactionDetailDialog
+        transaction={selectedTxn}
+        open={!!selectedTxn}
+        onOpenChange={(open) => { if (!open) setSelectedTxn(null) }}
+      />
     </div>
   )
 }
 
-function TransactionDetail({
-  txn,
-  envelopeName,
-  onNavigateToEnvelope,
-}: {
-  txn: EnrichedTransaction
-  envelopeName?: string
-  onNavigateToEnvelope: (txnId: string) => void
-}) {
-  const { state } = useApp()
-  const btcAmount = txn.btcPriceAtTime > 0 ? txn.amount / txn.btcPriceAtTime : 0
-  const multiplier = txn.amount > 0 ? txn.btcValueToday / txn.amount : 0
-  const gained = multiplier >= 1
-  const pctChange = Math.abs((multiplier - 1) * 100)
-
-  const rows: { label: string; value: React.ReactNode }[] = [
-    {
-      label: "Date",
-      value: new Date(txn.date).toLocaleDateString("en-US", {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      }),
-    },
-    { label: "Amount Spent", value: formatUsd(txn.amount) },
-    ...(envelopeName
-      ? [{
-          label: "Envelope",
-          value: (
-            <button
-              onClick={() => onNavigateToEnvelope(txn.id)}
-              className="text-[#F7931A] hover:underline"
-            >
-              {envelopeName}
-            </button>
-          ),
-        }]
-      : []),
-    ...(txn.tags.length > 0
-      ? [{
-          label: "Tags",
-          value: (
-            <div className="flex flex-wrap gap-1">
-              {txn.tags.map((tag) => (
-                <span key={tag} className="text-xs bg-[#1A1A1A] text-muted-foreground px-2 py-0.5 rounded-full">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          ),
-        }]
-      : []),
-    {
-      label: "BTC Price at Time",
-      value: formatUsd(txn.btcPriceAtTime),
-    },
-    {
-      label: "BTC Equivalent",
-      value: formatBtcAmount(btcAmount, state.btcDisplayUnit),
-    },
-    {
-      label: "BTC Value Today",
-      value: (
-        <div className="flex items-center gap-2">
-          <span className={gained ? "text-[#F7931A]" : "text-[#22C55E]"}>
-            {formatUsd(txn.btcValueToday)}
-          </span>
-          {txn.btcValueToday > 0 && (
-            <span className={`flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-              gained
-                ? "text-[#F7931A] bg-[#F7931A]/10"
-                : "text-[#22C55E] bg-[#22C55E]/10"
-            }`}>
-              {gained ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-              {gained ? "+" : "-"}{pctChange.toFixed(0)}%
-            </span>
-          )}
-        </div>
-      ),
-    },
-  ]
-
-  return (
-    <div className="flex flex-col gap-3 pt-2">
-      {rows.map((row) => (
-        <div key={row.label} className="flex items-start justify-between gap-4">
-          <span className="text-sm text-muted-foreground shrink-0">{row.label}</span>
-          <span className="text-sm text-foreground text-right">{row.value}</span>
-        </div>
-      ))}
-    </div>
-  )
-}

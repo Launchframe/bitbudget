@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import { PRESET_ENVELOPE_COLORS } from "@/lib/constants"
+
+const ENVELOPE_COLORS = PRESET_ENVELOPE_COLORS
 
 interface ImportedTransaction {
   date: string
@@ -42,6 +45,7 @@ export async function POST(req: NextRequest) {
     envelopeByName[e.name.toLowerCase()] = e.id
   }
 
+  let envelopeCount = userEnvelopes.length
   const resolvedMapping: Record<string, string> = {}
 
   for (const [csvName, target] of Object.entries(envelopeMapping)) {
@@ -59,11 +63,12 @@ export async function POST(req: NextRequest) {
             userId,
             name: csvName,
             monthlyAllotment: 0,
-            color: `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, "0")}`,
+            color: ENVELOPE_COLORS[envelopeCount % ENVELOPE_COLORS.length],
           },
         })
         resolvedMapping[csvName.toLowerCase()] = newEnv.id
         envelopeByName[csvName.toLowerCase()] = newEnv.id
+        envelopeCount++
       }
     } else {
       resolvedMapping[csvName.toLowerCase()] = target
@@ -96,11 +101,12 @@ export async function POST(req: NextRequest) {
           userId,
           name: txn.envelopeName,
           monthlyAllotment: 0,
-          color: `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, "0")}`,
+          color: ENVELOPE_COLORS[envelopeCount % ENVELOPE_COLORS.length],
         },
       })
       envelopeId = newEnv.id
       envelopeByName[lowerName] = envelopeId
+      envelopeCount++
       newEnvelopes.push(txn.envelopeName)
     }
 
