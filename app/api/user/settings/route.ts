@@ -21,6 +21,7 @@ export async function GET() {
       privacyKeySalt: true,
       name: true,
       email: true,
+      subscriptionTier: true,
     },
   })
 

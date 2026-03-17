@@ -36,6 +36,7 @@ model User {
   lastVisitedAt DateTime?
   remindersEnabled Boolean @default(false)
   reminderTime    String?  @default("20:00")
+  subscriptionTier String @default("free")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
