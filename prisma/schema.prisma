@@ -31,6 +31,8 @@ model User {
   onboardingComplete      Boolean  @default(false)
   btcDisplayUnit          String   @default("sats") // "sats" | "btc"
   opportunityCostEnabled  Boolean  @default(false)
+  role      String? @default("user")
+  publicKey String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -41,6 +43,11 @@ model User {
   transactions          Transaction[]
   tags                  Tag[]
   recurringTransactions RecurringTransaction[]
+  pendingTransactions PendingTransaction[]
+  shortcuts           TransactionShortcut[]
+  approvedSenders     ApprovedReceiptSender[] @relation("ApprovedSenderAdmin")
+  auditLogs           AuditLog[]              @relation("AuditLogAdmin")
+  plaidItems          PlaidItem[]
 }
 
 model Account {
@@ -96,6 +103,8 @@ model Envelope {
   user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
+  pendingTransactions PendingTransaction[]
+  shortcuts           TransactionShortcut[]
 
   @@index([userId])
 }
@@ -111,6 +120,7 @@ model Transaction {
   tags       String   @default("[]") // JSON array of tag names
   notes      String?
   satsAmount Int?     // BTC equivalent in satoshis (1 BTC = 100,000,000 sats)
+  source     String   @default("manual")
 
   recurringId String?
 
@@ -178,4 +188,104 @@ model BtcPriceCache {
   date     String   @unique // YYYY-MM-DD
   priceUsd Float
   fetchedAt DateTime @default(now())
+}
+
+// ─── Low-friction capture models ────────────────────────────────────
+
+model PendingTransaction {
+  id                  String    @id @default(cuid())
+  userId              String
+  source              String
+  payee               String
+  amount              Float
+  date                DateTime
+  notes               String?
+  suggestedEnvelopeId String?
+  confidence          Float
+  rawInput            String?
+  tags                String?
+  createdAt           DateTime  @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envelope Envelope? @relation(fields: [suggestedEnvelopeId], references: [id])
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+model TransactionShortcut {
+  id            String   @id @default(cuid())
+  userId        String
+  payee         String
+  defaultAmount Float?
+  envelopeId    String
+  label         String?
+  usageCount    Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envelope Envelope @relation(fields: [envelopeId], references: [id])
+
+  @@index([userId])
+}
+
+model ApprovedReceiptSender {
+  id            String   @id @default(cuid())
+  senderPattern String   @unique
+  displayName   String
+  addedBy       String
+  createdAt     DateTime @default(now())
+
+  admin User @relation("ApprovedSenderAdmin", fields: [addedBy], references: [id])
+}
+
+model PendingSenderReview {
+  id              String   @id @default(cuid())
+  senderAddress   String
+  samplePayee     String?
+  sampleAmount    Float?
+  occurrenceCount Int      @default(1)
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  status          String   @default("pending")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  adminUserId String
+  action      String
+  targetType  String?
+  targetId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  admin User @relation("AuditLogAdmin", fields: [adminUserId], references: [id])
+
+  @@index([adminUserId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model PlaidItem {
+  id               String   @id @default(cuid())
+  userId           String
+  accessToken      String
+  institutionName  String?
+  consentTimestamp DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts PlaidAccount[]
+
+  @@index([userId])
+}
+
+model PlaidAccount {
+  id          String @id @default(cuid())
+  plaidItemId String
+  accountName String
+  mask        String?
+  type        String
+
+  plaidItem PlaidItem @relation(fields: [plaidItemId], references: [id], onDelete: Cascade)
 }
