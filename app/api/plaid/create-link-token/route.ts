@@ -1,12 +1,20 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { plaidClient } from "@/lib/plaid"
+import { requirePremium } from "@/lib/subscription"
 import { CountryCode, Products } from "plaid"
 
 export async function POST() {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  const isPremium = await requirePremium(session.user.id)
+  if (!isPremium) {
+    return NextResponse.json(
+      { error: "Plaid is available for premium only" },
+      { status: 403 },
+    )
   }
   if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
     return NextResponse.json(
