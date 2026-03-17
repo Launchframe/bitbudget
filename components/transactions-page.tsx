@@ -150,7 +150,7 @@ export function TransactionsPage() {
               <span className="text-lg font-semibold text-[#22C55E]">{formatUsd(totalCredits)}</span>
             </div>
           )}
-          {hasActiveFilter && expenseTxns.length > 0 && (
+          {state.opportunityCostEnabled && hasActiveFilter && expenseTxns.length > 0 && (
             <>
               <div className="flex flex-col gap-0.5">
                 <span className="text-xs text-muted-foreground uppercase tracking-wider">You could have stacked</span>
@@ -341,8 +341,8 @@ export function TransactionsPage() {
                 <th className="py-3 px-4 text-left font-medium hidden md:table-cell">Envelope</th>
                 <th className="py-3 px-4 text-left font-medium hidden sm:table-cell">Type</th>
                 <th className="py-3 px-4 text-right font-medium">Amount (USD)</th>
-                <th className="py-3 px-4 text-right font-medium hidden md:table-cell">Amount ({state.btcDisplayUnit === "sats" ? "sats" : "BTC"})</th>
-                <th className="py-3 px-4 text-right font-medium hidden sm:table-cell">Opportunity Cost</th>
+                {state.opportunityCostEnabled && <th className="py-3 px-4 text-right font-medium hidden md:table-cell">Amount ({state.btcDisplayUnit === "sats" ? "sats" : "BTC"})</th>}
+                {state.opportunityCostEnabled && <th className="py-3 px-4 text-right font-medium hidden sm:table-cell">Opportunity Cost</th>}
                 <th className="py-3 px-4 text-right font-medium w-12"></th>
               </tr>
             </thead>
@@ -394,12 +394,16 @@ export function TransactionsPage() {
                     <td className="py-3.5 px-4 text-right text-sm font-medium text-foreground">
                       {formatUsd(txn.amount)}
                     </td>
-                    <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
-                      {txn.satsAmount != null ? <BtcAmount value={formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit)} unit={state.btcDisplayUnit} /> : "—"}
-                    </td>
-                    <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A] hidden sm:table-cell">
-                      {txn.type === "expense" ? formatUsd(opCost) : "—"}
-                    </td>
+                    {state.opportunityCostEnabled && (
+                      <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
+                        {txn.satsAmount != null ? <BtcAmount value={formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit)} unit={state.btcDisplayUnit} /> : "—"}
+                      </td>
+                    )}
+                    {state.opportunityCostEnabled && (
+                      <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A] hidden sm:table-cell">
+                        {txn.type === "expense" ? formatUsd(opCost) : "—"}
+                      </td>
+                    )}
                     <td className="py-3.5 px-4 text-right">
                       <button
                         onClick={(e) => { e.stopPropagation(); deleteTransaction(txn.id) }}

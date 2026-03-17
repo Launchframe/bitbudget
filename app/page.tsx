@@ -17,6 +17,7 @@ import { SettingsPage } from "@/components/settings-page"
 import { MobileNav } from "@/components/mobile-nav"
 import { PinUnlockDialog } from "@/components/pin-unlock-dialog"
 import { Spinner } from "@/components/ui/spinner"
+import { FaviconSwitcher } from "@/components/favicon-switcher"
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -125,6 +126,7 @@ export default function Dashboard() {
   return (
     <OnboardingGate>
       <AppProvider>
+        <FaviconSwitcher />
         <EncryptionGate>
           <BtcPriceProvider>
           <div className="relative h-screen w-full bg-background text-foreground overflow-hidden">

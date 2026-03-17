@@ -212,8 +212,8 @@ export function EnvelopeDetailPage() {
                 <th className="py-3 px-4 text-left font-medium">Payee</th>
                 <th className="py-3 px-4 text-left font-medium">Type</th>
                 <th className="py-3 px-4 text-right font-medium">Amount (USD)</th>
-                <th className="py-3 px-4 text-right font-medium hidden md:table-cell">Amount ({state.btcDisplayUnit === "sats" ? "sats" : "BTC"})</th>
-                <th className="py-3 px-4 text-right font-medium hidden sm:table-cell">Opportunity Cost</th>
+                {state.opportunityCostEnabled && <th className="py-3 px-4 text-right font-medium hidden md:table-cell">Amount ({state.btcDisplayUnit === "sats" ? "sats" : "BTC"})</th>}
+                {state.opportunityCostEnabled && <th className="py-3 px-4 text-right font-medium hidden sm:table-cell">Opportunity Cost</th>}
                 <th className="py-3 px-4 text-right font-medium w-12"></th>
               </tr>
             </thead>
@@ -254,12 +254,16 @@ export function EnvelopeDetailPage() {
                     <td className="py-3.5 px-4 text-right text-sm font-medium text-foreground">
                       {formatUsd(txn.amount)}
                     </td>
-                    <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
-                      {txn.satsAmount != null ? <span className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}>{formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit)}</span> : "—"}
-                    </td>
-                    <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A] hidden sm:table-cell">
-                      {txn.type === "expense" ? formatUsd(opCost) : "--"}
-                    </td>
+                    {state.opportunityCostEnabled && (
+                      <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
+                        {txn.satsAmount != null ? <span className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}>{formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit)}</span> : "—"}
+                      </td>
+                    )}
+                    {state.opportunityCostEnabled && (
+                      <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A] hidden sm:table-cell">
+                        {txn.type === "expense" ? formatUsd(opCost) : "--"}
+                      </td>
+                    )}
                     <td className="py-3.5 px-4 text-right">
                       <button
                         onClick={(e) => { e.stopPropagation(); deleteTransaction(txn.id) }}

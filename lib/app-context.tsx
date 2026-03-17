@@ -81,6 +81,7 @@ interface AppContextValue {
 
   setMonthlyIncome: (income: number) => void
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
+  setOpportunityCostEnabled: (enabled: boolean) => void
   addTag: (tag: string) => void
   refreshData: () => Promise<void>
   encryptForStorage: (plaintext: string) => Promise<string>
@@ -238,6 +239,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         envelopes,
         monthlyIncome: settings.monthlyIncome || 0,
         btcDisplayUnit: settings.btcDisplayUnit || "sats",
+        opportunityCostEnabled: settings.opportunityCostEnabled ?? false,
       }))
     } catch {
       // On error, keep current state (may be default/empty)
@@ -521,6 +523,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const setOpportunityCostEnabled = useCallback(async (enabled: boolean) => {
+    setState(prev => ({ ...prev, opportunityCostEnabled: enabled }))
+    try {
+      await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunityCostEnabled: enabled }),
+      })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
   const addTag = useCallback((tag: string) => {
     setState(prev => ({
       ...prev,
@@ -591,6 +606,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         mergeEnvelope,
         setMonthlyIncome,
         setBtcDisplayUnit,
+        setOpportunityCostEnabled,
         addTag,
         refreshData,
         encryptForStorage,

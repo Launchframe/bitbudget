@@ -16,6 +16,7 @@ export default function LandingPage() {
 
   function handleGetStarted() {
     document.cookie = "bitbudget_visited=1; path=/; max-age=31536000; SameSite=Lax"
+    try { sessionStorage.setItem("onboardingSource", "btc") } catch {}
     router.push("/auth")
   }
 

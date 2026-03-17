@@ -379,7 +379,7 @@ function ViewMode({
       </div>
 
       {/* BTC section */}
-      {showBtc && (
+      {state.opportunityCostEnabled && showBtc && (
         <div className="rounded-xl border border-[#F7931A]/30 bg-[#F7931A]/5 p-4 flex flex-col gap-3">
           <div className="flex items-center gap-2 mb-0.5">
             <Bitcoin className="h-3.5 w-3.5 text-[#F7931A]" />

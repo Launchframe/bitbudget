@@ -32,6 +32,7 @@ export interface AppState {
   tags: string[]
   monthlyIncome: number
   btcDisplayUnit: BtcDisplayUnit
+  opportunityCostEnabled: boolean
 }
 
 // ─── Mock BTC Price Data (client-side fallback) ─────────────────────
@@ -189,6 +190,7 @@ export function getDefaultState(): AppState {
     tags: DEFAULT_TAGS,
     monthlyIncome: 0,
     btcDisplayUnit: "sats",
+    opportunityCostEnabled: false,
   }
 }
 

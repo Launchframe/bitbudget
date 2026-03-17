@@ -8,6 +8,7 @@ import { getCurrentMonthKey, formatUsd, formatNumber } from "@/lib/data"
 export function DashboardMetrics() {
   const { state, activeTransactions } = useApp()
   const { currentPrice, satsPerDollar } = useBtcPrices()
+  const ocEnabled = state.opportunityCostEnabled
 
   const currentMonth = getCurrentMonthKey()
 
@@ -15,7 +16,7 @@ export function DashboardMetrics() {
     .filter((t) => t.type === "expense" && t.date.startsWith(currentMonth))
     .reduce((sum, t) => sum + t.amount, 0)
 
-  const metrics = [
+  const baseMetrics = [
     {
       label: "Monthly Income",
       value: formatUsd(state.monthlyIncome),
@@ -28,6 +29,9 @@ export function DashboardMetrics() {
       icon: TrendingDown,
       color: "#F7931A",
     },
+  ]
+
+  const btcMetrics = [
     {
       label: "BTC Price",
       value: currentPrice ? formatUsd(currentPrice) : "—",
@@ -42,8 +46,10 @@ export function DashboardMetrics() {
     },
   ]
 
+  const metrics = ocEnabled ? [...baseMetrics, ...btcMetrics] : baseMetrics
+
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className={`grid gap-4 ${ocEnabled ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-2"}`}>
       {metrics.map((metric) => {
         const Icon = metric.icon
         return (

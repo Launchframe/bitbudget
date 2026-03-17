@@ -207,60 +207,62 @@ export function AnalyticsPage() {
           </div>
         </div>
 
-        <div className="p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
-          <h3 className="text-lg font-semibold text-foreground mb-5">Opportunity Cost</h3>
-          <div className="h-[220px] md:h-[300px] w-full">
-            {opportunityCostData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={opportunityCostData} barGap={2}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1F1F1F" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis
-                    tick={{ fill: "#666", fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v: number) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`}
-                    width={50}
-                  />
-                  <Tooltip
-                    content={({ active, payload, label }) => {
-                      if (active && payload && payload.length) {
-                        return (
-                          <div className="bg-[#1A1A1A] border border-[#333] p-3 rounded-lg shadow-xl">
-                            <p className="text-xs text-muted-foreground mb-2">{label}</p>
-                            {payload.map((p) => (
-                              <p key={p.name} className="text-sm text-foreground">
-                                <span style={{ color: p.color }} className="font-medium">{p.name}: </span>
-                                {formatUsd(p.value as number)}
-                              </p>
-                            ))}
-                          </div>
-                        )
-                      }
-                      return null
-                    }}
-                  />
-                  <Bar dataKey="Dollar Spend" fill="#666" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Opportunity Cost" fill="#F7931A" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                No expense data for this period.
+        {state.opportunityCostEnabled && (
+          <div className="p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
+            <h3 className="text-lg font-semibold text-foreground mb-5">Opportunity Cost</h3>
+            <div className="h-[220px] md:h-[300px] w-full">
+              {opportunityCostData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={opportunityCostData} barGap={2}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1F1F1F" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis
+                      tick={{ fill: "#666", fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v: number) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`}
+                      width={50}
+                    />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-[#1A1A1A] border border-[#333] p-3 rounded-lg shadow-xl">
+                              <p className="text-xs text-muted-foreground mb-2">{label}</p>
+                              {payload.map((p) => (
+                                <p key={p.name} className="text-sm text-foreground">
+                                  <span style={{ color: p.color }} className="font-medium">{p.name}: </span>
+                                  {formatUsd(p.value as number)}
+                                </p>
+                              ))}
+                            </div>
+                          )
+                        }
+                        return null
+                      }}
+                    />
+                    <Bar dataKey="Dollar Spend" fill="#666" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Opportunity Cost" fill="#F7931A" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                  No expense data for this period.
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-6 mt-4">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-sm bg-[#666]" />
+                <span className="text-xs text-muted-foreground">Dollar Spend</span>
               </div>
-            )}
-          </div>
-          <div className="flex items-center gap-6 mt-4">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm bg-[#666]" />
-              <span className="text-xs text-muted-foreground">Dollar Spend</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm bg-[#F7931A]" />
-              <span className="text-xs text-muted-foreground">Opportunity Cost</span>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-sm bg-[#F7931A]" />
+                <span className="text-xs text-muted-foreground">Opportunity Cost</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

@@ -26,10 +26,11 @@ model User {
   privacyKeySalt      String?
 
   // Budgeting settings
-  monthlyIncome      Float    @default(0)
-  payCadence         String   @default("monthly") // "monthly" | "bimonthly"
-  onboardingComplete Boolean  @default(false)
-  btcDisplayUnit     String   @default("sats") // "sats" | "btc"
+  monthlyIncome           Float    @default(0)
+  payCadence              String   @default("monthly") // "monthly" | "bimonthly"
+  onboardingComplete      Boolean  @default(false)
+  btcDisplayUnit          String   @default("sats") // "sats" | "btc"
+  opportunityCostEnabled  Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

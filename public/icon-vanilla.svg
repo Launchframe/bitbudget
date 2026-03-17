@@ -1,0 +1,20 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Green circle background -->
+  <circle cx="16" cy="16" r="16" fill="#22C55E"/>
+
+  <!-- Dollar bills peeking out the top of the envelope -->
+  <rect x="11" y="7" width="10" height="6" rx="1" fill="#FDE047"/>
+  <!-- Bill detail lines -->
+  <line x1="13" y1="9.5" x2="19" y2="9.5" stroke="#CA8A04" stroke-width="0.75" stroke-linecap="round"/>
+  <line x1="13" y1="11" x2="19" y2="11" stroke="#CA8A04" stroke-width="0.75" stroke-linecap="round"/>
+
+  <!-- Envelope body -->
+  <rect x="5" y="11" width="22" height="14" rx="2" fill="white"/>
+
+  <!-- Envelope V-fold (flap) -->
+  <path d="M5 13L16 20.5L27 13" stroke="#22C55E" stroke-width="1.5" stroke-linejoin="round" fill="none"/>
+
+  <!-- Bottom diagonal folds -->
+  <path d="M5 25L13 18.5" stroke="#22C55E" stroke-width="1" stroke-linecap="round"/>
+  <path d="M27 25L19 18.5" stroke="#22C55E" stroke-width="1" stroke-linecap="round"/>
+</svg>
