@@ -29,8 +29,18 @@ export async function POST(req: NextRequest) {
     let parsed
     try {
       parsed = await parseReceiptText(text)
-    } catch {
-      return NextResponse.json({ error: "Could not parse receipt" }, { status: 422 })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (message.includes("429") || message.includes("rate limit")) {
+        return NextResponse.json(
+          { error: "Receipt parsing is temporarily rate-limited. Try again in a minute." },
+          { status: 503, headers: { "Retry-After": "60" } },
+        )
+      }
+      return NextResponse.json(
+        { error: "Could not parse receipt. " + message },
+        { status: 422 },
+      )
     }
 
     if (!parsed.payee && !parsed.amount) {

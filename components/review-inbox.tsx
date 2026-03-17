@@ -4,6 +4,14 @@ import { useState } from "react"
 import { Inbox, Mic, Camera, MessageSquare, Mail, Building2, Check, X, CheckCheck } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import type { TransactionSource } from "@/lib/data"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 const sourceIcons: Record<TransactionSource, React.ElementType> = {
   manual: Inbox,
@@ -26,7 +34,7 @@ const sourceLabels: Record<TransactionSource, string> = {
 }
 
 export function ReviewInbox() {
-  const { pendingTransactions, confirmPending, dismissPending, confirmAllPending, state } = useApp()
+  const { pendingTransactions, confirmPending, dismissPending, confirmAllPending, state, activeEnvelopes } = useApp()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editEnvelopeId, setEditEnvelopeId] = useState<string>("")
 
@@ -111,16 +119,24 @@ export function ReviewInbox() {
 
               {/* Envelope edit mode */}
               {isEditing && (
-                <select
-                  value={editEnvelopeId}
-                  onChange={(e) => setEditEnvelopeId(e.target.value)}
-                  className="bg-[#1A1A1A] border border-[#333] rounded-xl px-3 py-2 text-sm text-foreground"
-                >
-                  <option value="">Select envelope...</option>
-                  {state.envelopes.filter(e => !e.archived).map(e => (
-                    <option key={e.id} value={e.id}>{e.name}</option>
-                  ))}
-                </select>
+                <div className="flex flex-col gap-2">
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Envelope</Label>
+                  <Select value={editEnvelopeId || undefined} onValueChange={(v) => setEditEnvelopeId(v)}>
+                    <SelectTrigger className="bg-[#1A1A1A] border-[#333] text-foreground">
+                      <SelectValue placeholder="Select an envelope" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#1A1A1A] border-[#333]">
+                      {activeEnvelopes.map((env) => (
+                        <SelectItem key={env.id} value={env.id} className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">
+                          <span className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: env.color }} />
+                            {env.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
 
               {/* Actions */}

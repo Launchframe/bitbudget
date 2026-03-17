@@ -7,7 +7,8 @@ import { formatUsd } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
-import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, User, TrendingUp, Crown } from "lucide-react"
+import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, User, TrendingUp, Crown, Building2, Smartphone, Mail } from "lucide-react"
+import { PlaidLinkButton } from "@/components/plaid-link-button"
 
 export function SettingsPage() {
   const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, refreshData, encryptForStorage, logout, subscriptionTier } = useApp()
@@ -87,6 +88,57 @@ export function SettingsPage() {
           )}
         </div>
       </div>
+
+      {/* Premium: Connections */}
+      {subscriptionTier === "premium" && (
+        <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-[#F7931A]/20">
+              <Building2 className="h-5 w-5 text-[#F7931A]" />
+            </div>
+            <h3 className="text-lg font-semibold text-foreground">Connections</h3>
+          </div>
+          <p className="text-sm text-muted-foreground mb-6">
+            Connect your accounts to automatically import transactions.
+          </p>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
+              <div className="flex items-start gap-3">
+                <Building2 className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">Bank sync</p>
+                  <p className="text-sm text-muted-foreground">
+                    Link your bank or credit card to import transactions automatically via Plaid.
+                  </p>
+                </div>
+              </div>
+              <PlaidLinkButton />
+            </div>
+            <div className="flex flex-col gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
+              <div className="flex items-start gap-3">
+                <Smartphone className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">SMS alerts</p>
+                  <p className="text-sm text-muted-foreground">
+                    Forward your bank&apos;s transaction text alerts to a dedicated number to capture spending without opening the app. Contact support to get your personal forwarding number.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
+              <div className="flex items-start gap-3">
+                <Mail className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">Connected email</p>
+                  <p className="text-sm text-muted-foreground">
+                    Connect Gmail or Outlook to automatically scan for receipts from known senders. Coming soon.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Profile */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">

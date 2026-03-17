@@ -36,11 +36,23 @@ export async function parseReceiptText(text: string): Promise<ParsedReceipt> {
     }),
   })
 
-  if (!res.ok) throw new Error(`OpenAI API error: ${res.status}`)
+  const body = (await res.json().catch(() => ({}))) as
+    | { choices?: Array<{ message?: { content?: string } }> }
+    | { error?: { message?: string } }
 
-  const data = await res.json()
-  const responseText = data.choices?.[0]?.message?.content?.trim() ?? ""
+  if (!res.ok) {
+    const message = "error" in body ? body.error?.message : undefined
+    if (res.status === 429) {
+      throw new Error(
+        `OpenAI rate limit exceeded (429). ${message || "Try again in a minute or check your API tier/usage."}`,
+      )
+    }
+    throw new Error(`OpenAI API error: ${res.status}. ${message || ""}`.trim())
+  }
+
+  const responseText =
+    "choices" in body ? body.choices?.[0]?.message?.content?.trim() ?? "" : ""
   const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) throw new Error("Could not parse response")
+  if (!jsonMatch) throw new Error("Could not parse response.")
   return JSON.parse(jsonMatch[0])
 }

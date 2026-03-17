@@ -9,9 +9,9 @@ import { VoiceDictationButton } from "@/components/voice-dictation-button"
 
 const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "DASHBOARD", icon: LayoutDashboard },
-  { id: "envelopes", label: "ENVELOPES", icon: Wallet },
   { id: "transactions", label: "TRANSACTIONS", icon: List },
   { id: "review-inbox", label: "REVIEW", icon: Inbox },
+  { id: "envelopes", label: "ENVELOPES", icon: Wallet },
   { id: "analytics", label: "ANALYTICS", icon: BarChart3 },
   { id: "btc-price", label: "BTC", icon: Bitcoin },
   { id: "researcher", label: "RESEARCHER", icon: Search },
