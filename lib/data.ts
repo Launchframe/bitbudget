@@ -2,6 +2,8 @@
 
 export type TransactionType = "expense" | "credit"
 
+export type TransactionSource = "manual" | "voice" | "receipt_scan" | "sms" | "email_forward" | "email_scan" | "plaid"
+
 export interface Transaction {
   id: string
   date: string // ISO date string YYYY-MM-DD
@@ -13,6 +15,21 @@ export interface Transaction {
   notes?: string | null
   satsAmount?: number | null
   recurringId?: string | null
+  source?: TransactionSource
+}
+
+export interface PendingTransaction {
+  id: string
+  source: TransactionSource
+  payee: string
+  amount: number
+  date: string
+  notes?: string | null
+  suggestedEnvelopeId: string | null
+  confidence: number
+  rawInput?: string | null
+  tags?: string | null
+  createdAt: string
 }
 
 export interface Envelope {

@@ -13,6 +13,7 @@ import { EnvelopesPage } from "@/components/envelopes-page"
 import { EnvelopeDetailPage } from "@/components/envelope-detail-page"
 import { TransactionsPage } from "@/components/transactions-page"
 import { BtcPricePage } from "@/components/btc-price-page"
+import { ReviewInbox } from "@/components/review-inbox"
 import { SettingsPage } from "@/components/settings-page"
 import { MobileNav } from "@/components/mobile-nav"
 import { PinUnlockDialog } from "@/components/pin-unlock-dialog"
@@ -98,6 +99,8 @@ function PageContent() {
       return <TransactionsPage />
     case "btc-price":
       return <BtcPricePage />
+    case "review-inbox":
+      return <ReviewInbox />
     case "envelopes":
       return <EnvelopesPage />
     case "envelope-detail":

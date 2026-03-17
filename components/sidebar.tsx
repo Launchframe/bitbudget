@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, ScanLine, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin } from "lucide-react"
+import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, ScanLine, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin, Inbox } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
 
@@ -9,6 +9,7 @@ const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "DASHBOARD", icon: LayoutDashboard },
   { id: "envelopes", label: "ENVELOPES", icon: Wallet },
   { id: "transactions", label: "TRANSACTIONS", icon: List },
+  { id: "review-inbox", label: "REVIEW", icon: Inbox },
   { id: "analytics", label: "ANALYTICS", icon: BarChart3 },
   { id: "btc-price", label: "BTC", icon: Bitcoin },
   { id: "researcher", label: "RESEARCHER", icon: Search },
@@ -16,7 +17,7 @@ const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
 ]
 
 export function Sidebar() {
-  const { currentPage, navigateTo, openNewTransaction, logout, state } = useApp()
+  const { currentPage, navigateTo, openNewTransaction, logout, state, pendingCount } = useApp()
   const [scanOpen, setScanOpen] = useState(false)
 
   return (
@@ -34,7 +35,7 @@ export function Sidebar() {
               }}
               title={item.label}
               {...(item.id === "transactions" ? { "data-walkthrough": "transactions" } : {})}
-              className={`flex items-center justify-center lg:justify-start gap-4 transition-colors text-left ${
+              className={`relative flex items-center justify-center lg:justify-start gap-4 transition-colors text-left ${
                 isActive
                   ? "text-[#F7931A]"
                   : isPlaceholder
@@ -46,6 +47,14 @@ export function Sidebar() {
             >
               <Icon className="h-6 w-6 shrink-0" />
               <span className="hidden lg:inline text-sm font-medium tracking-wide">{item.label}</span>
+              {item.id === "review-inbox" && pendingCount > 0 && (
+                <span className="hidden lg:inline text-[10px] px-1.5 py-0.5 rounded-full bg-[#F7931A] text-[#0D0D0D] font-bold ml-auto">
+                  {pendingCount}
+                </span>
+              )}
+              {item.id === "review-inbox" && pendingCount > 0 && (
+                <span className="lg:hidden absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#F7931A]" />
+              )}
               {isPlaceholder && (
                 <span className="hidden lg:inline text-[10px] px-1.5 py-0.5 rounded bg-[#1A1A1A] text-[#555] ml-auto">Soon</span>
               )}

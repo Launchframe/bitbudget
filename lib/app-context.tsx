@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { signOut } from "next-auth/react"
-import type { Transaction, Envelope, AppState, BtcDisplayUnit } from "@/lib/data"
+import type { Transaction, Envelope, AppState, BtcDisplayUnit, PendingTransaction } from "@/lib/data"
 import { generateId, getDefaultState } from "@/lib/data"
 import { encryptField, decryptField, hexToUint8 } from "@/lib/crypto"
 
@@ -16,6 +16,7 @@ export type PageId =
   | "researcher"
   | "funds"
   | "settings"
+  | "review-inbox"
 
 function pageToHash(page: PageId, envelopeId?: string | null): string {
   if (page === "envelope-detail" && envelopeId) return `#/envelope/${envelopeId}`
@@ -29,7 +30,7 @@ function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
   const envelopeMatch = path.match(/^envelope\/(.+)$/)
   if (envelopeMatch) return { page: "envelope-detail", envelopeId: envelopeMatch[1] }
 
-  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "researcher", "funds", "settings"]
+  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "settings", "review-inbox"]
   if (validPages.includes(path as PageId)) return { page: path as PageId }
 
   return { page: "dashboard" }
@@ -86,6 +87,12 @@ interface AppContextValue {
   refreshData: () => Promise<void>
   encryptForStorage: (plaintext: string) => Promise<string>
   logout: () => void
+
+  pendingTransactions: PendingTransaction[]
+  pendingCount: number
+  confirmPending: (id: string, envelopeId?: string) => Promise<void>
+  dismissPending: (id: string) => Promise<void>
+  confirmAllPending: () => Promise<void>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -128,6 +135,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return page === "envelope-detail" && envelopeId ? new Set([envelopeId]) : new Set()
   })
   const [loading, setLoading] = useState(true)
+  const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const mounted = useRef(false)
   const isPopstate = useRef(false)
 
@@ -213,14 +221,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await fetch("/api/recurring/process", { method: "POST" }).catch(() => {})
 
-      const [txnRes, envRes, settingsRes] = await Promise.all([
+      const [txnRes, envRes, settingsRes, pendingRes] = await Promise.all([
         fetch("/api/transactions"),
         fetch("/api/envelopes"),
         fetch("/api/user/settings"),
+        fetch("/api/pending-transactions"),
       ])
 
       if (!txnRes.ok || !envRes.ok || !settingsRes.ok) {
         throw new Error("Failed to fetch data")
+      }
+
+      if (pendingRes.ok) {
+        const pendingData = await pendingRes.json()
+        setPendingTransactions(pendingData)
       }
 
       let [transactions, envelopes, settings] = await Promise.all([
@@ -561,6 +575,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     signOut({ callbackUrl: "/auth" })
   }, [])
 
+  const confirmPending = useCallback(async (id: string, envelopeId?: string) => {
+    const res = await fetch("/api/pending-transactions/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, envelopeId }),
+    })
+    if (res.ok) {
+      setPendingTransactions(prev => prev.filter(p => p.id !== id))
+      await refreshData()
+    }
+  }, [refreshData])
+
+  const dismissPending = useCallback(async (id: string) => {
+    const res = await fetch(`/api/pending-transactions?id=${id}`, { method: "DELETE" })
+    if (res.ok) {
+      setPendingTransactions(prev => prev.filter(p => p.id !== id))
+    }
+  }, [])
+
+  const confirmAllPending = useCallback(async () => {
+    const res = await fetch("/api/pending-transactions/confirm-all", { method: "POST" })
+    if (res.ok) {
+      setPendingTransactions(prev => prev.filter(p => !p.suggestedEnvelopeId))
+      await refreshData()
+    }
+  }, [refreshData])
+
   const activeEnvelopes = useMemo(
     () => state.envelopes.filter(e => !e.archived),
     [state.envelopes]
@@ -611,6 +652,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         refreshData,
         encryptForStorage,
         logout,
+        pendingTransactions,
+        pendingCount: pendingTransactions.length,
+        confirmPending,
+        dismissPending,
+        confirmAllPending,
       }}
     >
       {children}
