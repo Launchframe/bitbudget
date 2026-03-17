@@ -33,6 +33,7 @@ model User {
   opportunityCostEnabled  Boolean  @default(false)
   role      String? @default("user")
   publicKey String?
+  receiptInboxToken String? @unique
   lastVisitedAt DateTime?
   remindersEnabled Boolean @default(false)
   reminderTime    String?  @default("20:00")

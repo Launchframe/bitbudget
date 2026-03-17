@@ -18,6 +18,7 @@ with form fields: `from` (who forwarded it), `text` (email body), and optionally
 
 **3. Flow**  
 - You (or an email provider) POST to that URL.  
+- We route by the recipient address token when present, or fall back to the sender email for older accounts.  
 - We parse the body with GPT, match an envelope, then create either a **live transaction** or a **pending** one in the Review Inbox.  
 - Unknown receipt senders go to the admin Sender Review queue.
 
@@ -60,5 +61,9 @@ If DNS and Inbound Parse look correct but SendGrid never POSTs successfully:
 
 - **ngrok Free** often serves an **HTML browser-warning page** to automated clients. SendGrid’s servers do **not** send `ngrok-skip-browser-warning`, so the POST may get HTML instead of your API → SendGrid may show failures or no useful delivery. **Fix:** point the Inbound Parse URL at **production** (`https://bitbudget.io/...`) or use **ngrok paid** / a tunnel without that interstitial.
 - **`next.config.mjs`** includes **`allowedDevOrigins`** for `*.ngrok-free.app` (etc.) so the dev app can load `/_next/*` when you open the site **via the ngrok URL** in a browser.
+
+### Nostr-only users
+
+If a user does not have a usable email address in Bitbudget, the app generates a dedicated inbox like `receipts+<token>@parse.bitbudget.io` under **Settings → Receipt Inbox**. Share that address with the user and use it as the SendGrid Inbound Parse recipient.
 
 A full step-by-step (SendGrid, Mailgun, local curl, troubleshooting) is in **`docs/email-forwarding-setup.md`**. If you tell me whether you’re testing locally only or want production (and which provider you prefer), I can give you the exact steps for that path next.

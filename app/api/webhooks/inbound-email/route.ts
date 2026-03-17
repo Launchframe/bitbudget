@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
     }
 
     const from = fields.from
+    const to = fields.to ?? fields.recipient ?? ""
     const text = fields.text
     const subject = fields.subject ?? ""
 
@@ -84,11 +85,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
+    const recipientMatch = extractReceiptInboxToken(to)
     const senderEmail = extractEmail(from)
-    const user = await prisma.user.findUnique({
-      where: { email: senderEmail },
-      select: { id: true },
-    })
+    const user = recipientMatch
+      ? await prisma.user.findUnique({
+          where: { receiptInboxToken: recipientMatch },
+          select: { id: true, email: true },
+        })
+      : await prisma.user.findFirst({
+          where: { email: senderEmail },
+          select: { id: true, email: true },
+        })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
@@ -149,6 +156,11 @@ export async function POST(req: NextRequest) {
 function extractEmail(fromHeader: string): string {
   const match = fromHeader.match(/<([^>]+)>/)
   return match ? match[1] : fromHeader.trim()
+}
+
+function extractReceiptInboxToken(toHeader: string): string | null {
+  const match = toHeader.match(/receipts\+([a-f0-9]{32})@parse\.bitbudget\.io/i)
+  return match ? match[1].toLowerCase() : null
 }
 
 function extractOriginalSender(text: string, subject: string): string | null {

@@ -19,6 +19,7 @@ export async function GET() {
       nostrPubkey: true,
       encryptedPrivacyKey: true,
       privacyKeySalt: true,
+      receiptInboxToken: true,
       name: true,
       email: true,
       subscriptionTier: true,
@@ -48,6 +49,7 @@ export async function PUT(req: NextRequest) {
     "opportunityCostEnabled",
     "encryptedPrivacyKey",
     "privacyKeySalt",
+    "receiptInboxToken",
     "name",
   ] as const
 
@@ -66,6 +68,7 @@ export async function PUT(req: NextRequest) {
       payCadence: true,
       onboardingComplete: true,
       btcDisplayUnit: true,
+      receiptInboxToken: true,
       name: true,
     },
   })

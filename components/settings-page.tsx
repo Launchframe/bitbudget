@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
@@ -24,7 +24,30 @@ export function SettingsPage() {
   const [deleting, setDeleting] = useState(false)
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
+  const [receiptInboxAddress, setReceiptInboxAddress] = useState<string | null>(null)
+  const [receiptInboxLoading, setReceiptInboxLoading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadReceiptInbox() {
+      setReceiptInboxLoading(true)
+      try {
+        const res = await fetch("/api/user/receipt-inbox")
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) {
+          setReceiptInboxAddress(data.receiptInboxAddress ?? null)
+        }
+      } finally {
+        if (!cancelled) setReceiptInboxLoading(false)
+      }
+    }
+    loadReceiptInbox()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function handleClearAll() {
     if (!confirmDelete) {
@@ -337,6 +360,30 @@ export function SettingsPage() {
             <div className="w-2 h-2 rounded-full bg-[#22C55E]" />
             <span className="text-xs text-[#22C55E]">Encryption active</span>
           </div>
+        </div>
+      </div>
+
+      {/* Receipt Inbox */}
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-[#06B6D4]/10">
+            <Mail className="h-5 w-5 text-[#06B6D4]" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground">Receipt Inbox</h3>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Forward receipts to your dedicated address. This works for email users and for Nostr-only users who do not have an email on file.
+        </p>
+        <div className="flex flex-col gap-3">
+          <div className="rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Inbound address</p>
+            <p className="font-mono text-sm text-foreground break-all">
+              {receiptInboxLoading ? "Generating..." : receiptInboxAddress || "Loading..."}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Use this as the SendGrid Inbound Parse recipient. Messages to this address route by token instead of sender email.
+          </p>
         </div>
       </div>
 
