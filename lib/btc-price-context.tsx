@@ -19,10 +19,44 @@ interface BtcPriceContextValue {
 
 const BtcPriceContext = createContext<BtcPriceContextValue | null>(null)
 
+const NOOP_PRICES: BtcPriceContextValue = {
+  currentPrice: null,
+  priceHistory: [],
+  satsPerDollar: 0,
+  loading: false,
+  backfillStatus: "idle",
+  getPriceOnDate: () => 0,
+  calculateOpportunityCost: () => 0,
+}
+
+/**
+ * Returns BTC price context. When called outside BtcPriceProvider (e.g. in
+ * vanilla mode where the provider is not mounted), returns safe zero values
+ * instead of throwing so components degrade gracefully.
+ */
 export function useBtcPrices(): BtcPriceContextValue {
   const ctx = useContext(BtcPriceContext)
-  if (!ctx) throw new Error("useBtcPrices must be used within BtcPriceProvider")
+
+  if (ctx === null) {
+    if (process.env.NODE_ENV !== "production") {
+      // This typically indicates a missing <BtcPriceProvider> in the React tree.
+      console.warn(
+        "[BtcPriceContext] useBtcPrices called outside of BtcPriceProvider; returning NOOP_PRICES.",
+      )
+    }
+    return NOOP_PRICES
+  }
+
   return ctx
+}
+
+/**
+ * Returns BTC price context if available, or null when no provider is mounted.
+ * This is useful when you need to distinguish between "no provider" and
+ * "provider present" without any dev-time warnings or fallbacks.
+ */
+export function useOptionalBtcPrices(): BtcPriceContextValue | null {
+  return useContext(BtcPriceContext)
 }
 
 function buildSortedHistory(prices: Record<string, number>): BtcPricePoint[] {
@@ -31,18 +65,36 @@ function buildSortedHistory(prices: Record<string, number>): BtcPricePoint[] {
     .map(([date, price]) => ({ date, price }))
 }
 
-export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
+export function BtcPriceProvider({
+  children,
+  enabled,
+}: {
+  children: React.ReactNode
+  /** When false, no BTC API calls; subtree stays mounted when toggling OC in Settings. */
+  enabled: boolean
+}) {
   const [currentPrice, setCurrentPrice] = useState<number | null>(null)
   const [priceMap, setPriceMap] = useState<Record<string, number>>({})
   const [priceHistory, setPriceHistory] = useState<BtcPricePoint[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [backfillStatus, setBackfillStatus] = useState<"idle" | "in_progress" | "complete" | "error">("idle")
   const fetched = useRef(false)
   const backfillStarted = useRef(false)
+  const enabledRef = useRef(enabled)
+  enabledRef.current = enabled
 
   useEffect(() => {
-    if (fetched.current) return
+    if (!enabled) {
+      setLoading(false)
+      backfillStarted.current = false
+      return
+    }
+    if (fetched.current) {
+      setLoading(false)
+      return
+    }
     fetched.current = true
+    setLoading(true)
 
     async function load() {
       try {
@@ -72,11 +124,11 @@ export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
     }
 
     load()
-  }, [])
+  }, [enabled])
 
   // Background backfill: progressively fetch older data from CoinCap
   useEffect(() => {
-    if (loading || backfillStarted.current) return
+    if (!enabled || loading || backfillStarted.current) return
     backfillStarted.current = true
 
     async function runBackfill() {
@@ -86,6 +138,10 @@ export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
 
       let backfillDone = false
       while (!backfillDone) {
+        if (!enabledRef.current) {
+          setBackfillStatus("idle")
+          break
+        }
         try {
           const res = await fetch("/api/btc-price/backfill", { method: "POST" })
           if (!res.ok) {
@@ -127,7 +183,7 @@ export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
     }
 
     runBackfill()
-  }, [loading])
+  }, [enabled, loading])
 
   const getPriceOnDate = useCallback(
     (date: string): number => {

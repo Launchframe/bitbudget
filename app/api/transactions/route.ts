@@ -119,12 +119,17 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
   }
 
-  if (envelopeId && envelopeId !== existing.envelopeId) {
-    const envelope = await prisma.envelope.findFirst({
-      where: { id: envelopeId, userId: session.user.id },
-    })
-    if (!envelope) {
-      return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
+  if (envelopeId !== undefined) {
+    if (typeof envelopeId !== "string" || envelopeId.trim() === "") {
+      return NextResponse.json({ error: "Invalid envelopeId" }, { status: 400 })
+    }
+    if (envelopeId !== existing.envelopeId) {
+      const envelope = await prisma.envelope.findFirst({
+        where: { id: envelopeId, userId: session.user.id },
+      })
+      if (!envelope) {
+        return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
+      }
     }
   }
 

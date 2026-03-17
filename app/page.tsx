@@ -82,6 +82,16 @@ function EncryptionGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+/** Always wraps with BtcPriceProvider so toggling OC in Settings does not remount the app shell. */
+function BtcPriceShell({ children }: { children: React.ReactNode }) {
+  const { state } = useApp()
+  return (
+    <BtcPriceProvider enabled={state.opportunityCostEnabled}>
+      {children}
+    </BtcPriceProvider>
+  )
+}
+
 function PageContent() {
   const { currentPage, loading } = useApp()
 
@@ -136,22 +146,22 @@ export default function Dashboard() {
       <AppProvider>
         <FaviconSwitcher />
         <EncryptionGate>
-          <BtcPriceProvider>
-          <div className="relative h-screen w-full bg-background text-foreground overflow-hidden">
-            <Header />
-            <div className="h-full overflow-y-auto no-scrollbar">
-              <main className="flex gap-4 md:gap-6 px-3 md:px-6 pb-20 md:pb-8 pt-20 md:pt-24 min-h-full">
-                <Sidebar />
-                <div className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
-                  <NotificationBanner />
-                  <PageContent />
-                </div>
-              </main>
+          <BtcPriceShell>
+            <div className="relative h-screen w-full bg-background text-foreground overflow-hidden">
+              <Header />
+              <div className="h-full overflow-y-auto no-scrollbar">
+                <main className="flex gap-4 md:gap-6 px-3 md:px-6 pb-20 md:pb-8 pt-20 md:pt-24 min-h-full">
+                  <Sidebar />
+                  <div className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
+                    <NotificationBanner />
+                    <PageContent />
+                  </div>
+                </main>
+              </div>
+              <MobileNav />
+              <NewTransactionDialog />
             </div>
-            <MobileNav />
-            <NewTransactionDialog />
-          </div>
-          </BtcPriceProvider>
+          </BtcPriceShell>
         </EncryptionGate>
       </AppProvider>
     </OnboardingGate>

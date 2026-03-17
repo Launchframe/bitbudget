@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
     })
   } catch (err) {
     console.error("receipt scan error:", err)
-    const message = err instanceof Error ? err.message : "Failed to scan receipt"
-    return NextResponse.json({ error: message }, { status: 500 })
+    const errorMessage = "Failed to scan receipt. Please try another image or PDF."
+    return NextResponse.json({ error: errorMessage }, { status: 400 })
   }
 }
