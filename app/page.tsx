@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { signOut } from "next-auth/react"
 import { AppProvider, useApp } from "@/lib/app-context"
 import { BtcPriceProvider } from "@/lib/btc-price-context"
 import { Sidebar } from "@/components/sidebar"
@@ -30,7 +31,7 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
       try {
         const res = await fetch("/api/user/settings")
         if (res.status === 401 || res.status === 403) {
-          router.replace("/auth")
+          signOut({ callbackUrl: "/auth" })
           return
         }
         if (res.ok) {

@@ -152,6 +152,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const initEncryption = useCallback(async () => {
     try {
       const res = await fetch("/api/user/encryption")
+      if (res.status === 401 || res.status === 403) {
+        signOut({ callbackUrl: "/auth" })
+        return
+      }
       if (!res.ok) return
 
       const data = await res.json() as {
@@ -229,6 +233,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         fetch("/api/pending-transactions"),
       ])
 
+      const authFailure = [txnRes, envRes, settingsRes].some(
+        (r) => r.status === 401 || r.status === 403,
+      )
+      if (authFailure) {
+        signOut({ callbackUrl: "/auth" })
+        return
+      }
       if (!txnRes.ok || !envRes.ok || !settingsRes.ok) {
         throw new Error("Failed to fetch data")
       }
