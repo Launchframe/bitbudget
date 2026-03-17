@@ -3,19 +3,87 @@ import { prisma } from "@/lib/db"
 import { parseReceiptText } from "@/lib/receipt-parser"
 import { matchEnvelope } from "@/lib/envelope-matcher"
 import { routeTransaction } from "@/lib/confidence-router"
+import {
+  getSendGridInboundHeaders,
+  isSendGridWebhookTimestampFresh,
+  parseMultipartFormFields,
+  verifySendGridInboundWebhook,
+} from "@/lib/sendgrid-inbound-verify"
+
+const publicKeyEnv = process.env.SENDGRID_INBOUND_WEBHOOK_PUBLIC_KEY
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData()
-    const from = formData.get("from") as string // Forwarding user's email
-    const text = formData.get("text") as string // Email body text
-    const subject = formData.get("subject") as string
+    const contentType = req.headers.get("content-type") || ""
+    if (!contentType.toLowerCase().includes("multipart/form-data")) {
+      return NextResponse.json(
+        { error: "Expected multipart/form-data" },
+        { status: 400 },
+      )
+    }
+
+    const rawBody = Buffer.from(await req.arrayBuffer())
+
+    if (publicKeyEnv?.trim()) {
+      const { signature, timestamp } = getSendGridInboundHeaders(req)
+      if (!signature || !timestamp) {
+        return NextResponse.json(
+          { error: "Missing SendGrid webhook signature headers" },
+          { status: 401 },
+        )
+      }
+      if (!isSendGridWebhookTimestampFresh(timestamp)) {
+        return NextResponse.json(
+          { error: "Invalid or expired webhook timestamp" },
+          { status: 401 },
+        )
+      }
+      if (
+        !verifySendGridInboundWebhook(
+          publicKeyEnv.trim(),
+          timestamp,
+          rawBody,
+          signature,
+        )
+      ) {
+        return NextResponse.json(
+          { error: "Invalid webhook signature" },
+          { status: 401 },
+        )
+      }
+    } else if (process.env.NODE_ENV === "production") {
+      return NextResponse.json(
+        {
+          error:
+            "Inbound email signing not configured. Set SENDGRID_INBOUND_WEBHOOK_PUBLIC_KEY and enable a SendGrid Inbound Parse security policy.",
+        },
+        { status: 503 },
+      )
+    } else {
+      console.warn(
+        "[inbound-email] SENDGRID_INBOUND_WEBHOOK_PUBLIC_KEY not set; signature verification skipped (development only)",
+      )
+    }
+
+    let fields: Record<string, string>
+    try {
+      fields = await parseMultipartFormFields(rawBody, contentType)
+    } catch (e) {
+      console.error("inbound-email multipart parse:", e)
+      return NextResponse.json(
+        { error: "Could not parse multipart body" },
+        { status: 400 },
+      )
+    }
+
+    const from = fields.from
+    const text = fields.text
+    const subject = fields.subject ?? ""
 
     if (!from || !text) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Look up user by email
     const senderEmail = extractEmail(from)
     const user = await prisma.user.findUnique({
       where: { email: senderEmail },
@@ -25,7 +93,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    // Parse the receipt
     let parsed
     try {
       parsed = await parseReceiptText(text)
@@ -55,11 +122,9 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Match envelope
     const date = parsed.date ? new Date(parsed.date) : new Date()
     const envelopeMatch = parsed.payee ? await matchEnvelope(user.id, parsed.payee) : null
 
-    // Route through confidence system
     const confidence = envelopeMatch?.confidence ?? 0.3
     const result = await routeTransaction(user.id, {
       payee: parsed.payee || "Unknown",
@@ -71,7 +136,6 @@ export async function POST(req: NextRequest) {
       rawInput: `Subject: ${subject}\n\n${text.slice(0, 500)}`,
     })
 
-    // Check if original sender is in approved senders list
     const originalSender = extractOriginalSender(text, subject) || senderEmail
     await checkAndQueueSender(originalSender, parsed.payee, amount)
 
@@ -88,12 +152,10 @@ function extractEmail(fromHeader: string): string {
 }
 
 function extractOriginalSender(text: string, subject: string): string | null {
-  // Try to find "From:" in forwarded email headers
   const fromMatch = text.match(
     /(?:^|\n)From:\s*.*?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
   )
   if (fromMatch) return fromMatch[1]
-  // Check subject for "Fwd:" pattern
   if (subject?.toLowerCase().startsWith("fwd:")) return null
   return null
 }
@@ -106,7 +168,6 @@ async function checkAndQueueSender(
   const domain = senderAddress.split("@")[1]
   const domainPattern = domain ? `*@${domain}` : null
 
-  // Check if sender is already approved
   const approved = await prisma.approvedReceiptSender.findFirst({
     where: {
       OR: [
@@ -117,7 +178,6 @@ async function checkAndQueueSender(
   })
   if (approved) return
 
-  // Upsert pending sender review
   const existing = await prisma.pendingSenderReview.findFirst({
     where: { senderAddress, status: "pending" },
   })
