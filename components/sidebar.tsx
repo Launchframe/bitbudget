@@ -4,6 +4,7 @@ import { useState } from "react"
 import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, ScanLine, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin, Inbox } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
+import { VoiceDictationButton } from "@/components/voice-dictation-button"
 
 const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "DASHBOARD", icon: LayoutDashboard },
@@ -81,6 +82,7 @@ export function Sidebar() {
           <ScanLine className="h-4 w-4 text-[#F7931A] shrink-0" />
           <span className="hidden lg:inline">Scan Receipt</span>
         </button>
+        <VoiceDictationButton />
       </div>
 
       <ScanReceiptDialog open={scanOpen} onOpenChange={setScanOpen} />
