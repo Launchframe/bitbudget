@@ -7,6 +7,7 @@ interface UserRow {
   email: string | null
   name: string | null
   role: string | null
+  subscriptionTier: string | null
   createdAt: string
   transactionCount: number
 }
@@ -16,6 +17,25 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [loading, setLoading] = useState(true)
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
+
+  async function setTier(userId: string, subscriptionTier: "free" | "premium") {
+    setUpdatingId(userId)
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/tier`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscriptionTier }),
+      })
+      if (res.ok) {
+        setUsers((prev) =>
+          prev.map((u) => (u.id === userId ? { ...u, subscriptionTier } : u)),
+        )
+      }
+    } finally {
+      setUpdatingId(null)
+    }
+  }
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
@@ -55,6 +75,7 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Email</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Name</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Role</th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Tier</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Transactions</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Joined</th>
               </tr>
@@ -65,6 +86,19 @@ export default function AdminUsersPage() {
                   <td className="px-4 py-3 text-[#E7E7E7]">{u.email ?? "—"}</td>
                   <td className="px-4 py-3 text-[#E7E7E7]">{u.name ?? "—"}</td>
                   <td className="px-4 py-3 text-[#E7E7E7]">{u.role ?? "—"}</td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={u.subscriptionTier ?? "free"}
+                      onChange={(e) =>
+                        setTier(u.id, e.target.value as "free" | "premium")
+                      }
+                      disabled={updatingId === u.id}
+                      className="rounded-lg border border-[#333] bg-[#0D0D0D] px-2.5 py-1.5 text-sm text-[#E7E7E7] focus:border-[#F7931A] focus:outline-none focus:ring-1 focus:ring-[#F7931A] disabled:opacity-50"
+                    >
+                      <option value="free">Free</option>
+                      <option value="premium">Premium</option>
+                    </select>
+                  </td>
                   <td className="px-4 py-3 text-[#E7E7E7]">{u.transactionCount}</td>
                   <td className="px-4 py-3 text-[#919191]">
                     {new Date(u.createdAt).toLocaleDateString()}

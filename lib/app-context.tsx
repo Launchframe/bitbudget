@@ -88,6 +88,7 @@ interface AppContextValue {
   refreshData: () => Promise<void>
   encryptForStorage: (plaintext: string) => Promise<string>
   logout: () => void
+  isAdmin: boolean
 
   pendingTransactions: PendingTransaction[]
   pendingCount: number
@@ -136,6 +137,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return page === "envelope-detail" && envelopeId ? new Set([envelopeId]) : new Set()
   })
   const [loading, setLoading] = useState(true)
+  const [userRole, setUserRole] = useState<string | null>(null)
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const mounted = useRef(false)
   const isPopstate = useRef(false)
@@ -259,6 +261,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         transactions = await decryptTransactions(transactions, privacyKeyRef.current)
       }
 
+      setUserRole(settings.role ?? null)
       setState(prev => ({
         ...prev,
         transactions,
@@ -664,6 +667,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         refreshData,
         encryptForStorage,
         logout,
+        isAdmin: userRole === "admin",
         pendingTransactions,
         pendingCount: pendingTransactions.length,
         confirmPending,

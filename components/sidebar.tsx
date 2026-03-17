@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, ScanLine, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin, Inbox } from "lucide-react"
+import Link from "next/link"
+import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, ScanLine, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin, Inbox, ShieldCheck } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
 import { VoiceDictationButton } from "@/components/voice-dictation-button"
@@ -18,7 +19,7 @@ const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
 ]
 
 export function Sidebar() {
-  const { currentPage, navigateTo, openNewTransaction, logout, state, pendingCount } = useApp()
+  const { currentPage, navigateTo, openNewTransaction, logout, state, pendingCount, isAdmin } = useApp()
   const [scanOpen, setScanOpen] = useState(false)
 
   return (
@@ -88,6 +89,16 @@ export function Sidebar() {
       <ScanReceiptDialog open={scanOpen} onOpenChange={setScanOpen} />
 
       <div className="mt-auto pt-8 border-t border-[#1F1F1F] flex flex-col gap-8">
+        {isAdmin && (
+          <Link
+            href="/admin"
+            title="Admin"
+            className="flex items-center justify-center lg:justify-start gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left"
+          >
+            <ShieldCheck className="h-6 w-6 shrink-0" />
+            <span className="hidden lg:inline text-sm font-medium tracking-wide">ADMIN</span>
+          </Link>
+        )}
         <button title="Support" className="flex items-center justify-center lg:justify-start gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left">
           <SquareArrowOutUpRight className="h-6 w-6 shrink-0" />
           <span className="hidden lg:inline text-sm font-medium tracking-wide">SUPPORT</span>

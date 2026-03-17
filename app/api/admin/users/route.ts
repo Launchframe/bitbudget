@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
       email: true,
       name: true,
       role: true,
+      subscriptionTier: true,
       createdAt: true,
       _count: { select: { transactions: true } },
     },
