@@ -6,7 +6,15 @@
  *
  * For Nostr users: encryption uses the nostr extension (NIP-04 or NIP-44).
  * The app never sees the user's nsec.
+ *
+ * Asymmetric encryption (X25519 + XSalsa20-Poly1305 via tweetnacl) allows
+ * the server to encrypt fields with a user's public key when creating
+ * transactions from backend sources (Plaid, email, SMS). Only the client
+ * holding the private key can decrypt.
  */
+
+import nacl from "tweetnacl"
+import naclUtil from "tweetnacl-util"
 
 const PBKDF2_ITERATIONS = 600_000
 
@@ -121,4 +129,86 @@ export function hexToUint8(hex: string): Uint8Array {
     bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16)
   }
   return bytes
+}
+
+// ─── Asymmetric encryption (X25519) ─────────────────────────────────
+
+export async function deriveAsymmetricSeed(
+  passphrase: string,
+  salt: string,
+): Promise<Uint8Array> {
+  const enc = new TextEncoder()
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(passphrase),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  )
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      salt: enc.encode(salt),
+      iterations: PBKDF2_ITERATIONS,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    256,
+  )
+  return new Uint8Array(bits)
+}
+
+export function generateKeyPairFromSeed(
+  seed: Uint8Array,
+): { publicKey: Uint8Array; secretKey: Uint8Array } {
+  return nacl.box.keyPair.fromSecretKey(seed)
+}
+
+/**
+ * Encrypt a field so only the holder of the recipient's secret key can read it.
+ * Uses an ephemeral key pair per encryption (sealed-box pattern) so the server
+ * doesn't need a persistent identity.
+ *
+ * Wire format (base64-encoded): ephemeralPubKey (32) || nonce (24) || ciphertext
+ */
+export function encryptFieldAsymmetric(
+  plaintext: string,
+  recipientPublicKey: Uint8Array,
+): string {
+  const ephemeral = nacl.box.keyPair()
+  const nonce = nacl.randomBytes(nacl.box.nonceLength)
+  const messageBytes = naclUtil.decodeUTF8(plaintext)
+  const encrypted = nacl.box(messageBytes, nonce, recipientPublicKey, ephemeral.secretKey)
+  if (!encrypted) throw new Error("Asymmetric encryption failed")
+  const combined = new Uint8Array(
+    nacl.box.publicKeyLength + nacl.box.nonceLength + encrypted.length,
+  )
+  combined.set(ephemeral.publicKey, 0)
+  combined.set(nonce, nacl.box.publicKeyLength)
+  combined.set(encrypted, nacl.box.publicKeyLength + nacl.box.nonceLength)
+  return naclUtil.encodeBase64(combined)
+}
+
+export function decryptFieldAsymmetric(
+  ciphertext: string,
+  recipientSecretKey: Uint8Array,
+): string {
+  const combined = naclUtil.decodeBase64(ciphertext)
+  const ephemeralPk = combined.slice(0, nacl.box.publicKeyLength)
+  const nonce = combined.slice(
+    nacl.box.publicKeyLength,
+    nacl.box.publicKeyLength + nacl.box.nonceLength,
+  )
+  const encrypted = combined.slice(nacl.box.publicKeyLength + nacl.box.nonceLength)
+  const decrypted = nacl.box.open(encrypted, nonce, ephemeralPk, recipientSecretKey)
+  if (!decrypted) throw new Error("Asymmetric decryption failed — wrong key or corrupted data")
+  return naclUtil.encodeUTF8(decrypted)
+}
+
+export function publicKeyToHex(key: Uint8Array): string {
+  return uint8ToHex(key)
+}
+
+export function hexToPublicKey(hex: string): Uint8Array {
+  return hexToUint8(hex)
 }

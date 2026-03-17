@@ -73,6 +73,8 @@
     "sonner": "^1.7.4",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1",
     "vaul": "^0.9.9",
     "zod": "3.25.76"
   },
