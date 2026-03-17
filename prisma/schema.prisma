@@ -51,6 +51,7 @@ model User {
   approvedSenders     ApprovedReceiptSender[] @relation("ApprovedSenderAdmin")
   auditLogs           AuditLog[]              @relation("AuditLogAdmin")
   plaidItems          PlaidItem[]
+  connectedEmails     ConnectedEmailAccount[]
   payeeMappings       PayeeEnvelopeMapping[]
   pushSubscriptions   PushSubscription[]
 }
@@ -275,6 +276,7 @@ model AuditLog {
 model PlaidItem {
   id               String   @id @default(cuid())
   userId           String
+  plaidItemId      String   @unique
   accessToken      String
   institutionName  String?
   consentTimestamp DateTime @default(now())
@@ -317,6 +319,21 @@ model PushSubscription {
   p256dh    String
   auth      String
   createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ConnectedEmailAccount {
+  id           String    @id @default(cuid())
+  userId       String
+  provider     String
+  accessToken  String
+  refreshToken String?
+  email        String
+  lastScanAt   DateTime?
+  createdAt    DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
