@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { matchEnvelope } from "@/lib/envelope-matcher"
+import { parseReceiptText } from "@/lib/receipt-parser"
 import { PDFParse } from "pdf-parse"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
@@ -13,7 +14,7 @@ const EXTRACTION_PROMPT = `You are a receipt parser. Extract the following from 
 Respond ONLY with valid JSON: {"payee":"...","amount":"...","date":"..."}
 If you cannot determine a field, use an empty string for that field.`
 
-async function callOpenAI(messages: { role: string; content: unknown }[]): Promise<{ payee: string; amount: string; date: string }> {
+async function extractFromImage(base64: string, mimeType: string) {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -22,7 +23,15 @@ async function callOpenAI(messages: { role: string; content: unknown }[]): Promi
     },
     body: JSON.stringify({
       model: "gpt-4o-mini",
-      messages,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: EXTRACTION_PROMPT },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
+          ],
+        },
+      ],
       max_tokens: 200,
       temperature: 0,
     }),
@@ -38,27 +47,6 @@ async function callOpenAI(messages: { role: string; content: unknown }[]): Promi
   const jsonMatch = text.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error("Could not parse response")
   return JSON.parse(jsonMatch[0])
-}
-
-async function extractFromImage(base64: string, mimeType: string) {
-  return callOpenAI([
-    {
-      role: "user",
-      content: [
-        { type: "text", text: EXTRACTION_PROMPT },
-        { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
-      ],
-    },
-  ])
-}
-
-async function extractFromPdfText(text: string) {
-  return callOpenAI([
-    {
-      role: "user",
-      content: `${EXTRACTION_PROMPT}\n\nReceipt text:\n${text.slice(0, 4000)}`,
-    },
-  ])
 }
 
 export async function POST(req: NextRequest) {
@@ -88,7 +76,7 @@ export async function POST(req: NextRequest) {
       if (!textResult.text?.trim()) {
         return NextResponse.json({ error: "Could not extract text from PDF" }, { status: 422 })
       }
-      result = await extractFromPdfText(textResult.text)
+      result = await parseReceiptText(textResult.text)
     } else if (file.type.startsWith("image/")) {
       const base64 = buffer.toString("base64")
       result = await extractFromImage(base64, file.type)
