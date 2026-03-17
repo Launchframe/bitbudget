@@ -107,5 +107,8 @@
       "prisma",
       "sharp"
     ]
+  },
+  "prisma": {
+    "seed": "npx tsx prisma/seed.ts"
   }
 }
