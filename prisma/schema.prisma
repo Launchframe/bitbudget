@@ -49,6 +49,7 @@ model User {
   approvedSenders     ApprovedReceiptSender[] @relation("ApprovedSenderAdmin")
   auditLogs           AuditLog[]              @relation("AuditLogAdmin")
   plaidItems          PlaidItem[]
+  payeeMappings       PayeeEnvelopeMapping[]
 }
 
 model Account {
@@ -106,6 +107,7 @@ model Envelope {
   recurringTransactions RecurringTransaction[]
   pendingTransactions PendingTransaction[]
   shortcuts           TransactionShortcut[]
+  payeeMappings       PayeeEnvelopeMapping[]
 
   @@index([userId])
 }
@@ -289,4 +291,18 @@ model PlaidAccount {
   type        String
 
   plaidItem PlaidItem @relation(fields: [plaidItemId], references: [id], onDelete: Cascade)
+}
+
+model PayeeEnvelopeMapping {
+  id         String @id @default(cuid())
+  userId     String
+  payeeHash  String
+  envelopeId String
+  count      Int    @default(1)
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envelope Envelope @relation(fields: [envelopeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, payeeHash])
+  @@index([userId])
 }
