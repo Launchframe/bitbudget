@@ -21,6 +21,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { X, Repeat, Tag, ChevronRight } from "lucide-react"
+import { ShortcutsPanel } from "@/components/shortcuts-panel"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -47,6 +48,7 @@ export function NewTransactionDialog() {
   const [isRecurring, setIsRecurring] = useState(false)
   const [cadence, setCadence] = useState<Cadence>("monthly")
   const [endDate, setEndDate] = useState("")
+  const [saveAsShortcut, setSaveAsShortcut] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
 
@@ -62,6 +64,7 @@ export function NewTransactionDialog() {
       if (transactionPrefill.amount) setAmount(transactionPrefill.amount)
       if (transactionPrefill.date) setDate(transactionPrefill.date)
       if (transactionPrefill.notes) setNotes(transactionPrefill.notes)
+      if (transactionPrefill.envelopeId) setEnvelopeId(transactionPrefill.envelopeId)
     }
   }, [transactionDialogOpen, transactionPrefill])
 
@@ -130,6 +133,7 @@ export function NewTransactionDialog() {
     setIsRecurring(false)
     setCadence("monthly")
     setEndDate("")
+    setSaveAsShortcut(false)
     setModalView("main")
     setValidationErrors({})
   }
@@ -185,6 +189,18 @@ export function NewTransactionDialog() {
       })
     }
 
+    if (saveAsShortcut) {
+      fetch("/api/shortcuts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payee: payee.trim(),
+          defaultAmount: parseFloat(amount) > 0 ? parseFloat(amount) : null,
+          envelopeId,
+        }),
+      })
+    }
+
     resetForm()
     setTransactionDialogOpen(false)
   }
@@ -216,6 +232,7 @@ export function NewTransactionDialog() {
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           {modalView === "main" && (
             <>
+              <ShortcutsPanel dialogOpen={transactionDialogOpen} />
               {/* Type toggle */}
               <div className="flex flex-col gap-2">
                 <Label className="text-muted-foreground text-xs uppercase tracking-wider">Type</Label>
@@ -424,6 +441,16 @@ export function NewTransactionDialog() {
                   <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                 </div>
               </button>
+
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={saveAsShortcut}
+                  onChange={(e) => setSaveAsShortcut(e.target.checked)}
+                  className="rounded border-[#333]"
+                />
+                Save as shortcut
+              </label>
 
               {/* Submit */}
               <button

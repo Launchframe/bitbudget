@@ -48,6 +48,7 @@ export interface TransactionPrefill {
   amount?: string
   date?: string
   notes?: string
+  envelopeId?: string
 }
 
 interface AppContextValue {
