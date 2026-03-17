@@ -89,6 +89,7 @@ interface AppContextValue {
   encryptForStorage: (plaintext: string) => Promise<string>
   logout: () => void
   isAdmin: boolean
+  subscriptionTier: "free" | "premium"
 
   pendingTransactions: PendingTransaction[]
   pendingCount: number
@@ -138,6 +139,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   })
   const [loading, setLoading] = useState(true)
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [subscriptionTier, setSubscriptionTier] = useState<"free" | "premium">("free")
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const mounted = useRef(false)
   const isPopstate = useRef(false)
@@ -262,6 +264,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       setUserRole(settings.role ?? null)
+      setSubscriptionTier(
+        settings.subscriptionTier === "premium" ? "premium" : "free",
+      )
       setState(prev => ({
         ...prev,
         transactions,
@@ -668,6 +673,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         encryptForStorage,
         logout,
         isAdmin: userRole === "admin",
+        subscriptionTier,
         pendingTransactions,
         pendingCount: pendingTransactions.length,
         confirmPending,

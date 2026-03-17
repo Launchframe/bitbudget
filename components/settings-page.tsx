@@ -7,10 +7,10 @@ import { formatUsd } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
-import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, User, TrendingUp } from "lucide-react"
+import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, User, TrendingUp, Crown } from "lucide-react"
 
 export function SettingsPage() {
-  const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, refreshData, encryptForStorage, logout } = useApp()
+  const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, refreshData, encryptForStorage, logout, subscriptionTier } = useApp()
   const { data: session } = useSession()
   const userName = session?.user?.name
   const userEmail = session?.user?.email
@@ -54,6 +54,39 @@ export function SettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <h2 className="text-2xl font-bold text-foreground">Settings</h2>
+
+      {/* Plan / Tier */}
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className={`p-2 rounded-lg ${subscriptionTier === "premium" ? "bg-[#F7931A]/20" : "bg-[#333]/50"}`}>
+            <Crown className={`h-5 w-5 ${subscriptionTier === "premium" ? "text-[#F7931A]" : "text-muted-foreground"}`} />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground">Plan</h3>
+        </div>
+        <div className="flex items-center gap-3">
+          <span
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold ${
+              subscriptionTier === "premium"
+                ? "bg-[#F7931A]/15 text-[#F7931A] border border-[#F7931A]/30"
+                : "bg-[#1A1A1A] text-muted-foreground border border-[#333]"
+            }`}
+          >
+            {subscriptionTier === "premium" ? (
+              <>
+                <Crown className="h-4 w-4" />
+                Premium
+              </>
+            ) : (
+              "Free"
+            )}
+          </span>
+          {subscriptionTier === "premium" && (
+            <span className="text-sm text-muted-foreground">
+              You have access to bank sync, SMS alerts, and connected email.
+            </span>
+          )}
+        </div>
+      </div>
 
       {/* Profile */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
