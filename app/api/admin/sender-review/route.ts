@@ -18,6 +18,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const { error, user } = await requireAdmin()
   if (error) return error
+  if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const body = await request.json()
   const { id, action, displayName } = body as { id?: string; action?: string; displayName?: string }
@@ -39,20 +40,20 @@ export async function POST(request: NextRequest) {
       data: {
         senderPattern: record.senderAddress,
         displayName: displayName.trim(),
-        addedBy: user!.id,
+        addedBy: user.id,
       },
     })
     await prisma.pendingSenderReview.update({
       where: { id },
       data: { status: "approved" },
     })
-    await logAdminAction(user!.id, "sender.approved", "PendingSenderReview", id)
+    await logAdminAction(user.id, "sender.approved", "PendingSenderReview", id)
   } else if (action === "dismiss") {
     await prisma.pendingSenderReview.update({
       where: { id },
       data: { status: "dismissed" },
     })
-    await logAdminAction(user!.id, "sender.dismissed", "PendingSenderReview", id)
+    await logAdminAction(user.id, "sender.dismissed", "PendingSenderReview", id)
   } else {
     return NextResponse.json({ error: "Invalid action" }, { status: 400 })
   }

@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client"
 import { prisma } from "./db"
 
 export async function logAdminAction(
@@ -13,7 +14,7 @@ export async function logAdminAction(
       action,
       targetType,
       targetId,
-      metadata: metadata ?? undefined,
+      metadata: metadata ? (metadata as Prisma.InputJsonValue) : undefined,
     },
   })
 }

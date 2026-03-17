@@ -18,6 +18,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const { error, user } = await requireAdmin()
   if (error) return error
+  if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const body = await request.json()
   const { senderPattern, displayName } = body as { senderPattern?: string; displayName?: string }
@@ -30,11 +31,11 @@ export async function POST(request: NextRequest) {
     data: {
       senderPattern: senderPattern.trim(),
       displayName: displayName.trim(),
-      addedBy: user!.id,
+      addedBy: user.id,
     },
   })
 
-  await logAdminAction(user!.id, "sender.created", "ApprovedReceiptSender", newSender.id)
+  await logAdminAction(user.id, "sender.created", "ApprovedReceiptSender", newSender.id)
 
   return NextResponse.json(newSender, { status: 201 })
 }
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const { error, user } = await requireAdmin()
   if (error) return error
+  if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const id = request.nextUrl.searchParams.get("id")
   if (!id) {
@@ -49,7 +51,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   await prisma.approvedReceiptSender.delete({ where: { id } })
-  await logAdminAction(user!.id, "sender.deleted", "ApprovedReceiptSender", id)
+  await logAdminAction(user.id, "sender.deleted", "ApprovedReceiptSender", id)
 
   return NextResponse.json({ success: true })
 }
