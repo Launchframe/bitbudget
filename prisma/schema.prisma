@@ -33,6 +33,7 @@ model User {
   opportunityCostEnabled  Boolean  @default(false)
   role      String? @default("user")
   publicKey String?
+  lastVisitedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -1,0 +1,57 @@
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/db"
+
+export async function GET(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { lastVisitedAt: true },
+  })
+
+  if (!user?.lastVisitedAt) {
+    return NextResponse.json([])
+  }
+
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      userId: session.user.id,
+      createdAt: { gt: user.lastVisitedAt },
+      source: { not: "manual" },
+    },
+    orderBy: { createdAt: "desc" },
+  })
+
+  const formatted = transactions.map(t => ({
+    id: t.id,
+    date: t.date.toISOString().split("T")[0],
+    payee: t.payee,
+    amount: t.amount,
+    type: t.type,
+    envelopeId: t.envelopeId,
+    tags: JSON.parse(t.tags),
+    notes: t.notes ?? null,
+    satsAmount: t.satsAmount ?? null,
+    recurringId: t.recurringId ?? null,
+  }))
+
+  return NextResponse.json(formatted)
+}
+
+export async function POST(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { lastVisitedAt: new Date() },
+  })
+
+  return NextResponse.json({ success: true })
+}
