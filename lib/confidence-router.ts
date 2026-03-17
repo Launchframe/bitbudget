@@ -30,7 +30,8 @@ export async function routeTransaction(
 
   const encryptedPayee =
     encryptFieldForUser(parsed.payee, user?.publicKey) ?? parsed.payee
-  const encryptedNotes = encryptFieldForUser(parsed.notes, user?.publicKey)
+  const encryptedNotes =
+    encryptFieldForUser(parsed.notes, user?.publicKey) ?? parsed.notes ?? null
 
   const route = routeByConfidence(parsed.confidence)
 

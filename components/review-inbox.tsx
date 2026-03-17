@@ -50,18 +50,24 @@ export function ReviewInbox() {
     )
   }
 
+  const confirmableCount = pendingTransactions.filter(
+    (pt) => pt.suggestedEnvelopeId,
+  ).length
+
   return (
     <div className="flex flex-col gap-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-foreground">Review Inbox</h2>
-        <button
-          onClick={confirmAllPending}
-          className="flex items-center gap-2 px-4 py-2 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
-        >
-          <CheckCheck className="h-4 w-4" />
-          Confirm All
-        </button>
+        {confirmableCount > 0 && (
+          <button
+            onClick={confirmAllPending}
+            className="flex items-center gap-2 px-4 py-2 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
+          >
+            <CheckCheck className="h-4 w-4" />
+            Confirm {confirmableCount} with suggestion{confirmableCount !== 1 ? "s" : ""}
+          </button>
+        )}
       </div>
 
       {/* Items */}

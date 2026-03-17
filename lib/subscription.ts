@@ -7,7 +7,8 @@ export async function getUserTier(userId: string): Promise<SubscriptionTier> {
     where: { id: userId },
     select: { subscriptionTier: true },
   })
-  return (user?.subscriptionTier as SubscriptionTier) ?? "free"
+  const tier = user?.subscriptionTier
+  return tier === "free" || tier === "premium" ? tier : "free"
 }
 
 export async function requirePremium(userId: string): Promise<boolean> {

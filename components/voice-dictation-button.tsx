@@ -24,24 +24,28 @@ export function VoiceDictationButton() {
   const [transcript, setTranscript] = useState("")
   const [result, setResult] = useState<ParsedVoiceResult | null>(null)
   const recognitionRef = useRef<ReturnType<typeof createRecognition> | null>(null)
+  const lastTranscriptRef = useRef("")
 
   const startListening = useCallback(() => {
     const recognition = createRecognition()
     if (!recognition) return
 
     recognitionRef.current = recognition
+    lastTranscriptRef.current = ""
     setTranscript("")
     setResult(null)
     setVoiceState("listening")
 
     recognition.onresult = (event: { results: { transcript: string }[][] }) => {
-      const text = event.results[0]?.[0]?.transcript ?? ""
-      setTranscript(text)
+      const results = event.results
+      const last = results[results.length - 1]?.[0]?.transcript ?? ""
+      lastTranscriptRef.current = last
+      setTranscript(last)
     }
 
     recognition.onend = async () => {
       setVoiceState("processing")
-      const currentTranscript = recognitionRef.current?._lastTranscript ?? ""
+      const currentTranscript = lastTranscriptRef.current
       if (!currentTranscript) {
         setVoiceState("idle")
         return
@@ -67,14 +71,6 @@ export function VoiceDictationButton() {
 
     recognition.onerror = () => {
       setVoiceState("idle")
-    }
-
-    let lastTranscript = ""
-    const origOnResult = recognition.onresult
-    recognition.onresult = (event: { results: { transcript: string }[][] }) => {
-      origOnResult?.(event)
-      lastTranscript = event.results[0]?.[0]?.transcript ?? ""
-      recognition._lastTranscript = lastTranscript
     }
 
     recognition.start()
@@ -135,9 +131,13 @@ export function VoiceDictationButton() {
   )
 }
 
-function createRecognition(): (
-  & { start: () => void; stop: () => void; onresult: ((e: { results: { transcript: string }[][] }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null; _lastTranscript: string }
-) | null {
+function createRecognition(): {
+  start: () => void
+  stop: () => void
+  onresult: ((e: { results: { transcript: string }[][] }) => void) | null
+  onend: (() => void) | null
+  onerror: (() => void) | null
+} | null {
   const SpeechRecognition =
     (window as unknown as { SpeechRecognition?: new () => unknown }).SpeechRecognition ??
     (window as unknown as { webkitSpeechRecognition?: new () => unknown }).webkitSpeechRecognition
@@ -151,11 +151,9 @@ function createRecognition(): (
     onresult: ((e: { results: { transcript: string }[][] }) => void) | null
     onend: (() => void) | null
     onerror: (() => void) | null
-    _lastTranscript: string
   }
   recognition.continuous = false
   recognition.interimResults = true
   recognition.lang = "en-US"
-  recognition._lastTranscript = ""
   return recognition
 }

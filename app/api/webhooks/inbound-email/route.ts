@@ -47,8 +47,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No transaction data found" }, { status: 422 })
     }
 
-    // Match envelope
     const amount = parseFloat(parsed.amount) || 0
+    if (!(amount > 0) || !parsed.payee?.trim()) {
+      return NextResponse.json(
+        { error: "Valid payee and positive amount required" },
+        { status: 422 },
+      )
+    }
+
+    // Match envelope
     const date = parsed.date ? new Date(parsed.date) : new Date()
     const envelopeMatch = parsed.payee ? await matchEnvelope(user.id, parsed.payee) : null
 

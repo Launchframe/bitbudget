@@ -8,6 +8,12 @@ export async function POST() {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+  if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
+    return NextResponse.json(
+      { error: "Plaid is not configured" },
+      { status: 503 },
+    )
+  }
 
   try {
     const response = await plaidClient.linkTokenCreate({

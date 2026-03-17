@@ -19,6 +19,12 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     )
   }
+  if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
+    return NextResponse.json(
+      { error: "Plaid is not configured" },
+      { status: 503 },
+    )
+  }
 
   try {
     const exchangeResponse =
