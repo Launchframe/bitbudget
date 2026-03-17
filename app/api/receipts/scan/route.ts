@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/db"
+import { matchEnvelope } from "@/lib/envelope-matcher"
 import { PDFParse } from "pdf-parse"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
@@ -94,7 +96,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unsupported file type. Use an image or PDF." }, { status: 400 })
     }
 
-    return NextResponse.json(result)
+    let suggestedEnvelopeId: string | null = null
+    let suggestedEnvelopeName: string | null = null
+    let confidence = 0
+
+    if (result.payee) {
+      const match = await matchEnvelope(session.user.id, result.payee)
+      if (match) {
+        suggestedEnvelopeId = match.envelopeId
+        confidence = match.confidence
+        const envelope = await prisma.envelope.findUnique({
+          where: { id: match.envelopeId },
+          select: { name: true },
+        })
+        suggestedEnvelopeName = envelope?.name ?? null
+      }
+    }
+
+    return NextResponse.json({
+      ...result,
+      suggestedEnvelopeId,
+      suggestedEnvelopeName,
+      confidence,
+    })
   } catch (err) {
     console.error("receipt scan error:", err)
     const message = err instanceof Error ? err.message : "Failed to scan receipt"

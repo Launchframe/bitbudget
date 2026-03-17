@@ -69,6 +69,7 @@ export function ScanReceiptDialog({
         payee: data.payee || "",
         amount: data.amount || "",
         date: data.date || "",
+        ...(data.suggestedEnvelopeId && { envelopeId: data.suggestedEnvelopeId }),
       })
     } catch {
       setError("Something went wrong. Please try again.")
