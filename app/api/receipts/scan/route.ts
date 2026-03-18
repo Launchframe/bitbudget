@@ -20,20 +20,21 @@ const EXTRACTION_PROMPT = `You are a receipt parser. Extract the following from 
 Respond ONLY with valid JSON: {"payee":"...","amount":"...","date":"..."}
 If you cannot determine a field, use an empty string for that field.`
 
-async function extractFromImage(base64: string, mimeType: string) {
-  if (!OPENAI_API_KEY) {
-    const err = new Error("OPENAI_API_KEY is not set; cannot call OpenAI API") as Error & {
-      status: number
-    }
-    err.status = 503
-    throw err
+function httpStatusFromError(err: unknown): number | undefined {
+  if (err !== null && typeof err === "object" && "status" in err) {
+    const s = (err as { status: unknown }).status
+    if (typeof s === "number" && s >= 100 && s < 600) return s
   }
+  return undefined
+}
 
+/** Caller must ensure `apiKey` is set (POST handler checks env before calling). */
+async function extractFromImage(base64: string, mimeType: string, apiKey: string) {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: "gpt-4o-mini",
@@ -88,6 +89,7 @@ export async function POST(req: NextRequest) {
       { status: 503 },
     )
   }
+  const openaiKey = OPENAI_API_KEY
 
   try {
     const formData = await req.formData()
@@ -136,7 +138,7 @@ export async function POST(req: NextRequest) {
         )
       }
       const base64 = buffer.toString("base64")
-      result = await extractFromImage(base64, kind)
+      result = await extractFromImage(base64, kind, openaiKey)
     } else {
       // This branch should be unreachable because resolveReceiptFileKind only returns
       // "application/pdf" or "image/*" (including "image/heic"). Throwing here makes
@@ -170,10 +172,8 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("receipt scan error:", err)
     const errorMessage = "Failed to scan receipt. Please try another image or PDF."
-    let status = 500
-    if (err && typeof err === "object" && "status" in err && typeof (err as any).status === "number") {
-      status = (err as any).status
-    } else if (err instanceof Error) {
+    let status = httpStatusFromError(err) ?? 500
+    if (status === 500 && err instanceof Error) {
       const msg = err.message.toLowerCase()
       if (msg.includes("network") || msg.includes("timeout") || msg.includes("openai") || msg.includes("fetch")) {
         status = 502
