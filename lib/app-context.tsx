@@ -4,7 +4,13 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { signOut } from "next-auth/react"
 import type { Transaction, Envelope, AppState, BtcDisplayUnit, PendingTransaction, Tag } from "@/lib/data"
 import { generateId, getDefaultState } from "@/lib/data"
-import { encryptField, decryptField, hexToUint8 } from "@/lib/crypto"
+import {
+  encryptFieldAsymmetric,
+  decryptFieldAsymmetric,
+  generateKeyPairFromSeed,
+  hexToUint8,
+} from "@/lib/crypto"
+import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 
 export type PageId =
   | "dashboard"
@@ -118,16 +124,32 @@ export function useApp(): AppContextValue {
   return ctx
 }
 
-async function decryptTransactions(transactions: Transaction[], key: Uint8Array): Promise<Transaction[]> {
-  return Promise.all(transactions.map(async (t) => {
+function decryptTxnLikeRecords<T extends { payee: string; notes?: string | null }>(
+  records: T[],
+  secretKey: Uint8Array,
+): T[] {
+  return records.map((t) => {
+    let payee = t.payee
+    let notes = t.notes
     try {
-      const payee = await decryptField(t.payee, key)
-      const notes = t.notes ? await decryptField(t.notes, key) : t.notes
-      return { ...t, payee, notes }
+      payee = decryptFieldAsymmetric(t.payee, secretKey)
     } catch {
-      return t
+      /* plaintext or legacy */
     }
-  }))
+    if (t.notes) {
+      try {
+        notes = decryptFieldAsymmetric(t.notes, secretKey)
+      } catch {
+        /* keep */
+      }
+    }
+    return { ...t, payee, notes }
+  })
+}
+
+function applyPrivacyKey(key: Uint8Array, publicKeyRef: React.MutableRefObject<Uint8Array | null>) {
+  const { publicKey } = generateKeyPairFromSeed(key)
+  publicKeyRef.current = publicKey
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -157,6 +179,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const isPopstate = useRef(false)
 
   const privacyKeyRef = useRef<Uint8Array | null>(null)
+  const publicKeyRef = useRef<Uint8Array | null>(null)
+  /** True while user has wrapped privacy key but has not unlocked this session (avoid showing encrypted pending as gibberish). */
+  const pendingLockedRef = useRef(false)
   const currentUserIdRef = useRef<string | null>(null)
   const [encryption, setEncryption] = useState<EncryptionState>({
     ready: false,
@@ -185,6 +210,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       currentUserIdRef.current = data.userId
 
       if (!data.encryptedPrivacyKey) {
+        pendingLockedRef.current = false
         setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
         return
       }
@@ -192,7 +218,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const cachedKey = sessionStorage.getItem("bitbudget-privacy-key")
       const cachedUser = sessionStorage.getItem("bitbudget-privacy-user")
       if (cachedKey && cachedUser === data.userId) {
-        privacyKeyRef.current = hexToUint8(cachedKey)
+        const pk = hexToUint8(cachedKey)
+        privacyKeyRef.current = pk
+        applyPrivacyKey(pk, publicKeyRef)
+        void syncUserPublicKey(pk)
+        pendingLockedRef.current = false
         setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
         return
       }
@@ -210,15 +240,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (nostrExt?.nip04) {
           try {
             const hexKey = await nostrExt.nip04.decrypt(data.nostrPubkey, data.encryptedPrivacyKey)
-            privacyKeyRef.current = hexToUint8(hexKey)
+            const pk = hexToUint8(hexKey)
+            privacyKeyRef.current = pk
+            applyPrivacyKey(pk, publicKeyRef)
+            void syncUserPublicKey(pk)
             sessionStorage.setItem("bitbudget-privacy-key", hexKey)
             sessionStorage.setItem("bitbudget-privacy-user", data.userId)
+            pendingLockedRef.current = false
             setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
             return
           } catch { /* fall through to show unlock needed */ }
         }
       }
 
+      pendingLockedRef.current = true
       setEncryption({
         ready: false,
         needsPinUnlock: true,
@@ -226,12 +261,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         privacyKeySalt: data.privacyKeySalt,
       })
     } catch {
+      pendingLockedRef.current = false
       setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
     }
   }, [])
 
   const unlockWithKey = useCallback((key: Uint8Array) => {
     privacyKeyRef.current = key
+    applyPrivacyKey(key, publicKeyRef)
+    void syncUserPublicKey(key)
+    pendingLockedRef.current = false
     if (currentUserIdRef.current) {
       sessionStorage.setItem("bitbudget-privacy-user", currentUserIdRef.current)
     }
@@ -262,8 +301,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (pendingRes.ok) {
-        const pendingData = await pendingRes.json()
-        setPendingTransactions(pendingData)
+        if (pendingLockedRef.current && !privacyKeyRef.current) {
+          setPendingTransactions([])
+        } else {
+          let pendingData: PendingTransaction[] = await pendingRes.json()
+          if (privacyKeyRef.current) {
+            pendingData = decryptTxnLikeRecords(pendingData, privacyKeyRef.current)
+          }
+          setPendingTransactions(pendingData)
+        }
       }
       if (!tagsRes.ok) throw new Error("Failed to fetch tags")
 
@@ -275,7 +321,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const tags = await tagsRes.json() as Tag[]
 
       if (privacyKeyRef.current) {
-        transactions = await decryptTransactions(transactions, privacyKeyRef.current)
+        transactions = decryptTxnLikeRecords(transactions, privacyKeyRef.current)
       }
 
       setUserRole(settings.role ?? null)
@@ -364,9 +410,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const payload = { ...txn }
-      if (privacyKeyRef.current) {
-        payload.payee = await encryptField(txn.payee, privacyKeyRef.current)
-        if (payload.notes) payload.notes = await encryptField(payload.notes, privacyKeyRef.current)
+      if (publicKeyRef.current) {
+        payload.payee = encryptFieldAsymmetric(txn.payee, publicKeyRef.current)
+        if (payload.notes) payload.notes = encryptFieldAsymmetric(payload.notes, publicKeyRef.current)
       }
 
       const res = await fetch("/api/transactions", {
@@ -377,8 +423,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const created = await res.json()
         if (privacyKeyRef.current) {
-          created.payee = await decryptField(created.payee, privacyKeyRef.current)
-          if (created.notes) created.notes = await decryptField(created.notes, privacyKeyRef.current)
+          try {
+            created.payee = decryptFieldAsymmetric(created.payee, privacyKeyRef.current)
+          } catch { /* plaintext */ }
+          if (created.notes) {
+            try {
+              created.notes = decryptFieldAsymmetric(created.notes, privacyKeyRef.current)
+            } catch { /* keep */ }
+          }
         }
         setState(prev => ({
           ...prev,
@@ -403,9 +455,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const payload: Record<string, unknown> = { id, ...updates }
-      if (privacyKeyRef.current) {
-        if (typeof payload.payee === "string") payload.payee = await encryptField(payload.payee as string, privacyKeyRef.current)
-        if (typeof payload.notes === "string") payload.notes = await encryptField(payload.notes as string, privacyKeyRef.current)
+      if (publicKeyRef.current) {
+        if (typeof payload.payee === "string")
+          payload.payee = encryptFieldAsymmetric(payload.payee as string, publicKeyRef.current)
+        if (typeof payload.notes === "string")
+          payload.notes = encryptFieldAsymmetric(payload.notes as string, publicKeyRef.current)
       }
 
       await fetch("/api/transactions", {
@@ -636,14 +690,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const encryptForStorage = useCallback(async (plaintext: string): Promise<string> => {
-    if (!privacyKeyRef.current || !plaintext) return plaintext
-    return encryptField(plaintext, privacyKeyRef.current)
+    if (!publicKeyRef.current || !plaintext) return plaintext
+    return encryptFieldAsymmetric(plaintext, publicKeyRef.current)
   }, [])
 
   const logout = useCallback(() => {
     sessionStorage.removeItem("bitbudget-privacy-key")
     sessionStorage.removeItem("bitbudget-privacy-user")
     privacyKeyRef.current = null
+    publicKeyRef.current = null
     currentUserIdRef.current = null
     signOut({ callbackUrl: "/auth" })
   }, [])
@@ -653,16 +708,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     envelopeId?: string,
     updates?: { payee?: string; amount?: number; date?: string; notes?: string | null; tags?: string[] },
   ) => {
+    const pt = pendingTransactions.find((p) => p.id === id)
+    const payeePlain =
+      (typeof updates?.payee === "string" ? updates.payee : pt?.payee)?.trim() || undefined
+
+    const body: Record<string, unknown> = { id, envelopeId, payeePlain }
+    if (updates) {
+      if (updates.amount !== undefined) body.amount = updates.amount
+      if (updates.date !== undefined) body.date = updates.date
+      if (updates.tags !== undefined) body.tags = updates.tags
+      if (updates.payee !== undefined && publicKeyRef.current) {
+        body.payee = encryptFieldAsymmetric(updates.payee.trim(), publicKeyRef.current)
+      } else if (updates.payee !== undefined) {
+        body.payee = updates.payee.trim()
+      }
+      if (updates.notes === null) {
+        body.notes = null
+      } else if (typeof updates.notes === "string" && publicKeyRef.current) {
+        body.notes = encryptFieldAsymmetric(updates.notes, publicKeyRef.current)
+      } else if (typeof updates.notes === "string") {
+        body.notes = updates.notes
+      }
+    }
+
     const res = await fetch("/api/pending-transactions/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, envelopeId, ...updates }),
+      body: JSON.stringify(body),
     })
     if (res.ok) {
-      setPendingTransactions(prev => prev.filter(p => p.id !== id))
+      setPendingTransactions((prev) => prev.filter((p) => p.id !== id))
       await refreshData()
     }
-  }, [refreshData])
+  }, [refreshData, pendingTransactions])
 
   const dismissPending = useCallback(async (id: string) => {
     const res = await fetch(`/api/pending-transactions?id=${id}`, { method: "DELETE" })
@@ -672,12 +750,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const confirmAllPending = useCallback(async () => {
-    const res = await fetch("/api/pending-transactions/confirm-all", { method: "POST" })
+    const withSuggestion = pendingTransactions.filter((p) => p.suggestedEnvelopeId)
+    const payeePlainById = Object.fromEntries(
+      withSuggestion.map((p) => [p.id, p.payee]),
+    ) as Record<string, string>
+    const res = await fetch("/api/pending-transactions/confirm-all", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payeePlainById }),
+    })
     if (res.ok) {
-      setPendingTransactions(prev => prev.filter(p => !p.suggestedEnvelopeId))
+      setPendingTransactions((prev) => prev.filter((p) => !p.suggestedEnvelopeId))
       await refreshData()
     }
-  }, [refreshData])
+  }, [refreshData, pendingTransactions])
 
   const activeEnvelopes = useMemo(
     () => state.envelopes.filter(e => !e.archived),

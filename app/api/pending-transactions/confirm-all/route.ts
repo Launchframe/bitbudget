@@ -10,6 +10,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  let payeePlainById: Record<string, string> = {}
+  try {
+    const body = await req.json()
+    if (body?.payeePlainById && typeof body.payeePlainById === "object") {
+      payeePlainById = body.payeePlainById as Record<string, string>
+    }
+  } catch {
+    /* empty body */
+  }
+
   const pendingList = await prisma.pendingTransaction.findMany({
     where: {
       userId: session.user.id,
@@ -46,7 +56,10 @@ export async function POST(req: NextRequest) {
     })
 
     await prisma.pendingTransaction.delete({ where: { id: pending.id } })
-    await recordPayeeMapping(session.user.id, pending.payee, envelopeId)
+    const plain = payeePlainById[pending.id]?.trim()
+    if (plain) {
+      await recordPayeeMapping(session.user.id, plain, envelopeId)
+    }
     confirmed++
   }
 

@@ -17,8 +17,8 @@ import {
   generatePrivacyKey,
   encryptPrivacyKey,
   uint8ToHex,
-  hexToUint8,
 } from "@/lib/crypto"
+import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 
 type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "opportunity-cost" | "complete"
 
@@ -173,6 +173,7 @@ export default function OnboardingPage() {
             })
             sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
             if (data.userId) sessionStorage.setItem("bitbudget-privacy-user", data.userId)
+            await syncUserPublicKey(privacyKey)
           }
         }
 
@@ -214,6 +215,7 @@ export default function OnboardingPage() {
         sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
         if (userId) sessionStorage.setItem("bitbudget-privacy-user", userId)
       }
+      await syncUserPublicKey(privacyKey)
 
       setStep("income")
     } catch {

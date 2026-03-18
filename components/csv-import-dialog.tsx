@@ -33,7 +33,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { parseCSVFile } from "@/lib/csv"
 import type { CsvParseResult, ParsedTransaction } from "@/lib/csv"
 import type { Transaction } from "@/lib/data"
-import { encryptField, hexToUint8 } from "@/lib/crypto"
+import { encryptFieldAsymmetric, generateKeyPairFromSeed, hexToUint8 } from "@/lib/crypto"
 
 interface SampleTxn {
   date: string
@@ -81,8 +81,8 @@ function buildExistingByKey(transactions: Transaction[]): Map<string, Transactio
 function getSessionEncryptFn(): EncryptFn | null {
   const hex = sessionStorage.getItem("bitbudget-privacy-key")
   if (!hex) return null
-  const key = hexToUint8(hex)
-  return (plaintext: string) => encryptField(plaintext, key)
+  const { publicKey } = generateKeyPairFromSeed(hexToUint8(hex))
+  return (plaintext: string) => Promise.resolve(encryptFieldAsymmetric(plaintext, publicKey))
 }
 
 export function CSVImportDialog({

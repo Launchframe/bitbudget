@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { id, envelopeId: bodyEnvelopeId, payee, amount, date, notes, tags } = body
+  const { id, envelopeId: bodyEnvelopeId, payee, amount, date, notes, tags, payeePlain } = body
 
   if (!id) {
     return NextResponse.json({ error: "ID required" }, { status: 400 })
@@ -75,7 +75,11 @@ export async function POST(req: NextRequest) {
 
   await prisma.pendingTransaction.delete({ where: { id } })
 
-  await recordPayeeMapping(session.user.id, finalPayee, envelopeId)
+  const mappingPayee =
+    typeof payeePlain === "string" && payeePlain.trim() ? payeePlain.trim() : null
+  if (mappingPayee) {
+    await recordPayeeMapping(session.user.id, mappingPayee, envelopeId)
+  }
 
   return NextResponse.json(
     {
