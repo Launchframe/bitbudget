@@ -1093,6 +1093,12 @@ export default function OnboardingPage() {
         open={importDialogOpen}
         onOpenChange={handleImportDialogClose}
         file={importFile}
+        dedupExistingTransactions={[]}
+        onRequestAllocations={() => {
+          setImportDialogOpen(false)
+          setStep("allocations")
+        }}
+        onTryAnotherFile={() => setImportFile(null)}
       />
     </div>
   )
