@@ -41,6 +41,7 @@ export function ReviewInbox() {
   const [editAmount, setEditAmount] = useState("")
   const [editDate, setEditDate] = useState("")
   const [editNotes, setEditNotes] = useState("")
+  const [draftTagsById, setDraftTagsById] = useState<Record<string, string[]>>({})
 
   if (pendingTransactions.length === 0) {
     return (
@@ -71,6 +72,27 @@ export function ReviewInbox() {
     setEditNotes(editingPending.notes ?? "")
     setEditEnvelopeId(editingPending.suggestedEnvelopeId ?? "")
   }, [editingPending])
+
+  function getDraftTags(ptId: string) {
+    const draft = draftTagsById[ptId]
+    if (draft) return draft
+    const current = pendingTransactions.find((pt) => pt.id === ptId)?.tags
+    if (!current) return []
+    try {
+      const parsed = JSON.parse(current)
+      return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : []
+    } catch {
+      return []
+    }
+  }
+
+  function toggleTag(ptId: string, tag: string) {
+    setDraftTagsById((prev) => {
+      const current = prev[ptId] ?? getDraftTags(ptId)
+      const next = current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag]
+      return { ...prev, [ptId]: next }
+    })
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -141,6 +163,28 @@ export function ReviewInbox() {
                 </div>
               </div>
 
+              {/* Quick tags */}
+              <div className="flex flex-wrap gap-2">
+                {state.tags.map((tag) => {
+                  const tagName = tag.name
+                  const selected = getDraftTags(pt.id).includes(tagName)
+                  return (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => toggleTag(pt.id, tagName)}
+                      className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                        selected
+                          ? "bg-[#F7931A] text-[#0D0D0D] border-[#F7931A]"
+                          : "bg-[#1A1A1A] text-muted-foreground border-[#333] hover:text-foreground"
+                      }`}
+                    >
+                      {tagName}
+                    </button>
+                  )
+                })}
+              </div>
+
               {/* Envelope edit mode */}
               {isEditing && (
                 <div className="flex flex-col gap-2">
@@ -203,6 +247,7 @@ export function ReviewInbox() {
                             amount: nextAmount,
                             date: editDate,
                             notes: editNotes.trim() ? editNotes.trim() : null,
+                            tags: getDraftTags(pt.id),
                           })
                           setEditingId(null)
                         }
@@ -232,6 +277,10 @@ export function ReviewInbox() {
                           setEditAmount(String(pt.amount))
                           setEditDate(pt.date)
                           setEditNotes(pt.notes ?? "")
+                          setDraftTagsById((prev) => ({
+                            ...prev,
+                            [pt.id]: getDraftTags(pt.id),
+                          }))
                         }
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-xs font-semibold hover:bg-[#F7931A]/90"
@@ -246,6 +295,10 @@ export function ReviewInbox() {
                         setEditAmount(String(pt.amount))
                         setEditDate(pt.date)
                         setEditNotes(pt.notes ?? "")
+                        setDraftTagsById((prev) => ({
+                          ...prev,
+                          [pt.id]: getDraftTags(pt.id),
+                        }))
                       }}
                       className="px-3 py-1.5 text-muted-foreground text-xs hover:text-foreground border border-[#333] rounded-lg"
                     >
