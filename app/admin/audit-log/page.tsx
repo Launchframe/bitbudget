@@ -26,8 +26,8 @@ export default function AdminAuditLogPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setLoading(true)
     const q = actionFilter ? `?action=${encodeURIComponent(actionFilter)}` : ""
+    queueMicrotask(() => setLoading(true))
     fetch(`/api/admin/audit-log${q}`)
       .then((r) => r.json())
       .then(setLogs)

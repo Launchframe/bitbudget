@@ -10,14 +10,18 @@ export function NotificationBanner() {
   const [lastDismissedCount, setLastDismissedCount] = useState(0)
 
   useEffect(() => {
-    const stored = localStorage.getItem("bb-banner-dismissed-count")
-    if (stored) setLastDismissedCount(parseInt(stored, 10))
+    queueMicrotask(() => {
+      const stored = localStorage.getItem("bb-banner-dismissed-count")
+      if (stored) setLastDismissedCount(parseInt(stored, 10))
+    })
   }, [])
 
   useEffect(() => {
-    if (pendingCount > lastDismissedCount) {
-      setDismissed(false)
-    }
+    queueMicrotask(() => {
+      if (pendingCount > lastDismissedCount) {
+        setDismissed(false)
+      }
+    })
   }, [pendingCount, lastDismissedCount])
 
   if (dismissed || pendingCount === 0) return null

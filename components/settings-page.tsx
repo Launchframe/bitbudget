@@ -8,8 +8,6 @@ import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, TrendingUp, Crown, Building2, Smartphone, Mail, Tag, Copy, Check } from "lucide-react"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
-import { isAdmin } from "@/lib/admin"
-
 export function SettingsPage() {
   const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, addTag, deleteTag, refreshData, encryptForStorage, logout, subscriptionTier, navigateTo } = useApp()
   type SettingsTab = "general" | "integrations" | "tags" | "data"
@@ -289,7 +287,7 @@ export function SettingsPage() {
           <h3 className="text-lg font-semibold text-foreground">Receipt Inbox</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
-          Forward receipts to your dedicated address and they'll be saved for your review later. We recommend bookmarking this address
+          Forward receipts to your dedicated address and they&apos;ll be saved for your review later. We recommend bookmarking this address
         </p>
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2 rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">

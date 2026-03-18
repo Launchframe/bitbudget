@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect, useRef } from "react"
+import { useState, useMemo, useEffect, useRef, createElement } from "react"
 import { useApp } from "@/lib/app-context"
 import { getEnvelopeBalance, getCurrentMonthKey, formatUsd } from "@/lib/data"
 import { Progress } from "@/components/ui/progress"
@@ -107,7 +107,7 @@ export function EnvelopesPage() {
   // Auto-suggest icon when name changes (unless user has manually chosen one)
   useEffect(() => {
     if (!iconCustomized && formName.trim()) {
-      setFormIcon(suggestIcon(formName))
+      queueMicrotask(() => setFormIcon(suggestIcon(formName)))
     }
   }, [formName, iconCustomized])
 
@@ -650,8 +650,6 @@ export function EnvelopesPage() {
             if (!source) return null
             const txnCount = state.transactions.filter(t => t.envelopeId === source.id).length
             const targets = activeEnvelopes.filter(e => e.id !== mergeSourceId)
-            const SourceIcon = getEnvelopeIcon(source.icon)
-
             return (
               <div className="flex flex-col gap-4">
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-[#1A1A1A]">
@@ -659,7 +657,10 @@ export function EnvelopesPage() {
                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                     style={{ backgroundColor: `${source.color}22` }}
                   >
-                    <SourceIcon className="h-4 w-4" style={{ color: source.color }} />
+                    {createElement(getEnvelopeIcon(source.icon), {
+                      className: "h-4 w-4",
+                      style: { color: source.color },
+                    })}
                   </div>
                   <div className="flex flex-col">
                     <span className="text-sm font-medium text-foreground">{source.name}</span>

@@ -313,11 +313,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (!tagsRes.ok) throw new Error("Failed to fetch tags")
 
-      let [transactions, envelopes, settings] = await Promise.all([
+      const [txns, envelopes, settings] = await Promise.all([
         txnRes.json() as Promise<Transaction[]>,
         envRes.json(),
         settingsRes.json(),
       ])
+      let transactions = txns
       const tags = await tagsRes.json() as Tag[]
 
       if (privacyKeyRef.current) {

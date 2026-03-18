@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useCallback, useEffect } from "react"
+import { useMemo, useState, useCallback, useSyncExternalStore } from "react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Legend } from "recharts"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
@@ -36,15 +36,16 @@ function getStartDateForRange(key: RangeKey): string {
 const SATS_PER_BTC = 100_000_000
 
 function useIsMobile(breakpoint = 640) {
-  const [mobile, setMobile] = useState(false)
-  useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`)
-    setMobile(mql.matches)
-    const handler = (e: MediaQueryListEvent) => setMobile(e.matches)
-    mql.addEventListener("change", handler)
-    return () => mql.removeEventListener("change", handler)
-  }, [breakpoint])
-  return mobile
+  const query = `(max-width: ${breakpoint - 1}px)`
+  return useSyncExternalStore(
+    (onChange) => {
+      const mql = window.matchMedia(query)
+      mql.addEventListener("change", onChange)
+      return () => mql.removeEventListener("change", onChange)
+    },
+    () => window.matchMedia(query).matches,
+    () => false,
+  )
 }
 
 export function OpportunityCostChart() {

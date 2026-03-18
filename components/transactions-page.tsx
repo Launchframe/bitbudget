@@ -26,7 +26,7 @@ const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 export function TransactionsPage() {
-  const { state, activeEnvelopes, activeTransactions, navigateTo, deleteTransaction, highlightTransactionId, transactionEnvelopeFilter, clearTransactionEnvelopeFilter, openNewTransaction } = useApp()
+  const { state, activeEnvelopes, activeTransactions, deleteTransaction, highlightTransactionId, transactionEnvelopeFilter, clearTransactionEnvelopeFilter, openNewTransaction } = useApp()
   const { calculateOpportunityCost } = useBtcPrices()
 
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
