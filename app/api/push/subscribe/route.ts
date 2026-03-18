@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { premiumForbiddenResponse, requirePremium } from "@/lib/subscription"
 
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  if (!(await requirePremium(session.user.id))) {
+    return premiumForbiddenResponse("Push notifications require a premium subscription")
   }
 
   let body: { endpoint?: string; keys?: { p256dh?: string; auth?: string } }

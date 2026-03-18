@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { premiumForbiddenResponse, requirePremium } from "@/lib/subscription"
 import { matchEnvelope } from "@/lib/envelope-matcher"
 import { parseReceiptText } from "@/lib/receipt-parser"
 import { PDFParse } from "pdf-parse"
@@ -59,6 +60,9 @@ export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  if (!(await requirePremium(session.user.id))) {
+    return premiumForbiddenResponse("Receipt scanning requires a premium subscription")
   }
 
   if (!OPENAI_API_KEY) {

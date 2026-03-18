@@ -9,6 +9,7 @@ import {
   parseMultipartFormFields,
   verifySendGridInboundWebhook,
 } from "@/lib/sendgrid-inbound-verify"
+import { requirePremium } from "@/lib/subscription"
 
 const publicKeyEnv = process.env.SENDGRID_INBOUND_WEBHOOK_PUBLIC_KEY
 
@@ -98,6 +99,15 @@ export async function POST(req: NextRequest) {
         })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+    if (!(await requirePremium(user.id))) {
+      return NextResponse.json(
+        {
+          error: "Forbidden",
+          message: "Receipt inbox requires a premium subscription",
+        },
+        { status: 403 },
+      )
     }
 
     let parsed

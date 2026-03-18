@@ -4,6 +4,7 @@ import { plaidClient } from "@/lib/plaid"
 import { matchEnvelope } from "@/lib/envelope-matcher"
 import { routeTransaction } from "@/lib/confidence-router"
 import crypto from "crypto"
+import { requirePremium } from "@/lib/subscription"
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
@@ -58,6 +59,12 @@ export async function POST(req: NextRequest) {
 
     if (!plaidItem) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 })
+    }
+    if (!(await requirePremium(plaidItem.user.id))) {
+      return NextResponse.json({
+        acknowledged: true,
+        skipped: "premium_required",
+      })
     }
 
     try {

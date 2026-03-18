@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { premiumForbiddenResponse, requirePremium } from "@/lib/subscription"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
@@ -8,6 +9,9 @@ export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  if (!(await requirePremium(session.user.id))) {
+    return premiumForbiddenResponse("Voice entry requires a premium subscription")
   }
 
   if (!OPENAI_API_KEY) {
