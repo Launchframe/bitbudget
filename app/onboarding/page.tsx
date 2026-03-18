@@ -946,7 +946,10 @@ export default function OnboardingPage() {
                 <input
                   type="file"
                   accept=".csv"
-                  onChange={e => setImportFile(e.target.files?.[0] || null)}
+                  onChange={e => {
+                    setImportFile(e.target.files?.[0] || null)
+                    setImportResult(null)
+                  }}
                   className="text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#F7931A] file:text-[#0D0D0D] hover:file:bg-[#F7931A]/90"
                 />
                 <p className="text-xs text-muted-foreground text-center">
@@ -1105,7 +1108,10 @@ export default function OnboardingPage() {
           setImportDialogOpen(false)
           setStep("allocations")
         }}
-        onTryAnotherFile={() => setImportFile(null)}
+        onTryAnotherFile={() => {
+          setImportFile(null)
+          setImportResult(null)
+        }}
       />
     </div>
   )
