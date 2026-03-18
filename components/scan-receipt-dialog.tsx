@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react"
 import { useApp } from "@/lib/app-context"
+import { RECEIPT_SCAN_MAX_BYTES } from "@/lib/receipt-scan-validate"
 import {
   Dialog,
   DialogContent,
@@ -37,6 +38,12 @@ export function ScanReceiptDialog({
 
   async function processFile(file: File) {
     setError("")
+    if (file.size > RECEIPT_SCAN_MAX_BYTES) {
+      setError(
+        `File is too large (max ${Math.round(RECEIPT_SCAN_MAX_BYTES / (1024 * 1024))} MB). Try a smaller photo or PDF.`,
+      )
+      return
+    }
     setScanning(true)
 
     if (file.type.startsWith("image/")) {
@@ -56,7 +63,20 @@ export function ScanReceiptDialog({
         body: formData,
       })
 
-      const data = await res.json()
+      let data: {
+        error?: string
+        payee?: string
+        amount?: string
+        date?: string
+        suggestedEnvelopeId?: string
+      }
+      try {
+        data = await res.json()
+      } catch {
+        setError("Invalid response from server. Please try again.")
+        setScanning(false)
+        return
+      }
       if (!res.ok) {
         setError(data.error || "Failed to scan receipt")
         setScanning(false)

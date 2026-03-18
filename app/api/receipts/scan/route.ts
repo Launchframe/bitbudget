@@ -5,6 +5,11 @@ import { premiumForbiddenResponse, requirePremium } from "@/lib/subscription"
 import { matchEnvelope } from "@/lib/envelope-matcher"
 import { parseReceiptText } from "@/lib/receipt-parser"
 import { PDFParse } from "pdf-parse"
+import {
+  RECEIPT_SCAN_MAX_BYTES,
+  normalizeScanExtraction,
+  resolveReceiptFileKind,
+} from "@/lib/receipt-scan-validate"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 const EXTRACTION_PROMPT = `You are a receipt parser. Extract the following from this receipt:
@@ -54,8 +59,18 @@ async function extractFromImage(base64: string, mimeType: string) {
   const data = await res.json()
   const text = data.choices?.[0]?.message?.content?.trim() ?? ""
   const jsonMatch = text.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) throw new Error("Could not parse response")
-  return JSON.parse(jsonMatch[0])
+  if (!jsonMatch) throw new Error("Could not parse model response")
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonMatch[0]) as unknown
+  } catch {
+    throw new Error("Invalid JSON in model response")
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Unexpected model response shape")
+  }
+  return normalizeScanExtraction(parsed as Record<string, unknown>)
 }
 
 export async function POST(req: NextRequest) {
@@ -68,7 +83,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (!OPENAI_API_KEY) {
-    return NextResponse.json({ error: "Receipt scanning is not configured. Set OPENAI_API_KEY." }, { status: 503 })
+    return NextResponse.json(
+      { error: "Receipt scanning is not configured. Set OPENAI_API_KEY." },
+      { status: 503 },
+    )
   }
 
   try {
@@ -79,9 +97,27 @@ export async function POST(req: NextRequest) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer())
+    if (buffer.length === 0) {
+      return NextResponse.json({ error: "Empty file" }, { status: 400 })
+    }
+    if (buffer.length > RECEIPT_SCAN_MAX_BYTES) {
+      return NextResponse.json(
+        { error: `File too large. Maximum size is ${RECEIPT_SCAN_MAX_BYTES / (1024 * 1024)} MB.` },
+        { status: 413 },
+      )
+    }
+
+    const kind = resolveReceiptFileKind(buffer)
+    if (!kind) {
+      return NextResponse.json(
+        { error: "Unrecognized file type. Upload a PDF or image (JPEG, PNG, WebP)." },
+        { status: 400 },
+      )
+    }
+
     let result: { payee: string; amount: string; date: string }
 
-    if (file.type === "application/pdf") {
+    if (kind === "application/pdf") {
       const parser = new PDFParse({ data: buffer })
       const textResult = await parser.getText()
       await parser.destroy()
@@ -89,11 +125,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Could not extract text from PDF" }, { status: 422 })
       }
       result = await parseReceiptText(textResult.text)
-    } else if (file.type.startsWith("image/")) {
+    } else if (kind.startsWith("image/")) {
+      if (kind === "image/heic") {
+        return NextResponse.json(
+          {
+            error:
+              "HEIC photos are not supported for scanning. Please use Take Photo (JPEG) or export the image as JPEG/PNG.",
+          },
+          { status: 400 },
+        )
+      }
       const base64 = buffer.toString("base64")
-      result = await extractFromImage(base64, file.type)
+      result = await extractFromImage(base64, kind)
     } else {
-      return NextResponse.json({ error: "Unsupported file type. Use an image or PDF." }, { status: 400 })
+      const base64 = buffer.toString("base64")
+      result = await extractFromImage(base64, kind)
     }
 
     let suggestedEnvelopeId: string | null = null
