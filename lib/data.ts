@@ -41,12 +41,17 @@ export interface Envelope {
   archived?: boolean
 }
 
+export interface Tag {
+  id: string
+  name: string
+}
+
 export type BtcDisplayUnit = "sats" | "btc"
 
 export interface AppState {
   transactions: Transaction[]
   envelopes: Envelope[]
-  tags: string[]
+  tags: Tag[]
   monthlyIncome: number
   btcDisplayUnit: BtcDisplayUnit
   opportunityCostEnabled: boolean
@@ -198,13 +203,11 @@ export function formatNumber(n: number): string {
 
 // ─── Default State (empty for API-backed mode) ─────────────────────
 
-const DEFAULT_TAGS = ["Essential", "Discretionary", "Recurring"]
-
 export function getDefaultState(): AppState {
   return {
     transactions: [],
     envelopes: [],
-    tags: DEFAULT_TAGS,
+    tags: [],
     monthlyIncome: 0,
     btcDisplayUnit: "sats",
     opportunityCostEnabled: false,

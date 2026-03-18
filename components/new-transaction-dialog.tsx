@@ -213,7 +213,7 @@ export function NewTransactionDialog() {
 
   function handleAddNewTag() {
     const trimmed = newTag.trim()
-    if (trimmed && !state.tags.includes(trimmed)) {
+    if (trimmed && !state.tags.some((tag) => tag.name === trimmed)) {
       addTag(trimmed)
     }
     if (trimmed) {
@@ -546,17 +546,17 @@ export function NewTransactionDialog() {
               <div className="flex flex-wrap gap-2">
                 {state.tags.map((tag) => (
                   <Badge
-                    key={tag}
-                    variant={selectedTags.includes(tag) ? "default" : "outline"}
+                    key={tag.id}
+                    variant={selectedTags.includes(tag.name) ? "default" : "outline"}
                     className={`cursor-pointer transition-colors ${
-                      selectedTags.includes(tag)
+                      selectedTags.includes(tag.name)
                         ? "bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/80 border-transparent"
                         : "border-[#333] text-muted-foreground hover:border-[#F7931A]/50 hover:text-foreground"
                     }`}
-                    onClick={() => toggleTag(tag)}
+                    onClick={() => toggleTag(tag.name)}
                   >
-                    {tag}
-                    {selectedTags.includes(tag) && <X className="ml-1 h-3 w-3" />}
+                    {tag.name}
+                    {selectedTags.includes(tag.name) && <X className="ml-1 h-3 w-3" />}
                   </Badge>
                 ))}
               </div>

@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { signOut } from "next-auth/react"
-import type { Transaction, Envelope, AppState, BtcDisplayUnit, PendingTransaction } from "@/lib/data"
+import type { Transaction, Envelope, AppState, BtcDisplayUnit, PendingTransaction, Tag } from "@/lib/data"
 import { generateId, getDefaultState } from "@/lib/data"
 import { encryptField, decryptField, hexToUint8 } from "@/lib/crypto"
 
@@ -85,6 +85,7 @@ interface AppContextValue {
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
   setOpportunityCostEnabled: (enabled: boolean) => void
   addTag: (tag: string) => void
+  deleteTag: (id: string) => void
   refreshData: () => Promise<void>
   encryptForStorage: (plaintext: string) => Promise<string>
   logout: () => void
@@ -96,7 +97,13 @@ interface AppContextValue {
   confirmPending: (
     id: string,
     envelopeId?: string,
-    updates?: { payee?: string; amount?: number; date?: string; notes?: string | null },
+    updates?: {
+      payee?: string
+      amount?: number
+      date?: string
+      notes?: string | null
+      tags?: string[]
+    },
   ) => Promise<void>
   dismissPending: (id: string) => Promise<void>
   confirmAllPending: () => Promise<void>
@@ -234,14 +241,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await fetch("/api/recurring/process", { method: "POST" }).catch(() => {})
 
-      const [txnRes, envRes, settingsRes, pendingRes] = await Promise.all([
+      const [txnRes, envRes, settingsRes, pendingRes, tagsRes] = await Promise.all([
         fetch("/api/transactions"),
         fetch("/api/envelopes"),
         fetch("/api/user/settings"),
         fetch("/api/pending-transactions"),
+        fetch("/api/tags"),
       ])
 
-      const authFailure = [txnRes, envRes, settingsRes].some(
+      const authFailure = [txnRes, envRes, settingsRes, tagsRes].some(
         (r) => r.status === 401 || r.status === 403,
       )
       if (authFailure) {
@@ -256,12 +264,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const pendingData = await pendingRes.json()
         setPendingTransactions(pendingData)
       }
+      if (!tagsRes.ok) throw new Error("Failed to fetch tags")
 
       let [transactions, envelopes, settings] = await Promise.all([
         txnRes.json() as Promise<Transaction[]>,
         envRes.json(),
         settingsRes.json(),
       ])
+      const tags = await tagsRes.json() as Tag[]
 
       if (privacyKeyRef.current) {
         transactions = await decryptTransactions(transactions, privacyKeyRef.current)
@@ -275,6 +285,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         transactions,
         envelopes,
+        tags,
         monthlyIncome: settings.monthlyIncome || 0,
         btcDisplayUnit: settings.btcDisplayUnit || "sats",
         opportunityCostEnabled: settings.opportunityCostEnabled ?? false,
@@ -574,12 +585,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
-  const addTag = useCallback((tag: string) => {
+  const addTag = useCallback(async (tag: string) => {
+    const trimmed = tag.trim()
+    if (!trimmed) return
+
+    const optimisticId = generateId()
     setState(prev => ({
       ...prev,
-      tags: prev.tags.includes(tag) ? prev.tags : [...prev.tags, tag],
+      tags: prev.tags.some(t => t.name === trimmed) ? prev.tags : [...prev.tags, { id: optimisticId, name: trimmed }],
     }))
-  }, [])
+
+    try {
+      const res = await fetch("/api/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      })
+      if (res.ok) {
+        const created = await res.json() as Tag
+        setState(prev => ({
+          ...prev,
+          tags: prev.tags.map(t => (t.id === optimisticId ? created : t)),
+        }))
+      } else {
+        refreshData()
+      }
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
+  const deleteTag = useCallback(async (id: string) => {
+    setState(prev => ({
+      ...prev,
+      tags: prev.tags.filter(tag => tag.id !== id),
+    }))
+
+    try {
+      const res = await fetch(`/api/tags?id=${id}`, { method: "DELETE" })
+      if (!res.ok) refreshData()
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
 
   const openNewTransaction = useCallback((prefill?: TransactionPrefill) => {
     setTransactionPrefill(prefill ?? null)
@@ -602,7 +650,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const confirmPending = useCallback(async (
     id: string,
     envelopeId?: string,
-    updates?: { payee?: string; amount?: number; date?: string; notes?: string | null },
+    updates?: { payee?: string; amount?: number; date?: string; notes?: string | null; tags?: string[] },
   ) => {
     const res = await fetch("/api/pending-transactions/confirm", {
       method: "POST",
@@ -677,6 +725,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setBtcDisplayUnit,
         setOpportunityCostEnabled,
         addTag,
+        deleteTag,
         refreshData,
         encryptForStorage,
         logout,
