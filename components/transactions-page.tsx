@@ -33,6 +33,7 @@ export function TransactionsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState<"all" | TransactionType>("all")
   const [envelopeFilters, setEnvelopeFilters] = useState<Set<string>>(() => transactionEnvelopeFilter)
+  const [tagFilters, setTagFilters] = useState<Set<string>>(() => new Set())
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [pageSize, setPageSize] = useState(15)
@@ -62,6 +63,14 @@ export function TransactionsPage() {
     return map
   }, [state.envelopes])
 
+  const availableTags = useMemo(() => {
+    const tags = new Set<string>()
+    for (const txn of activeTransactions) {
+      for (const tag of txn.tags ?? []) tags.add(tag)
+    }
+    return Array.from(tags).sort((a, b) => a.localeCompare(b))
+  }, [activeTransactions])
+
   const filteredTransactions = useMemo(() => {
     let result = activeTransactions
 
@@ -78,6 +87,10 @@ export function TransactionsPage() {
       result = result.filter((t) => envelopeFilters.has(t.envelopeId))
     }
 
+    if (tagFilters.size > 0) {
+      result = result.filter((t) => t.tags?.some((tag) => tagFilters.has(tag)))
+    }
+
     if (startDate) {
       result = result.filter((t) => t.date >= startDate)
     }
@@ -86,7 +99,7 @@ export function TransactionsPage() {
     }
 
     return result.sort((a, b) => b.date.localeCompare(a.date))
-  }, [activeTransactions, searchQuery, typeFilter, envelopeFilters, startDate, endDate])
+  }, [activeTransactions, searchQuery, typeFilter, envelopeFilters, tagFilters, startDate, endDate])
 
   useEffect(() => {
     if (!highlightTransactionId) return
@@ -119,13 +132,23 @@ export function TransactionsPage() {
     return expenseTxns.reduce((sum, t) => sum + (t.satsAmount ?? 0), 0)
   }, [expenseTxns])
 
-  const hasActiveFilter = searchQuery.trim() || typeFilter !== "all" || envelopeFilters.size > 0 || startDate || endDate
+  const hasActiveFilter = searchQuery.trim() || typeFilter !== "all" || envelopeFilters.size > 0 || tagFilters.size > 0 || startDate || endDate
 
   function toggleEnvelopeFilter(id: string) {
     setEnvelopeFilters(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
+      return next
+    })
+    setPage(1)
+  }
+
+  function toggleTagFilter(tag: string) {
+    setTagFilters(prev => {
+      const next = new Set(prev)
+      if (next.has(tag)) next.delete(tag)
+      else next.add(tag)
       return next
     })
     setPage(1)
@@ -195,7 +218,7 @@ export function TransactionsPage() {
               type="button"
               onClick={() => setMoreFiltersOpen(o => !o)}
               className={`flex items-center justify-center w-10 h-10 rounded-lg border transition-colors ${
-                moreFiltersOpen || typeFilter !== "all" || startDate || endDate
+                moreFiltersOpen || typeFilter !== "all" || tagFilters.size > 0 || startDate || endDate
                   ? "bg-[#F7931A]/10 border-[#F7931A]/40 text-[#F7931A]"
                   : "bg-[#0D0D0D] border-[#1F1F1F] text-muted-foreground"
               }`}
@@ -245,10 +268,10 @@ export function TransactionsPage() {
                   </div>
                 </div>
 
-                {(typeFilter !== "all" || startDate || endDate) && (
+                {(typeFilter !== "all" || tagFilters.size > 0 || startDate || endDate) && (
                   <button
                     type="button"
-                    onClick={() => { setTypeFilter("all"); setStartDate(""); setEndDate(""); setMoreFiltersOpen(false) }}
+                    onClick={() => { setTypeFilter("all"); setTagFilters(new Set()); setStartDate(""); setEndDate(""); setMoreFiltersOpen(false); setPage(1) }}
                     className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 self-start transition-colors"
                   >
                     Clear filters
@@ -331,6 +354,37 @@ export function TransactionsPage() {
         )}
       </div>
 
+      {availableTags.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {availableTags.map((tag) => {
+            const active = tagFilters.has(tag)
+            return (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => toggleTagFilter(tag)}
+                className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                  active
+                    ? "bg-[#F7931A]/10 border-[#F7931A]/40 text-[#F7931A]"
+                    : "bg-[#0D0D0D] border-[#1F1F1F] text-muted-foreground hover:border-[#333] hover:text-foreground"
+                }`}
+              >
+                {tag}
+              </button>
+            )
+          })}
+          {tagFilters.size > 0 && (
+            <button
+              type="button"
+              onClick={() => { setTagFilters(new Set()); setPage(1) }}
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors ml-1"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="bg-[#0D0D0D] rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -362,12 +416,26 @@ export function TransactionsPage() {
                       {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>
                     <td className="py-3.5 px-4 text-sm font-medium text-foreground">
-                      <span className="flex items-center gap-1.5">
-                        {txn.payee}
-                        {txn.recurringId && (
-                          <span title="Recurring transaction"><Repeat className="h-3 w-3 text-muted-foreground shrink-0" /></span>
-                        )}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className="flex items-center gap-1.5">
+                          {txn.payee}
+                          {txn.recurringId && (
+                            <span title="Recurring transaction"><Repeat className="h-3 w-3 text-muted-foreground shrink-0" /></span>
+                          )}
+                        </span>
+                        {txn.tags?.length ? (
+                          <div className="flex flex-wrap gap-1">
+                            {txn.tags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="px-2 py-0.5 rounded-full text-[11px] leading-4 bg-[#1A1A1A] border border-[#2A2A2A] text-muted-foreground"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="py-3.5 px-4 hidden md:table-cell">
                       {env ? (
