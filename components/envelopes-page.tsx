@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect, useRef, createElement } from "react"
+import { useState, useMemo, useRef, createElement } from "react"
 import { useApp } from "@/lib/app-context"
 import { getEnvelopeBalance, getCurrentMonthKey, formatUsd } from "@/lib/data"
 import { Progress } from "@/components/ui/progress"
@@ -80,6 +80,13 @@ export function EnvelopesPage() {
   )
   const unallocated = state.monthlyIncome - totalAllocated
 
+  /** Icon shown in the dialog and saved on submit: suggestion from name until user picks manually. */
+  const displayFormIcon = useMemo(() => {
+    if (iconCustomized) return formIcon
+    const t = formName.trim()
+    return t ? suggestIcon(t) : formIcon
+  }, [iconCustomized, formIcon, formName])
+
   function openAddDialog() {
     setEditingId(null)
     setFormName("")
@@ -104,20 +111,13 @@ export function EnvelopesPage() {
     setDialogOpen(true)
   }
 
-  // Auto-suggest icon when name changes (unless user has manually chosen one)
-  useEffect(() => {
-    if (!iconCustomized && formName.trim()) {
-      setFormIcon(suggestIcon(formName))
-    }
-  }, [formName, iconCustomized])
-
   function handleIconChange(icon: string) {
     setFormIcon(icon)
     setIconCustomized(true)
   }
 
   function handleReassignIcon(fromEnvelopeId: string) {
-    setFormIcon(formIcon) // keep current icon for this envelope
+    setFormIcon(displayFormIcon) // freeze displayed icon for this envelope
     editEnvelope(fromEnvelopeId, { icon: null })
     setIconCustomized(true)
   }
@@ -130,14 +130,14 @@ export function EnvelopesPage() {
         name: formName.trim(),
         monthlyAllotment: parseFloat(formAllotment),
         color: formColor,
-        icon: formIcon,
+        icon: displayFormIcon,
       })
     } else {
       addEnvelope({
         name: formName.trim(),
         monthlyAllotment: parseFloat(formAllotment),
         color: formColor,
-        icon: formIcon,
+        icon: displayFormIcon,
       })
     }
     setDialogOpen(false)
@@ -621,7 +621,7 @@ export function EnvelopesPage() {
             {/* Color + Icon picker */}
             <EnvelopeAppearancePicker
               color={formColor}
-              icon={formIcon}
+              icon={displayFormIcon}
               existingEnvelopes={activeEnvelopes}
               editingId={editingId}
               onColorChange={setFormColor}
