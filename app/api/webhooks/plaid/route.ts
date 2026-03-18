@@ -3,9 +3,43 @@ import { prisma } from "@/lib/db"
 import { plaidClient } from "@/lib/plaid"
 import { matchEnvelope } from "@/lib/envelope-matcher"
 import { routeTransaction } from "@/lib/confidence-router"
+import crypto from "crypto"
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json()) as {
+  const rawBody = await req.text()
+
+  const signatureHeader =
+    req.headers.get("Plaid-Verification") ??
+    req.headers.get("PLAID-WEBHOOK-SIGNATURE")
+
+  const secret = process.env.PLAID_WEBHOOK_SECRET
+
+  if (!signatureHeader || !secret) {
+    return NextResponse.json(
+      { error: "Invalid Plaid webhook: missing signature or secret" },
+      { status: 400 },
+    )
+  }
+
+  const expectedHmac = crypto
+    .createHmac("sha256", secret)
+    .update(rawBody, "utf8")
+    .digest("hex")
+
+  const received = Buffer.from(signatureHeader, "utf8")
+  const expected = Buffer.from(expectedHmac, "utf8")
+
+  if (
+    received.length !== expected.length ||
+    !crypto.timingSafeEqual(received, expected)
+  ) {
+    return NextResponse.json(
+      { error: "Invalid Plaid webhook signature" },
+      { status: 401 },
+    )
+  }
+
+  const body = JSON.parse(rawBody) as {
     webhook_type?: string
     webhook_code?: string
     item_id?: string
