@@ -101,9 +101,9 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
     )
   }
 
-  function handleAddNewTag() {
+  async function handleAddNewTag() {
     const trimmed = newTag.trim()
-    if (trimmed && !state.tags.some((tag) => tag.name === trimmed)) addTag(trimmed)
+    if (trimmed && !state.tags.some((tag) => tag.name === trimmed)) await addTag(trimmed)
     if (trimmed) setSelectedTags((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]))
     setNewTag("")
   }
@@ -224,7 +224,7 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
                   value={newTag}
                   onChange={(e) => setNewTag(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") { e.preventDefault(); handleAddNewTag() }
+                    if (e.key === "Enter") { e.preventDefault(); void handleAddNewTag() }
                   }}
                   placeholder="Add new tag..."
                   className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] h-8 text-xs"
