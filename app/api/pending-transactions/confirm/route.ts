@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { id, envelopeId: bodyEnvelopeId } = body
+  const { id, envelopeId: bodyEnvelopeId, payee, amount, date, notes } = body
 
   if (!id) {
     return NextResponse.json({ error: "ID required" }, { status: 400 })
@@ -36,21 +36,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
   }
 
-  const dateStr = pending.date.toISOString().split("T")[0]
+  const finalPayee = typeof payee === "string" && payee.trim() ? payee.trim() : pending.payee
+  const finalDate = typeof date === "string" && date.trim() ? new Date(date) : pending.date
+  const finalAmount =
+    typeof amount === "number" && Number.isFinite(amount) && amount > 0
+      ? amount
+      : Math.abs(pending.amount)
+  const finalNotes = typeof notes === "string" ? notes : pending.notes
+
+  if (Number.isNaN(finalDate.getTime())) {
+    return NextResponse.json({ error: "Invalid date" }, { status: 400 })
+  }
+
+  const dateStr = finalDate.toISOString().split("T")[0]
   const btcPrice = await getBtcPriceForDate(dateStr)
-  const absAmount = Math.abs(pending.amount)
+  const absAmount = Math.abs(finalAmount)
 
   const transaction = await prisma.transaction.create({
     data: {
       userId: session.user.id,
       envelopeId,
-      date: pending.date,
-      payee: pending.payee,
+      date: finalDate,
+      payee: finalPayee,
       amount: absAmount,
       type: "expense",
       source: pending.source,
       tags: pending.tags ?? "[]",
-      notes: pending.notes ?? null,
+      notes: finalNotes ?? null,
       satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
     },
   })

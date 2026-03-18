@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Inbox, Mic, Camera, MessageSquare, Mail, Building2, Check, X, CheckCheck } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import type { TransactionSource } from "@/lib/data"
@@ -37,6 +37,10 @@ export function ReviewInbox() {
   const { pendingTransactions, confirmPending, dismissPending, confirmAllPending, state, activeEnvelopes } = useApp()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editEnvelopeId, setEditEnvelopeId] = useState<string>("")
+  const [editPayee, setEditPayee] = useState("")
+  const [editAmount, setEditAmount] = useState("")
+  const [editDate, setEditDate] = useState("")
+  const [editNotes, setEditNotes] = useState("")
 
   if (pendingTransactions.length === 0) {
     return (
@@ -53,6 +57,20 @@ export function ReviewInbox() {
   const confirmableCount = pendingTransactions.filter(
     (pt) => pt.suggestedEnvelopeId,
   ).length
+
+  const editingPending = useMemo(
+    () => pendingTransactions.find((pt) => pt.id === editingId) ?? null,
+    [pendingTransactions, editingId],
+  )
+
+  useEffect(() => {
+    if (!editingPending) return
+    setEditPayee(editingPending.payee)
+    setEditAmount(String(editingPending.amount))
+    setEditDate(editingPending.date)
+    setEditNotes(editingPending.notes ?? "")
+    setEditEnvelopeId(editingPending.suggestedEnvelopeId ?? "")
+  }, [editingPending])
 
   return (
     <div className="flex flex-col gap-4">
@@ -126,6 +144,33 @@ export function ReviewInbox() {
               {/* Envelope edit mode */}
               {isEditing && (
                 <div className="flex flex-col gap-2">
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Payee</Label>
+                  <input
+                    value={editPayee}
+                    onChange={(e) => setEditPayee(e.target.value)}
+                    className="bg-[#1A1A1A] border border-[#333] text-foreground rounded-lg px-3 py-2 text-sm"
+                  />
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Amount</Label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    className="bg-[#1A1A1A] border border-[#333] text-foreground rounded-lg px-3 py-2 text-sm"
+                  />
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Date</Label>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="bg-[#1A1A1A] border border-[#333] text-foreground rounded-lg px-3 py-2 text-sm"
+                  />
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Notes</Label>
+                  <input
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    className="bg-[#1A1A1A] border border-[#333] text-foreground rounded-lg px-3 py-2 text-sm"
+                  />
                   <Label className="text-muted-foreground text-xs uppercase tracking-wider">Envelope</Label>
                   <Select value={editEnvelopeId || undefined} onValueChange={(v) => setEditEnvelopeId(v)}>
                     <SelectTrigger className="bg-[#1A1A1A] border-[#333] text-foreground">
@@ -151,12 +196,18 @@ export function ReviewInbox() {
                   <>
                     <button
                       onClick={() => {
-                        if (editEnvelopeId) {
-                          confirmPending(pt.id, editEnvelopeId)
+                        const nextAmount = Number.parseFloat(editAmount)
+                        if (editEnvelopeId && editPayee.trim() && editDate && Number.isFinite(nextAmount) && nextAmount > 0) {
+                          confirmPending(pt.id, editEnvelopeId, {
+                            payee: editPayee.trim(),
+                            amount: nextAmount,
+                            date: editDate,
+                            notes: editNotes.trim() ? editNotes.trim() : null,
+                          })
                           setEditingId(null)
                         }
                       }}
-                      disabled={!editEnvelopeId}
+                      disabled={!editEnvelopeId || !editPayee.trim() || !editDate || !Number.isFinite(Number.parseFloat(editAmount)) || Number.parseFloat(editAmount) <= 0}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-xs font-semibold hover:bg-[#F7931A]/90 disabled:opacity-50"
                     >
                       <Check className="h-3 w-3" /> Save
@@ -177,6 +228,10 @@ export function ReviewInbox() {
                         } else {
                           setEditingId(pt.id)
                           setEditEnvelopeId("")
+                          setEditPayee(pt.payee)
+                          setEditAmount(String(pt.amount))
+                          setEditDate(pt.date)
+                          setEditNotes(pt.notes ?? "")
                         }
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-xs font-semibold hover:bg-[#F7931A]/90"
@@ -187,6 +242,10 @@ export function ReviewInbox() {
                       onClick={() => {
                         setEditingId(pt.id)
                         setEditEnvelopeId(pt.suggestedEnvelopeId ?? "")
+                        setEditPayee(pt.payee)
+                        setEditAmount(String(pt.amount))
+                        setEditDate(pt.date)
+                        setEditNotes(pt.notes ?? "")
                       }}
                       className="px-3 py-1.5 text-muted-foreground text-xs hover:text-foreground border border-[#333] rounded-lg"
                     >

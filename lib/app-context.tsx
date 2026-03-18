@@ -93,7 +93,11 @@ interface AppContextValue {
 
   pendingTransactions: PendingTransaction[]
   pendingCount: number
-  confirmPending: (id: string, envelopeId?: string) => Promise<void>
+  confirmPending: (
+    id: string,
+    envelopeId?: string,
+    updates?: { payee?: string; amount?: number; date?: string; notes?: string | null },
+  ) => Promise<void>
   dismissPending: (id: string) => Promise<void>
   confirmAllPending: () => Promise<void>
 }
@@ -595,11 +599,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     signOut({ callbackUrl: "/auth" })
   }, [])
 
-  const confirmPending = useCallback(async (id: string, envelopeId?: string) => {
+  const confirmPending = useCallback(async (
+    id: string,
+    envelopeId?: string,
+    updates?: { payee?: string; amount?: number; date?: string; notes?: string | null },
+  ) => {
     const res = await fetch("/api/pending-transactions/confirm", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, envelopeId }),
+      body: JSON.stringify({ id, envelopeId, ...updates }),
     })
     if (res.ok) {
       setPendingTransactions(prev => prev.filter(p => p.id !== id))
