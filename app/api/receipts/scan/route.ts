@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/db"
+import { premiumForbiddenResponse, requirePremium } from "@/lib/subscription"
+import { matchEnvelope } from "@/lib/envelope-matcher"
+import { parseReceiptText } from "@/lib/receipt-parser"
 import { PDFParse } from "pdf-parse"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
@@ -11,7 +15,13 @@ const EXTRACTION_PROMPT = `You are a receipt parser. Extract the following from 
 Respond ONLY with valid JSON: {"payee":"...","amount":"...","date":"..."}
 If you cannot determine a field, use an empty string for that field.`
 
-async function callOpenAI(messages: { role: string; content: unknown }[]): Promise<{ payee: string; amount: string; date: string }> {
+async function extractFromImage(base64: string, mimeType: string) {
+  if (!OPENAI_API_KEY) {
+    const error: any = new Error("OPENAI_API_KEY is not set; cannot call OpenAI API");
+    error.status = 503;
+    throw error;
+  }
+
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -20,7 +30,15 @@ async function callOpenAI(messages: { role: string; content: unknown }[]): Promi
     },
     body: JSON.stringify({
       model: "gpt-4o-mini",
-      messages,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: EXTRACTION_PROMPT },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
+          ],
+        },
+      ],
       max_tokens: 200,
       temperature: 0,
     }),
@@ -38,31 +56,13 @@ async function callOpenAI(messages: { role: string; content: unknown }[]): Promi
   return JSON.parse(jsonMatch[0])
 }
 
-async function extractFromImage(base64: string, mimeType: string) {
-  return callOpenAI([
-    {
-      role: "user",
-      content: [
-        { type: "text", text: EXTRACTION_PROMPT },
-        { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
-      ],
-    },
-  ])
-}
-
-async function extractFromPdfText(text: string) {
-  return callOpenAI([
-    {
-      role: "user",
-      content: `${EXTRACTION_PROMPT}\n\nReceipt text:\n${text.slice(0, 4000)}`,
-    },
-  ])
-}
-
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  if (!(await requirePremium(session.user.id))) {
+    return premiumForbiddenResponse("Receipt scanning requires a premium subscription")
   }
 
   if (!OPENAI_API_KEY) {
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
       if (!textResult.text?.trim()) {
         return NextResponse.json({ error: "Could not extract text from PDF" }, { status: 422 })
       }
-      result = await extractFromPdfText(textResult.text)
+      result = await parseReceiptText(textResult.text)
     } else if (file.type.startsWith("image/")) {
       const base64 = buffer.toString("base64")
       result = await extractFromImage(base64, file.type)
@@ -94,7 +94,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unsupported file type. Use an image or PDF." }, { status: 400 })
     }
 
-    return NextResponse.json(result)
+    let suggestedEnvelopeId: string | null = null
+    let suggestedEnvelopeName: string | null = null
+    let confidence = 0
+
+    if (result.payee) {
+      const match = await matchEnvelope(session.user.id, result.payee)
+      if (match) {
+        suggestedEnvelopeId = match.envelopeId
+        confidence = match.confidence
+        const envelope = await prisma.envelope.findUnique({
+          where: { id: match.envelopeId },
+          select: { name: true },
+        })
+        suggestedEnvelopeName = envelope?.name ?? null
+      }
+    }
+
+    return NextResponse.json({
+      ...result,
+      suggestedEnvelopeId,
+      suggestedEnvelopeName,
+      confidence,
+    })
   } catch (err) {
     console.error("receipt scan error:", err)
     const message = err instanceof Error ? err.message : "Failed to scan receipt"

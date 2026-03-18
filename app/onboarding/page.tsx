@@ -17,12 +17,13 @@ import {
   generatePrivacyKey,
   encryptPrivacyKey,
   uint8ToHex,
-  hexToUint8,
 } from "@/lib/crypto"
+import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 
-type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
+type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "opportunity-cost" | "complete"
 
-const STEPS: Step[] = ["security", "income", "envelopes", "allocations", "import", "complete"]
+// Steps are the same for all users; the opportunity-cost step is skipped for BTC-source users in handleImport
+const STEPS: Step[] = ["security", "income", "envelopes", "allocations", "import", "opportunity-cost", "complete"]
 const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#EAB308", "#EC4899", "#06B6D4"]
 
 interface DraftEnvelope {
@@ -94,6 +95,15 @@ export default function OnboardingPage() {
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; newEnvelopes: string[] } | null>(null)
 
+  // Opportunity Cost feature
+  const [onboardingSource] = useState<"btc" | "vanilla">(() => {
+    try {
+      const src = sessionStorage.getItem("onboardingSource")
+      return src === "btc" ? "btc" : "vanilla"
+    } catch { return "vanilla" }
+  })
+  const [opportunityCostEnabled, setOpportunityCostEnabled] = useState(() => onboardingSource === "btc")
+
   const STORAGE_KEY = "bitbudget-onboarding"
   const [hydrated, setHydrated] = useState(false)
   const [restoredSession, setRestoredSession] = useState(false)
@@ -163,6 +173,7 @@ export default function OnboardingPage() {
             })
             sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
             if (data.userId) sessionStorage.setItem("bitbudget-privacy-user", data.userId)
+            await syncUserPublicKey(privacyKey)
           }
         }
 
@@ -204,6 +215,7 @@ export default function OnboardingPage() {
         sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
         if (userId) sessionStorage.setItem("bitbudget-privacy-user", userId)
       }
+      await syncUserPublicKey(privacyKey)
 
       setStep("income")
     } catch {
@@ -304,14 +316,18 @@ export default function OnboardingPage() {
   }
 
   function handleImport() {
-    if (!importFile) { setStep("complete"); return }
+    if (!importFile) {
+      // BTC-source users skip the opt-in step (already enabled by default)
+      setStep(onboardingSource === "btc" ? "complete" : "opportunity-cost")
+      return
+    }
     setImportDialogOpen(true)
   }
 
   function handleImportDialogClose(isOpen: boolean) {
     setImportDialogOpen(isOpen)
     if (!isOpen) {
-      setStep("complete")
+      setStep(onboardingSource === "btc" ? "complete" : "opportunity-cost")
     }
   }
 
@@ -321,9 +337,12 @@ export default function OnboardingPage() {
       await fetch("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ onboardingComplete: true }),
+        body: JSON.stringify({ onboardingComplete: true, opportunityCostEnabled }),
       })
-      try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
+      try {
+        sessionStorage.removeItem(STORAGE_KEY)
+        sessionStorage.removeItem("onboardingSource")
+      } catch {}
       router.push("/")
       router.refresh()
     } finally {
@@ -950,6 +969,88 @@ export default function OnboardingPage() {
             </form>
           )}
 
+          {/* Opportunity Cost Step */}
+          {step === "opportunity-cost" && (
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-2">
+                <h2 className="text-2xl font-bold text-foreground">One more thing</h2>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  BitBudget can show you the <strong className="text-foreground">Bitcoin opportunity cost</strong> of your spending — how much BTC you could have stacked instead of making each purchase.
+                </p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  This feature is entirely optional. You can always change this in Settings.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOpportunityCostEnabled(true)}
+                  className={`flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-colors ${
+                    opportunityCostEnabled
+                      ? "border-[#F7931A] bg-[#F7931A]/5"
+                      : "border-[#1F1F1F] bg-[#0D0D0D] hover:border-[#333]"
+                  }`}
+                >
+                  <div className={`shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                    opportunityCostEnabled ? "border-[#F7931A] bg-[#F7931A]" : "border-[#555]"
+                  }`}>
+                    {opportunityCostEnabled && (
+                      <div className="h-2 w-2 rounded-full bg-[#0D0D0D]" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground mb-0.5">Enable Opportunity Cost</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      See the BTC value of every transaction, a price chart, and cumulative opportunity cost over time.
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOpportunityCostEnabled(false)}
+                  className={`flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-colors ${
+                    !opportunityCostEnabled
+                      ? "border-[#3B82F6] bg-[#3B82F6]/5"
+                      : "border-[#1F1F1F] bg-[#0D0D0D] hover:border-[#333]"
+                  }`}
+                >
+                  <div className={`shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                    !opportunityCostEnabled ? "border-[#3B82F6] bg-[#3B82F6]" : "border-[#555]"
+                  }`}>
+                    {!opportunityCostEnabled && (
+                      <div className="h-2 w-2 rounded-full bg-white" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground mb-0.5">Keep it simple</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Focus purely on budgeting. No Bitcoin values, charts, or opportunity cost metrics.
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setStep("import")}
+                  className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
+                >
+                  <ChevronLeft className="h-4 w-4" /> Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep("complete")}
+                  className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors flex items-center justify-center gap-2"
+                >
+                  Continue <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Complete Step */}
           {step === "complete" && (
             <form onSubmit={e => { e.preventDefault(); handleComplete() }} className="flex flex-col items-center gap-6 py-4">
@@ -994,6 +1095,12 @@ export default function OnboardingPage() {
         open={importDialogOpen}
         onOpenChange={handleImportDialogClose}
         file={importFile}
+        dedupExistingTransactions={[]}
+        onRequestAllocations={() => {
+          setImportDialogOpen(false)
+          setStep("allocations")
+        }}
+        onTryAnotherFile={() => setImportFile(null)}
       />
     </div>
   )

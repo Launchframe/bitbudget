@@ -21,6 +21,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { X, Repeat, Tag, ChevronRight } from "lucide-react"
+import { ShortcutsPanel } from "@/components/shortcuts-panel"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -47,6 +48,7 @@ export function NewTransactionDialog() {
   const [isRecurring, setIsRecurring] = useState(false)
   const [cadence, setCadence] = useState<Cadence>("monthly")
   const [endDate, setEndDate] = useState("")
+  const [saveAsShortcut, setSaveAsShortcut] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
 
@@ -62,6 +64,7 @@ export function NewTransactionDialog() {
       if (transactionPrefill.amount) setAmount(transactionPrefill.amount)
       if (transactionPrefill.date) setDate(transactionPrefill.date)
       if (transactionPrefill.notes) setNotes(transactionPrefill.notes)
+      if (transactionPrefill.envelopeId) setEnvelopeId(transactionPrefill.envelopeId)
     }
   }, [transactionDialogOpen, transactionPrefill])
 
@@ -130,6 +133,7 @@ export function NewTransactionDialog() {
     setIsRecurring(false)
     setCadence("monthly")
     setEndDate("")
+    setSaveAsShortcut(false)
     setModalView("main")
     setValidationErrors({})
   }
@@ -185,6 +189,18 @@ export function NewTransactionDialog() {
       })
     }
 
+    if (saveAsShortcut) {
+      fetch("/api/shortcuts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payee: payee.trim(),
+          defaultAmount: parseFloat(amount) > 0 ? parseFloat(amount) : null,
+          envelopeId,
+        }),
+      })
+    }
+
     resetForm()
     setTransactionDialogOpen(false)
   }
@@ -197,7 +213,7 @@ export function NewTransactionDialog() {
 
   function handleAddNewTag() {
     const trimmed = newTag.trim()
-    if (trimmed && !state.tags.includes(trimmed)) {
+    if (trimmed && !state.tags.some((tag) => tag.name === trimmed)) {
       addTag(trimmed)
     }
     if (trimmed) {
@@ -216,6 +232,7 @@ export function NewTransactionDialog() {
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           {modalView === "main" && (
             <>
+              <ShortcutsPanel dialogOpen={transactionDialogOpen} />
               {/* Type toggle */}
               <div className="flex flex-col gap-2">
                 <Label className="text-muted-foreground text-xs uppercase tracking-wider">Type</Label>
@@ -425,6 +442,16 @@ export function NewTransactionDialog() {
                 </div>
               </button>
 
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={saveAsShortcut}
+                  onChange={(e) => setSaveAsShortcut(e.target.checked)}
+                  className="rounded border-[#333]"
+                />
+                Save as shortcut
+              </label>
+
               {/* Submit */}
               <button
                 type="submit"
@@ -519,17 +546,17 @@ export function NewTransactionDialog() {
               <div className="flex flex-wrap gap-2">
                 {state.tags.map((tag) => (
                   <Badge
-                    key={tag}
-                    variant={selectedTags.includes(tag) ? "default" : "outline"}
+                    key={tag.id}
+                    variant={selectedTags.includes(tag.name) ? "default" : "outline"}
                     className={`cursor-pointer transition-colors ${
-                      selectedTags.includes(tag)
+                      selectedTags.includes(tag.name)
                         ? "bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/80 border-transparent"
                         : "border-[#333] text-muted-foreground hover:border-[#F7931A]/50 hover:text-foreground"
                     }`}
-                    onClick={() => toggleTag(tag)}
+                    onClick={() => toggleTag(tag.name)}
                   >
-                    {tag}
-                    {selectedTags.includes(tag) && <X className="ml-1 h-3 w-3" />}
+                    {tag.name}
+                    {selectedTags.includes(tag.name) && <X className="ml-1 h-3 w-3" />}
                   </Badge>
                 ))}
               </div>

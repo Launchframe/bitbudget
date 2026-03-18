@@ -26,10 +26,18 @@ model User {
   privacyKeySalt      String?
 
   // Budgeting settings
-  monthlyIncome      Float    @default(0)
-  payCadence         String   @default("monthly") // "monthly" | "bimonthly"
-  onboardingComplete Boolean  @default(false)
-  btcDisplayUnit     String   @default("sats") // "sats" | "btc"
+  monthlyIncome           Float    @default(0)
+  payCadence              String   @default("monthly") // "monthly" | "bimonthly"
+  onboardingComplete      Boolean  @default(false)
+  btcDisplayUnit          String   @default("sats") // "sats" | "btc"
+  opportunityCostEnabled  Boolean  @default(false)
+  role      String? @default("user")
+  publicKey String?
+  receiptInboxToken String? @unique
+  lastVisitedAt DateTime?
+  remindersEnabled Boolean @default(false)
+  reminderTime    String?  @default("20:00")
+  subscriptionTier String @default("free")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -40,6 +48,15 @@ model User {
   transactions          Transaction[]
   tags                  Tag[]
   recurringTransactions RecurringTransaction[]
+  pendingTransactions PendingTransaction[]
+  shortcuts           TransactionShortcut[]
+  approvedSenders     ApprovedReceiptSender[] @relation("ApprovedSenderAdmin")
+  auditLogs           AuditLog[]              @relation("AuditLogAdmin")
+  plaidItems                 PlaidItem[]
+  plaidImportedTransactions  PlaidImportedTransaction[]
+  connectedEmails     ConnectedEmailAccount[]
+  payeeMappings       PayeeEnvelopeMapping[]
+  pushSubscriptions   PushSubscription[]
 }
 
 model Account {
@@ -95,6 +112,9 @@ model Envelope {
   user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
+  pendingTransactions PendingTransaction[]
+  shortcuts           TransactionShortcut[]
+  payeeMappings       PayeeEnvelopeMapping[]
 
   @@index([userId])
 }
@@ -110,6 +130,7 @@ model Transaction {
   tags       String   @default("[]") // JSON array of tag names
   notes      String?
   satsAmount Int?     // BTC equivalent in satoshis (1 BTC = 100,000,000 sats)
+  source     String   @default("manual")
 
   recurringId String?
 
@@ -177,4 +198,159 @@ model BtcPriceCache {
   date     String   @unique // YYYY-MM-DD
   priceUsd Float
   fetchedAt DateTime @default(now())
+}
+
+// ─── Low-friction capture models ────────────────────────────────────
+
+model PendingTransaction {
+  id                  String    @id @default(cuid())
+  userId              String
+  source              String
+  payee               String
+  amount              Float
+  date                DateTime
+  notes               String?
+  suggestedEnvelopeId String?
+  confidence          Float
+  rawInput            String?
+  tags                String?
+  createdAt           DateTime  @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envelope Envelope? @relation(fields: [suggestedEnvelopeId], references: [id])
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+model TransactionShortcut {
+  id            String   @id @default(cuid())
+  userId        String
+  payee         String
+  defaultAmount Float?
+  envelopeId    String
+  label         String?
+  usageCount    Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envelope Envelope @relation(fields: [envelopeId], references: [id])
+
+  @@index([userId])
+}
+
+model ApprovedReceiptSender {
+  id            String   @id @default(cuid())
+  senderPattern String   @unique
+  displayName   String
+  addedBy       String
+  createdAt     DateTime @default(now())
+
+  admin User @relation("ApprovedSenderAdmin", fields: [addedBy], references: [id])
+}
+
+model PendingSenderReview {
+  id              String   @id @default(cuid())
+  senderAddress   String
+  samplePayee     String?
+  sampleAmount    Float?
+  occurrenceCount Int      @default(1)
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  status          String   @default("pending")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  adminUserId String
+  action      String
+  targetType  String?
+  targetId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  admin User @relation("AuditLogAdmin", fields: [adminUserId], references: [id])
+
+  @@index([adminUserId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model PlaidItem {
+  id                     String   @id @default(cuid())
+  userId                 String
+  plaidItemId            String   @unique
+  accessToken            String
+  institutionName        String?
+  consentTimestamp       DateTime @default(now())
+  createdAt              DateTime @default(now())
+  transactionsSyncCursor String?
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts PlaidAccount[]
+
+  @@index([userId])
+}
+
+model PlaidImportedTransaction {
+  id                 String   @id @default(cuid())
+  userId             String
+  plaidTransactionId String   @unique
+  createdAt          DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PlaidAccount {
+  id          String @id @default(cuid())
+  plaidItemId String
+  accountName String
+  mask        String?
+  type        String
+
+  plaidItem PlaidItem @relation(fields: [plaidItemId], references: [id], onDelete: Cascade)
+}
+
+model PayeeEnvelopeMapping {
+  id         String @id @default(cuid())
+  userId     String
+  payeeHash  String
+  envelopeId String
+  count      Int    @default(1)
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envelope Envelope @relation(fields: [envelopeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, payeeHash])
+  @@index([userId])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ConnectedEmailAccount {
+  id           String    @id @default(cuid())
+  userId       String
+  provider     String
+  accessToken  String
+  refreshToken String?
+  email        String
+  lastScanAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

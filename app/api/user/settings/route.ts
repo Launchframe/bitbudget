@@ -15,16 +15,20 @@ export async function GET() {
       payCadence: true,
       onboardingComplete: true,
       btcDisplayUnit: true,
+      opportunityCostEnabled: true,
       nostrPubkey: true,
       encryptedPrivacyKey: true,
       privacyKeySalt: true,
+      receiptInboxToken: true,
       name: true,
       email: true,
+      subscriptionTier: true,
+      role: true,
     },
   })
 
   if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 })
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
   return NextResponse.json(user)
@@ -42,8 +46,10 @@ export async function PUT(req: NextRequest) {
     "payCadence",
     "onboardingComplete",
     "btcDisplayUnit",
+    "opportunityCostEnabled",
     "encryptedPrivacyKey",
     "privacyKeySalt",
+    "receiptInboxToken",
     "name",
   ] as const
 
@@ -62,6 +68,7 @@ export async function PUT(req: NextRequest) {
       payCadence: true,
       onboardingComplete: true,
       btcDisplayUnit: true,
+      receiptInboxToken: true,
       name: true,
     },
   })

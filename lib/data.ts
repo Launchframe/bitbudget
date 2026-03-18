@@ -2,6 +2,8 @@
 
 export type TransactionType = "expense" | "credit"
 
+export type TransactionSource = "manual" | "voice" | "receipt_scan" | "sms" | "email_forward" | "email_scan" | "plaid"
+
 export interface Transaction {
   id: string
   date: string // ISO date string YYYY-MM-DD
@@ -13,6 +15,21 @@ export interface Transaction {
   notes?: string | null
   satsAmount?: number | null
   recurringId?: string | null
+  source?: TransactionSource
+}
+
+export interface PendingTransaction {
+  id: string
+  source: TransactionSource
+  payee: string
+  amount: number
+  date: string
+  notes?: string | null
+  suggestedEnvelopeId: string | null
+  confidence: number
+  rawInput?: string | null
+  tags?: string | null
+  createdAt: string
 }
 
 export interface Envelope {
@@ -24,14 +41,20 @@ export interface Envelope {
   archived?: boolean
 }
 
+export interface Tag {
+  id: string
+  name: string
+}
+
 export type BtcDisplayUnit = "sats" | "btc"
 
 export interface AppState {
   transactions: Transaction[]
   envelopes: Envelope[]
-  tags: string[]
+  tags: Tag[]
   monthlyIncome: number
   btcDisplayUnit: BtcDisplayUnit
+  opportunityCostEnabled: boolean
 }
 
 // ─── Mock BTC Price Data (client-side fallback) ─────────────────────
@@ -180,15 +203,14 @@ export function formatNumber(n: number): string {
 
 // ─── Default State (empty for API-backed mode) ─────────────────────
 
-const DEFAULT_TAGS = ["Essential", "Discretionary", "Recurring"]
-
 export function getDefaultState(): AppState {
   return {
     transactions: [],
     envelopes: [],
-    tags: DEFAULT_TAGS,
+    tags: [],
     monthlyIncome: 0,
     btcDisplayUnit: "sats",
+    opportunityCostEnabled: false,
   }
 }
 

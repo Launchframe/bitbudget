@@ -6,20 +6,20 @@ export default auth((req) => {
   const isLoggedIn = !!req.auth
 
   const isAuthPage = pathname.startsWith("/auth")
-  const isLandingPage = pathname.startsWith("/landing")
+  const isPublicLanding = pathname.startsWith("/landing") || pathname.startsWith("/welcome")
   const isApiRoute = pathname.startsWith("/api")
   const isPublicAsset = pathname.startsWith("/_next") || pathname.includes(".")
 
   if (isApiRoute || isPublicAsset) return NextResponse.next()
 
-  if (isLandingPage) {
+  if (isPublicLanding) {
     if (isLoggedIn) return NextResponse.redirect(new URL("/", req.url))
     return NextResponse.next()
   }
 
   if (!isLoggedIn && !isAuthPage) {
     const isReturningUser = req.cookies.has("bitbudget_visited")
-    return NextResponse.redirect(new URL(isReturningUser ? "/auth" : "/landing", req.url))
+    return NextResponse.redirect(new URL(isReturningUser ? "/auth" : "/welcome", req.url))
   }
 
   if (isLoggedIn && isAuthPage) {

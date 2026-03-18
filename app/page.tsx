@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { signOut } from "next-auth/react"
 import { AppProvider, useApp } from "@/lib/app-context"
 import { BtcPriceProvider } from "@/lib/btc-price-context"
 import { Sidebar } from "@/components/sidebar"
@@ -13,10 +14,14 @@ import { EnvelopesPage } from "@/components/envelopes-page"
 import { EnvelopeDetailPage } from "@/components/envelope-detail-page"
 import { TransactionsPage } from "@/components/transactions-page"
 import { BtcPricePage } from "@/components/btc-price-page"
+import { ReviewInbox } from "@/components/review-inbox"
+import { ProfilePage } from "@/components/profile-page"
 import { SettingsPage } from "@/components/settings-page"
 import { MobileNav } from "@/components/mobile-nav"
 import { PinUnlockDialog } from "@/components/pin-unlock-dialog"
 import { Spinner } from "@/components/ui/spinner"
+import { FaviconSwitcher } from "@/components/favicon-switcher"
+import { NotificationBanner } from "@/components/notification-banner"
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -27,7 +32,7 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
       try {
         const res = await fetch("/api/user/settings")
         if (res.status === 401 || res.status === 403) {
-          router.replace("/auth")
+          signOut({ callbackUrl: "/auth" })
           return
         }
         if (res.ok) {
@@ -97,6 +102,10 @@ function PageContent() {
       return <TransactionsPage />
     case "btc-price":
       return <BtcPricePage />
+    case "review-inbox":
+      return <ReviewInbox />
+    case "profile":
+      return <ProfilePage />
     case "envelopes":
       return <EnvelopesPage />
     case "envelope-detail":
@@ -125,6 +134,7 @@ export default function Dashboard() {
   return (
     <OnboardingGate>
       <AppProvider>
+        <FaviconSwitcher />
         <EncryptionGate>
           <BtcPriceProvider>
           <div className="relative h-screen w-full bg-background text-foreground overflow-hidden">
@@ -133,6 +143,7 @@ export default function Dashboard() {
               <main className="flex gap-4 md:gap-6 px-3 md:px-6 pb-20 md:pb-8 pt-20 md:pt-24 min-h-full">
                 <Sidebar />
                 <div className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
+                  <NotificationBanner />
                   <PageContent />
                 </div>
               </main>

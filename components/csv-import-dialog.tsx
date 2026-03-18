@@ -1,7 +1,18 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { Upload, ArrowRight, Plus, CheckCircle2, Loader2, ChevronDown, ChevronRight as ChevronRightIcon, Ban } from "lucide-react"
+import {
+  Upload,
+  ArrowRight,
+  Plus,
+  CheckCircle2,
+  Loader2,
+  ChevronDown,
+  ChevronRight as ChevronRightIcon,
+  Ban,
+  Copy,
+  AlertCircle,
+} from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -18,9 +29,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import { parseCSVFile } from "@/lib/csv"
-import type { CsvParseResult } from "@/lib/csv"
-import { encryptField, hexToUint8 } from "@/lib/crypto"
+import type { CsvParseResult, ParsedTransaction } from "@/lib/csv"
+import type { Transaction } from "@/lib/data"
+import { encryptFieldAsymmetric, generateKeyPairFromSeed, hexToUint8 } from "@/lib/crypto"
 
 interface SampleTxn {
   date: string
@@ -42,7 +55,9 @@ interface ExistingEnvelope {
   color: string
 }
 
-type Step = "preview" | "importing" | "done"
+type Step = "preview" | "dedup" | "importing" | "done"
+
+type DedupMode = "allDupes" | "someDupes"
 
 const NEW_ENVELOPE = "__new__"
 const SKIP_ENVELOPE = "__skip__"
@@ -50,29 +65,55 @@ const CSV_PREFIX = "__csv__:"
 
 export type EncryptFn = (plaintext: string) => Promise<string>
 
+function collisionKey(date: string, payee: string, amount: number): string {
+  return `${date}|${payee.toLowerCase().trim()}|${amount}`
+}
+
+function buildExistingByKey(transactions: Transaction[]): Map<string, Transaction> {
+  const map = new Map<string, Transaction>()
+  for (const t of transactions) {
+    const k = collisionKey(t.date, t.payee, t.amount)
+    if (!map.has(k)) map.set(k, t)
+  }
+  return map
+}
+
 function getSessionEncryptFn(): EncryptFn | null {
   const hex = sessionStorage.getItem("bitbudget-privacy-key")
   if (!hex) return null
-  const key = hexToUint8(hex)
-  return (plaintext: string) => encryptField(plaintext, key)
+  const { publicKey } = generateKeyPairFromSeed(hexToUint8(hex))
+  return (plaintext: string) => Promise.resolve(encryptFieldAsymmetric(plaintext, publicKey))
 }
 
 export function CSVImportDialog({
   open,
   onOpenChange,
   file,
+  dedupExistingTransactions,
   onImportComplete,
   onDone,
+  onRequestAllocations,
+  onTryAnotherFile,
   encryptFn: encryptFnProp,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   file: File | null
+  /** Transactions already in the app (decrypted). Use [] on pages without loaded app state (e.g. onboarding). */
+  dedupExistingTransactions: Transaction[]
   onImportComplete?: () => void
   onDone?: () => void
+  onRequestAllocations?: () => void
+  /** Called when user chooses another file after an all-duplicates result; parent should clear `file`. */
+  onTryAnotherFile?: () => void
   encryptFn?: EncryptFn
 }) {
   const [step, setStep] = useState<Step>("preview")
+  const [dedupMode, setDedupMode] = useState<DedupMode | null>(null)
+  const [duplicateRows, setDuplicateRows] = useState<
+    { index: number; incoming: ParsedTransaction; existing: Transaction }[]
+  >([])
+  const [discardDupIndices, setDiscardDupIndices] = useState<Set<number>>(new Set())
   const [parseResult, setParseResult] = useState<CsvParseResult | null>(null)
   const [csvEnvelopes, setCsvEnvelopes] = useState<CsvEnvelope[]>([])
   const [existingEnvelopes, setExistingEnvelopes] = useState<ExistingEnvelope[]>([])
@@ -80,6 +121,7 @@ export function CSVImportDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{ imported: number; skipped: number; newEnvelopes: string[] } | null>(null)
+  const [expandedDupIndex, setExpandedDupIndex] = useState<number | null>(null)
 
   const lastLoadedFile = useRef<File | null>(null)
 
@@ -91,6 +133,10 @@ export function CSVImportDialog({
       setLoading(true)
       setError(null)
       setStep("preview")
+      setDedupMode(null)
+      setDuplicateRows([])
+      setDiscardDupIndices(new Set())
+      setExpandedDupIndex(null)
       setResult(null)
       setParseResult(null)
       setCsvEnvelopes([])
@@ -147,6 +193,10 @@ export function CSVImportDialog({
         setError(null)
         setResult(null)
         setStep("preview")
+        setDedupMode(null)
+        setDuplicateRows([])
+        setDiscardDupIndices(new Set())
+        setExpandedDupIndex(null)
         lastLoadedFile.current = null
       }
       onOpenChange(isOpen)
@@ -154,7 +204,15 @@ export function CSVImportDialog({
     [onOpenChange],
   )
 
-  const handleImport = async () => {
+  const skippedNames = useCallback(() => {
+    return new Set(
+      Object.entries(mapping)
+        .filter(([, v]) => v === SKIP_ENVELOPE)
+        .map(([k]) => k.toLowerCase()),
+    )
+  }, [mapping])
+
+  const runImport = async (dupIndices: Set<number>, discardIndices: Set<number>) => {
     if (!parseResult) return
     setStep("importing")
     setError(null)
@@ -164,11 +222,7 @@ export function CSVImportDialog({
         throw new Error("Encryption key not available. Please unlock your account and try again.")
       }
 
-      const skippedNames = new Set(
-        Object.entries(mapping)
-          .filter(([, v]) => v === SKIP_ENVELOPE)
-          .map(([k]) => k.toLowerCase()),
-      )
+      const skipEnv = skippedNames()
 
       const encryptedTxns: {
         date: string
@@ -179,8 +233,10 @@ export function CSVImportDialog({
         notes: string | null
       }[] = []
 
-      for (const txn of parseResult.transactions) {
-        if (skippedNames.has(txn.envelopeName.toLowerCase())) continue
+      for (let i = 0; i < parseResult.transactions.length; i++) {
+        const txn = parseResult.transactions[i]
+        if (skipEnv.has(txn.envelopeName.toLowerCase())) continue
+        if (dupIndices.has(i) && discardIndices.has(i)) continue
 
         const encPayee = await encrypt(txn.payee)
         const encNotes = txn.notes ? await encrypt(txn.notes) : null
@@ -193,6 +249,12 @@ export function CSVImportDialog({
           envelopeName: txn.envelopeName,
           notes: encNotes,
         })
+      }
+
+      if (encryptedTxns.length === 0) {
+        setError("No transactions left to import.")
+        setStep("dedup")
+        return
       }
 
       const res = await fetch("/api/import", {
@@ -214,15 +276,63 @@ export function CSVImportDialog({
       if (onImportComplete) await onImportComplete()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed")
-      setStep("preview")
+      setStep(dedupMode ? "dedup" : "preview")
     }
   }
 
-  const totalRows = parseResult?.totalRows ?? 0
+  const handlePreviewImportClick = () => {
+    if (!parseResult) return
+    const skipEnv = skippedNames()
+    const existingByKey = buildExistingByKey(dedupExistingTransactions)
 
+    const eligibleIndices: number[] = []
+    const dupRows: { index: number; incoming: ParsedTransaction; existing: Transaction }[] = []
+
+    for (let i = 0; i < parseResult.transactions.length; i++) {
+      const txn = parseResult.transactions[i]
+      if (skipEnv.has(txn.envelopeName.toLowerCase())) continue
+      eligibleIndices.push(i)
+      const k = collisionKey(txn.date, txn.payee, txn.amount)
+      const existing = existingByKey.get(k)
+      if (existing) {
+        dupRows.push({ index: i, incoming: txn, existing })
+      }
+    }
+
+    if (eligibleIndices.length === 0) return
+
+    if (dupRows.length === 0) {
+      void runImport(new Set(), new Set())
+      return
+    }
+
+    if (dupRows.length === eligibleIndices.length) {
+      setDedupMode("allDupes")
+      setDuplicateRows(dupRows)
+      setStep("dedup")
+      return
+    }
+
+    setDedupMode("someDupes")
+    setDuplicateRows(dupRows)
+    setDiscardDupIndices(new Set(dupRows.map((r) => r.index)))
+    setStep("dedup")
+  }
+
+  const dupIndexSet = new Set(duplicateRows.map((r) => r.index))
+  const toImportFromDedup =
+    parseResult == null
+      ? 0
+      : parseResult.transactions.filter((txn, i) => {
+          if (skippedNames().has(txn.envelopeName.toLowerCase())) return false
+          if (dupIndexSet.has(i) && discardDupIndices.has(i)) return false
+          return true
+        }).length
+
+  const totalRows = parseResult?.totalRows ?? 0
   const skippedEnvelopes = csvEnvelopes.filter(e => mapping[e.csvName] === SKIP_ENVELOPE)
   const skippedTxnCount = skippedEnvelopes.reduce((sum, e) => sum + e.count, 0)
-  const importTxnCount = totalRows - parseResult?.skippedRows! - skippedTxnCount
+  const importTxnCount = totalRows - (parseResult?.skippedRows ?? 0) - skippedTxnCount
 
   const unmatchedCount = csvEnvelopes.filter(e => mapping[e.csvName] === NEW_ENVELOPE).length
   const matchedCount = csvEnvelopes.filter(e => {
@@ -234,13 +344,30 @@ export function CSVImportDialog({
     .filter(e => mapping[e.csvName] === NEW_ENVELOPE)
     .map(e => e.csvName)
 
+  const envelopeNameById = (id: string) => existingEnvelopes.find((e) => e.id === id)?.name ?? id
+
+  function toggleDiscardDup(index: number) {
+    setDiscardDupIndices((prev) => {
+      const next = new Set(prev)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
+  }
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground sm:max-w-2xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5 text-[#F7931A]" />
-            {step === "done" ? "Import Complete" : "Import Transactions"}
+            {step === "done"
+              ? "Import Complete"
+              : step === "dedup" && dedupMode === "allDupes"
+                ? "Already imported"
+                : step === "dedup"
+                  ? "Review duplicates"
+                  : "Import Transactions"}
           </DialogTitle>
           <DialogDescription>
             {step === "preview" && parseResult && (
@@ -250,6 +377,16 @@ export function CSVImportDialog({
                   <span className="text-yellow-500"> ({skippedTxnCount} will be skipped)</span>
                 )}
               </>
+            )}
+            {step === "dedup" && dedupMode === "someDupes" && (
+              <>
+                {duplicateRows.length} duplicate{duplicateRows.length !== 1 ? "s" : ""} detected.{" "}
+                {toImportFromDedup} transaction{toImportFromDedup !== 1 ? "s" : ""} will be imported
+                {discardDupIndices.size < duplicateRows.length ? " (including duplicates you keep)" : ""}.
+              </>
+            )}
+            {step === "dedup" && dedupMode === "allDupes" && (
+              <>Every transaction in this file matches one you already have.</>
             )}
             {step === "importing" && "Encrypting and importing transactions..."}
             {step === "done" && result && (
@@ -308,6 +445,86 @@ export function CSVImportDialog({
           </div>
         )}
 
+        {step === "dedup" && dedupMode === "allDupes" && (
+          <div className="flex flex-col items-center gap-4 py-8 px-2">
+            <div className="p-4 rounded-full bg-muted/20">
+              <Copy className="h-10 w-10 text-muted-foreground" />
+            </div>
+            <p className="text-center text-foreground font-medium">
+              It looks like you&apos;ve already imported all these transactions.
+            </p>
+            <p className="text-center text-sm text-muted-foreground max-w-md">
+              We matched every row in this file to an existing transaction (same date, payee, and amount).
+            </p>
+          </div>
+        )}
+
+        {step === "dedup" && dedupMode === "someDupes" && (
+          <div className="flex-1 overflow-y-auto min-h-0 -mx-6 px-6 space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Checked rows are skipped (duplicates). Uncheck a row if you still want to import that transaction.
+            </p>
+            <div className="space-y-2">
+              {duplicateRows.map((row) => {
+                const discard = discardDupIndices.has(row.index)
+                const expanded = expandedDupIndex === row.index
+                return (
+                  <div
+                    key={row.index}
+                    className="rounded-lg border border-[#252525] bg-[#1A1A1A] overflow-hidden"
+                  >
+                    <div className="flex items-center gap-3 p-3">
+                      <Checkbox
+                        checked={discard}
+                        onCheckedChange={() => toggleDiscardDup(row.index)}
+                        aria-label={discard ? "Skip duplicate" : "Import duplicate"}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setExpandedDupIndex(expanded ? null : row.index)}
+                        className="p-0.5 rounded hover:bg-[#252525] text-muted-foreground shrink-0"
+                        aria-expanded={expanded}
+                      >
+                        {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRightIcon className="h-4 w-4" />}
+                      </button>
+                      <div className="flex-1 min-w-0 text-xs">
+                        <div className="text-muted-foreground">{row.incoming.date}</div>
+                        <div className="text-foreground truncate font-medium">{row.incoming.payee}</div>
+                        <div className="text-foreground">${row.incoming.amount.toFixed(2)}</div>
+                      </div>
+                      <span className="text-[10px] uppercase text-yellow-600/90 shrink-0">Duplicate</span>
+                    </div>
+                    {expanded && (
+                      <div className="border-t border-[#252525] px-3 py-2 bg-[#111] text-xs space-y-1">
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" /> Existing transaction
+                        </p>
+                        <div className="grid gap-1 pl-1">
+                          <div>
+                            <span className="text-muted-foreground">Date: </span>
+                            {row.existing.date}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Payee: </span>
+                            {row.existing.payee}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Amount: </span>${row.existing.amount.toFixed(2)}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Envelope: </span>
+                            {envelopeNameById(row.existing.envelopeId)}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {step === "done" && (
           <div className="flex flex-col items-center gap-4 py-6">
             <CheckCircle2 className="h-14 w-14 text-green-500" />
@@ -319,18 +536,22 @@ export function CSVImportDialog({
                 <p className="text-muted-foreground text-xs mb-2">
                   {result.newEnvelopes.join(", ")}
                 </p>
-                <p className="text-muted-foreground text-xs">
-                  These envelopes have no monthly allotment yet. Set your income allocations on the Envelopes page.
+                <p className="text-muted-foreground text-xs mb-3">
+                  These envelopes have no monthly allotment yet.
+                </p>
+                <p className="text-foreground text-sm font-medium">
+                  Would you like to go back and change your income allocations?
                 </p>
               </div>
             )}
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
           {step === "preview" && parseResult && !loading && (
             <button
-              onClick={handleImport}
+              type="button"
+              onClick={handlePreviewImportClick}
               disabled={importTxnCount <= 0}
               className="flex items-center gap-2 px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -338,15 +559,89 @@ export function CSVImportDialog({
               <ArrowRight className="h-4 w-4" />
             </button>
           )}
+          {step === "dedup" && dedupMode === "allDupes" && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  onTryAnotherFile?.()
+                  handleOpenChange(false)
+                }}
+                className="px-5 py-2.5 bg-[#1A1A1A] border border-[#333] text-foreground rounded-lg text-sm font-medium hover:bg-[#252525] transition-colors"
+              >
+                Try another file
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOpenChange(false)}
+                className="px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors"
+              >
+                OK
+              </button>
+            </>
+          )}
+          {step === "dedup" && dedupMode === "someDupes" && (
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("preview")
+                  setDedupMode(null)
+                  setDuplicateRows([])
+                  setDiscardDupIndices(new Set())
+                }}
+                className="px-5 py-2.5 text-muted-foreground text-sm hover:text-foreground"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                disabled={toImportFromDedup <= 0}
+                onClick={() => void runImport(dupIndexSet, discardDupIndices)}
+                className="flex items-center gap-2 px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Import {toImportFromDedup} Transaction{toImportFromDedup !== 1 ? "s" : ""}
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           {step === "importing" && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Encrypting &amp; importing...
             </div>
           )}
-          {step === "done" && (
+          {step === "done" && result && result.newEnvelopes.length > 0 && (
+            <div className="flex w-full flex-wrap gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  onDone?.()
+                  handleOpenChange(false)
+                }}
+                className="px-5 py-2.5 bg-[#1A1A1A] border border-[#333] text-foreground rounded-lg text-sm font-medium hover:bg-[#252525] transition-colors"
+              >
+                Skip
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onRequestAllocations?.()
+                  handleOpenChange(false)
+                }}
+                className="px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors"
+              >
+                Update allocations
+              </button>
+            </div>
+          )}
+          {step === "done" && result && result.newEnvelopes.length === 0 && (
             <button
-              onClick={() => { onDone?.(); handleOpenChange(false) }}
+              type="button"
+              onClick={() => {
+                onDone?.()
+                handleOpenChange(false)
+              }}
               className="px-5 py-2.5 bg-[#1A1A1A] border border-[#333] text-foreground rounded-lg text-sm font-medium hover:bg-[#252525] transition-colors"
             >
               Done
@@ -387,6 +682,7 @@ function EnvelopeMappingRow({
       <div className="flex items-center gap-3 p-3">
         {hasSamples && (
           <button
+            type="button"
             onClick={() => setExpanded(!expanded)}
             className="p-0.5 rounded hover:bg-[#252525] text-muted-foreground transition-colors shrink-0"
             aria-label={expanded ? "Collapse samples" : "Show samples"}

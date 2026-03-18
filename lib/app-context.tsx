@@ -2,9 +2,15 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { signOut } from "next-auth/react"
-import type { Transaction, Envelope, AppState, BtcDisplayUnit } from "@/lib/data"
+import type { Transaction, Envelope, AppState, BtcDisplayUnit, PendingTransaction, Tag } from "@/lib/data"
 import { generateId, getDefaultState } from "@/lib/data"
-import { encryptField, decryptField, hexToUint8 } from "@/lib/crypto"
+import {
+  encryptFieldAsymmetric,
+  decryptFieldAsymmetric,
+  generateKeyPairFromSeed,
+  hexToUint8,
+} from "@/lib/crypto"
+import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 
 export type PageId =
   | "dashboard"
@@ -15,7 +21,9 @@ export type PageId =
   | "btc-price"
   | "researcher"
   | "funds"
+  | "profile"
   | "settings"
+  | "review-inbox"
 
 function pageToHash(page: PageId, envelopeId?: string | null): string {
   if (page === "envelope-detail" && envelopeId) return `#/envelope/${envelopeId}`
@@ -29,7 +37,7 @@ function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
   const envelopeMatch = path.match(/^envelope\/(.+)$/)
   if (envelopeMatch) return { page: "envelope-detail", envelopeId: envelopeMatch[1] }
 
-  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "researcher", "funds", "settings"]
+  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox"]
   if (validPages.includes(path as PageId)) return { page: path as PageId }
 
   return { page: "dashboard" }
@@ -47,6 +55,7 @@ export interface TransactionPrefill {
   amount?: string
   date?: string
   notes?: string
+  envelopeId?: string
 }
 
 interface AppContextValue {
@@ -81,10 +90,30 @@ interface AppContextValue {
 
   setMonthlyIncome: (income: number) => void
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
+  setOpportunityCostEnabled: (enabled: boolean) => void
   addTag: (tag: string) => void
+  deleteTag: (id: string) => void
   refreshData: () => Promise<void>
   encryptForStorage: (plaintext: string) => Promise<string>
   logout: () => void
+  isAdmin: boolean
+  subscriptionTier: "free" | "premium"
+
+  pendingTransactions: PendingTransaction[]
+  pendingCount: number
+  confirmPending: (
+    id: string,
+    envelopeId?: string,
+    updates?: {
+      payee?: string
+      amount?: number
+      date?: string
+      notes?: string | null
+      tags?: string[]
+    },
+  ) => Promise<void>
+  dismissPending: (id: string) => Promise<void>
+  confirmAllPending: () => Promise<void>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -95,16 +124,32 @@ export function useApp(): AppContextValue {
   return ctx
 }
 
-async function decryptTransactions(transactions: Transaction[], key: Uint8Array): Promise<Transaction[]> {
-  return Promise.all(transactions.map(async (t) => {
+function decryptTxnLikeRecords<T extends { payee: string; notes?: string | null }>(
+  records: T[],
+  secretKey: Uint8Array,
+): T[] {
+  return records.map((t) => {
+    let payee = t.payee
+    let notes = t.notes
     try {
-      const payee = await decryptField(t.payee, key)
-      const notes = t.notes ? await decryptField(t.notes, key) : t.notes
-      return { ...t, payee, notes }
+      payee = decryptFieldAsymmetric(t.payee, secretKey)
     } catch {
-      return t
+      /* plaintext or legacy */
     }
-  }))
+    if (t.notes) {
+      try {
+        notes = decryptFieldAsymmetric(t.notes, secretKey)
+      } catch {
+        /* keep */
+      }
+    }
+    return { ...t, payee, notes }
+  })
+}
+
+function applyPrivacyKey(key: Uint8Array, publicKeyRef: React.MutableRefObject<Uint8Array | null>) {
+  const { publicKey } = generateKeyPairFromSeed(key)
+  publicKeyRef.current = publicKey
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -127,10 +172,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return page === "envelope-detail" && envelopeId ? new Set([envelopeId]) : new Set()
   })
   const [loading, setLoading] = useState(true)
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [subscriptionTier, setSubscriptionTier] = useState<"free" | "premium">("free")
+  const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const mounted = useRef(false)
   const isPopstate = useRef(false)
 
   const privacyKeyRef = useRef<Uint8Array | null>(null)
+  const publicKeyRef = useRef<Uint8Array | null>(null)
+  /** True while user has wrapped privacy key but has not unlocked this session (avoid showing encrypted pending as gibberish). */
+  const pendingLockedRef = useRef(false)
   const currentUserIdRef = useRef<string | null>(null)
   const [encryption, setEncryption] = useState<EncryptionState>({
     ready: false,
@@ -142,6 +193,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const initEncryption = useCallback(async () => {
     try {
       const res = await fetch("/api/user/encryption")
+      if (res.status === 401 || res.status === 403) {
+        signOut({ callbackUrl: "/auth" })
+        return
+      }
       if (!res.ok) return
 
       const data = await res.json() as {
@@ -155,6 +210,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       currentUserIdRef.current = data.userId
 
       if (!data.encryptedPrivacyKey) {
+        pendingLockedRef.current = false
         setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
         return
       }
@@ -162,7 +218,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const cachedKey = sessionStorage.getItem("bitbudget-privacy-key")
       const cachedUser = sessionStorage.getItem("bitbudget-privacy-user")
       if (cachedKey && cachedUser === data.userId) {
-        privacyKeyRef.current = hexToUint8(cachedKey)
+        const pk = hexToUint8(cachedKey)
+        privacyKeyRef.current = pk
+        applyPrivacyKey(pk, publicKeyRef)
+        void syncUserPublicKey(pk)
+        pendingLockedRef.current = false
         setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
         return
       }
@@ -180,15 +240,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (nostrExt?.nip04) {
           try {
             const hexKey = await nostrExt.nip04.decrypt(data.nostrPubkey, data.encryptedPrivacyKey)
-            privacyKeyRef.current = hexToUint8(hexKey)
+            const pk = hexToUint8(hexKey)
+            privacyKeyRef.current = pk
+            applyPrivacyKey(pk, publicKeyRef)
+            void syncUserPublicKey(pk)
             sessionStorage.setItem("bitbudget-privacy-key", hexKey)
             sessionStorage.setItem("bitbudget-privacy-user", data.userId)
+            pendingLockedRef.current = false
             setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
             return
           } catch { /* fall through to show unlock needed */ }
         }
       }
 
+      pendingLockedRef.current = true
       setEncryption({
         ready: false,
         needsPinUnlock: true,
@@ -196,12 +261,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         privacyKeySalt: data.privacyKeySalt,
       })
     } catch {
+      pendingLockedRef.current = false
       setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
     }
   }, [])
 
   const unlockWithKey = useCallback((key: Uint8Array) => {
     privacyKeyRef.current = key
+    applyPrivacyKey(key, publicKeyRef)
+    void syncUserPublicKey(key)
+    pendingLockedRef.current = false
     if (currentUserIdRef.current) {
       sessionStorage.setItem("bitbudget-privacy-user", currentUserIdRef.current)
     }
@@ -212,32 +281,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await fetch("/api/recurring/process", { method: "POST" }).catch(() => {})
 
-      const [txnRes, envRes, settingsRes] = await Promise.all([
+      const [txnRes, envRes, settingsRes, pendingRes, tagsRes] = await Promise.all([
         fetch("/api/transactions"),
         fetch("/api/envelopes"),
         fetch("/api/user/settings"),
+        fetch("/api/pending-transactions"),
+        fetch("/api/tags"),
       ])
 
+      const authFailure = [txnRes, envRes, settingsRes, tagsRes].some(
+        (r) => r.status === 401 || r.status === 403,
+      )
+      if (authFailure) {
+        signOut({ callbackUrl: "/auth" })
+        return
+      }
       if (!txnRes.ok || !envRes.ok || !settingsRes.ok) {
         throw new Error("Failed to fetch data")
       }
+
+      if (pendingRes.ok) {
+        if (pendingLockedRef.current && !privacyKeyRef.current) {
+          setPendingTransactions([])
+        } else {
+          let pendingData: PendingTransaction[] = await pendingRes.json()
+          if (privacyKeyRef.current) {
+            pendingData = decryptTxnLikeRecords(pendingData, privacyKeyRef.current)
+          }
+          setPendingTransactions(pendingData)
+        }
+      }
+      if (!tagsRes.ok) throw new Error("Failed to fetch tags")
 
       let [transactions, envelopes, settings] = await Promise.all([
         txnRes.json() as Promise<Transaction[]>,
         envRes.json(),
         settingsRes.json(),
       ])
+      const tags = await tagsRes.json() as Tag[]
 
       if (privacyKeyRef.current) {
-        transactions = await decryptTransactions(transactions, privacyKeyRef.current)
+        transactions = decryptTxnLikeRecords(transactions, privacyKeyRef.current)
       }
 
+      setUserRole(settings.role ?? null)
+      setSubscriptionTier(
+        settings.subscriptionTier === "premium" ? "premium" : "free",
+      )
       setState(prev => ({
         ...prev,
         transactions,
         envelopes,
+        tags,
         monthlyIncome: settings.monthlyIncome || 0,
         btcDisplayUnit: settings.btcDisplayUnit || "sats",
+        opportunityCostEnabled: settings.opportunityCostEnabled ?? false,
       }))
     } catch {
       // On error, keep current state (may be default/empty)
@@ -312,9 +410,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const payload = { ...txn }
-      if (privacyKeyRef.current) {
-        payload.payee = await encryptField(txn.payee, privacyKeyRef.current)
-        if (payload.notes) payload.notes = await encryptField(payload.notes, privacyKeyRef.current)
+      if (publicKeyRef.current) {
+        payload.payee = encryptFieldAsymmetric(txn.payee, publicKeyRef.current)
+        if (payload.notes) payload.notes = encryptFieldAsymmetric(payload.notes, publicKeyRef.current)
       }
 
       const res = await fetch("/api/transactions", {
@@ -325,8 +423,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const created = await res.json()
         if (privacyKeyRef.current) {
-          created.payee = await decryptField(created.payee, privacyKeyRef.current)
-          if (created.notes) created.notes = await decryptField(created.notes, privacyKeyRef.current)
+          try {
+            created.payee = decryptFieldAsymmetric(created.payee, privacyKeyRef.current)
+          } catch { /* plaintext */ }
+          if (created.notes) {
+            try {
+              created.notes = decryptFieldAsymmetric(created.notes, privacyKeyRef.current)
+            } catch { /* keep */ }
+          }
         }
         setState(prev => ({
           ...prev,
@@ -351,9 +455,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const payload: Record<string, unknown> = { id, ...updates }
-      if (privacyKeyRef.current) {
-        if (typeof payload.payee === "string") payload.payee = await encryptField(payload.payee as string, privacyKeyRef.current)
-        if (typeof payload.notes === "string") payload.notes = await encryptField(payload.notes as string, privacyKeyRef.current)
+      if (publicKeyRef.current) {
+        if (typeof payload.payee === "string")
+          payload.payee = encryptFieldAsymmetric(payload.payee as string, publicKeyRef.current)
+        if (typeof payload.notes === "string")
+          payload.notes = encryptFieldAsymmetric(payload.notes as string, publicKeyRef.current)
       }
 
       await fetch("/api/transactions", {
@@ -521,12 +627,62 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
-  const addTag = useCallback((tag: string) => {
+  const setOpportunityCostEnabled = useCallback(async (enabled: boolean) => {
+    setState(prev => ({ ...prev, opportunityCostEnabled: enabled }))
+    try {
+      await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunityCostEnabled: enabled }),
+      })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
+  const addTag = useCallback(async (tag: string) => {
+    const trimmed = tag.trim()
+    if (!trimmed) return
+
+    const optimisticId = generateId()
     setState(prev => ({
       ...prev,
-      tags: prev.tags.includes(tag) ? prev.tags : [...prev.tags, tag],
+      tags: prev.tags.some(t => t.name === trimmed) ? prev.tags : [...prev.tags, { id: optimisticId, name: trimmed }],
     }))
-  }, [])
+
+    try {
+      const res = await fetch("/api/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      })
+      if (res.ok) {
+        const created = await res.json() as Tag
+        setState(prev => ({
+          ...prev,
+          tags: prev.tags.map(t => (t.id === optimisticId ? created : t)),
+        }))
+      } else {
+        refreshData()
+      }
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
+  const deleteTag = useCallback(async (id: string) => {
+    setState(prev => ({
+      ...prev,
+      tags: prev.tags.filter(tag => tag.id !== id),
+    }))
+
+    try {
+      const res = await fetch(`/api/tags?id=${id}`, { method: "DELETE" })
+      if (!res.ok) refreshData()
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
 
   const openNewTransaction = useCallback((prefill?: TransactionPrefill) => {
     setTransactionPrefill(prefill ?? null)
@@ -534,17 +690,80 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const encryptForStorage = useCallback(async (plaintext: string): Promise<string> => {
-    if (!privacyKeyRef.current || !plaintext) return plaintext
-    return encryptField(plaintext, privacyKeyRef.current)
+    if (!publicKeyRef.current || !plaintext) return plaintext
+    return encryptFieldAsymmetric(plaintext, publicKeyRef.current)
   }, [])
 
   const logout = useCallback(() => {
     sessionStorage.removeItem("bitbudget-privacy-key")
     sessionStorage.removeItem("bitbudget-privacy-user")
     privacyKeyRef.current = null
+    publicKeyRef.current = null
     currentUserIdRef.current = null
     signOut({ callbackUrl: "/auth" })
   }, [])
+
+  const confirmPending = useCallback(async (
+    id: string,
+    envelopeId?: string,
+    updates?: { payee?: string; amount?: number; date?: string; notes?: string | null; tags?: string[] },
+  ) => {
+    const pt = pendingTransactions.find((p) => p.id === id)
+    const payeePlain =
+      (typeof updates?.payee === "string" ? updates.payee : pt?.payee)?.trim() || undefined
+
+    const body: Record<string, unknown> = { id, envelopeId, payeePlain }
+    if (updates) {
+      if (updates.amount !== undefined) body.amount = updates.amount
+      if (updates.date !== undefined) body.date = updates.date
+      if (updates.tags !== undefined) body.tags = updates.tags
+      if (updates.payee !== undefined && publicKeyRef.current) {
+        body.payee = encryptFieldAsymmetric(updates.payee.trim(), publicKeyRef.current)
+      } else if (updates.payee !== undefined) {
+        body.payee = updates.payee.trim()
+      }
+      if (updates.notes === null) {
+        body.notes = null
+      } else if (typeof updates.notes === "string" && publicKeyRef.current) {
+        body.notes = encryptFieldAsymmetric(updates.notes, publicKeyRef.current)
+      } else if (typeof updates.notes === "string") {
+        body.notes = updates.notes
+      }
+    }
+
+    const res = await fetch("/api/pending-transactions/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    if (res.ok) {
+      setPendingTransactions((prev) => prev.filter((p) => p.id !== id))
+      await refreshData()
+    }
+  }, [refreshData, pendingTransactions])
+
+  const dismissPending = useCallback(async (id: string) => {
+    const res = await fetch(`/api/pending-transactions?id=${id}`, { method: "DELETE" })
+    if (res.ok) {
+      setPendingTransactions(prev => prev.filter(p => p.id !== id))
+    }
+  }, [])
+
+  const confirmAllPending = useCallback(async () => {
+    const withSuggestion = pendingTransactions.filter((p) => p.suggestedEnvelopeId)
+    const payeePlainById = Object.fromEntries(
+      withSuggestion.map((p) => [p.id, p.payee]),
+    ) as Record<string, string>
+    const res = await fetch("/api/pending-transactions/confirm-all", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payeePlainById }),
+    })
+    if (res.ok) {
+      setPendingTransactions((prev) => prev.filter((p) => !p.suggestedEnvelopeId))
+      await refreshData()
+    }
+  }, [refreshData, pendingTransactions])
 
   const activeEnvelopes = useMemo(
     () => state.envelopes.filter(e => !e.archived),
@@ -591,10 +810,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         mergeEnvelope,
         setMonthlyIncome,
         setBtcDisplayUnit,
+        setOpportunityCostEnabled,
         addTag,
+        deleteTag,
         refreshData,
         encryptForStorage,
         logout,
+        isAdmin: userRole === "admin",
+        subscriptionTier,
+        pendingTransactions,
+        pendingCount: pendingTransactions.length,
+        confirmPending,
+        dismissPending,
+        confirmAllPending,
       }}
     >
       {children}

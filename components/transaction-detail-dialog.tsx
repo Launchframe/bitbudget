@@ -30,7 +30,7 @@ interface TransactionDetailDialogProps {
 }
 
 export function TransactionDetailDialog({ transaction, open, onOpenChange }: TransactionDetailDialogProps) {
-  const { state, activeEnvelopes, editTransaction, deleteTransaction, addTag } = useApp()
+  const { state, activeEnvelopes, editTransaction, deleteTransaction, addTag, deleteTag: _deleteTag } = useApp()
   const { getPriceOnDate, currentPrice } = useBtcPrices()
 
   const [editing, setEditing] = useState(false)
@@ -101,9 +101,9 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
     )
   }
 
-  function handleAddNewTag() {
+  async function handleAddNewTag() {
     const trimmed = newTag.trim()
-    if (trimmed && !state.tags.includes(trimmed)) addTag(trimmed)
+    if (trimmed && !state.tags.some((tag) => tag.name === trimmed)) await addTag(trimmed)
     if (trimmed) setSelectedTags((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]))
     setNewTag("")
   }
@@ -205,17 +205,17 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
               <div className="flex flex-wrap gap-2">
                 {state.tags.map((tag) => (
                   <Badge
-                    key={tag}
-                    variant={selectedTags.includes(tag) ? "default" : "outline"}
+                    key={tag.id}
+                    variant={selectedTags.includes(tag.name) ? "default" : "outline"}
                     className={`cursor-pointer transition-colors ${
-                      selectedTags.includes(tag)
+                      selectedTags.includes(tag.name)
                         ? "bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/80 border-transparent"
                         : "border-[#333] text-muted-foreground hover:border-[#F7931A]/50 hover:text-foreground"
                     }`}
-                    onClick={() => toggleTag(tag)}
+                    onClick={() => toggleTag(tag.name)}
                   >
-                    {tag}
-                    {selectedTags.includes(tag) && <X className="ml-1 h-3 w-3" />}
+                    {tag.name}
+                    {selectedTags.includes(tag.name) && <X className="ml-1 h-3 w-3" />}
                   </Badge>
                 ))}
               </div>
@@ -224,7 +224,7 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
                   value={newTag}
                   onChange={(e) => setNewTag(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") { e.preventDefault(); handleAddNewTag() }
+                    if (e.key === "Enter") { e.preventDefault(); void handleAddNewTag() }
                   }}
                   placeholder="Add new tag..."
                   className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] h-8 text-xs"
@@ -379,7 +379,7 @@ function ViewMode({
       </div>
 
       {/* BTC section */}
-      {showBtc && (
+      {state.opportunityCostEnabled && showBtc && (
         <div className="rounded-xl border border-[#F7931A]/30 bg-[#F7931A]/5 p-4 flex flex-col gap-3">
           <div className="flex items-center gap-2 mb-0.5">
             <Bitcoin className="h-3.5 w-3.5 text-[#F7931A]" />

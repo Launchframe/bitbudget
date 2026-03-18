@@ -48,11 +48,12 @@ function useIsMobile(breakpoint = 640) {
 }
 
 export function OpportunityCostChart() {
-  const { activeTransactions } = useApp()
+  const { activeTransactions, state } = useApp()
   const { getPriceOnDate, currentPrice, priceHistory } = useBtcPrices()
   const [activeRange, setActiveRange] = useState<RangeKey>("12m")
   const [startDate, setStartDate] = useState(() => getStartDateForRange("12m"))
   const isMobile = useIsMobile()
+  const ocEnabled = state.opportunityCostEnabled
 
   const selectRange = useCallback((key: RangeKey) => {
     setActiveRange(key)
@@ -64,7 +65,9 @@ export function OpportunityCostChart() {
     [activeTransactions],
   )
 
-  const filteredData = useMemo(() => {
+  // Full OC data (spent + btcValue) — only computed when OC is enabled
+  const ocData = useMemo(() => {
+    if (!ocEnabled) return []
     if (!currentPrice || activeTransactions.length === 0 || priceHistory.length === 0) return []
 
     const expenses = activeTransactions
@@ -110,30 +113,57 @@ export function OpportunityCostChart() {
         cumSats += d.sats
         txnIdx++
       }
-
       const priceOnDay = getPriceOnDate(day)
       const btcValue = (cumSats / SATS_PER_BTC) * priceOnDay
-
       points.push({ date: day, spent: Math.round(cumUsd), btcValue: Math.round(btcValue) })
     }
 
     return points
-  }, [activeTransactions, currentPrice, priceHistory, getPriceOnDate, startDate])
+  }, [ocEnabled, activeTransactions, currentPrice, priceHistory, getPriceOnDate, startDate])
+
+  // Vanilla data — cumulative spent only, no BTC prices required
+  const vanillaData = useMemo(() => {
+    if (ocEnabled) return []
+
+    const expenses = activeTransactions
+      .filter((t) => t.type === "expense" && t.date.split("T")[0] >= startDate)
+      .sort((a, b) => a.date.localeCompare(b.date))
+
+    if (expenses.length === 0) return []
+
+    const dailyUsd = new Map<string, number>()
+    for (const txn of expenses) {
+      const day = txn.date.split("T")[0]
+      dailyUsd.set(day, (dailyUsd.get(day) ?? 0) + txn.amount)
+    }
+
+    const days = Array.from(dailyUsd.keys()).sort()
+    let cumUsd = 0
+    return days.map(day => {
+      cumUsd += dailyUsd.get(day)!
+      return { date: day, spent: Math.round(cumUsd), btcValue: 0 }
+    })
+  }, [ocEnabled, activeTransactions, startDate])
+
+  const filteredData = ocEnabled ? ocData : vanillaData
 
   const yDomain = useMemo(() => {
     if (filteredData.length === 0) return [0, 100]
-    const allVals = filteredData.flatMap((d) => [d.spent, d.btcValue])
+    const allVals = ocEnabled
+      ? filteredData.flatMap((d) => [d.spent, d.btcValue])
+      : filteredData.map(d => d.spent)
     const max = Math.max(...allVals)
     return [0, Math.ceil(max * 1.1)]
-  }, [filteredData])
+  }, [filteredData, ocEnabled])
 
   const spread = useMemo(() => {
     if (filteredData.length === 0) return null
     const last = filteredData[filteredData.length - 1]
+    if (!ocEnabled) return { spent: last.spent, btcValue: 0, diff: 0, pct: "0" }
     const diff = last.btcValue - last.spent
     const pct = last.spent > 0 ? ((diff / last.spent) * 100).toFixed(0) : "0"
     return { spent: last.spent, btcValue: last.btcValue, diff, pct }
-  }, [filteredData])
+  }, [filteredData, ocEnabled])
 
   const earliestTxnDate = useMemo(() => {
     if (activeTransactions.length === 0) return null
@@ -149,23 +179,34 @@ export function OpportunityCostChart() {
     return new Date(earliestTxnDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
   }, [earliestTxnDate])
 
+  const title = ocEnabled ? "Opportunity Cost" : "Your Expenses"
+  const emptyMessage = activeTransactions.length === 0
+    ? "Add transactions to see your spending trends."
+    : !hasAnyExpenses
+      ? "No expense transactions to display."
+      : "No expense transactions in this timeframe."
+
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold text-foreground">Opportunity Cost</h2>
+          <h2 className="text-xl font-semibold text-foreground">{title}</h2>
 
           {spread && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
               <span className="text-muted-foreground">
                 Spent: <span className="text-foreground font-medium">{formatUsd(spread.spent)}</span>
               </span>
-              <span className="text-muted-foreground">
-                BTC value: <span className="text-[#F7931A] font-medium">{formatUsd(spread.btcValue)}</span>
-              </span>
-              <span className={`font-semibold ${spread.diff >= 0 ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
-                {spread.diff >= 0 ? "+" : ""}{spread.pct}%
-              </span>
+              {ocEnabled && (
+                <>
+                  <span className="text-muted-foreground">
+                    BTC value: <span className="text-[#F7931A] font-medium">{formatUsd(spread.btcValue)}</span>
+                  </span>
+                  <span className={`font-semibold ${spread.diff >= 0 ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
+                    {spread.diff >= 0 ? "+" : ""}{spread.pct}%
+                  </span>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -186,7 +227,7 @@ export function OpportunityCostChart() {
           ))}
         </div>
 
-        {activeRange === "all" && earliestFormatted && (
+        {ocEnabled && activeRange === "all" && earliestFormatted && (
           <div className="flex items-start gap-2 text-xs text-muted-foreground leading-relaxed">
             <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <span>
@@ -199,14 +240,7 @@ export function OpportunityCostChart() {
       {filteredData.length < 3 ? (
         <div className="h-[250px] md:h-[350px] flex flex-col items-center justify-center gap-3 text-muted-foreground">
           <BarChart3 className="h-8 w-8 text-[#333]" />
-          <p className="text-sm text-center max-w-xs">
-            {activeTransactions.length === 0
-              ? "Add more transactions to see your opportunity cost trends."
-              : !hasAnyExpenses
-                ? "No expense transactions to display."
-                : "No expense transactions to display in this timeframe."
-            }
-          </p>
+          <p className="text-sm text-center max-w-xs">{emptyMessage}</p>
         </div>
       ) : (
         <div className="h-[250px] md:h-[350px] w-full">
@@ -255,37 +289,43 @@ export function OpportunityCostChart() {
               />
               <Tooltip
                 content={({ active, payload }) => {
-                  if (active && payload && payload.length >= 2) {
-                    const point = payload[0].payload
-                    const diff = point.btcValue - point.spent
-                    const pct = point.spent > 0 ? ((diff / point.spent) * 100).toFixed(1) : "0"
-                    return (
-                      <div className="bg-[#1A1A1A] border border-[#333] p-3 rounded-lg shadow-xl">
-                        <p className="text-xs text-muted-foreground mb-2">{point.date}</p>
-                        <div className="flex flex-col gap-1">
-                          <p className="text-sm">
-                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#888] mr-2" />
-                            <span className="text-muted-foreground">Spent: </span>
-                            <span className="text-foreground font-medium">{formatUsd(point.spent)}</span>
-                          </p>
-                          <p className="text-sm">
-                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#F7931A] mr-2" />
-                            <span className="text-muted-foreground">BTC value: </span>
-                            <span className="text-[#F7931A] font-medium">{formatUsd(point.btcValue)}</span>
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1 border-t border-[#333] pt-1">
-                            Difference: <span className={`font-medium ${diff >= 0 ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
-                              {diff >= 0 ? "+" : ""}{formatUsd(diff)} ({diff >= 0 ? "+" : ""}{pct}%)
-                            </span>
-                          </p>
-                        </div>
+                  if (!active || !payload?.length) return null
+                  const point = payload[0].payload
+                  return (
+                    <div className="bg-[#1A1A1A] border border-[#333] p-3 rounded-lg shadow-xl">
+                      <p className="text-xs text-muted-foreground mb-2">{point.date}</p>
+                      <div className="flex flex-col gap-1">
+                        <p className="text-sm">
+                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#888] mr-2" />
+                          <span className="text-muted-foreground">Spent: </span>
+                          <span className="text-foreground font-medium">{formatUsd(point.spent)}</span>
+                        </p>
+                        {ocEnabled && (
+                          <>
+                            <p className="text-sm">
+                              <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#F7931A] mr-2" />
+                              <span className="text-muted-foreground">BTC value: </span>
+                              <span className="text-[#F7931A] font-medium">{formatUsd(point.btcValue)}</span>
+                            </p>
+                            {(() => {
+                              const diff = point.btcValue - point.spent
+                              const pct = point.spent > 0 ? ((diff / point.spent) * 100).toFixed(1) : "0"
+                              return (
+                                <p className="text-xs text-muted-foreground mt-1 border-t border-[#333] pt-1">
+                                  Difference: <span className={`font-medium ${diff >= 0 ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
+                                    {diff >= 0 ? "+" : ""}{formatUsd(diff)} ({diff >= 0 ? "+" : ""}{pct}%)
+                                  </span>
+                                </p>
+                              )
+                            })()}
+                          </>
+                        )}
                       </div>
-                    )
-                  }
-                  return null
+                    </div>
+                  )
                 }}
               />
-              {!isMobile && (
+              {ocEnabled && !isMobile && (
                 <Legend
                   verticalAlign="top"
                   align="right"
@@ -304,15 +344,17 @@ export function OpportunityCostChart() {
                 fillOpacity={1}
                 fill="url(#colorSpent)"
               />
-              <Area
-                type="monotone"
-                dataKey="btcValue"
-                name="Equivalent BTC Savings"
-                stroke="#F7931A"
-                strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#colorBtcValue)"
-              />
+              {ocEnabled && (
+                <Area
+                  type="monotone"
+                  dataKey="btcValue"
+                  name="Equivalent BTC Savings"
+                  stroke="#F7931A"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#colorBtcValue)"
+                />
+              )}
             </AreaChart>
           </ResponsiveContainer>
         </div>

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useSession } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
-import { Settings2, LogOut, Upload, ScanLine } from "lucide-react"
+import { Settings2, LogOut, Upload, ScanLine, Crown, User } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function Header() {
-  const { navigateTo, refreshData, encryptForStorage, logout } = useApp()
+  const { navigateTo, refreshData, encryptForStorage, logout, subscriptionTier, state } = useApp()
   const { data: session } = useSession()
   const userImage = session?.user?.image
   const userName = session?.user?.name
@@ -35,7 +35,15 @@ export function Header() {
   return (
     <>
       <header className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-3 py-4 md:p-6 bg-background/80 backdrop-blur-[120px]">
-        <BitbudgetLogo />
+        <div className="flex items-center gap-3">
+          <BitbudgetLogo />
+          {subscriptionTier === "premium" && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full bg-[#F7931A]/15 text-[#F7931A] text-[10px] sm:text-xs font-semibold border border-[#F7931A]/30">
+              <Crown className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
+              Premium
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => setScanOpen(true)}
@@ -60,6 +68,13 @@ export function Header() {
                   {userEmail && <p className="text-xs text-muted-foreground truncate">{userEmail}</p>}
                 </div>
               )}
+              <DropdownMenuItem
+                onClick={() => navigateTo("profile")}
+                className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
+              >
+                <User className="mr-2 h-4 w-4 text-muted-foreground" />
+                <span>Profile</span>
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => navigateTo("settings")}
                 className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
@@ -103,8 +118,11 @@ export function Header() {
         open={importOpen}
         onOpenChange={setImportOpen}
         file={importFile}
+        dedupExistingTransactions={state.transactions}
         onImportComplete={refreshData}
         onDone={() => navigateTo("envelopes")}
+        onRequestAllocations={() => navigateTo("envelopes")}
+        onTryAnotherFile={() => setImportFile(null)}
         encryptFn={encryptForStorage}
       />
       <ScanReceiptDialog open={scanOpen} onOpenChange={setScanOpen} />
