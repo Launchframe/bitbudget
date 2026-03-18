@@ -85,7 +85,14 @@ export function BtcPriceProvider({
 
   useEffect(() => {
     if (!enabled) {
+      // When disabled, stop loading and clear BTC-related state so we don't
+      // expose stale opportunity-cost data or skip future fetches.
       setLoading(false)
+      setCurrentPrice(null)
+      setPriceMap({})
+      setPriceHistory([])
+      setBackfillStatus("idle")
+      fetched.current = false
       backfillStarted.current = false
       return
     }

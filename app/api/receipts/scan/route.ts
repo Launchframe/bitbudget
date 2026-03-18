@@ -138,8 +138,10 @@ export async function POST(req: NextRequest) {
       const base64 = buffer.toString("base64")
       result = await extractFromImage(base64, kind)
     } else {
-      const base64 = buffer.toString("base64")
-      result = await extractFromImage(base64, kind)
+      // This branch should be unreachable because resolveReceiptFileKind only returns
+      // "application/pdf" or "image/*" (including "image/heic"). Throwing here makes
+      // it explicit that any other value is unsupported.
+      throw new Error(`Unsupported receipt file type: ${kind}`)
     }
 
     let suggestedEnvelopeId: string | null = null
@@ -168,6 +170,15 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("receipt scan error:", err)
     const errorMessage = "Failed to scan receipt. Please try another image or PDF."
-    return NextResponse.json({ error: errorMessage }, { status: 400 })
+    let status = 500
+    if (err && typeof err === "object" && "status" in err && typeof (err as any).status === "number") {
+      status = (err as any).status
+    } else if (err instanceof Error) {
+      const msg = err.message.toLowerCase()
+      if (msg.includes("network") || msg.includes("timeout") || msg.includes("openai") || msg.includes("fetch")) {
+        status = 502
+      }
+    }
+    return NextResponse.json({ error: errorMessage }, { status })
   }
 }
