@@ -30,7 +30,7 @@ interface TransactionDetailDialogProps {
 }
 
 export function TransactionDetailDialog({ transaction, open, onOpenChange }: TransactionDetailDialogProps) {
-  const { state, activeEnvelopes, editTransaction, deleteTransaction, addTag } = useApp()
+  const { state, activeEnvelopes, editTransaction, deleteTransaction, addTag, deleteTag: _deleteTag } = useApp()
   const { getPriceOnDate, currentPrice } = useBtcPrices()
 
   const [editing, setEditing] = useState(false)
