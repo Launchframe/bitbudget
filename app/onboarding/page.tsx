@@ -93,7 +93,11 @@ export default function OnboardingPage() {
   // Import
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
-  const [importResult] = useState<{ imported: number; skipped: number; newEnvelopes: string[] } | null>(null)
+  const [importResult, setImportResult] = useState<{
+    imported: number
+    skipped: number
+    newEnvelopes: string[]
+  } | null>(null)
 
   // Opportunity Cost feature
   const [onboardingSource] = useState<"btc" | "vanilla">(() => {
@@ -1096,6 +1100,7 @@ export default function OnboardingPage() {
         onOpenChange={handleImportDialogClose}
         file={importFile}
         dedupExistingTransactions={[]}
+        onImportResult={setImportResult}
         onRequestAllocations={() => {
           setImportDialogOpen(false)
           setStep("allocations")

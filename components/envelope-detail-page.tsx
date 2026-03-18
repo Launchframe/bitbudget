@@ -80,7 +80,8 @@ export function EnvelopeDetailPage() {
     if (idx === -1) return
     const targetPage = Math.floor(idx / pageSize) + 1
     if (targetPage !== page) {
-      queueMicrotask(() => setPage(targetPage))
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- jump to page containing deep-linked transaction
+      setPage(targetPage)
     }
   }, [highlightTransactionId, filteredTransactions, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
