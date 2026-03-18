@@ -36,14 +36,38 @@ function getStartDateForRange(key: RangeKey): string {
 const SATS_PER_BTC = 100_000_000
 
 function useIsMobile(breakpoint = 640) {
-  const query = `(max-width: ${breakpoint - 1}px)`
-  return useSyncExternalStore(
-    (onChange) => {
-      const mql = window.matchMedia(query)
-      mql.addEventListener("change", onChange)
-      return () => mql.removeEventListener("change", onChange)
+  const query = useMemo(() => `(max-width: ${breakpoint - 1}px)`, [breakpoint])
+
+  const mediaQueryList = useMemo(() => {
+    if (typeof window === "undefined") {
+      return null
+    }
+    return window.matchMedia(query)
+  }, [query])
+
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (!mediaQueryList) {
+        return () => {}
+      }
+      mediaQueryList.addEventListener("change", onChange)
+      return () => {
+        mediaQueryList.removeEventListener("change", onChange)
+      }
     },
-    () => window.matchMedia(query).matches,
+    [mediaQueryList],
+  )
+
+  const getSnapshot = useCallback(() => {
+    if (!mediaQueryList) {
+      return false
+    }
+    return mediaQueryList.matches
+  }, [mediaQueryList])
+
+  return useSyncExternalStore(
+    subscribe,
+    getSnapshot,
     () => false,
   )
 }
