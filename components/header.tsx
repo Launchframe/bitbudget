@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function Header() {
-  const { navigateTo, refreshData, encryptForStorage, logout, subscriptionTier } = useApp()
+  const { navigateTo, refreshData, encryptForStorage, logout, subscriptionTier, state } = useApp()
   const { data: session } = useSession()
   const userImage = session?.user?.image
   const userName = session?.user?.name
@@ -118,8 +118,11 @@ export function Header() {
         open={importOpen}
         onOpenChange={setImportOpen}
         file={importFile}
+        dedupExistingTransactions={state.transactions}
         onImportComplete={refreshData}
         onDone={() => navigateTo("envelopes")}
+        onRequestAllocations={() => navigateTo("envelopes")}
+        onTryAnotherFile={() => setImportFile(null)}
         encryptFn={encryptForStorage}
       />
       <ScanReceiptDialog open={scanOpen} onOpenChange={setScanOpen} />

@@ -11,7 +11,7 @@ import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { isAdmin } from "@/lib/admin"
 
 export function SettingsPage() {
-  const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, addTag, deleteTag, refreshData, encryptForStorage, logout, subscriptionTier } = useApp()
+  const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, addTag, deleteTag, refreshData, encryptForStorage, logout, subscriptionTier, navigateTo } = useApp()
   type SettingsTab = "general" | "integrations" | "tags" | "data"
   const [editingIncome, setEditingIncome] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general")
@@ -588,8 +588,14 @@ export function SettingsPage() {
         open={importOpen}
         onOpenChange={setImportOpen}
         file={importFile}
+        dedupExistingTransactions={state.transactions}
         onImportComplete={refreshData}
         onDone={() => {}}
+        onRequestAllocations={() => {
+          setImportOpen(false)
+          navigateTo("envelopes")
+        }}
+        onTryAnotherFile={() => setImportFile(null)}
         encryptFn={encryptForStorage}
       />
     </div>
