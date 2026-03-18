@@ -15,6 +15,12 @@ Respond ONLY with valid JSON: {"payee":"...","amount":"...","date":"..."}
 If you cannot determine a field, use an empty string for that field.`
 
 async function extractFromImage(base64: string, mimeType: string) {
+  if (!OPENAI_API_KEY) {
+    const error: any = new Error("OPENAI_API_KEY is not set; cannot call OpenAI API");
+    error.status = 503;
+    throw error;
+  }
+
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
