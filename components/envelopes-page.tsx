@@ -107,7 +107,7 @@ export function EnvelopesPage() {
   // Auto-suggest icon when name changes (unless user has manually chosen one)
   useEffect(() => {
     if (!iconCustomized && formName.trim()) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync suggested icon to name when not manually overridden
+      setFormIcon(suggestIcon(formName))
       setFormIcon(suggestIcon(formName))
     }
   }, [formName, iconCustomized])
