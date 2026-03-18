@@ -108,7 +108,6 @@ export function EnvelopesPage() {
   useEffect(() => {
     if (!iconCustomized && formName.trim()) {
       setFormIcon(suggestIcon(formName))
-      setFormIcon(suggestIcon(formName))
     }
   }, [formName, iconCustomized])
 
