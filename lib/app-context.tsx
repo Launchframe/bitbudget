@@ -15,6 +15,7 @@ export type PageId =
   | "btc-price"
   | "researcher"
   | "funds"
+  | "profile"
   | "settings"
   | "review-inbox"
 
@@ -30,7 +31,7 @@ function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
   const envelopeMatch = path.match(/^envelope\/(.+)$/)
   if (envelopeMatch) return { page: "envelope-detail", envelopeId: envelopeMatch[1] }
 
-  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "settings", "review-inbox"]
+  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox"]
   if (validPages.includes(path as PageId)) return { page: path as PageId }
 
   return { page: "dashboard" }

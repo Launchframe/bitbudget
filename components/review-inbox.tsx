@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Inbox, Mic, Camera, MessageSquare, Mail, Building2, Check, X, CheckCheck } from "lucide-react"
+import { Inbox, Mic, Camera, MessageSquare, Mail, Building2, Check, X, CheckCheck, Copy } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import type { TransactionSource } from "@/lib/data"
 import { Label } from "@/components/ui/label"
@@ -34,7 +34,7 @@ const sourceLabels: Record<TransactionSource, string> = {
 }
 
 export function ReviewInbox() {
-  const { pendingTransactions, confirmPending, dismissPending, confirmAllPending, state, activeEnvelopes } = useApp()
+  const { pendingTransactions, confirmPending, dismissPending, state, activeEnvelopes } = useApp()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editEnvelopeId, setEditEnvelopeId] = useState<string>("")
   const [editPayee, setEditPayee] = useState("")
@@ -42,6 +42,26 @@ export function ReviewInbox() {
   const [editDate, setEditDate] = useState("")
   const [editNotes, setEditNotes] = useState("")
   const [draftTagsById, setDraftTagsById] = useState<Record<string, string[]>>({})
+  const [receiptInboxAddress, setReceiptInboxAddress] = useState<string | null>(null)
+  const [copiedReceiptAddress, setCopiedReceiptAddress] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadReceiptInbox() {
+      try {
+        const res = await fetch("/api/user/receipt-inbox")
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setReceiptInboxAddress(data.receiptInboxAddress ?? null)
+      } catch {
+        // best-effort onboarding helper
+      }
+    }
+    loadReceiptInbox()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   if (pendingTransactions.length === 0) {
     return (
@@ -94,6 +114,13 @@ export function ReviewInbox() {
     })
   }
 
+  async function copyReceiptInboxAddress() {
+    if (!receiptInboxAddress) return
+    await navigator.clipboard.writeText(receiptInboxAddress)
+    setCopiedReceiptAddress(true)
+    window.setTimeout(() => setCopiedReceiptAddress(false), 1500)
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {/* Header */}
@@ -101,7 +128,13 @@ export function ReviewInbox() {
         <h2 className="text-xl font-bold text-foreground">Review Inbox</h2>
         {confirmableCount > 0 && (
           <button
-            onClick={confirmAllPending}
+            onClick={async () => {
+              for (const pt of pendingTransactions) {
+                if (pt.suggestedEnvelopeId) {
+                  await confirmPending(pt.id, pt.suggestedEnvelopeId, { tags: getDraftTags(pt.id) })
+                }
+              }
+            }}
             className="flex items-center gap-2 px-4 py-2 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
           >
             <CheckCheck className="h-4 w-4" />
@@ -112,7 +145,33 @@ export function ReviewInbox() {
 
       {/* Items */}
       <div className="flex flex-col gap-3">
-        {pendingTransactions.map((pt) => {
+        {pendingTransactions.length === 0 ? (
+          <div className="flex flex-col items-start gap-4 rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-5">
+            <div>
+              <p className="text-foreground font-semibold text-lg">No pending transactions yet</p>
+              <p className="text-muted-foreground text-sm mt-1">
+                Forward a receipt to your unique inbox to get it here for review.
+              </p>
+            </div>
+            <div className="w-full rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Receipt inbox</p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="font-mono text-sm text-foreground break-all">
+                  {receiptInboxAddress || "Loading..."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void copyReceiptInboxAddress()}
+                  disabled={!receiptInboxAddress}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#333] bg-[#0D0D0D] px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-[#555] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {copiedReceiptAddress ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copiedReceiptAddress ? "Copied" : "Copy"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : pendingTransactions.map((pt) => {
           const SourceIcon = sourceIcons[pt.source] || Inbox
           const envelope = state.envelopes.find(e => e.id === pt.suggestedEnvelopeId)
           const isEditing = editingId === pt.id
@@ -269,7 +328,7 @@ export function ReviewInbox() {
                     <button
                       onClick={() => {
                         if (pt.suggestedEnvelopeId) {
-                          confirmPending(pt.id)
+                          confirmPending(pt.id, pt.suggestedEnvelopeId, { tags: getDraftTags(pt.id) })
                         } else {
                           setEditingId(pt.id)
                           setEditEnvelopeId("")

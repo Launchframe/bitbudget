@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { id, envelopeId: bodyEnvelopeId, payee, amount, date, notes } = body
+  const { id, envelopeId: bodyEnvelopeId, payee, amount, date, notes, tags } = body
 
   if (!id) {
     return NextResponse.json({ error: "ID required" }, { status: 400 })
@@ -43,6 +43,10 @@ export async function POST(req: NextRequest) {
       ? amount
       : Math.abs(pending.amount)
   const finalNotes = typeof notes === "string" ? notes : pending.notes
+  const finalTags =
+    Array.isArray(tags) && tags.every((tag) => typeof tag === "string")
+      ? JSON.stringify(tags.filter((tag) => tag.trim().length > 0))
+      : pending.tags ?? "[]"
 
   if (Number.isNaN(finalDate.getTime())) {
     return NextResponse.json({ error: "Invalid date" }, { status: 400 })
@@ -61,7 +65,7 @@ export async function POST(req: NextRequest) {
       amount: absAmount,
       type: "expense",
       source: pending.source,
-      tags: pending.tags ?? "[]",
+      tags: finalTags,
       notes: finalNotes ?? null,
       satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
     },

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, ScanLine, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin, Inbox, ShieldCheck } from "lucide-react"
+import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, ScanLine, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin, Inbox, ShieldCheck, User } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
 import { VoiceDictationButton } from "@/components/voice-dictation-button"
@@ -102,6 +102,16 @@ export function Sidebar() {
         <button title="Support" className="flex items-center justify-center lg:justify-start gap-4 text-[#919191] hover:text-[#E7E7E7] transition-colors text-left">
           <SquareArrowOutUpRight className="h-6 w-6 shrink-0" />
           <span className="hidden lg:inline text-sm font-medium tracking-wide">SUPPORT</span>
+        </button>
+        <button
+          onClick={() => navigateTo("profile")}
+          title="Profile"
+          className={`flex items-center justify-center lg:justify-start gap-4 transition-colors text-left ${
+            currentPage === "profile" ? "text-[#F7931A]" : "text-[#919191] hover:text-[#E7E7E7]"
+          }`}
+        >
+          <User className="h-6 w-6 shrink-0" />
+          <span className="hidden lg:inline text-sm font-medium tracking-wide">PROFILE</span>
         </button>
         <button
           onClick={() => navigateTo("settings")}

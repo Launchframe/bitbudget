@@ -1,23 +1,20 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { useSession } from "next-auth/react"
 import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
-import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, User, TrendingUp, Crown, Building2, Smartphone, Mail, Tag } from "lucide-react"
+import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, TrendingUp, Crown, Building2, Smartphone, Mail, Tag, Copy, Check } from "lucide-react"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { isAdmin } from "@/lib/admin"
 
 export function SettingsPage() {
   const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, addTag, deleteTag, refreshData, encryptForStorage, logout, subscriptionTier } = useApp()
-  const { data: session } = useSession()
-  const userName = session?.user?.name
-  const userEmail = session?.user?.email
-  const userImage = session?.user?.image
+  type SettingsTab = "general" | "integrations" | "tags" | "data"
   const [editingIncome, setEditingIncome] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general")
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importOpen, setImportOpen] = useState(false)
@@ -29,6 +26,7 @@ export function SettingsPage() {
   const [receiptInboxLoading, setReceiptInboxLoading] = useState(false)
   const [newTagName, setNewTagName] = useState("")
   const [tagActionInProgress, setTagActionInProgress] = useState(false)
+  const [copiedReceiptAddress, setCopiedReceiptAddress] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -96,6 +94,13 @@ export function SettingsPage() {
     }
   }
 
+  async function copyReceiptInboxAddress() {
+    if (!receiptInboxAddress) return
+    await navigator.clipboard.writeText(receiptInboxAddress)
+    setCopiedReceiptAddress(true)
+    window.setTimeout(() => setCopiedReceiptAddress(false), 1500)
+  }
+
   function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -104,10 +109,15 @@ export function SettingsPage() {
     e.target.value = ""
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      <h2 className="text-2xl font-bold text-foreground">Settings</h2>
+  const tabButtonClass = (tab: SettingsTab) =>
+    `flex items-center justify-between rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors ${
+      settingsTab === tab
+        ? "bg-[#1A1A1A] text-[#F7931A] border border-[#F7931A]/20"
+        : "text-muted-foreground hover:text-foreground hover:bg-[#111111]"
+    }`
 
+  const generalSection = (
+    <>
       {/* Plan / Tier */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
         <div className="flex items-center gap-3 mb-4">
@@ -138,169 +148,6 @@ export function SettingsPage() {
               You have access to bank sync, SMS alerts, and connected email.
             </span>
           )}
-        </div>
-      </div>
-
-      {/* Receipt Inbox */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 rounded-lg bg-[#06B6D4]/10">
-            <Mail className="h-5 w-5 text-[#06B6D4]" />
-          </div>
-          <h3 className="text-lg font-semibold text-foreground">Receipt Inbox</h3>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">
-          Forward receipts to your dedicated address and they'll be saved for your review later. We recommend bookmarking this address
-        </p>
-        <div className="flex flex-col gap-3">
-          <div className="rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Inbound address</p>
-            <p className="font-mono text-base text-foreground break-all">
-              {receiptInboxLoading ? "Generating..." : receiptInboxAddress || "Loading..."}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Tags */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 rounded-lg bg-[#F7931A]/10">
-            <Tag className="h-5 w-5 text-[#F7931A]" />
-          </div>
-          <h3 className="text-lg font-semibold text-foreground">Tags</h3>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">
-          Create tags to organize transactions and receipts.
-        </p>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Input
-              value={newTagName}
-              onChange={e => setNewTagName(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter") {
-                  e.preventDefault()
-                  void handleAddTag()
-                }
-              }}
-              placeholder="New tag"
-              className="bg-[#1A1A1A] border-[#333] text-foreground h-10"
-              aria-label="New tag name"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                void handleAddTag()
-              }}
-              disabled={tagActionInProgress || !newTagName.trim()}
-              className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium bg-[#F7931A] text-[#0D0D0D] hover:bg-[#e68818] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Add Tag
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {state.tags.length > 0 ? (
-              state.tags.map(tag => (
-                <span
-                  key={tag.id}
-                  className="inline-flex items-center gap-2 rounded-full border border-[#333] bg-[#1A1A1A] px-3 py-1.5 text-sm text-foreground"
-                >
-                  <span className="truncate max-w-[12rem]">{tag.name}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleDeleteTag(tag.id)
-                    }}
-                    disabled={tagActionInProgress}
-                    className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-[#2A2A2A] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    aria-label={`Delete tag ${tag.name}`}
-                  >
-                    <span aria-hidden="true">×</span>
-                  </button>
-                </span>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No tags yet.</p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Premium: Connections */}
-      {subscriptionTier === "premium" && (
-        <div className="p-6 bg-[#0D0D0D] rounded-2xl">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-[#F7931A]/20">
-              <Building2 className="h-5 w-5 text-[#F7931A]" />
-            </div>
-            <h3 className="text-lg font-semibold text-foreground">Connections</h3>
-          </div>
-          <p className="text-sm text-muted-foreground mb-6">
-            Connect your accounts to automatically import transactions.
-          </p>
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
-              <div className="flex items-start gap-3">
-                <Building2 className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">Bank sync</p>
-                  <p className="text-sm text-muted-foreground">
-                    Link your bank or credit card to import transactions automatically via Plaid.
-                  </p>
-                </div>
-              </div>
-              <PlaidLinkButton />
-            </div>
-            <div className="flex flex-col gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
-              <div className="flex items-start gap-3">
-                <Smartphone className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">SMS alerts</p>
-                  <p className="text-sm text-muted-foreground">
-                    Forward your bank&apos;s transaction text alerts to a dedicated number to capture spending without opening the app. Contact support to get your personal forwarding number.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-col gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
-              <div className="flex items-start gap-3">
-                <Mail className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">Connected email</p>
-                  <p className="text-sm text-muted-foreground">
-                    Connect Gmail or Outlook to automatically scan for receipts from known senders. Coming soon.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Profile */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 rounded-lg bg-[#8B5CF6]/10">
-            <User className="h-5 w-5 text-[#8B5CF6]" />
-          </div>
-          <h3 className="text-lg font-semibold text-foreground">Profile</h3>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="h-14 w-14 shrink-0 rounded-full overflow-hidden bg-gradient-to-br from-[#F7931A] to-[#E2761B]">
-            {userImage && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={userImage} alt="" className="h-full w-full object-cover" />
-            )}
-          </div>
-          <div className="min-w-0">
-            <p className="text-lg font-semibold text-foreground truncate">
-              {userName || "Anonymous"}
-            </p>
-            {userEmail && (
-              <p className="text-sm text-muted-foreground truncate">{userEmail}</p>
-            )}
-          </div>
         </div>
       </div>
 
@@ -428,6 +275,93 @@ export function SettingsPage() {
           </p>
         </div>
       )}
+    </>
+  )
+
+  const integrationsSection = (
+    <>
+      {/* Receipt Inbox */}
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-[#06B6D4]/10">
+            <Mail className="h-5 w-5 text-[#06B6D4]" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground">Receipt Inbox</h3>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Forward receipts to your dedicated address and they'll be saved for your review later. We recommend bookmarking this address
+        </p>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2 rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Inbound address</p>
+              <p className="font-mono text-base text-foreground break-all">
+                {receiptInboxLoading ? "Generating..." : receiptInboxAddress || "Loading..."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void copyReceiptInboxAddress()}
+              disabled={!receiptInboxAddress || receiptInboxLoading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#333] bg-[#0D0D0D] px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-[#555] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {copiedReceiptAddress ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {copiedReceiptAddress ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Premium: Connections */}
+      {subscriptionTier === "premium" && (
+        <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-[#F7931A]/20">
+              <Building2 className="h-5 w-5 text-[#F7931A]" />
+            </div>
+            <h3 className="text-lg font-semibold text-foreground">Connections</h3>
+          </div>
+          <p className="text-sm text-muted-foreground mb-6">
+            Connect your accounts to automatically import transactions.
+          </p>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
+              <div className="flex items-start gap-3">
+                <Building2 className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">Bank sync</p>
+                  <p className="text-sm text-muted-foreground">
+                    Link your bank or credit card to import transactions automatically via Plaid.
+                  </p>
+                </div>
+              </div>
+              <PlaidLinkButton />
+            </div>
+            <div className="flex flex-col gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
+              <div className="flex items-start gap-3">
+                <Smartphone className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">SMS alerts</p>
+                  <p className="text-sm text-muted-foreground">
+                    Forward your bank&apos;s transaction text alerts to a dedicated number to capture spending without opening the app. Contact support to get your personal forwarding number.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
+              <div className="flex items-start gap-3">
+                <Mail className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-foreground">Connected email</p>
+                  <p className="text-sm text-muted-foreground">
+                    Connect Gmail or Outlook to automatically scan for receipts from known senders. Coming soon.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CSV Import */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
@@ -457,7 +391,77 @@ export function SettingsPage() {
           </button>
         </div>
       </div>
+    </>
+  )
 
+  const tagsSection = (
+    <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="p-2 rounded-lg bg-[#F7931A]/10">
+          <Tag className="h-5 w-5 text-[#F7931A]" />
+        </div>
+        <h3 className="text-lg font-semibold text-foreground">Tags</h3>
+      </div>
+      <p className="text-sm text-muted-foreground mb-4">
+        Create tags to organize transactions and receipts.
+      </p>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap gap-2">
+          {state.tags.length > 0 ? (
+            state.tags.map(tag => (
+              <span
+                key={tag.id}
+                className="inline-flex items-center gap-2 rounded-full border border-[#333] bg-[#1A1A1A] px-3 py-1.5 text-sm text-foreground"
+              >
+                <span className="truncate max-w-[12rem]">{tag.name}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleDeleteTag(tag.id)
+                  }}
+                  disabled={tagActionInProgress}
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-[#2A2A2A] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label={`Delete tag ${tag.name}`}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </span>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">No tags yet.</p>
+          )}
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Input
+            value={newTagName}
+            onChange={e => setNewTagName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                void handleAddTag()
+              }
+            }}
+            placeholder="New tag"
+            className="bg-[#1A1A1A] border-[#333] text-foreground h-10"
+            aria-label="New tag name"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              void handleAddTag()
+            }}
+            disabled={tagActionInProgress || !newTagName.trim()}
+            className="inline-flex items-center justify-center rounded-xl px-4 h-10 text-sm font-medium bg-[#F7931A] text-[#0D0D0D] hover:bg-[#e68818] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Add Tag
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
+  const dataSection = (
+    <>
       {/* Security Info */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
         <div className="flex items-center gap-3 mb-4">
@@ -544,6 +548,39 @@ export function SettingsPage() {
             <UserX className="h-4 w-4" />
             {deletingAccount ? "Deleting..." : confirmDeleteAccount ? "Click again to confirm" : "Delete My Account"}
           </button>
+        </div>
+      </div>
+    </>
+  )
+
+  return (
+    <div className="flex flex-col gap-6">
+      <h2 className="text-2xl font-bold text-foreground">Settings</h2>
+      <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <aside className="lg:sticky lg:top-6 self-start">
+          <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-2">
+            <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+              <button type="button" onClick={() => setSettingsTab("general")} className={tabButtonClass("general")}>
+                <span>General</span>
+              </button>
+              <button type="button" onClick={() => setSettingsTab("integrations")} className={tabButtonClass("integrations")}>
+                <span>Integrations</span>
+              </button>
+              <button type="button" onClick={() => setSettingsTab("tags")} className={tabButtonClass("tags")}>
+                <span>Tags</span>
+              </button>
+              <button type="button" onClick={() => setSettingsTab("data")} className={tabButtonClass("data")}>
+                <span>Data & Security</span>
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <div className="flex flex-col gap-6">
+          {settingsTab === "general" && generalSection}
+          {settingsTab === "integrations" && integrationsSection}
+          {settingsTab === "tags" && tagsSection}
+          {settingsTab === "data" && dataSection}
         </div>
       </div>
 

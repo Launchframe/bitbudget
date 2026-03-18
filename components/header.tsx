@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useSession } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
-import { Settings2, LogOut, Upload, ScanLine, Crown } from "lucide-react"
+import { Settings2, LogOut, Upload, ScanLine, Crown, User } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
@@ -68,6 +68,13 @@ export function Header() {
                   {userEmail && <p className="text-xs text-muted-foreground truncate">{userEmail}</p>}
                 </div>
               )}
+              <DropdownMenuItem
+                onClick={() => navigateTo("profile")}
+                className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
+              >
+                <User className="mr-2 h-4 w-4 text-muted-foreground" />
+                <span>Profile</span>
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => navigateTo("settings")}
                 className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
