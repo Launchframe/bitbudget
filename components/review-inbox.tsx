@@ -34,7 +34,7 @@ const sourceLabels: Record<TransactionSource, string> = {
 }
 
 export function ReviewInbox() {
-  const { pendingTransactions, confirmPending, dismissPending, state, activeEnvelopes } = useApp()
+  const { pendingTransactions, confirmPending, dismissPending, state, activeEnvelopes, addTag, refreshData } = useApp()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editEnvelopeId, setEditEnvelopeId] = useState<string>("")
   const [editPayee, setEditPayee] = useState("")
@@ -42,6 +42,8 @@ export function ReviewInbox() {
   const [editDate, setEditDate] = useState("")
   const [editNotes, setEditNotes] = useState("")
   const [draftTagsById, setDraftTagsById] = useState<Record<string, string[]>>({})
+  const [tagDraftById, setTagDraftById] = useState<Record<string, string>>({})
+  const [tagCreatingById, setTagCreatingById] = useState<Record<string, boolean>>({})
   const [receiptInboxAddress, setReceiptInboxAddress] = useState<string | null>(null)
   const [copiedReceiptAddress, setCopiedReceiptAddress] = useState(false)
 
@@ -62,18 +64,6 @@ export function ReviewInbox() {
       cancelled = true
     }
   }, [])
-
-  if (pendingTransactions.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20 bg-[#0D0D0D] rounded-2xl">
-        <div className="p-4 rounded-full bg-[#F7931A]/10">
-          <Inbox className="h-6 w-6 text-[#F7931A]" />
-        </div>
-        <p className="text-foreground font-semibold text-lg">All caught up!</p>
-        <p className="text-muted-foreground text-sm">No pending transactions to review.</p>
-      </div>
-    )
-  }
 
   const confirmableCount = pendingTransactions.filter(
     (pt) => pt.suggestedEnvelopeId,
@@ -114,11 +104,51 @@ export function ReviewInbox() {
     })
   }
 
+  async function createAndApplyTag(ptId: string) {
+    const raw = tagDraftById[ptId] ?? ""
+    const trimmed = raw.trim()
+    if (!trimmed || tagCreatingById[ptId]) return
+
+    if (state.tags.some((tag) => tag.name.toLowerCase() === trimmed.toLowerCase())) {
+      setDraftTagsById((prev) => {
+        const current = prev[ptId] ?? getDraftTags(ptId)
+        return current.includes(trimmed) ? prev : { ...prev, [ptId]: [...current, trimmed] }
+      })
+      setTagDraftById((prev) => ({ ...prev, [ptId]: "" }))
+      return
+    }
+
+    setTagCreatingById((prev) => ({ ...prev, [ptId]: true }))
+    try {
+      await addTag(trimmed)
+      await refreshData()
+      setDraftTagsById((prev) => {
+        const current = prev[ptId] ?? getDraftTags(ptId)
+        return current.includes(trimmed) ? prev : { ...prev, [ptId]: [...current, trimmed] }
+      })
+      setTagDraftById((prev) => ({ ...prev, [ptId]: "" }))
+    } finally {
+      setTagCreatingById((prev) => ({ ...prev, [ptId]: false }))
+    }
+  }
+
   async function copyReceiptInboxAddress() {
     if (!receiptInboxAddress) return
     await navigator.clipboard.writeText(receiptInboxAddress)
     setCopiedReceiptAddress(true)
     window.setTimeout(() => setCopiedReceiptAddress(false), 1500)
+  }
+
+  if (pendingTransactions.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-20 bg-[#0D0D0D] rounded-2xl">
+        <div className="p-4 rounded-full bg-[#F7931A]/10">
+          <Inbox className="h-6 w-6 text-[#F7931A]" />
+        </div>
+        <p className="text-foreground font-semibold text-lg">All caught up!</p>
+        <p className="text-muted-foreground text-sm">No pending transactions to review.</p>
+      </div>
+    )
   }
 
   return (
@@ -223,7 +253,7 @@ export function ReviewInbox() {
               </div>
 
               {/* Quick tags */}
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {state.tags.map((tag) => {
                   const tagName = tag.name
                   const selected = getDraftTags(pt.id).includes(tagName)
@@ -242,6 +272,31 @@ export function ReviewInbox() {
                     </button>
                   )
                 })}
+                <div className="flex items-center gap-2 rounded-full border border-dashed border-[#333] bg-[#111111] px-2.5 py-1">
+                  <input
+                    value={tagDraftById[pt.id] ?? ""}
+                    onChange={(e) => setTagDraftById((prev) => ({ ...prev, [pt.id]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        void createAndApplyTag(pt.id)
+                      }
+                    }}
+                    placeholder="New tag"
+                    aria-label="New tag name"
+                    className="w-20 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void createAndApplyTag(pt.id)
+                    }}
+                    disabled={tagCreatingById[pt.id] || !(tagDraftById[pt.id]?.trim())}
+                    className="inline-flex h-6 items-center justify-center rounded-full bg-[#F7931A] px-2 text-[10px] font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Add
+                  </button>
+                </div>
               </div>
 
               {/* Envelope edit mode */}
