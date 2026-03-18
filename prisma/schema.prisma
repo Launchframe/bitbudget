@@ -52,7 +52,8 @@ model User {
   shortcuts           TransactionShortcut[]
   approvedSenders     ApprovedReceiptSender[] @relation("ApprovedSenderAdmin")
   auditLogs           AuditLog[]              @relation("AuditLogAdmin")
-  plaidItems          PlaidItem[]
+  plaidItems                 PlaidItem[]
+  plaidImportedTransactions  PlaidImportedTransaction[]
   connectedEmails     ConnectedEmailAccount[]
   payeeMappings       PayeeEnvelopeMapping[]
   pushSubscriptions   PushSubscription[]
@@ -276,16 +277,28 @@ model AuditLog {
 }
 
 model PlaidItem {
-  id               String   @id @default(cuid())
-  userId           String
-  plaidItemId      String   @unique
-  accessToken      String
-  institutionName  String?
-  consentTimestamp DateTime @default(now())
-  createdAt        DateTime @default(now())
+  id                     String   @id @default(cuid())
+  userId                 String
+  plaidItemId            String   @unique
+  accessToken            String
+  institutionName        String?
+  consentTimestamp       DateTime @default(now())
+  createdAt              DateTime @default(now())
+  transactionsSyncCursor String?
 
   user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   accounts PlaidAccount[]
+
+  @@index([userId])
+}
+
+model PlaidImportedTransaction {
+  id                 String   @id @default(cuid())
+  userId             String
+  plaidTransactionId String   @unique
+  createdAt          DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }

@@ -1,11 +1,30 @@
 import { NextRequest, NextResponse } from "next/server"
+import { verifyTwilioWebhookSignature } from "@/lib/twilio-webhook-verify"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
 export async function POST(req: NextRequest) {
   const formData = await req.formData()
-  const body = formData.get("Body") as string
-  const from = formData.get("From") as string
+  const params: Record<string, string> = {}
+  formData.forEach((v, k) => {
+    if (typeof v === "string") params[k] = v
+  })
+
+  if (process.env.NODE_ENV === "production") {
+    const authToken = process.env.TWILIO_AUTH_TOKEN
+    const webhookUrl = process.env.TWILIO_SMS_WEBHOOK_URL?.trim()
+    const sig = req.headers.get("X-Twilio-Signature")
+    if (
+      !authToken ||
+      !webhookUrl ||
+      !verifyTwilioWebhookSignature(authToken, sig, webhookUrl, params)
+    ) {
+      return new NextResponse("Forbidden", { status: 403 })
+    }
+  }
+
+  const body = params.Body
+  const from = params.From
 
   if (!body || !from) {
     return new NextResponse(

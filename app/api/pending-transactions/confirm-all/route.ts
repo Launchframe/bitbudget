@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import { recordPayeeMapping } from "@/lib/envelope-matcher"
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
     })
 
     await prisma.pendingTransaction.delete({ where: { id: pending.id } })
+    await recordPayeeMapping(session.user.id, pending.payee, envelopeId)
     confirmed++
   }
 

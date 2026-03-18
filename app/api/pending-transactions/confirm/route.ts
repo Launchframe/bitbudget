@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import { recordPayeeMapping } from "@/lib/envelope-matcher"
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -42,7 +43,8 @@ export async function POST(req: NextRequest) {
     typeof amount === "number" && Number.isFinite(amount) && amount > 0
       ? amount
       : Math.abs(pending.amount)
-  const finalNotes = typeof notes === "string" ? notes : pending.notes
+  const finalNotes =
+    notes === null ? null : typeof notes === "string" ? notes : pending.notes
   const finalTags =
     Array.isArray(tags) && tags.every((tag) => typeof tag === "string")
       ? JSON.stringify(tags.filter((tag) => tag.trim().length > 0))
@@ -72,6 +74,8 @@ export async function POST(req: NextRequest) {
   })
 
   await prisma.pendingTransaction.delete({ where: { id } })
+
+  await recordPayeeMapping(session.user.id, finalPayee, envelopeId)
 
   return NextResponse.json(
     {

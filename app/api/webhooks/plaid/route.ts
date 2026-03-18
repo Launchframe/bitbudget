@@ -5,6 +5,7 @@ import { matchEnvelope } from "@/lib/envelope-matcher"
 import { routeTransaction } from "@/lib/confidence-router"
 import crypto from "crypto"
 import { requirePremium } from "@/lib/subscription"
+import { Prisma } from "@prisma/client"
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
@@ -68,32 +69,77 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const syncResponse = await plaidClient.transactionsSync({
-        access_token: plaidItem.accessToken,
-      })
+      let cursor: string | undefined =
+        plaidItem.transactionsSyncCursor ?? undefined
+      let processed = 0
 
-      for (const txn of syncResponse.data.added) {
-        const envelopeMatch = await matchEnvelope(
-          plaidItem.user.id,
-          txn.name || txn.merchant_name || "Unknown",
-          txn.personal_finance_category?.primary,
-        )
-
-        await routeTransaction(plaidItem.user.id, {
-          payee: txn.merchant_name || txn.name || "Unknown",
-          amount: Math.abs(txn.amount),
-          date: new Date(txn.date),
-          source: "plaid",
-          suggestedEnvelopeId: envelopeMatch?.envelopeId ?? null,
-          confidence: envelopeMatch?.confidence ?? 0.3,
-          rawInput: JSON.stringify({
-            plaid_transaction_id: txn.transaction_id,
-            category: txn.personal_finance_category,
-          }),
+      for (;;) {
+        const syncResponse = await plaidClient.transactionsSync({
+          access_token: plaidItem.accessToken,
+          cursor: cursor ?? undefined,
         })
+
+        const { added, has_more, next_cursor } = syncResponse.data
+
+        for (const txn of added) {
+          let claimId: string
+          try {
+            const row = await prisma.plaidImportedTransaction.create({
+              data: {
+                userId: plaidItem.user.id,
+                plaidTransactionId: txn.transaction_id,
+              },
+              select: { id: true },
+            })
+            claimId = row.id
+          } catch (e) {
+            if (
+              e instanceof Prisma.PrismaClientKnownRequestError &&
+              e.code === "P2002"
+            ) {
+              continue
+            }
+            throw e
+          }
+
+          try {
+            const envelopeMatch = await matchEnvelope(
+              plaidItem.user.id,
+              txn.name || txn.merchant_name || "Unknown",
+              txn.personal_finance_category?.primary,
+            )
+
+            await routeTransaction(plaidItem.user.id, {
+              payee: txn.merchant_name || txn.name || "Unknown",
+              amount: Math.abs(txn.amount),
+              date: new Date(txn.date),
+              source: "plaid",
+              suggestedEnvelopeId: envelopeMatch?.envelopeId ?? null,
+              confidence: envelopeMatch?.confidence ?? 0.3,
+              rawInput: JSON.stringify({
+                plaid_transaction_id: txn.transaction_id,
+                category: txn.personal_finance_category,
+              }),
+            })
+            processed++
+          } catch (routeErr) {
+            await prisma.plaidImportedTransaction.delete({
+              where: { id: claimId },
+            })
+            throw routeErr
+          }
+        }
+
+        cursor = next_cursor
+        await prisma.plaidItem.update({
+          where: { id: plaidItem.id },
+          data: { transactionsSyncCursor: cursor },
+        })
+
+        if (!has_more) break
       }
 
-      return NextResponse.json({ processed: syncResponse.data.added.length })
+      return NextResponse.json({ processed })
     } catch (err) {
       console.error("Plaid sync error:", err)
       return NextResponse.json(
