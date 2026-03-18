@@ -7,11 +7,12 @@ import { formatUsd } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
-import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, User, TrendingUp, Crown, Building2, Smartphone, Mail } from "lucide-react"
+import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, User, TrendingUp, Crown, Building2, Smartphone, Mail, Tag } from "lucide-react"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
+import { isAdmin } from "@/lib/admin"
 
 export function SettingsPage() {
-  const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, refreshData, encryptForStorage, logout, subscriptionTier } = useApp()
+  const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, addTag, deleteTag, refreshData, encryptForStorage, logout, subscriptionTier } = useApp()
   const { data: session } = useSession()
   const userName = session?.user?.name
   const userEmail = session?.user?.email
@@ -26,6 +27,8 @@ export function SettingsPage() {
   const [deletingAccount, setDeletingAccount] = useState(false)
   const [receiptInboxAddress, setReceiptInboxAddress] = useState<string | null>(null)
   const [receiptInboxLoading, setReceiptInboxLoading] = useState(false)
+  const [newTagName, setNewTagName] = useState("")
+  const [tagActionInProgress, setTagActionInProgress] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -64,6 +67,32 @@ export function SettingsPage() {
     } finally {
       setDeleting(false)
       setConfirmDelete(false)
+    }
+  }
+
+  async function handleAddTag() {
+    const trimmed = newTagName.trim()
+    if (!trimmed || tagActionInProgress) return
+
+    setTagActionInProgress(true)
+    try {
+      await addTag(trimmed)
+      setNewTagName("")
+      await refreshData()
+    } finally {
+      setTagActionInProgress(false)
+    }
+  }
+
+  async function handleDeleteTag(id: string) {
+    if (tagActionInProgress) return
+
+    setTagActionInProgress(true)
+    try {
+      await deleteTag(id)
+      await refreshData()
+    } finally {
+      setTagActionInProgress(false)
     }
   }
 
@@ -109,6 +138,92 @@ export function SettingsPage() {
               You have access to bank sync, SMS alerts, and connected email.
             </span>
           )}
+        </div>
+      </div>
+
+      {/* Receipt Inbox */}
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-[#06B6D4]/10">
+            <Mail className="h-5 w-5 text-[#06B6D4]" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground">Receipt Inbox</h3>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Forward receipts to your dedicated address and they'll be saved for your review later. We recommend bookmarking this address
+        </p>
+        <div className="flex flex-col gap-3">
+          <div className="rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Inbound address</p>
+            <p className="font-mono text-base text-foreground break-all">
+              {receiptInboxLoading ? "Generating..." : receiptInboxAddress || "Loading..."}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Tags */}
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-[#F7931A]/10">
+            <Tag className="h-5 w-5 text-[#F7931A]" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground">Tags</h3>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Create tags to organize transactions and receipts.
+        </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Input
+              value={newTagName}
+              onChange={e => setNewTagName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  void handleAddTag()
+                }
+              }}
+              placeholder="New tag"
+              className="bg-[#1A1A1A] border-[#333] text-foreground h-10"
+              aria-label="New tag name"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                void handleAddTag()
+              }}
+              disabled={tagActionInProgress || !newTagName.trim()}
+              className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium bg-[#F7931A] text-[#0D0D0D] hover:bg-[#e68818] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Add Tag
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {state.tags.length > 0 ? (
+              state.tags.map(tag => (
+                <span
+                  key={tag.id}
+                  className="inline-flex items-center gap-2 rounded-full border border-[#333] bg-[#1A1A1A] px-3 py-1.5 text-sm text-foreground"
+                >
+                  <span className="truncate max-w-[12rem]">{tag.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleDeleteTag(tag.id)
+                    }}
+                    disabled={tagActionInProgress}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-[#2A2A2A] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label={`Delete tag ${tag.name}`}
+                  >
+                    <span aria-hidden="true">×</span>
+                  </button>
+                </span>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No tags yet.</p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -360,30 +475,6 @@ export function SettingsPage() {
             <div className="w-2 h-2 rounded-full bg-[#22C55E]" />
             <span className="text-xs text-[#22C55E]">Encryption active</span>
           </div>
-        </div>
-      </div>
-
-      {/* Receipt Inbox */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 rounded-lg bg-[#06B6D4]/10">
-            <Mail className="h-5 w-5 text-[#06B6D4]" />
-          </div>
-          <h3 className="text-lg font-semibold text-foreground">Receipt Inbox</h3>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">
-          Forward receipts to your dedicated address. This works for email users and for Nostr-only users who do not have an email on file.
-        </p>
-        <div className="flex flex-col gap-3">
-          <div className="rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Inbound address</p>
-            <p className="font-mono text-sm text-foreground break-all">
-              {receiptInboxLoading ? "Generating..." : receiptInboxAddress || "Loading..."}
-            </p>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Use this as the SendGrid Inbound Parse recipient. Messages to this address route by token instead of sender email.
-          </p>
         </div>
       </div>
 
