@@ -72,6 +72,8 @@ interface AppContextValue {
   highlightTransactionId: string | null
   transactionDialogOpen: boolean
   transactionPrefill: TransactionPrefill | null
+  inputModeSheetOpen: boolean
+  setInputModeSheetOpen: (open: boolean) => void
   loading: boolean
   encryption: EncryptionState
   unlockWithKey: (key: Uint8Array) => void
@@ -171,6 +173,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
   const [transactionPrefill, setTransactionPrefill] = useState<TransactionPrefill | null>(null)
+  const [inputModeSheetOpen, setInputModeSheetOpen] = useState(false)
   const [transactionEnvelopeFilter, setTransactionEnvelopeFilter] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set()
     const { page, envelopeId } = hashToPage(window.location.hash)
@@ -798,6 +801,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         highlightTransactionId,
         transactionDialogOpen,
         transactionPrefill,
+        inputModeSheetOpen,
+        setInputModeSheetOpen,
         loading,
         encryption,
         unlockWithKey,

@@ -452,10 +452,9 @@ export function CSVImportDialog({
             {step === "dedup" && dedupMode === "allDupes" && (
               <>Every transaction in this file matches one you already have.</>
             )}
-            {step === "importing" && "Encrypting and importing transactions..."}
             {step === "done" && result && (
               <>
-                {result.imported} transactions imported, including {result.newEnvelopes.length} new envelopes. {result.skipped} transactions were skipped.
+                {result.imported} transactions imported, including {result.newEnvelopes.length} new envelopes. {result.skipped > 0 ? result.skipped : 'No'} transactions were skipped.
               </>
             )}
           </DialogDescription>

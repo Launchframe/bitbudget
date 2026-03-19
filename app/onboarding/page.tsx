@@ -690,6 +690,7 @@ export default function OnboardingPage() {
                   border-radius: 3px;
                   outline: none;
                   cursor: pointer;
+                  touch-action: none;
                 }
                 input[type="range"].alloc-slider::-webkit-slider-thumb {
                   -webkit-appearance: none;
@@ -869,7 +870,7 @@ export default function OnboardingPage() {
                         className="alloc-slider"
                         min={0}
                         max={sliderMax}
-                        step={1}
+                        step={5}
                         value={env.monthlyAllotment}
                         onChange={e => {
                           const val = parseInt(e.target.value, 10) || 0

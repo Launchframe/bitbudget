@@ -57,6 +57,8 @@ export function NewTransactionDialog() {
 
   const recurringSnapshotRef = useRef({ isRecurring: false, cadence: "monthly" as Cadence, endDate: "" })
   const tagsSnapshotRef = useRef<string[]>([])
+  /** Ignore first click on Recurring/Tags rows after dialog opens so FAB/menu taps are not retargeted into the dialog. */
+  const ignoreNextDisclosureClickRef = useRef(false)
 
   useEffect(() => {
     if (transactionDialogOpen && transactionPrefill) {
@@ -67,6 +69,15 @@ export function NewTransactionDialog() {
       if (transactionPrefill.envelopeId) setEnvelopeId(transactionPrefill.envelopeId)
     }
   }, [transactionDialogOpen, transactionPrefill])
+
+  useEffect(() => {
+    if (!transactionDialogOpen) return
+    ignoreNextDisclosureClickRef.current = true
+    const t = setTimeout(() => {
+      ignoreNextDisclosureClickRef.current = false
+    }, 350)
+    return () => clearTimeout(t)
+  }, [transactionDialogOpen])
 
   const [showSuggestions, setShowSuggestions] = useState(false)
   const suggestionsRef = useRef<HTMLDivElement>(null)
@@ -402,6 +413,7 @@ export function NewTransactionDialog() {
               <button
                 type="button"
                 onClick={() => {
+                  if (ignoreNextDisclosureClickRef.current) return
                   recurringSnapshotRef.current = { isRecurring, cadence, endDate }
                   setModalView("recurring")
                 }}
@@ -425,6 +437,7 @@ export function NewTransactionDialog() {
               <button
                 type="button"
                 onClick={() => {
+                  if (ignoreNextDisclosureClickRef.current) return
                   tagsSnapshotRef.current = [...selectedTags]
                   setModalView("tags")
                 }}

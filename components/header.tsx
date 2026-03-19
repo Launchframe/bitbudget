@@ -6,7 +6,6 @@ import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { Settings2, LogOut, Upload, ScanLine, Crown, User } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
-import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,14 +14,13 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function Header() {
-  const { navigateTo, refreshData, encryptForStorage, logout, subscriptionTier, state } = useApp()
+  const { navigateTo, refreshData, encryptForStorage, logout, subscriptionTier, state, setInputModeSheetOpen } = useApp()
   const { data: session } = useSession()
   const userImage = session?.user?.image
   const userName = session?.user?.name
   const userEmail = session?.user?.email
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importOpen, setImportOpen] = useState(false)
-  const [scanOpen, setScanOpen] = useState(false)
 
   function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -46,9 +44,9 @@ export function Header() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setScanOpen(true)}
+            onClick={() => setInputModeSheetOpen(true)}
             className="h-10 w-10 rounded-full flex items-center justify-center bg-[#1A1A1A] border border-[#333] hover:bg-[#222] transition-colors md:hidden"
-            aria-label="Scan receipt"
+            aria-label="Input mode"
           >
             <ScanLine className="h-4 w-4 text-[#F7931A]" />
           </button>
@@ -83,11 +81,11 @@ export function Header() {
                 <span>Settings</span>
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => setScanOpen(true)}
+                onClick={() => setInputModeSheetOpen(true)}
                 className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
               >
                 <ScanLine className="mr-2 h-4 w-4 text-muted-foreground" />
-                <span>Scan Receipt</span>
+                <span>Input mode</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => document.getElementById("csv-import-input")?.click()}
@@ -125,7 +123,6 @@ export function Header() {
         onTryAnotherFile={() => setImportFile(null)}
         encryptFn={encryptForStorage}
       />
-      <ScanReceiptDialog open={scanOpen} onOpenChange={setScanOpen} />
     </>
   )
 }

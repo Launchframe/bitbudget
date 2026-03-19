@@ -187,6 +187,7 @@ export function EnvelopeAllocationsPage() {
             border-radius: 3px;
             outline: none;
             cursor: pointer;
+            touch-action: none;
           }
           input[type="range"].env-alloc-slider::-webkit-slider-thumb {
             -webkit-appearance: none;
@@ -357,7 +358,7 @@ export function EnvelopeAllocationsPage() {
                   className="env-alloc-slider"
                   min={0}
                   max={sliderMax}
-                  step={1}
+                  step={5}
                   value={val}
                   onChange={e => {
                     const v = parseInt(e.target.value, 10) || 0

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import {
   Dialog,
@@ -13,9 +13,12 @@ import { Camera, Upload, Loader2, AlertCircle, X } from "lucide-react"
 export function ScanReceiptDialog({
   open,
   onOpenChange,
+  initialSource,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** When set, opens dialog and immediately triggers camera or file picker (e.g. from mobile nav one-tap). */
+  initialSource?: "camera" | "upload"
 }) {
   const { openNewTransaction } = useApp()
   const [scanning, setScanning] = useState(false)
@@ -23,6 +26,15 @@ export function ScanReceiptDialog({
   const [preview, setPreview] = useState<string | null>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!open || !initialSource) return
+    const t = setTimeout(() => {
+      if (initialSource === "camera") cameraInputRef.current?.click()
+      else fileInputRef.current?.click()
+    }, 150)
+    return () => clearTimeout(t)
+  }, [open, initialSource])
 
   function reset() {
     setScanning(false)
@@ -83,9 +95,14 @@ export function ScanReceiptDialog({
     e.target.value = ""
   }
 
+  const skipChoiceUI = !!initialSource && !scanning && !error
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-md">
+      <DialogContent
+        className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-md"
+        invisible={skipChoiceUI}
+      >
         <DialogHeader>
           <DialogTitle className="text-lg font-bold text-foreground">Scan Receipt</DialogTitle>
         </DialogHeader>
