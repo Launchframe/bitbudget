@@ -73,9 +73,12 @@ export function WalkthroughOverlay() {
 
   useEffect(() => {
     if (!visible) return
-    positionTooltip()
+    const raf = requestAnimationFrame(() => positionTooltip())
     window.addEventListener("resize", positionTooltip)
-    return () => window.removeEventListener("resize", positionTooltip)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener("resize", positionTooltip)
+    }
   }, [visible, currentStep, positionTooltip])
 
   function handleNext() {

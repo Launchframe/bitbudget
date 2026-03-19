@@ -26,6 +26,7 @@ export default function AdminAuditLogPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- show loading immediately when filter or mount changes
     setLoading(true)
     const q = actionFilter ? `?action=${encodeURIComponent(actionFilter)}` : ""
     fetch(`/api/admin/audit-log${q}`)

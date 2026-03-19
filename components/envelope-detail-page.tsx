@@ -79,7 +79,10 @@ export function EnvelopeDetailPage() {
     const idx = filteredTransactions.findIndex(t => t.id === highlightTransactionId)
     if (idx === -1) return
     const targetPage = Math.floor(idx / pageSize) + 1
-    if (targetPage !== page) setPage(targetPage)
+    if (targetPage !== page) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- jump to page containing deep-linked transaction
+      setPage(targetPage)
+    }
   }, [highlightTransactionId, filteredTransactions, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

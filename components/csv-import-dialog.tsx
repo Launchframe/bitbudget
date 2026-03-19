@@ -91,6 +91,7 @@ export function CSVImportDialog({
   file,
   dedupExistingTransactions,
   onImportComplete,
+  onImportResult: onImportResultProp,
   onDone,
   onRequestAllocations,
   onTryAnotherFile,
@@ -102,6 +103,12 @@ export function CSVImportDialog({
   /** Transactions already in the app (decrypted). Use [] on pages without loaded app state (e.g. onboarding). */
   dedupExistingTransactions: Transaction[]
   onImportComplete?: () => void
+  /** Called when import succeeds so parent can show a summary (e.g. onboarding complete step). */
+  onImportResult?: (result: {
+    imported: number
+    skipped: number
+    newEnvelopes: string[]
+  }) => void
   onDone?: () => void
   onRequestAllocations?: () => void
   /** Called when user chooses another file after an all-duplicates result; parent should clear `file`. */
@@ -271,7 +278,13 @@ export function CSVImportDialog({
         throw new Error(data.error || "Import failed")
       }
       const data = await res.json()
-      setResult({ imported: data.imported, skipped: data.skipped, newEnvelopes: data.newEnvelopes ?? [] })
+      const summary = {
+        imported: data.imported,
+        skipped: data.skipped,
+        newEnvelopes: data.newEnvelopes ?? [],
+      }
+      setResult(summary)
+      onImportResultProp?.(summary)
       setStep("done")
       if (onImportComplete) await onImportComplete()
     } catch (err) {

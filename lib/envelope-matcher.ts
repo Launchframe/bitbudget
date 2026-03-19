@@ -74,9 +74,11 @@ export async function matchByHistory(
  * Placeholder — returns null until Plaid integration is built.
  */
 export function matchByCategory(
-  _userId: string,
-  _plaidCategoryId: string,
+  userId: string,
+  plaidCategoryId: string,
 ): MatchResult | null {
+  void userId
+  void plaidCategoryId
   return null
 }
 

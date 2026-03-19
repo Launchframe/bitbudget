@@ -84,8 +84,8 @@ export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
       let retries = 0
       const MAX_RETRIES = 3
 
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
+      let backfillDone = false
+      while (!backfillDone) {
         try {
           const res = await fetch("/api/btc-price/backfill", { method: "POST" })
           if (!res.ok) {
@@ -107,6 +107,7 @@ export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
           if (data.status === "complete") {
             console.log("[BtcPriceProvider] Backfill complete, earliest:", data.earliestDate)
             setBackfillStatus("complete")
+            backfillDone = true
             break
           }
 
@@ -117,6 +118,7 @@ export function BtcPriceProvider({ children }: { children: React.ReactNode }) {
           console.error(`[BtcPriceProvider] Backfill error (attempt ${retries}/${MAX_RETRIES}):`, err)
           if (retries >= MAX_RETRIES) {
             setBackfillStatus("error")
+            backfillDone = true
             break
           }
           await new Promise(r => setTimeout(r, 5000 * retries))

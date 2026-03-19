@@ -3,7 +3,7 @@
 import { useRef } from "react"
 import { AlertTriangle } from "lucide-react"
 import { Label } from "@/components/ui/label"
-import { ENVELOPE_ICON_LIST, getEnvelopeIcon } from "@/lib/envelope-icons"
+import { ENVELOPE_ICON_LIST } from "@/lib/envelope-icons"
 import { PRESET_ENVELOPE_COLORS } from "@/lib/constants"
 
 export const PRESET_COLORS = PRESET_ENVELOPE_COLORS

@@ -11,11 +11,15 @@ export function NotificationBanner() {
 
   useEffect(() => {
     const stored = localStorage.getItem("bb-banner-dismissed-count")
-    if (stored) setLastDismissedCount(parseInt(stored, 10))
+    if (stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate banner dismiss count from localStorage on mount
+      setLastDismissedCount(parseInt(stored, 10))
+    }
   }, [])
 
   useEffect(() => {
     if (pendingCount > lastDismissedCount) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- re-show banner when new pending items arrive after dismiss
       setDismissed(false)
     }
   }, [pendingCount, lastDismissedCount])

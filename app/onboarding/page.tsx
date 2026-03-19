@@ -93,7 +93,11 @@ export default function OnboardingPage() {
   // Import
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
-  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; newEnvelopes: string[] } | null>(null)
+  const [importResult, setImportResult] = useState<{
+    imported: number
+    skipped: number
+    newEnvelopes: string[]
+  } | null>(null)
 
   // Opportunity Cost feature
   const [onboardingSource] = useState<"btc" | "vanilla">(() => {
@@ -373,7 +377,7 @@ export default function OnboardingPage() {
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
               <div className="flex flex-col gap-1.5 flex-1 min-w-0">
                 <p className="text-sm text-[#93C5FD] leading-snug">
-                  Your progress was restored. Don't remember your password?
+                  Your progress was restored. Don&apos;t remember your password?
                 </p>
                 <button
                   type="button"
@@ -1096,6 +1100,7 @@ export default function OnboardingPage() {
         onOpenChange={handleImportDialogClose}
         file={importFile}
         dedupExistingTransactions={[]}
+        onImportResult={setImportResult}
         onRequestAllocations={() => {
           setImportDialogOpen(false)
           setStep("allocations")
