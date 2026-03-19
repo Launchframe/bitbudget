@@ -160,10 +160,10 @@ export function AnalyticsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
           <h3 className="text-lg font-semibold text-foreground mb-5">By Envelope</h3>
-          <div className="h-[220px] md:h-[300px] w-full">
+          <div className="h-[280px] md:h-[300px] w-full">
             {envelopePieData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
+                <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
                   <Pie
                     data={envelopePieData}
                     cx="50%"
