@@ -130,7 +130,7 @@ describe("buildTransactionsCsv", () => {
     )
   })
 
-  it("formats a single row with simple values", () => {
+  it("formats a single row with simple values (CRLF line endings)", () => {
     const rows: TransactionExportRow[] = [
       {
         type: "expense",
@@ -143,7 +143,7 @@ describe("buildTransactionsCsv", () => {
       },
     ]
     expect(buildTransactionsCsv(rows)).toBe(
-      "type,date,payee,amount,notes,envelope,tags\nexpense,2026-02-15,Trader Joe's,$42.50,,Groceries,"
+      "type,date,payee,amount,notes,envelope,tags\r\nexpense,2026-02-15,Trader Joe's,$42.50,,Groceries,"
     )
   })
 
