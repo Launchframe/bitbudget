@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 import { PRESET_ENVELOPE_COLORS } from "@/lib/constants"
-import { suggestIcon } from "@/lib/envelope-icons"
+import { suggestIcon } from "@/lib/envelope-icon-suggest"
 
 const ENVELOPE_COLORS = PRESET_ENVELOPE_COLORS
 

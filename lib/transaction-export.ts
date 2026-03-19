@@ -4,8 +4,12 @@
  */
 
 export function escapeCsvField(value: string): string {
-  if (!/[\n",]/.test(value)) return value
-  return `"${value.replace(/"/g, '""')}"`
+  // Prevent spreadsheet formula injection by neutralizing leading formula characters.
+  // If the value starts with =, +, - or @, prefix it with a single quote so that
+  // Excel treats it as a text value rather than a formula.
+  const sanitized = /^[=+\-@]/.test(value) ? `'${value}` : value
+  if (!/[\r\n",]/.test(sanitized)) return sanitized
+  return `"${sanitized.replace(/"/g, '""')}"`
 }
 
 export interface BuildExportFilenameOptions {
