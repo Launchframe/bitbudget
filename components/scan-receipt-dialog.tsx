@@ -24,11 +24,15 @@ export function ScanReceiptDialog({
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<string | null>(null)
+  const [suppressChoiceUI, setSuppressChoiceUI] = useState(false)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!open || !initialSource) return
+    // When an initial source is provided, immediately attempt to open the picker
+    // and temporarily hide the choice UI.
+    setSuppressChoiceUI(true)
     const t = setTimeout(() => {
       if (initialSource === "camera") cameraInputRef.current?.click()
       else fileInputRef.current?.click()
@@ -36,10 +40,22 @@ export function ScanReceiptDialog({
     return () => clearTimeout(t)
   }, [open, initialSource])
 
+  useEffect(() => {
+    if (!open || !initialSource) return
+    if (scanning || error) return
+    // If the user cancels the picker (no file selected), onChange will not fire.
+    // After a short delay, fall back to showing the normal choice UI.
+    const fallback = setTimeout(() => {
+      setSuppressChoiceUI(false)
+    }, 1000)
+    return () => clearTimeout(fallback)
+  }, [open, initialSource, scanning, error])
+
   function reset() {
     setScanning(false)
     setError("")
     setPreview(null)
+    setSuppressChoiceUI(false)
   }
 
   function handleClose(open: boolean) {
@@ -95,7 +111,7 @@ export function ScanReceiptDialog({
     e.target.value = ""
   }
 
-  const skipChoiceUI = !!initialSource && !scanning && !error
+  const skipChoiceUI = !!initialSource && suppressChoiceUI && !scanning && !error
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>

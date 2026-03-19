@@ -59,7 +59,7 @@ function DialogContent({
 }) {
   return (
     <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay className={cn(invisible && "invisible pointer-events-none")} />
+      <DialogOverlay className={cn(invisible && "opacity-0")} />
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(

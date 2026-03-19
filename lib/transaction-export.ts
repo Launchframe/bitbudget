@@ -5,9 +5,9 @@
 
 export function escapeCsvField(value: string): string {
   // Prevent spreadsheet formula injection by neutralizing leading formula characters.
-  // If the value starts with =, +, - or @, prefix it with a single quote so that
-  // Excel treats it as a text value rather than a formula.
-  const sanitized = /^[=+\-@]/.test(value) ? `'${value}` : value
+  // If the value (after any leading whitespace/control characters) starts with =, +, - or @,
+  // prefix it with a single quote so that Excel treats it as a text value rather than a formula.
+  const sanitized = /^[\s\x00-\x1F]*[=+\-@]/.test(value) ? `'${value}` : value
   if (!/[\r\n",]/.test(sanitized)) return sanitized
   return `"${sanitized.replace(/"/g, '""')}"`
 }

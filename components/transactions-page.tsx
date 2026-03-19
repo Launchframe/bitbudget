@@ -187,7 +187,8 @@ export function TransactionsPage() {
     a.href = url
     a.download = filename
     a.click()
-    URL.revokeObjectURL(url)
+    // Defer revoking the object URL to ensure the download has started in all browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 100)
   }
 
   return (

@@ -87,13 +87,15 @@ export function EnvelopeAllocationsPage() {
                   onChange={(e) => setIncomeValue(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      setMonthlyIncome(parseFloat(incomeValue) || state.monthlyIncome)
+                      const parsed = parseFloat(incomeValue)
+                      setMonthlyIncome(Number.isFinite(parsed) ? parsed : state.monthlyIncome)
                       setEditingIncome(false)
                     }
                     if (e.key === "Escape") setEditingIncome(false)
                   }}
                   onBlur={() => {
-                    setMonthlyIncome(parseFloat(incomeValue) || state.monthlyIncome)
+                    const parsed = parseFloat(incomeValue)
+                    setMonthlyIncome(Number.isFinite(parsed) ? parsed : state.monthlyIncome)
                     setEditingIncome(false)
                   }}
                   className="bg-[#1A1A1A] border-[#333] text-foreground h-9 w-36"
@@ -140,13 +142,23 @@ export function EnvelopeAllocationsPage() {
                 onChange={(e) => setIncomeValue(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    setMonthlyIncome(parseFloat(incomeValue) || state.monthlyIncome)
+                    const parsed = parseFloat(incomeValue)
+                    if (Number.isFinite(parsed)) {
+                      setMonthlyIncome(parsed)
+                    } else {
+                      setIncomeValue(String(state.monthlyIncome))
+                    }
                     setEditingIncome(false)
                   }
                   if (e.key === "Escape") setEditingIncome(false)
                 }}
                 onBlur={() => {
-                  setMonthlyIncome(parseFloat(incomeValue) || state.monthlyIncome)
+                  const parsed = parseFloat(incomeValue)
+                  if (Number.isFinite(parsed)) {
+                    setMonthlyIncome(parsed)
+                  } else {
+                    setIncomeValue(String(state.monthlyIncome))
+                  }
                   setEditingIncome(false)
                 }}
                 className="bg-[#1A1A1A] border-[#333] text-foreground h-9 w-36"
