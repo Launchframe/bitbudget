@@ -69,7 +69,7 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label className="text-muted-foreground text-xs uppercase tracking-wider">PIN or Password</Label>
+              <Label className="text-muted-foreground text-xs uppercase tracking-wider">Passphrase</Label>
               <Input
                 type="password"
                 value={pin}

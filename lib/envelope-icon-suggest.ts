@@ -4,7 +4,7 @@
  * For UI, use lib/envelope-icons (getEnvelopeIcon(suggestIcon(name))).
  */
 
-// Ordered keyword → icon name rules (first match wins). Exported for envelope-icons SUGGESTION_SEARCH_INDEX.
+// Keyword → icon name rules; suggestIcon() picks the best match by score. Exported for envelope-icons SUGGESTION_SEARCH_INDEX.
 export const KEYWORD_RULES: [RegExp, string][] = [
   [/rent|mortgages|apartments|housing|condos|landlords/i, "Home"],
   [/grocery|groceries|supermarket|whole foods|trader joe|kroger|costco|markets/i, "ShoppingCart"],
