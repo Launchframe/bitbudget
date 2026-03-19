@@ -1,9 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { UpgradeModal } from "@/components/upgrade-modal"
-
-type PremiumFeature = "sms" | "email_scan" | "plaid"
+import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 
 interface PremiumGateProps {
   feature: PremiumFeature

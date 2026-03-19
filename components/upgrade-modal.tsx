@@ -2,9 +2,16 @@
 
 import { X, Shield, AlertTriangle } from "lucide-react"
 
-type PremiumFeature = "sms" | "email_scan" | "plaid"
+export type PremiumFeature = "sms" | "email_scan" | "plaid" | "receipt_inbox"
 
 const featureInfo: Record<PremiumFeature, { title: string; description: string; privacy: string }> = {
+  receipt_inbox: {
+    title: "Receipt Inbox",
+    description:
+      "Get a private email address to forward receipts. We parse them and queue transactions for your review — no manual entry.",
+    privacy:
+      "Only emails to your dedicated address are processed. Parsed receipt data is encrypted with your key before storage.",
+  },
   sms: {
     title: "SMS Transaction Alerts",
     description: "Forward your bank's SMS alerts to automatically capture transactions.",
@@ -70,7 +77,7 @@ export function UpgradeModal({ feature, open, onClose }: UpgradeModalProps) {
           <button
             onClick={() => {
               // TODO: Integrate with Stripe checkout
-              window.alert("Stripe checkout coming soon!")
+              window.alert("Coming soon!")
               onClose()
             }}
             className="flex-1 px-4 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-xl text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors"

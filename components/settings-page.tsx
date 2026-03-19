@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, TrendingUp, Crown, Building2, Smartphone, Mail, Tag, Copy, Check } from "lucide-react"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
+import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 
 export function SettingsPage() {
   type SettingsTab = "general" | "integrations" | "tags" | "data"
@@ -23,31 +24,70 @@ export function SettingsPage() {
   const [deletingAccount, setDeletingAccount] = useState(false)
   const [receiptInboxAddress, setReceiptInboxAddress] = useState<string | null>(null)
   const [receiptInboxLoading, setReceiptInboxLoading] = useState(false)
+  const [receiptInboxError, setReceiptInboxError] = useState<string | null>(null)
+  const [receiptInboxRetryKey, setReceiptInboxRetryKey] = useState(0)
+  const [upgradeModalFeature, setUpgradeModalFeature] = useState<PremiumFeature | null>(null)
   const [newTagName, setNewTagName] = useState("")
   const [tagActionInProgress, setTagActionInProgress] = useState(false)
   const [copiedReceiptAddress, setCopiedReceiptAddress] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    if (subscriptionTier !== "premium") {
+      setReceiptInboxLoading(false)
+      setReceiptInboxAddress(null)
+      setReceiptInboxError(null)
+      return
+    }
+
     let cancelled = false
     async function loadReceiptInbox() {
       setReceiptInboxLoading(true)
+      setReceiptInboxError(null)
       try {
         const res = await fetch("/api/user/receipt-inbox")
-        if (!res.ok) return
-        const data = await res.json()
+        const data = (await res.json().catch(() => ({}))) as {
+          receiptInboxAddress?: string
+          message?: string
+          error?: string
+        }
+        if (cancelled) return
+        if (!res.ok) {
+          const msg =
+            typeof data.message === "string"
+              ? data.message
+              : typeof data.error === "string" && data.error !== "Forbidden"
+                ? data.error
+                : res.status === 403
+                  ? "Receipt inbox requires an active Premium plan."
+                  : `Could not load your receipt inbox (error ${res.status}). Try again in a moment.`
+          setReceiptInboxAddress(null)
+          setReceiptInboxError(msg)
+          return
+        }
+        const addr = data.receiptInboxAddress ?? null
+        setReceiptInboxAddress(addr)
+        if (!addr) {
+          setReceiptInboxError(
+            "Your inbox address was not returned. Try again or refresh the page.",
+          )
+        }
+      } catch {
         if (!cancelled) {
-          setReceiptInboxAddress(data.receiptInboxAddress ?? null)
+          setReceiptInboxAddress(null)
+          setReceiptInboxError(
+            "Could not reach the server. Check your connection and try again.",
+          )
         }
       } finally {
         if (!cancelled) setReceiptInboxLoading(false)
       }
     }
-    loadReceiptInbox()
+    void loadReceiptInbox()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [subscriptionTier, receiptInboxRetryKey])
 
   async function handleClearAll() {
     if (!confirmDelete) {
@@ -277,9 +317,12 @@ export function SettingsPage() {
     </>
   )
 
+  const upgradeCtaClass =
+    "inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90 transition-colors shrink-0 w-full sm:w-auto"
+
   const integrationsSection = (
     <>
-      {/* Receipt Inbox */}
+      {/* Receipt Inbox — free users see upgrade path; no API call until Premium */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-[#06B6D4]/10">
@@ -288,79 +331,122 @@ export function SettingsPage() {
           <h3 className="text-lg font-semibold text-foreground">Receipt Inbox</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
-          Forward receipts to your dedicated address and they&apos;ll be saved for your review later. We recommend bookmarking this address
+          Forward receipts to your dedicated address and they&apos;ll be saved for your review later. We recommend bookmarking this address.
         </p>
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2 rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Inbound address</p>
-              <p className="font-mono text-base text-foreground break-all">
-                {receiptInboxLoading ? "Generating..." : receiptInboxAddress || "Loading..."}
+        {subscriptionTier !== "premium" ? (
+          <div className="flex flex-col gap-4">
+            <div className="rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">
+              <p className="text-sm font-medium text-foreground mb-1">Premium feature</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Upgrade to get a private forwarding address. Free plans use manual entry and CSV import.
               </p>
             </div>
+            <button type="button" onClick={() => setUpgradeModalFeature("receipt_inbox")} className={upgradeCtaClass}>
+              <Crown className="h-4 w-4" />
+              Upgrade to unlock receipt inbox
+            </button>
+          </div>
+        ) : receiptInboxError ? (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+            <p className="text-sm text-red-200 mb-3">{receiptInboxError}</p>
             <button
               type="button"
-              onClick={() => void copyReceiptInboxAddress()}
-              disabled={!receiptInboxAddress || receiptInboxLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#333] bg-[#0D0D0D] px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-[#555] disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => setReceiptInboxRetryKey(k => k + 1)}
+              className="text-sm font-medium text-[#F7931A] hover:underline"
             >
-              {copiedReceiptAddress ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              {copiedReceiptAddress ? "Copied" : "Copy"}
+              Try again
             </button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Inbound address</p>
+                <p className="font-mono text-base text-foreground break-all">
+                  {receiptInboxLoading ? "Generating…" : receiptInboxAddress ?? "—"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void copyReceiptInboxAddress()}
+                disabled={!receiptInboxAddress || receiptInboxLoading}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#333] bg-[#0D0D0D] px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-[#555] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {copiedReceiptAddress ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                {copiedReceiptAddress ? "Copied" : "Copy"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Connections — visible on all plans; free tier opens upgrade flow */}
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-[#F7931A]/20">
+            <Building2 className="h-5 w-5 text-[#F7931A]" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground">Connections</h3>
+        </div>
+        <p className="text-sm text-muted-foreground mb-6">
+          Connect your accounts to automatically import transactions. Premium unlocks bank sync, SMS capture, and connected email scanning.
+        </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
+            <div className="flex items-start gap-3">
+              <Building2 className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-foreground">Bank sync (Plaid)</p>
+                <p className="text-sm text-muted-foreground">
+                  Link your bank or credit card to import transactions automatically.
+                </p>
+              </div>
+            </div>
+            {subscriptionTier === "premium" ? (
+              <PlaidLinkButton />
+            ) : (
+              <button type="button" onClick={() => setUpgradeModalFeature("plaid")} className={upgradeCtaClass}>
+                <Crown className="h-4 w-4" />
+                Upgrade to connect
+              </button>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
+            <div className="flex items-start gap-3 min-w-0">
+              <Smartphone className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-foreground">SMS alerts</p>
+                <p className="text-sm text-muted-foreground">
+                  Forward your bank&apos;s transaction SMS to a dedicated number to capture spending. Contact support for your personal forwarding number once you&apos;re on Premium.
+                </p>
+              </div>
+            </div>
+            {subscriptionTier !== "premium" && (
+              <button type="button" onClick={() => setUpgradeModalFeature("sms")} className={upgradeCtaClass}>
+                <Crown className="h-4 w-4" />
+                Upgrade for SMS
+              </button>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
+            <div className="flex items-start gap-3 min-w-0">
+              <Mail className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-foreground">Connected email</p>
+                <p className="text-sm text-muted-foreground">
+                  Connect Gmail or Outlook to scan for receipts from known senders. Coming soon for Premium.
+                </p>
+              </div>
+            </div>
+            {subscriptionTier !== "premium" && (
+              <button type="button" onClick={() => setUpgradeModalFeature("email_scan")} className={upgradeCtaClass}>
+                <Crown className="h-4 w-4" />
+                Upgrade for email scan
+              </button>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Premium: Connections */}
-      {subscriptionTier === "premium" && (
-        <div className="p-6 bg-[#0D0D0D] rounded-2xl">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-[#F7931A]/20">
-              <Building2 className="h-5 w-5 text-[#F7931A]" />
-            </div>
-            <h3 className="text-lg font-semibold text-foreground">Connections</h3>
-          </div>
-          <p className="text-sm text-muted-foreground mb-6">
-            Connect your accounts to automatically import transactions.
-          </p>
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
-              <div className="flex items-start gap-3">
-                <Building2 className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">Bank sync</p>
-                  <p className="text-sm text-muted-foreground">
-                    Link your bank or credit card to import transactions automatically via Plaid.
-                  </p>
-                </div>
-              </div>
-              <PlaidLinkButton />
-            </div>
-            <div className="flex flex-col gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
-              <div className="flex items-start gap-3">
-                <Smartphone className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">SMS alerts</p>
-                  <p className="text-sm text-muted-foreground">
-                    Forward your bank&apos;s transaction text alerts to a dedicated number to capture spending without opening the app. Contact support to get your personal forwarding number.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-col gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
-              <div className="flex items-start gap-3">
-                <Mail className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-foreground">Connected email</p>
-                  <p className="text-sm text-muted-foreground">
-                    Connect Gmail or Outlook to automatically scan for receipts from known senders. Coming soon.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* CSV Import */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
@@ -582,6 +668,12 @@ export function SettingsPage() {
           {settingsTab === "data" && dataSection}
         </div>
       </div>
+
+      <UpgradeModal
+        feature={upgradeModalFeature ?? "plaid"}
+        open={upgradeModalFeature !== null}
+        onClose={() => setUpgradeModalFeature(null)}
+      />
 
       <CSVImportDialog
         open={importOpen}
