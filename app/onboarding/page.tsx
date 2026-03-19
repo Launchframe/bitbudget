@@ -943,18 +943,22 @@ export default function OnboardingPage() {
 
           {/* Import Step */}
           {step === "import" && (
-            <form onSubmit={e => { e.preventDefault(); handleImport() }} className="flex flex-col gap-6">
+            <form
+              onSubmit={e => { e.preventDefault(); handleImport() }}
+              className="flex w-full min-w-0 flex-col gap-6"
+            >
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#06B6D4]/10">
                   <Upload className="h-6 w-6 text-[#06B6D4]" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h2 className="text-xl font-bold text-foreground">Import Transactions</h2>
                   <p className="text-sm text-muted-foreground">Optionally import history from a CSV</p>
                 </div>
               </div>
 
-              <div className="flex flex-col items-center gap-4 p-6 border-2 border-dashed border-[#333] rounded-xl">
+              {/* items-stretch (not items-center) so file row and hints use full card width on mobile */}
+              <div className="flex w-full min-w-0 flex-col items-stretch gap-4 p-6 border-2 border-dashed border-[#333] rounded-xl">
                 <input
                   type="file"
                   accept=".csv"
@@ -962,25 +966,26 @@ export default function OnboardingPage() {
                     setImportFile(e.target.files?.[0] || null)
                     setImportResult(null)
                   }}
-                  className="text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#F7931A] file:text-[#0D0D0D] hover:file:bg-[#F7931A]/90"
+                  className="w-full min-w-0 text-sm text-muted-foreground file:mr-0 file:mb-3 file:block file:w-full file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#F7931A] file:text-[#0D0D0D] hover:file:bg-[#F7931A]/90 sm:file:mr-4 sm:file:mb-0 sm:file:inline-block sm:file:w-auto"
                 />
                 <p className="text-xs text-muted-foreground text-center">
                   CSV should have columns: Date, Envelope, Name, Amount
                 </p>
               </div>
 
-              <div className="flex gap-3">
+              {/* grid: reliable equal-width actions on narrow viewports (flex-1 alone can collapse oddly on some mobile browsers) */}
+              <div className="grid w-full min-w-0 grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={() => setStep("allocations")}
-                  className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
+                  className="min-w-0 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
                 >
-                  <ChevronLeft className="h-4 w-4" /> Back
+                  <ChevronLeft className="h-4 w-4 shrink-0" /> Back
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
+                  className="min-w-0 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center text-center px-2"
                 >
                   {loading ? "Importing..." : importFile ? "Import & Continue" : "Skip"}
                 </button>
