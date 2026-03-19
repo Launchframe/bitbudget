@@ -8,7 +8,7 @@ BitBudget is a **privacy-first, user-sovereign budgeting app**. Every change mus
 - **Nostr users never share their nsec.** The app uses the browser extension (nos2x, Alby, Keys.band) for signing and NIP-04 encryption. The server only stores the npub.
 - **Web 2.0 users derive keys from a PIN/password.** The derived key wraps a random privacy key via PBKDF2 + AES-GCM. The encrypted privacy key is stored server-side; only the client can unwrap it.
 - **Backend-created transactions** (Plaid, email forwarding, SMS) encrypt sensitive fields with the user's public key (X25519 + XSalsa20-Poly1305). Only the client holding the private key can decrypt.
-- **No analytics, no tracking, no ad-tech.** The app collects only what it needs to function.
+- **No ad-tech or cross-site tracking.** We use privacy-preserving, aggregate Vercel Analytics for basic usage and performance telemetry; no budgeting data or user identifiers are logged.
 
 If a change would cause sensitive data to be logged, stored in plaintext, or readable by the server, **stop and redesign**.
 
@@ -74,8 +74,9 @@ styles/                  Tailwind globals
 - Mobile-first responsive design. Use Tailwind breakpoints (`sm:`, `md:`, `lg:`).
 
 ### API Routes
-- Every API route starts with `const session = await auth()` and returns 401 if unauthenticated.
-- All Prisma queries filter by `userId: session.user.id` — never trust the client to scope data.
+- Every **user-scoped** API route starts with `const session = await auth()` and returns 401 if unauthenticated.
+- All **user-scoped** Prisma queries filter by `userId: session.user.id` — never trust the client to scope user data.
+- Non–user-scoped routes (webhooks, cron jobs, health checks) must use appropriate verification (shared secret, signature, or IP allowlist) instead of user sessions, and be reviewed carefully before accessing or mutating data.
 - Validate all input fields explicitly (type, range, format). Do not trust client payloads.
 - Use `NextResponse.json()` for all responses. Return appropriate HTTP status codes.
 - Parse JSON fields (like `tags`) defensively with try/catch — database rows may contain malformed data from older versions.
@@ -131,7 +132,7 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 ## Common Pitfalls
 
 - **Adding a Prisma field but forgetting `pnpm prisma generate`** — TypeScript won't see the new field until the client is regenerated.
-- **Calling `useBtcPrices()` in a component that renders in vanilla mode** — the hook returns a NOOP fallback instead of throwing, but BTC values will display as `—` or `$0`. Make sure this is intentional and gated with `state.opportunityCostEnabled`.
+- **Calling `useBtcPrices()` in a component that renders in vanilla mode or outside `BtcPriceProvider`** — the hook throws instead of returning a NOOP fallback. Ensure the component is wrapped in `BtcPriceProvider` and gated with `state.opportunityCostEnabled`.
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
 - **Stale encryption keys** — switching accounts or clearing data can leave cached keys in `sessionStorage`. The `EncryptionGate` and `PinUnlockDialog` handle re-prompting; don't bypass them.
