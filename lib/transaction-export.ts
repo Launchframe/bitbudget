@@ -3,11 +3,31 @@
  * Used by the Transactions page; filter scope is applied before calling these helpers.
  */
 
+// Heuristic check for values that are likely plain numeric or currency literals,
+// e.g. "123", "-42.50", "$1,234.00", "-$42.50", "- $42.50".
+function isProbablyNumericOrCurrency(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed) return false
+
+  // Plain integer/decimal with optional sign.
+  if (/^[+-]?\d+(?:\.\d+)?$/.test(trimmed)) return true
+
+  // Currency with optional sign, optional "$", optional spaces, optional thousands separators.
+  // Examples matched: "$123", "-$42.50", "- $42.50", "+$1,234.00"
+  if (/^[+-]?\s*\$?\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?$/.test(trimmed)) return true
+
+  return false
+}
+
 export function escapeCsvField(value: string): string {
   // Prevent spreadsheet formula injection by neutralizing leading formula characters.
   // If the value (after any leading whitespace/control characters) starts with =, +, - or @,
-  // prefix it with a single quote so that Excel treats it as a text value rather than a formula.
-  const sanitized = /^[\s\x00-\x1F]*[=+\-@]/.test(value) ? `'${value}` : value
+  // and is not a plain numeric/currency literal, prefix it with a single quote so that Excel
+  // treats it as a text value rather than a formula.
+  const leadingStripped = value.replace(/^[\s\x00-\x1F]+/, "")
+  const startsLikeFormula = /^[=+\-@]/.test(leadingStripped)
+  const shouldNeutralize = startsLikeFormula && !isProbablyNumericOrCurrency(value)
+  const sanitized = shouldNeutralize ? `'${value}` : value
   if (!/[\r\n",]/.test(sanitized)) return sanitized
   return `"${sanitized.replace(/"/g, '""')}"`
 }
@@ -38,7 +58,7 @@ const MAX_FILENAME_LEN = 200
 
 function sanitizeFilenamePart(name: string, maxLen: number): string {
   return name
-    .replace(/[^a-zA-Z0-9-_]/g, "-")
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
     .replace(/-+/g, "-")
     .slice(0, maxLen)
     .replace(/^-|-$/g, "")
