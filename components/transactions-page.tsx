@@ -156,7 +156,8 @@ export function TransactionsPage() {
   }
 
   function handleExport() {
-    const stampDate = new Date().toISOString().slice(0, 10)
+    const now = new Date()
+    const stampDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
     const envelopeNames =
       envelopeFilters.size > 0
         ? Array.from(envelopeFilters).map((id) => envelopeMap[id]?.name ?? id)
@@ -171,15 +172,18 @@ export function TransactionsPage() {
       startDate: startDate || undefined,
       endDate: endDate || undefined,
     })
-    const rows = filteredTransactions.map((t) => ({
-      type: t.type,
-      date: t.date,
-      payee: t.payee,
-      amountFormatted: formatUsdPrecise(t.amount),
-      notes: t.notes ?? "",
-      envelopeName: envelopeMap[t.envelopeId]?.name ?? "",
-      tags: (t.tags ?? []).join(", "),
-    }))
+    const rows = filteredTransactions.map((t) => {
+      const amount = t.type === "expense" ? -Math.abs(t.amount) : Math.abs(t.amount)
+      return {
+        type: t.type,
+        date: t.date,
+        payee: t.payee,
+        amountFormatted: formatUsdPrecise(amount),
+        notes: t.notes ?? "",
+        envelopeName: envelopeMap[t.envelopeId]?.name ?? "",
+        tags: (t.tags ?? []).join(", "),
+      }
+    })
     const csv = buildTransactionsCsv(rows)
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)
