@@ -121,7 +121,7 @@ export function Header() {
         dedupExistingTransactions={state.transactions}
         onImportComplete={refreshData}
         onDone={() => navigateTo("envelopes")}
-        onRequestAllocations={() => navigateTo("envelopes")}
+        onRequestAllocations={() => navigateTo("envelopes", undefined, { openAllocations: true })}
         onTryAnotherFile={() => setImportFile(null)}
         encryptFn={encryptForStorage}
       />

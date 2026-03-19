@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
-import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, TrendingUp, Crown, Building2, Smartphone, Mail, Tag, Copy, Check } from "lucide-react"
+import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, TrendingUp, Crown, Building2, Smartphone, Mail, Tag, Copy, Check, Loader2, CheckCircle2, AlertCircle } from "lucide-react"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 export function SettingsPage() {
   const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, addTag, deleteTag, refreshData, encryptForStorage, logout, subscriptionTier, navigateTo } = useApp()
@@ -16,6 +16,12 @@ export function SettingsPage() {
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [importLoading, setImportLoading] = useState(false)
+  const [importResult, setImportResult] = useState<
+    | { success: true; imported: number; skipped: number }
+    | { success: false; error: string }
+    | null
+  >(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
@@ -26,6 +32,9 @@ export function SettingsPage() {
   const [tagActionInProgress, setTagActionInProgress] = useState(false)
   const [copiedReceiptAddress, setCopiedReceiptAddress] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const handleImportError = useCallback((error: string) => {
+    setImportResult({ success: false, error })
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -102,6 +111,8 @@ export function SettingsPage() {
   function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    setImportResult(null)
+    setImportLoading(true)
     setImportFile(file)
     setImportOpen(true)
     e.target.value = ""
@@ -381,12 +392,38 @@ export function SettingsPage() {
             className="hidden"
           />
           <button
+            type="button"
             onClick={() => fileRef.current?.click()}
-            className="flex items-center justify-center gap-2 py-3 px-6 bg-[#1A1A1A] text-foreground rounded-xl text-sm font-medium hover:bg-[#222] transition-colors border border-[#333]"
+            disabled={importLoading}
+            className="flex items-center justify-center gap-2 py-3 px-6 bg-[#1A1A1A] text-foreground rounded-xl text-sm font-medium hover:bg-[#222] transition-colors border border-[#333] disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            <Upload className="h-4 w-4" />
-            Choose CSV File
+            {importLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {importOpen ? "Importing…" : "Parsing…"}
+              </>
+            ) : (
+              <>
+                <Upload className="h-4 w-4" />
+                Choose CSV File
+              </>
+            )}
           </button>
+          {importResult?.success && (
+            <div className="flex items-center gap-2 rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-3 text-sm text-green-600 dark:text-green-400">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>
+                {importResult.imported} transaction{importResult.imported !== 1 ? "s" : ""} imported
+                {importResult.skipped > 0 ? `, ${importResult.skipped} skipped` : ""}.
+              </span>
+            </div>
+          )}
+          {importResult?.success === false && (
+            <div className="flex items-center gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>Import failed: {importResult.error}</span>
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -471,7 +508,7 @@ export function SettingsPage() {
         <div className="flex flex-col gap-2">
           <p className="text-sm text-muted-foreground">
             Your sensitive transaction data (payees, descriptions) is encrypted end-to-end.
-            Only you can decrypt it with your PIN or Nostr key.
+            Only you can decrypt it with your passphrase or Nostr key.
           </p>
           <div className="flex items-center gap-2 mt-2">
             <div className="w-2 h-2 rounded-full bg-[#22C55E]" />
@@ -584,16 +621,28 @@ export function SettingsPage() {
 
       <CSVImportDialog
         open={importOpen}
-        onOpenChange={setImportOpen}
+        onOpenChange={(open) => {
+          setImportOpen(open)
+          if (!open) setImportLoading(false)
+        }}
         file={importFile}
         dedupExistingTransactions={state.transactions}
         onImportComplete={refreshData}
+        onImportResult={(result) =>
+          setImportResult({ success: true, imported: result.imported, skipped: result.skipped })
+        }
         onDone={() => {}}
         onRequestAllocations={() => {
           setImportOpen(false)
-          navigateTo("envelopes")
+          navigateTo("envelopes", undefined, { openAllocations: true })
         }}
-        onTryAnotherFile={() => setImportFile(null)}
+        onTryAnotherFile={() => {
+          setImportOpen(false)
+          setImportFile(null)
+          setTimeout(() => fileRef.current?.click(), 0)
+        }}
+        onLoadingChange={setImportLoading}
+        onImportError={handleImportError}
         encryptFn={encryptForStorage}
       />
     </div>

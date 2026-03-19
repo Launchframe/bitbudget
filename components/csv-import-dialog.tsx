@@ -95,6 +95,8 @@ export function CSVImportDialog({
   onDone,
   onRequestAllocations,
   onTryAnotherFile,
+  onLoadingChange,
+  onImportError,
   encryptFn: encryptFnProp,
 }: {
   open: boolean
@@ -113,6 +115,10 @@ export function CSVImportDialog({
   onRequestAllocations?: () => void
   /** Called when user chooses another file after an all-duplicates result; parent should clear `file`. */
   onTryAnotherFile?: () => void
+  /** Called when parsing or import starts/finishes so parent can show loading state. */
+  onLoadingChange?: (loading: boolean) => void
+  /** Called when import fails so parent can show failure message. */
+  onImportError?: (message: string) => void
   encryptFn?: EncryptFn
 }) {
   const [step, setStep] = useState<Step>("preview")
@@ -138,6 +144,7 @@ export function CSVImportDialog({
 
     async function loadPreview() {
       setLoading(true)
+      onLoadingChange?.(true)
       setError(null)
       setStep("preview")
       setDedupMode(null)
@@ -180,15 +187,40 @@ export function CSVImportDialog({
           initialMapping[env.csvName] = env.autoMatchId ?? NEW_ENVELOPE
         }
         setMapping(initialMapping)
+
+        const skipEnv = new Set(
+          Object.entries(initialMapping)
+            .filter(([, v]) => v === SKIP_ENVELOPE)
+            .map(([k]) => k.toLowerCase())
+        )
+        const existingByKey = buildExistingByKey(dedupExistingTransactions)
+        const eligibleIndices: number[] = []
+        const dupRows: { index: number; incoming: ParsedTransaction; existing: Transaction }[] = []
+        for (let i = 0; i < parsed.transactions.length; i++) {
+          const txn = parsed.transactions[i]
+          if (skipEnv.has(txn.envelopeName.toLowerCase())) continue
+          eligibleIndices.push(i)
+          const k = collisionKey(txn.date, txn.payee, txn.amount)
+          const existing = existingByKey.get(k)
+          if (existing) dupRows.push({ index: i, incoming: txn, existing })
+        }
+        if (eligibleIndices.length > 0 && dupRows.length === eligibleIndices.length) {
+          setDuplicateRows(dupRows)
+          setDedupMode("allDupes")
+          setStep("dedup")
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to preview CSV")
+        const msg = err instanceof Error ? err.message : "Failed to preview CSV"
+        setError(msg)
+        onImportError?.(msg)
       } finally {
         setLoading(false)
+        onLoadingChange?.(false)
       }
     }
 
     loadPreview()
-  }, [open, file])
+  }, [open, file, dedupExistingTransactions, onLoadingChange, onImportError])
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
@@ -222,6 +254,7 @@ export function CSVImportDialog({
   const runImport = async (dupIndices: Set<number>, discardIndices: Set<number>) => {
     if (!parseResult) return
     setStep("importing")
+    onLoadingChange?.(true)
     setError(null)
     try {
       const encrypt = encryptFnProp ?? getSessionEncryptFn()
@@ -259,8 +292,11 @@ export function CSVImportDialog({
       }
 
       if (encryptedTxns.length === 0) {
-        setError("No transactions left to import.")
+        const msg = "No transactions left to import."
+        setError(msg)
+        onImportError?.(msg)
         setStep("dedup")
+        onLoadingChange?.(false)
         return
       }
 
@@ -286,50 +322,65 @@ export function CSVImportDialog({
       setResult(summary)
       onImportResultProp?.(summary)
       setStep("done")
+      onLoadingChange?.(false)
       if (onImportComplete) await onImportComplete()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Import failed")
+      const msg = err instanceof Error ? err.message : "Import failed"
+      setError(msg)
+      onImportError?.(msg)
+      onLoadingChange?.(false)
       setStep(dedupMode ? "dedup" : "preview")
     }
   }
 
   const handlePreviewImportClick = () => {
     if (!parseResult) return
-    const skipEnv = skippedNames()
-    const existingByKey = buildExistingByKey(dedupExistingTransactions)
+    setStep("importing")
+    onLoadingChange?.(true)
+    setError(null)
+    setTimeout(() => {
+      const skipEnv = skippedNames()
+      const existingByKey = buildExistingByKey(dedupExistingTransactions)
 
-    const eligibleIndices: number[] = []
-    const dupRows: { index: number; incoming: ParsedTransaction; existing: Transaction }[] = []
+      const eligibleIndices: number[] = []
+      const dupRows: { index: number; incoming: ParsedTransaction; existing: Transaction }[] = []
 
-    for (let i = 0; i < parseResult.transactions.length; i++) {
-      const txn = parseResult.transactions[i]
-      if (skipEnv.has(txn.envelopeName.toLowerCase())) continue
-      eligibleIndices.push(i)
-      const k = collisionKey(txn.date, txn.payee, txn.amount)
-      const existing = existingByKey.get(k)
-      if (existing) {
-        dupRows.push({ index: i, incoming: txn, existing })
+      for (let i = 0; i < parseResult.transactions.length; i++) {
+        const txn = parseResult.transactions[i]
+        if (skipEnv.has(txn.envelopeName.toLowerCase())) continue
+        eligibleIndices.push(i)
+        const k = collisionKey(txn.date, txn.payee, txn.amount)
+        const existing = existingByKey.get(k)
+        if (existing) {
+          dupRows.push({ index: i, incoming: txn, existing })
+        }
       }
-    }
 
-    if (eligibleIndices.length === 0) return
+      if (eligibleIndices.length === 0) {
+        setStep("preview")
+        onLoadingChange?.(false)
+        return
+      }
 
-    if (dupRows.length === 0) {
-      void runImport(new Set(), new Set())
-      return
-    }
+      if (dupRows.length === 0) {
+        void runImport(new Set(), new Set())
+        return
+      }
 
-    if (dupRows.length === eligibleIndices.length) {
-      setDedupMode("allDupes")
+      if (dupRows.length === eligibleIndices.length) {
+        setDedupMode("allDupes")
+        setDuplicateRows(dupRows)
+        setStep("dedup")
+        onLoadingChange?.(false)
+        return
+      }
+
+      setDedupMode("someDupes")
       setDuplicateRows(dupRows)
+      setDiscardDupIndices(new Set(dupRows.map((r) => r.index)))
       setStep("dedup")
-      return
-    }
-
-    setDedupMode("someDupes")
-    setDuplicateRows(dupRows)
-    setDiscardDupIndices(new Set(dupRows.map((r) => r.index)))
-    setStep("dedup")
+      onLoadingChange?.(false)
+    }, 0)
   }
 
   const dupIndexSet = new Set(duplicateRows.map((r) => r.index))
@@ -404,7 +455,7 @@ export function CSVImportDialog({
             {step === "importing" && "Encrypting and importing transactions..."}
             {step === "done" && result && (
               <>
-                {result.imported} transactions imported, {result.skipped} skipped.
+                {result.imported} transactions imported, including {result.newEnvelopes.length} new envelopes. {result.skipped} transactions were skipped.
               </>
             )}
           </DialogDescription>
@@ -543,17 +594,8 @@ export function CSVImportDialog({
             <CheckCircle2 className="h-14 w-14 text-green-500" />
             {result && result.newEnvelopes.length > 0 && (
               <div className="w-full rounded-lg bg-[#F7931A]/10 border border-[#F7931A]/20 px-4 py-3 text-sm">
-                <p className="font-medium text-foreground mb-1">
-                  {result.newEnvelopes.length} new envelope{result.newEnvelopes.length !== 1 ? "s" : ""} created
-                </p>
-                <p className="text-muted-foreground text-xs mb-2">
-                  {result.newEnvelopes.join(", ")}
-                </p>
-                <p className="text-muted-foreground text-xs mb-3">
-                  These envelopes have no monthly allotment yet.
-                </p>
                 <p className="text-foreground text-sm font-medium">
-                  Would you like to go back and change your income allocations?
+                  You have new envelopes to set up.
                 </p>
               </div>
             )}
@@ -610,7 +652,12 @@ export function CSVImportDialog({
               <button
                 type="button"
                 disabled={toImportFromDedup <= 0}
-                onClick={() => void runImport(dupIndexSet, discardDupIndices)}
+                onClick={() => {
+                  setStep("importing")
+                  onLoadingChange?.(true)
+                  setError(null)
+                  setTimeout(() => void runImport(dupIndexSet, discardDupIndices), 0)
+                }}
                 className="flex items-center gap-2 px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Import {toImportFromDedup} Transaction{toImportFromDedup !== 1 ? "s" : ""}

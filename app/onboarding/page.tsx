@@ -190,11 +190,11 @@ export default function OnboardingPage() {
 
   async function handleSecuritySetup() {
     if (pin.length < 4) {
-      setPinError("PIN must be at least 4 characters")
+      setPinError("Passphrase must be at least 4 characters")
       return
     }
     if (pin !== pinConfirm) {
-      setPinError("PINs don't match")
+      setPinError("Passphrases don't match")
       return
     }
     setPinError("")
@@ -407,13 +407,13 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Secure Your Data</h2>
-                  <p className="text-sm text-muted-foreground">Create a PIN to encrypt your private data</p>
+                  <p className="text-sm text-muted-foreground">Create a passphrase to encrypt your private data</p>
                 </div>
               </div>
 
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Your transaction details (payees, descriptions) are encrypted before leaving your device.
-                This PIN derives the encryption key. <strong>If you lose it, your data cannot be recovered.</strong>
+                This passphrase derives the encryption key. <strong>If you lose it, your data cannot be recovered.</strong>
               </p>
 
               <div className="flex flex-col gap-4">
@@ -429,12 +429,12 @@ export default function OnboardingPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Confirm PIN</Label>
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Confirm passphrase</Label>
                   <Input
                     type="password"
                     value={pinConfirm}
                     onChange={e => setPinConfirm(e.target.value)}
-                    placeholder="Re-enter your PIN"
+                    placeholder="Re-enter your passphrase"
                     className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
                   />
                 </div>

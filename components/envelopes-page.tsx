@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useRef, createElement } from "react"
+import { useState, useMemo, useRef, createElement, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { getEnvelopeBalance, getCurrentMonthKey, formatUsd } from "@/lib/data"
 import { Progress } from "@/components/ui/progress"
@@ -17,7 +17,7 @@ import { EnvelopeAppearancePicker, PRESET_COLORS } from "@/components/envelope-a
 import { suggestIcon, getEnvelopeIcon, filterSuggestions } from "@/lib/envelope-icons"
 
 export function EnvelopesPage() {
-  const { state, navigateTo, addEnvelope, editEnvelope, archiveEnvelope, restoreEnvelope, deleteEnvelope, mergeEnvelope, setMonthlyIncome } = useApp()
+  const { state, navigateTo, addEnvelope, editEnvelope, archiveEnvelope, restoreEnvelope, deleteEnvelope, mergeEnvelope, setMonthlyIncome, envelopesOpenAllocations, clearEnvelopesAllocationsIntent } = useApp()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -151,6 +151,19 @@ export function EnvelopesPage() {
     setAllocating(true)
   }
 
+  useEffect(() => {
+    if (!envelopesOpenAllocations) return
+    clearEnvelopesAllocationsIntent()
+    if (activeEnvelopes.length > 0) openAllocations()
+  }, [envelopesOpenAllocations])
+
+  function closeAllocationsPanel() {
+    setAllocating(false)
+    if (window.location.hash === "#/envelopes/allocations") {
+      window.history.replaceState({ page: "envelopes" }, "", "#/envelopes")
+    }
+  }
+
   function saveAllocations() {
     for (const env of activeEnvelopes) {
       const newVal = draftAllotments[env.id] ?? env.monthlyAllotment
@@ -158,7 +171,7 @@ export function EnvelopesPage() {
         editEnvelope(env.id, { monthlyAllotment: newVal })
       }
     }
-    setAllocating(false)
+    closeAllocationsPanel()
   }
 
   const draftTotalAllocated = allocating
@@ -300,7 +313,7 @@ export function EnvelopesPage() {
                 </p>
                 <button
                   type="button"
-                  onClick={() => { dismissMergeHint(); setAllocating(false) }}
+                  onClick={() => { dismissMergeHint(); closeAllocationsPanel() }}
                   className="self-start text-xs font-medium text-[#3B82F6] hover:text-[#60A5FA] underline underline-offset-2 transition-colors"
                 >
                   Merge envelopes
@@ -449,7 +462,7 @@ export function EnvelopesPage() {
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={() => setAllocating(false)}
+              onClick={closeAllocationsPanel}
               className="flex-1 py-2.5 bg-[#1A1A1A] text-foreground rounded-xl font-medium text-sm hover:bg-[#222] transition-colors border border-[#333]"
             >
               Cancel
