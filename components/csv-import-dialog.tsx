@@ -454,7 +454,11 @@ export function CSVImportDialog({
             )}
             {step === "done" && result && (
               <>
-                {result.imported} transactions imported, including {result.newEnvelopes.length} new envelopes. {result.skipped > 0 ? result.skipped : 'No'} transactions were skipped.
+                {result.imported} transactions imported
+                {result.newEnvelopes.length > 0 && (
+                  <> including {result.newEnvelopes.length} new envelope{result.newEnvelopes.length === 1 ? "" : "s"}</>
+                )}
+                . {result.skipped > 0 ? result.skipped : "No"} transactions were skipped.
               </>
             )}
           </DialogDescription>
