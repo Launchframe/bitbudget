@@ -11,6 +11,7 @@ import { NewTransactionDialog } from "@/components/new-transaction-dialog"
 import { DashboardPage } from "@/components/dashboard-page"
 import { AnalyticsPage } from "@/components/analytics-page"
 import { EnvelopesPage } from "@/components/envelopes-page"
+import { EnvelopeAllocationsPage } from "@/components/envelope-allocations-page"
 import { EnvelopeDetailPage } from "@/components/envelope-detail-page"
 import { TransactionsPage } from "@/components/transactions-page"
 import { BtcPricePage } from "@/components/btc-price-page"
@@ -108,6 +109,8 @@ function PageContent() {
       return <ProfilePage />
     case "envelopes":
       return <EnvelopesPage />
+    case "envelope-allocations":
+      return <EnvelopeAllocationsPage />
     case "envelope-detail":
       return <EnvelopeDetailPage />
     case "settings":

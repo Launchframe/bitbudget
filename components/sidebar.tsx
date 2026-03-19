@@ -26,7 +26,7 @@ export function Sidebar() {
     <aside className="sticky top-24 h-[calc(100vh-8rem)] w-16 lg:w-64 bg-[#0D0D0D] rounded-2xl hidden md:flex flex-col py-8 px-3 lg:px-8 overflow-y-auto">
       <nav className="flex flex-col gap-8">
         {navItems.filter(item => item.id !== "btc-price" || state.opportunityCostEnabled).map((item) => {
-          const isActive = currentPage === item.id || (item.id === "envelopes" && currentPage === "envelope-detail")
+          const isActive = currentPage === item.id || (item.id === "envelopes" && (currentPage === "envelope-detail" || currentPage === "envelope-allocations"))
           const isPlaceholder = item.id === "researcher" || item.id === "funds"
           const Icon = item.icon
           return (
