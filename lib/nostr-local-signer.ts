@@ -9,6 +9,34 @@ import type { VerifiedEvent } from "nostr-tools"
 
 const AUTH_EVENT_KIND = 27235
 
+const AUTH_EVENT_CONTENT = "BitBudget Login"
+
+/** Unsigned auth event template (kind 27235) for extension or local signing. */
+export interface AuthEventTemplate {
+  kind: number
+  created_at: number
+  tags: string[][]
+  content: string
+  pubkey?: string
+}
+
+/**
+ * Build the unsigned auth event template for the given origin.
+ * Extension flow: spread this, add pubkey, then call extension.signEvent().
+ * Nsec flow: use signAuthEvent() which builds and signs in one step.
+ */
+export function buildAuthEventTemplate(origin: string): AuthEventTemplate {
+  return {
+    kind: AUTH_EVENT_KIND,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ["u", origin],
+      ["method", "login"],
+    ],
+    content: AUTH_EVENT_CONTENT,
+  }
+}
+
 export interface DecodedNsecResult {
   secretKey: Uint8Array
   pubkey: string
@@ -36,15 +64,7 @@ export function decodeNsec(nsec: string): DecodedNsecResult {
  * Build and sign a kind-27235 auth event for the given origin.
  */
 export function signAuthEvent(secretKey: Uint8Array, origin: string): VerifiedEvent {
-  const template = {
-    kind: AUTH_EVENT_KIND,
-    created_at: Math.floor(Date.now() / 1000),
-    tags: [
-      ["u", origin],
-      ["method", "login"],
-    ],
-    content: "BitBudget Login",
-  }
+  const template = buildAuthEventTemplate(origin)
   return finalizeEvent(template, secretKey)
 }
 
@@ -60,15 +80,24 @@ export interface NostrProfile {
   image?: string
 }
 
+/** Minimal type for Nostr relay pool used in fetchNostrProfile. */
+interface NostrPool {
+  get(
+    relays: string[],
+    filter: { kinds: number[]; authors: string[] }
+  ): Promise<{ content?: string } | null>
+  close(relays: string[]): void
+}
+
 /**
  * Fetch kind-0 profile (name, picture) for a pubkey from relays.
  */
 export async function fetchNostrProfile(pubkey: string): Promise<NostrProfile> {
+  let pool: NostrPool | undefined
   try {
     const { SimplePool } = await import("nostr-tools/pool")
-    const pool = new SimplePool()
+    pool = new SimplePool() as NostrPool
     const event = await pool.get(RELAYS, { kinds: [0], authors: [pubkey] })
-    pool.close(RELAYS)
     if (!event?.content) return {}
     const meta = JSON.parse(event.content) as Record<string, string>
     return {
@@ -77,5 +106,13 @@ export async function fetchNostrProfile(pubkey: string): Promise<NostrProfile> {
     }
   } catch {
     return {}
+  } finally {
+    if (pool) {
+      try {
+        pool.close(RELAYS)
+      } catch {
+        // ignore close errors
+      }
+    }
   }
 }

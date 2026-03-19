@@ -41,6 +41,21 @@ function parsePlatform(): PlatformInfo {
   else if (/\bwindows\b/.test(uaLower)) os = "windows"
   else if (/\blinux\b/.test(uaLower)) os = "linux"
 
+  // Heuristic: iPadOS Safari in "desktop mode" often reports a UA with "Macintosh"
+  // and "Mobile" but without "iPad". If we detect that pattern on a touch device,
+  // treat it as iOS instead of macOS so recommendations remain correct.
+  const nav = navigator as Navigator & { maxTouchPoints?: number }
+  const win = typeof window !== "undefined" ? (window as Window & { ontouchstart?: unknown }) : null
+  if (
+    os === "macos" &&
+    /\bmobile\b/.test(uaLower) &&
+    (typeof nav.maxTouchPoints === "number"
+      ? nav.maxTouchPoints > 0
+      : win !== null && typeof win.ontouchstart !== "undefined")
+  ) {
+    os = "ios"
+  }
+
   let browser: PlatformBrowser = "other"
   if (/\bedge\b|edg\//.test(uaLower)) browser = "edge"
   else if (/\bchrome\b|chromium\b/.test(uaLower) && !/\bedge\b/.test(uaLower))

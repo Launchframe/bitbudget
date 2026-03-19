@@ -1,0 +1,125 @@
+// @vitest-environment node
+import { webcrypto } from "node:crypto"
+import { beforeAll, describe, it, expect } from "vitest"
+import { generateSecretKey } from "nostr-tools"
+import { nsecEncode } from "nostr-tools/nip19"
+import {
+  buildAuthEventTemplate,
+  decodeNsec,
+  signAuthEvent,
+  fetchNostrProfile,
+  type AuthEventTemplate,
+} from "../nostr-local-signer"
+
+beforeAll(() => {
+  if (!globalThis.crypto) {
+    globalThis.crypto = webcrypto as unknown as Crypto
+  }
+})
+
+describe("buildAuthEventTemplate", () => {
+  it("returns kind 27235", () => {
+    const t = buildAuthEventTemplate("https://app.example.com")
+    expect(t.kind).toBe(27235)
+  })
+
+  it("includes origin in u tag", () => {
+    const origin = "https://bitbudget.app"
+    const t = buildAuthEventTemplate(origin)
+    const uTag = t.tags.find(([name]) => name === "u")
+    expect(uTag).toEqual(["u", origin])
+  })
+
+  it("includes method login tag", () => {
+    const t = buildAuthEventTemplate("https://example.com")
+    const methodTag = t.tags.find(([name]) => name === "method")
+    expect(methodTag).toEqual(["method", "login"])
+  })
+
+  it("content is BitBudget Login", () => {
+    const t = buildAuthEventTemplate("https://example.com")
+    expect(t.content).toBe("BitBudget Login")
+  })
+
+  it("created_at is near now (within 2s)", () => {
+    const before = Math.floor(Date.now() / 1000)
+    const t = buildAuthEventTemplate("https://example.com")
+    const after = Math.floor(Date.now() / 1000)
+    expect(t.created_at).toBeGreaterThanOrEqual(before)
+    expect(t.created_at).toBeLessThanOrEqual(after + 1)
+  })
+
+  it("matches AuthEventTemplate shape (no required pubkey)", () => {
+    const t = buildAuthEventTemplate("https://x.com") as AuthEventTemplate
+    expect(t).toHaveProperty("kind")
+    expect(t).toHaveProperty("created_at")
+    expect(t).toHaveProperty("tags")
+    expect(t).toHaveProperty("content")
+    expect(Array.isArray(t.tags)).toBe(true)
+  })
+})
+
+describe("decodeNsec", () => {
+  it("decodes valid nsec to secretKey and pubkey", () => {
+    const secretKey = generateSecretKey()
+    const nsec = nsecEncode(secretKey)
+    const result = decodeNsec(nsec)
+    expect(result.secretKey).toEqual(secretKey)
+    expect(result.pubkey).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it("trims whitespace", () => {
+    const secretKey = generateSecretKey()
+    const nsec = nsecEncode(secretKey)
+    const result = decodeNsec(`  ${nsec}  `)
+    expect(result.secretKey).toEqual(secretKey)
+  })
+
+  it("throws if string does not start with nsec1", () => {
+    expect(() => decodeNsec("npub1something")).toThrow("Invalid nsec: must start with nsec1")
+    expect(() => decodeNsec("")).toThrow("Invalid nsec: must start with nsec1")
+  })
+
+  it("throws if decoded type is not nsec", () => {
+    expect(() => decodeNsec("nsec1invalid")).toThrow()
+  })
+})
+
+describe("signAuthEvent", () => {
+  it("returns event with id, sig, and pubkey", () => {
+    const secretKey = generateSecretKey()
+    const signed = signAuthEvent(secretKey, "https://app.example.com")
+    expect(signed).toHaveProperty("id")
+    expect(signed).toHaveProperty("sig")
+    expect(signed).toHaveProperty("pubkey")
+    expect(typeof signed.id).toBe("string")
+    expect(typeof signed.sig).toBe("string")
+    expect(signed.pubkey).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it("uses same kind and content as template", () => {
+    const secretKey = generateSecretKey()
+    const signed = signAuthEvent(secretKey, "https://example.com")
+    expect(signed.kind).toBe(27235)
+    expect(signed.content).toBe("BitBudget Login")
+    expect(signed.tags).toContainEqual(["u", "https://example.com"])
+    expect(signed.tags).toContainEqual(["method", "login"])
+  })
+
+  it("produces different id/sig for different origins", () => {
+    const secretKey = generateSecretKey()
+    const a = signAuthEvent(secretKey, "https://a.com")
+    const b = signAuthEvent(secretKey, "https://b.com")
+    expect(a.id).not.toBe(b.id)
+    expect(a.sig).not.toBe(b.sig)
+  })
+})
+
+describe("fetchNostrProfile", () => {
+  it("returns object with optional name and image (NostrProfile shape)", async () => {
+    const profile = await fetchNostrProfile("0000000000000000000000000000000000000000000000000000000000000001")
+    expect(profile).toEqual(expect.any(Object))
+    if ("name" in profile && profile.name != null) expect(typeof profile.name).toBe("string")
+    if ("image" in profile && profile.image != null) expect(typeof profile.image).toBe("string")
+  })
+})
