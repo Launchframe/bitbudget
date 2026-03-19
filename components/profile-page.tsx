@@ -21,10 +21,12 @@ export function ProfilePage() {
           <h3 className="text-lg font-semibold text-foreground">Account Details</h3>
         </div>
         <div className="flex items-center gap-4">
-          <div className="h-14 w-14 shrink-0 rounded-full overflow-hidden bg-gradient-to-br from-[#F7931A] to-[#E2761B]">
-            {userImage && (
+          <div className="h-14 w-14 shrink-0 rounded-full overflow-hidden bg-gradient-to-br from-[#F7931A] to-[#E2761B] flex items-center justify-center">
+            {userImage ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={userImage} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <User className="h-7 w-7 text-[#0D0D0D]/80" aria-hidden />
             )}
           </div>
           <div className="min-w-0">
