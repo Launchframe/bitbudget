@@ -4,8 +4,9 @@
  * For Web 2.0 users: a passphrase derives an AES-GCM key via PBKDF2. That key wraps
  * a random "privacy key" which is stored (encrypted) server-side.
  *
- * For Nostr users: encryption uses the nostr extension (NIP-04 or NIP-44).
- * The app never sees the user's nsec.
+ * For Nostr users: encryption uses the nostr extension (NIP-04 or NIP-44), or
+ * for nsec fallback users the app encrypts the nsec at rest with the same
+ * PIN-derived key used for the privacy key.
  *
  * Asymmetric encryption (X25519 + XSalsa20-Poly1305 via tweetnacl) allows
  * the server to encrypt fields with a user's public key when creating

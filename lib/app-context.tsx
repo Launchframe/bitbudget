@@ -239,7 +239,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         sessionStorage.removeItem("bitbudget-privacy-user")
       }
 
-      if (data.isNostr && data.nostrPubkey) {
+      // Nsec fallback users have privacyKeySalt (PIN-based); skip NIP-04 and use PIN unlock path.
+      const isNsecFallback = data.isNostr && data.privacyKeySalt != null
+      if (data.isNostr && data.nostrPubkey && !isNsecFallback) {
         const nostrExt = (window as unknown as {
           nostr?: { nip04?: { decrypt: (pubkey: string, ciphertext: string) => Promise<string> } }
         }).nostr
@@ -706,6 +708,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     sessionStorage.removeItem("bitbudget-privacy-key")
     sessionStorage.removeItem("bitbudget-privacy-user")
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem("bitbudget-nsec")
+      localStorage.removeItem("bitbudget-nsec-salt")
+      localStorage.removeItem("bitbudget-nsec-user")
+    }
     privacyKeyRef.current = null
     publicKeyRef.current = null
     currentUserIdRef.current = null

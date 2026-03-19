@@ -18,6 +18,7 @@ import {
   generatePrivacyKey,
   encryptPrivacyKey,
   uint8ToHex,
+  hexToUint8,
 } from "@/lib/crypto"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 
@@ -82,6 +83,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState<Step>("security")
   const [loading, setLoading] = useState(false)
   const [isNostr, setIsNostr] = useState(false)
+  const [isNsecFallback, setIsNsecFallback] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
 
   // Security
@@ -222,6 +224,11 @@ export default function OnboardingPage() {
         if (encRes.ok) {
           enc = (await encRes.json()) as EncPayload
         }
+        
+        // Nsec fallback users have pending nsec in sessionStorage; show security step. Extension users skip it.
+        const hasPendingNsec = typeof window !== "undefined" && sessionStorage.getItem("bitbudget-pending-nsec")
+        if (hasPendingNsec) setIsNsecFallback(true)
+        setStep(prev => (prev === "security" && hasPendingNsec ? "security" : prev === "security" ? "income" : prev))
 
         let txCount = 0
         if (settingsRes.ok) {
@@ -360,6 +367,14 @@ export default function OnboardingPage() {
       if (typeof window !== "undefined") {
         sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
         if (userId) sessionStorage.setItem("bitbudget-privacy-user", userId)
+        const pendingNsecHex = sessionStorage.getItem("bitbudget-pending-nsec")
+        if (pendingNsecHex) {
+          const nsecBytes = hexToUint8(pendingNsecHex)
+          const nsecEncrypted = await encryptPrivacyKey(nsecBytes, derivedKey)
+          localStorage.setItem("bitbudget-nsec", JSON.stringify(nsecEncrypted))
+          if (userId) localStorage.setItem("bitbudget-nsec-user", userId)
+          sessionStorage.removeItem("bitbudget-pending-nsec")
+        }
       }
       await syncUserPublicKey(privacyKey)
 
@@ -544,8 +559,8 @@ export default function OnboardingPage() {
             </div>
           )}
 
-          {/* Security Step — hidden when E2E key already exists (API also rejects overwriting). */}
-          {step === "security" && !isNostr && (
+          {/* Security Step: Web 2.0 users and nsec fallback users (Nostr without extension) */}
+          {step === "security" && (!isNostr || isNsecFallback) && (
             !bootstrapped ? (
               <div className="flex flex-col items-center justify-center gap-4 py-16">
                 <Spinner className="h-8 w-8 text-[#F7931A]" />

@@ -7,12 +7,37 @@ import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft, HelpCircle, ChevronLeft, ChevronRight, X } from "lucide-react"
+import { decodeNsec, signAuthEvent, fetchNostrProfile as fetchNostrProfileFromSigner } from "@/lib/nostr-local-signer"
+import { uint8ToHex } from "@/lib/crypto"
+import { usePlatform } from "@/lib/platform-context"
 
-type AuthMethod = "email" | "nostr" | null
+type AuthMethod = "email" | "nostr" | "nsec" | null
+
+type SignerEntry = { name: string; href: string; img: string; recommended?: boolean; note?: string }
+
+function getSignersForPlatform(os: string): SignerEntry[] {
+  if (os === "android") {
+    return [
+      { name: "Alby on Firefox", href: "https://addons.mozilla.org/en-US/android/addon/alby/", img: "https://www.satlantis.io/images/alby-logo.svg", note: "Requires Firefox for Android" },
+      { name: "Amber", href: "https://zapstore.dev/apps/com.greenart7c3.nostrsigner", img: "https://www.satlantis.io/images/alby-logo.svg", note: "Use nsec fallback below for web login" },
+    ]
+  }
+  if (os === "ios") {
+    return [
+      { name: "Nostash", href: "https://apps.apple.com/us/app/nostash/id6744309333", img: "https://www.satlantis.io/images/alby-logo.svg", note: "Safari extension for NIP-07" },
+    ]
+  }
+  return [
+    { name: "keys.band", href: "https://keys.band/", img: "https://www.satlantis.io/images/keys-band-logo.png", recommended: true },
+    { name: "Alby", href: "https://getalby.com/", img: "https://www.satlantis.io/images/alby-logo.svg" },
+    { name: "nos2x", href: "https://nostrapps.com/nos2x", img: "https://www.satlantis.io/images/nos2x-logo.png" },
+  ]
+}
 type EmailStep = "enter-email" | "enter-code"
 
 export default function AuthPage() {
   const router = useRouter()
+  const platform = usePlatform()
   const [method, setMethod] = useState<AuthMethod>(null)
   const [email, setEmail] = useState("")
   const [code, setCode] = useState("")
@@ -23,6 +48,7 @@ export default function AuthPage() {
   const [cooldown, setCooldown] = useState(0)
   const [keysGuideOpen, setKeysGuideOpen] = useState(false)
   const [keysGuideStep, setKeysGuideStep] = useState(0)
+  const [nsecValue, setNsecValue] = useState("")
   const codeInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -223,6 +249,36 @@ export default function AuthPage() {
     }
   }
 
+  async function handleNsecLogin(e: React.FormEvent) {
+    e.preventDefault()
+    setError("")
+    setLoading(true)
+    try {
+      const { secretKey, pubkey } = decodeNsec(nsecValue)
+      const signed = signAuthEvent(secretKey, window.location.origin)
+      const profile = await fetchNostrProfileFromSigner(pubkey)
+      const result = await signIn("nostr", {
+        pubkey,
+        event: JSON.stringify(signed),
+        profileName: profile.name ?? "",
+        profileImage: profile.image ?? "",
+        redirect: false,
+      })
+      if (result?.error) {
+        setError(`Nostr authentication failed: ${result.error}`)
+        return
+      }
+      sessionStorage.setItem("bitbudget-pending-nsec", uint8ToHex(secretKey))
+      router.push("/")
+      router.refresh()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(msg.startsWith("Invalid nsec") ? msg : `Sign-in failed: ${msg}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function handleOAuth(provider: string) {
     setLoading(true)
     await signIn(provider, { callbackUrl: "/" })
@@ -232,6 +288,7 @@ export default function AuthPage() {
     setMethod(null)
     setEmailStep("enter-email")
     setCode("")
+    setNsecValue("")
     setError("")
     setCooldown(0)
   }
@@ -422,6 +479,46 @@ export default function AuthPage() {
             </form>
           )}
 
+          {/* Nsec fallback: sign in with raw nsec */}
+          {method === "nsec" && (
+            <form onSubmit={handleNsecLogin} className="flex flex-col gap-4">
+              <button
+                type="button"
+                onClick={() => { setMethod("nostr"); setNsecValue(""); setError("") }}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors self-start mb-2"
+              >
+                <ArrowLeft className="h-3 w-3" />
+                Back
+              </button>
+              <div className="flex flex-col items-center gap-2 py-2">
+                <KeyRound className="h-8 w-8 text-[#8B5CF6]" />
+                <h3 className="text-lg font-semibold text-foreground">Sign in with your nsec</h3>
+                <p className="text-xs text-muted-foreground text-center">
+                  Your nsec never leaves your device. It will be encrypted and stored locally.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label className="text-muted-foreground text-xs uppercase tracking-wider">Private key (nsec1...)</Label>
+                <Input
+                  type="password"
+                  value={nsecValue}
+                  onChange={e => setNsecValue(e.target.value)}
+                  placeholder="nsec1..."
+                  className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] font-mono text-sm"
+                  autoComplete="off"
+                  autoFocus
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading || !nsecValue.trim()}
+                className="w-full py-3 bg-[#8B5CF6] text-white rounded-xl font-semibold text-sm hover:bg-[#8B5CF6]/90 transition-colors disabled:opacity-50"
+              >
+                {loading ? "Signing in..." : "Continue"}
+              </button>
+            </form>
+          )}
+
           {/* Nostr extension not found */}
           {method === "nostr" && !nostrAvailable && (
             <div className="flex flex-col gap-4">
@@ -440,16 +537,12 @@ export default function AuthPage() {
                 </div>
                 <h3 className="text-lg font-semibold text-foreground">No Nostr Extension Detected</h3>
                 <p className="text-sm text-muted-foreground text-center leading-relaxed">
-                  To sign in with Nostr you need a browser extension that manages your keys.
+                  To sign in with Nostr you need a browser extension or app that manages your keys.
                   Install one of these, create or import your keypair, then reload this page.
                 </p>
 
                 <div className="flex flex-col gap-3 w-full">
-                  {([
-                    { name: "keys.band", href: "https://keys.band/", img: "https://www.satlantis.io/images/keys-band-logo.png" },
-                    { name: "Alby", href: "https://getalby.com/", img: "https://www.satlantis.io/images/alby-logo.svg" },
-                    { name: "nos2x", href: "https://nostrapps.com/nos2x", img: "https://www.satlantis.io/images/nos2x-logo.png" },
-                  ] as const).map((ext) => (
+                  {getSignersForPlatform(platform.os).map((ext) => (
                     <a
                       key={ext.name}
                       href={ext.href}
@@ -462,7 +555,8 @@ export default function AuthPage() {
                       <div className="flex flex-col">
                         <span className="font-semibold text-foreground">{ext.name}</span>
                         <span className="text-xs text-muted-foreground">{ext.href.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
-                        {ext.name === 'keys.band' && <span className="text-xs text-btc-orange">Recommended</span>}
+                        {ext.recommended && <span className="text-xs text-btc-orange">Recommended</span>}
+                        {ext.note && <span className="text-xs text-muted-foreground mt-0.5">{ext.note}</span>}
                       </div>
                     </a>
                   ))}
@@ -473,6 +567,14 @@ export default function AuthPage() {
                   className="w-full py-3 bg-[#8B5CF6] text-white rounded-xl font-semibold text-sm hover:bg-[#8B5CF6]/90 transition-colors mt-2"
                 >
                   I&apos;ve Installed It — Reload
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMethod("nsec")}
+                  className="w-full py-2.5 mt-2 text-sm text-muted-foreground hover:text-foreground transition-colors border border-[#333] rounded-xl"
+                >
+                  Or sign in with your nsec
                 </button>
               </div>
             </div>
