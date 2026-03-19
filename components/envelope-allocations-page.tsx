@@ -1,11 +1,20 @@
 "use client"
 
-import { useState, useMemo, useRef, useEffect } from "react"
+import { useState, useMemo, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Check, Info, X, PiggyBank } from "lucide-react"
 import { getEnvelopeIcon } from "@/lib/envelope-icons"
+
+/** Draft value for an envelope: user override or current allotment. Avoids syncing state in useEffect. */
+function useDraftAllotments() {
+  const [overrides, setOverrides] = useState<Record<string, number>>({})
+  const getDraft = (envId: string, base: number) => overrides[envId] ?? base
+  const setDraft = (envId: string, value: number) =>
+    setOverrides(prev => ({ ...prev, [envId]: value }))
+  return { getDraft, setDraft }
+}
 
 export function EnvelopeAllocationsPage() {
   const { state, navigateTo, editEnvelope, setMonthlyIncome } = useApp()
@@ -13,7 +22,7 @@ export function EnvelopeAllocationsPage() {
     () => state.envelopes.filter(e => !e.archived),
     [state.envelopes]
   )
-  const [draftAllotments, setDraftAllotments] = useState<Record<string, number>>({})
+  const { getDraft, setDraft } = useDraftAllotments()
   const [activeSliderEnvId, setActiveSliderEnvId] = useState<string | null>(null)
   const [editingIncome, setEditingIncome] = useState(false)
   const [incomeValue, setIncomeValue] = useState("")
@@ -21,12 +30,6 @@ export function EnvelopeAllocationsPage() {
     try { return localStorage.getItem("bitbudget-merge-hint-dismissed") === "1" } catch { return false }
   })
   const sliderRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
-
-  useEffect(() => {
-    const draft: Record<string, number> = {}
-    for (const env of activeEnvelopes) draft[env.id] = env.monthlyAllotment
-    setDraftAllotments(draft)
-  }, [activeEnvelopes])
 
   function dismissMergeHint() {
     setMergeHintDismissed(true)
@@ -39,7 +42,7 @@ export function EnvelopeAllocationsPage() {
 
   function handleSave() {
     for (const env of activeEnvelopes) {
-      const newVal = draftAllotments[env.id] ?? env.monthlyAllotment
+      const newVal = getDraft(env.id, env.monthlyAllotment)
       if (newVal !== env.monthlyAllotment) {
         editEnvelope(env.id, { monthlyAllotment: newVal })
       }
@@ -48,7 +51,7 @@ export function EnvelopeAllocationsPage() {
   }
 
   const draftTotalAllocated = activeEnvelopes.reduce(
-    (s, e) => s + (draftAllotments[e.id] ?? e.monthlyAllotment),
+    (s, e) => s + getDraft(e.id, e.monthlyAllotment),
     0
   )
   const draftSavings = Math.max(0, state.monthlyIncome - draftTotalAllocated)
@@ -267,7 +270,7 @@ export function EnvelopeAllocationsPage() {
         <div className="flex flex-col gap-2">
           <div className="flex h-10 rounded-xl overflow-hidden bg-[#1A1A1A]">
             {activeEnvelopes.map((env) => {
-              const val = draftAllotments[env.id] ?? env.monthlyAllotment
+              const val = getDraft(env.id, env.monthlyAllotment)
               if (val <= 0) return null
               const Icon = getEnvelopeIcon(env.icon)
               const pct = (val / state.monthlyIncome) * 100
@@ -313,7 +316,7 @@ export function EnvelopeAllocationsPage() {
         <div className="flex flex-col gap-3">
           {activeEnvelopes.map((env) => {
             const Icon = getEnvelopeIcon(env.icon)
-            const val = draftAllotments[env.id] ?? env.monthlyAllotment
+            const val = getDraft(env.id, env.monthlyAllotment)
             const sliderMax = val + draftSavings
             const pct = state.monthlyIncome > 0 ? Math.round((val / state.monthlyIncome) * 100) : 0
             const sliderPct = sliderMax > 0 ? (val / sliderMax) * 100 : 0
@@ -343,7 +346,7 @@ export function EnvelopeAllocationsPage() {
                       onChange={e => {
                         const raw = parseFloat(e.target.value)
                         const clamped = isNaN(raw) ? 0 : Math.min(Math.max(0, raw), sliderMax)
-                        setDraftAllotments(prev => ({ ...prev, [env.id]: clamped }))
+                        setDraft(env.id, clamped)
                       }}
                       placeholder="0"
                       min="0"
@@ -362,7 +365,7 @@ export function EnvelopeAllocationsPage() {
                   value={val}
                   onChange={e => {
                     const v = parseInt(e.target.value, 10) || 0
-                    setDraftAllotments(prev => ({ ...prev, [env.id]: v }))
+                    setDraft(env.id, v)
                   }}
                   onFocus={() => setActiveSliderEnvId(env.id)}
                   style={{
