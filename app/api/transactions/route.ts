@@ -3,6 +3,17 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 
+function parseTagsJson(raw: string): string[] {
+  try {
+    const p = JSON.parse(raw) as unknown
+    return Array.isArray(p) && p.every((x) => typeof x === "string") ? p : []
+  } catch {
+    return []
+  }
+}
+
+const TXN_TYPES = new Set(["expense", "credit"])
+
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
@@ -37,7 +48,7 @@ export async function GET(req: NextRequest) {
     amount: t.amount,
     type: t.type,
     envelopeId: t.envelopeId,
-    tags: JSON.parse(t.tags),
+    tags: parseTagsJson(t.tags),
     notes: t.notes ?? null,
     satsAmount: t.satsAmount ?? null,
     recurringId: t.recurringId ?? null,
@@ -55,8 +66,23 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { date, payee, amount, type, envelopeId, tags, notes } = body
 
-  if (!date || !payee || !amount || !type || !envelopeId) {
+  if (!date || payee == null || amount == null || !type || !envelopeId) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+  }
+  if (typeof payee !== "string" || payee.trim().length === 0) {
+    return NextResponse.json({ error: "Invalid payee" }, { status: 400 })
+  }
+  if (!TXN_TYPES.has(type)) {
+    return NextResponse.json({ error: "type must be expense or credit" }, { status: 400 })
+  }
+  const amountNum = typeof amount === "number" ? amount : Number(amount)
+  if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    return NextResponse.json({ error: "Invalid amount" }, { status: 400 })
+  }
+  if (tags !== undefined && tags !== null) {
+    if (!Array.isArray(tags) || !tags.every((x) => typeof x === "string")) {
+      return NextResponse.json({ error: "tags must be an array of strings" }, { status: 400 })
+    }
   }
 
   const envelope = await prisma.envelope.findFirst({
@@ -67,16 +93,19 @@ export async function POST(req: NextRequest) {
   }
 
   const txnDate = new Date(date)
+  if (Number.isNaN(txnDate.getTime())) {
+    return NextResponse.json({ error: "Invalid date" }, { status: 400 })
+  }
   const dateStr = txnDate.toISOString().split("T")[0]
   const btcPrice = await getBtcPriceForDate(dateStr)
-  const absAmount = Math.abs(amount)
+  const absAmount = Math.abs(amountNum)
 
   const transaction = await prisma.transaction.create({
     data: {
       userId: session.user.id,
       envelopeId,
       date: txnDate,
-      payee,
+      payee: payee.trim(),
       amount: absAmount,
       type,
       tags: JSON.stringify(tags || []),
@@ -92,7 +121,7 @@ export async function POST(req: NextRequest) {
     amount: transaction.amount,
     type: transaction.type,
     envelopeId: transaction.envelopeId,
-    tags: JSON.parse(transaction.tags),
+    tags: parseTagsJson(transaction.tags),
     notes: transaction.notes ?? null,
     satsAmount: transaction.satsAmount ?? null,
     recurringId: transaction.recurringId ?? null,
@@ -119,17 +148,49 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
   }
 
-  if (envelopeId && envelopeId !== existing.envelopeId) {
-    const envelope = await prisma.envelope.findFirst({
-      where: { id: envelopeId, userId: session.user.id },
-    })
-    if (!envelope) {
-      return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
+  if (envelopeId !== undefined) {
+    if (typeof envelopeId !== "string" || envelopeId.trim() === "") {
+      return NextResponse.json({ error: "Invalid envelopeId" }, { status: 400 })
+    }
+    if (envelopeId !== existing.envelopeId) {
+      const envelope = await prisma.envelope.findFirst({
+        where: { id: envelopeId, userId: session.user.id },
+      })
+      if (!envelope) {
+        return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
+      }
+    }
+  }
+
+  if (date !== undefined) {
+    const d = new Date(date)
+    if (Number.isNaN(d.getTime())) {
+      return NextResponse.json({ error: "Invalid date" }, { status: 400 })
+    }
+  }
+  if (amount !== undefined) {
+    const n = typeof amount === "number" ? amount : Number(amount)
+    if (!Number.isFinite(n) || n <= 0) {
+      return NextResponse.json({ error: "Invalid amount" }, { status: 400 })
+    }
+  }
+  if (type !== undefined && !TXN_TYPES.has(type)) {
+    return NextResponse.json({ error: "type must be expense or credit" }, { status: 400 })
+  }
+  if (payee !== undefined) {
+    if (typeof payee !== "string" || payee.trim().length === 0) {
+      return NextResponse.json({ error: "Invalid payee" }, { status: 400 })
+    }
+  }
+  if (tags !== undefined) {
+    if (!Array.isArray(tags) || !tags.every((x) => typeof x === "string")) {
+      return NextResponse.json({ error: "tags must be an array of strings" }, { status: 400 })
     }
   }
 
   const newDate = date !== undefined ? new Date(date) : existing.date
-  const newAmount = amount !== undefined ? Math.abs(amount) : existing.amount
+  const newAmount =
+    amount !== undefined ? Math.abs(typeof amount === "number" ? amount : Number(amount)) : existing.amount
 
   let satsAmount: number | null = existing.satsAmount
   if (date !== undefined || amount !== undefined) {
@@ -142,7 +203,7 @@ export async function PUT(req: NextRequest) {
     where: { id },
     data: {
       ...(date !== undefined && { date: newDate }),
-      ...(payee !== undefined && { payee }),
+      ...(payee !== undefined && { payee: payee.trim() }),
       ...(amount !== undefined && { amount: newAmount }),
       ...(type !== undefined && { type }),
       ...(envelopeId !== undefined && { envelopeId }),
@@ -159,7 +220,7 @@ export async function PUT(req: NextRequest) {
     amount: updated.amount,
     type: updated.type,
     envelopeId: updated.envelopeId,
-    tags: JSON.parse(updated.tags),
+    tags: parseTagsJson(updated.tags),
     notes: updated.notes ?? null,
     satsAmount: updated.satsAmount ?? null,
     recurringId: updated.recurringId ?? null,

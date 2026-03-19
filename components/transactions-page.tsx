@@ -486,7 +486,7 @@ export function TransactionsPage() {
               })}
               {paginatedTransactions.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-muted-foreground text-sm">
+                  <td colSpan={state.opportunityCostEnabled ? 8 : 6} className="py-10 text-center text-muted-foreground text-sm">
                     No transactions found.
                   </td>
                 </tr>
