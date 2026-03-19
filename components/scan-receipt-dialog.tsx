@@ -44,12 +44,10 @@ export function ScanReceiptDialog({
     if (!open || !initialSource) return
     if (scanning || error) return
     // If the user cancels the picker (no file selected), onChange will not fire.
-    // After a short delay, fall back to showing the normal choice UI.
-    const fallback = setTimeout(() => {
-      setSuppressChoiceUI(false)
-    }, 1000)
+    // Close the dialog so we don't unexpectedly show the choice UI after they dismissed.
+    const fallback = setTimeout(() => onOpenChange(false), 1000)
     return () => clearTimeout(fallback)
-  }, [open, initialSource, scanning, error])
+  }, [open, initialSource, scanning, error, onOpenChange])
 
   function reset() {
     setScanning(false)
