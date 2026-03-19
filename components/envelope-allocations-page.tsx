@@ -375,6 +375,7 @@ export function EnvelopeAllocationsPage() {
                   max={sliderMax}
                   step={5}
                   value={val}
+                  aria-label={`${env.name} monthly allotment`}
                   onChange={e => {
                     const v = parseInt(e.target.value, 10) || 0
                     setDraft(env.id, v)
