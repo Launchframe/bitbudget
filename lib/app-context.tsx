@@ -26,10 +26,9 @@ export type PageId =
   | "settings"
   | "review-inbox"
 
-function pageToHash(page: PageId, envelopeId?: string | null, opts?: { openAllocations?: boolean }): string {
+function pageToHash(page: PageId, envelopeId?: string | null): string {
   if (page === "envelope-detail" && envelopeId) return `#/envelope/${envelopeId}`
   if (page === "envelope-allocations") return "#/envelopes/allocations"
-  if (page === "envelopes" && opts?.openAllocations) return "#/envelopes/allocations"
   return `#/${page}`
 }
 
@@ -374,7 +373,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (opts?.envelopeFilter) setTransactionEnvelopeFilter(new Set([opts.envelopeFilter]))
 
     if (!isPopstate.current) {
-      const hash = pageToHash(targetPage, envelopeId, opts)
+      const hash = pageToHash(targetPage, envelopeId)
       if (window.location.hash !== hash) {
         window.history.pushState({ page: targetPage, envelopeId }, "", hash)
       }
