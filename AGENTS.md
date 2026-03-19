@@ -62,6 +62,22 @@ styles/                  Tailwind globals
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
 - `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **must** be called within `BtcPriceProvider`; using it outside the provider will throw. Wrap any component that uses BTC prices in `BtcPriceProvider`.
 
+### React effects and `setState` (`react-hooks/set-state-in-effect`)
+
+ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayoutEffect`** (including via helpers that set state in the same tick as the effect runs). The goal is to avoid **effects whose only job is to copy props/other state into local state**, which tends to cause extra render passes, harder-to-follow data flow, and sometimes **cascading updates** (effect → setState → render → effect → …) or tight loops in Strict Mode.
+
+**Prefer (in order):**
+
+1. **Derive during render** — If UI can be computed from props + existing state, compute it in the render body instead of mirroring into state in an effect. For “draft” values that diverge from props, use an **overrides map** (or similar): keep only user edits in state; the displayed value is `overrides[id] ?? propValue`, so you never need a sync effect when props change.
+2. **User-driven updates** — Set state in event handlers (`onClick`, `onChange`, etc.). No lint issue; the rule targets effect bodies specifically.
+3. **Defer when you must measure the DOM then update** — If you need `getBoundingClientRect()`, `ResizeObserver`, etc., schedule the `setState` **outside** the synchronous effect body so the linter is satisfied and you avoid stacking updates in the same commit:
+   - `requestAnimationFrame(() => { … setState(…) })` (good for layout/position after paint)
+   - `setTimeout(() => { … setState(…) }, 0)` (macrotask; allows paint before heavy work)
+   - Nested `requestAnimationFrame` when a second pass needs measured node size after the first paint (e.g. walkthrough tooltip positioning).
+4. **Refs for non-render values** — If a value does not need to trigger a re-render, store it in `useRef` instead of `useState` + effect.
+
+**Avoid:** `useLayoutEffect(() => { setX(…); })` with no deferral — fix by one of the patterns above. **Examples in this repo:** `components/walkthrough-overlay.tsx` (deferred `positionTooltip` / `setTooltipPos`), `components/scan-receipt-dialog.tsx` (deferred `setSuppressChoiceUI`), `components/envelope-allocations-page.tsx` (draft allotments via overrides, no sync-from-props effect).
+
 ### TypeScript
 - Use exhaustive `switch` handling for union types and enums (use `default` with a `never` assertion or handle all cases explicitly).
 - Prefer `interface` for object shapes in `lib/data.ts`; use `type` for unions and aliases.
@@ -137,3 +153,4 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
 - **Stale encryption keys** — switching accounts or clearing data can leave cached keys in `sessionStorage`. The `EncryptionGate` and `PinUnlockDialog` handle re-prompting; don't bypass them.
 - **`colSpan` mismatch** — when conditionally rendering table columns (e.g. hiding BTC columns in vanilla mode), update the empty-state row's `colSpan` accordingly.
+- **`react-hooks/set-state-in-effect`** — don’t call `setState` synchronously inside `useEffect` / `useLayoutEffect`; it triggers lint and risks extra renders or cascading updates. See **React effects and `setState`** under Code Conventions for patterns (derive during render, defer with `requestAnimationFrame` / `setTimeout(0)`, refs).
