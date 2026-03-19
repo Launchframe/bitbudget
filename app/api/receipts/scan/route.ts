@@ -97,18 +97,17 @@ export async function POST(req: NextRequest) {
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 })
     }
-
-    const buffer = Buffer.from(await file.arrayBuffer())
-    if (buffer.length === 0) {
-      return NextResponse.json({ error: "Empty file" }, { status: 400 })
-    }
-    if (buffer.length > RECEIPT_SCAN_MAX_BYTES) {
+    if (file.size > RECEIPT_SCAN_MAX_BYTES) {
       return NextResponse.json(
         { error: `File too large. Maximum size is ${RECEIPT_SCAN_MAX_BYTES / (1024 * 1024)} MB.` },
         { status: 413 },
       )
     }
 
+    const buffer = Buffer.from(await file.arrayBuffer())
+    if (buffer.length === 0) {
+      return NextResponse.json({ error: "Empty file" }, { status: 400 })
+    }
     const kind = resolveReceiptFileKind(buffer)
     if (!kind) {
       return NextResponse.json(

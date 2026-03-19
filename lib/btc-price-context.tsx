@@ -106,18 +106,21 @@ export function BtcPriceProvider({
     async function load() {
       try {
         const res = await fetch("/api/btc-price?days=365")
+        if (!enabledRef.current) return
         if (!res.ok) throw new Error(`API returned ${res.status}`)
 
         const data = await res.json()
+        if (!enabledRef.current) return
         const prices: Record<string, number> = data.prices ?? {}
         const current: number = data.currentPrice
 
         if (current) setCurrentPrice(current)
+        if (!enabledRef.current) return
 
         if (Object.keys(prices).length > 0) {
           setPriceMap(prices)
           setPriceHistory(buildSortedHistory(prices))
-
+          if (!enabledRef.current) return
           if (!current) {
             const sorted = buildSortedHistory(prices)
             if (sorted.length > 0) setCurrentPrice(sorted[sorted.length - 1].price)
@@ -126,7 +129,7 @@ export function BtcPriceProvider({
       } catch (err) {
         console.error("[BtcPriceProvider] Failed to load price data:", err)
       } finally {
-        setLoading(false)
+        if (enabledRef.current) setLoading(false)
       }
     }
 

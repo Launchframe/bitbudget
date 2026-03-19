@@ -63,6 +63,7 @@ export function AnalyticsPage() {
   }, [filtered, activeEnvelopes])
 
   const opportunityCostData = useMemo(() => {
+    if (!state.opportunityCostEnabled) return []
     const byEnvelope: Record<string, { spent: number; opCost: number }> = {}
     for (const txn of filtered) {
       if (txn.type === "expense") {
@@ -79,7 +80,7 @@ export function AnalyticsPage() {
         "Opportunity Cost": Math.round(byEnvelope[env.id].opCost),
         color: env.color,
       }))
-  }, [filtered, activeEnvelopes, calculateOpportunityCost])
+  }, [state.opportunityCostEnabled, filtered, activeEnvelopes, calculateOpportunityCost])
 
   return (
     <div className="flex flex-col gap-6">

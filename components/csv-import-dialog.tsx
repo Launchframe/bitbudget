@@ -274,13 +274,23 @@ export function CSVImportDialog({
       })
 
       if (!res.ok) {
-        const data = await res.json()
+        let data: { error?: string }
+        try {
+          data = await res.json()
+        } catch {
+          throw new Error("Import failed")
+        }
         throw new Error(data.error || "Import failed")
       }
-      const data = await res.json()
+      let data: { imported?: number; skipped?: number; newEnvelopes?: string[] }
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error("Import failed")
+      }
       const summary = {
-        imported: data.imported,
-        skipped: data.skipped,
+        imported: data.imported ?? 0,
+        skipped: data.skipped ?? 0,
         newEnvelopes: data.newEnvelopes ?? [],
       }
       setResult(summary)
