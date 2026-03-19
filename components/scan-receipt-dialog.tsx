@@ -30,14 +30,17 @@ export function ScanReceiptDialog({
 
   useEffect(() => {
     if (!open || !initialSource) return
-    // When an initial source is provided, immediately attempt to open the picker
-    // and temporarily hide the choice UI.
-    setSuppressChoiceUI(true)
+    // When an initial source is provided, hide the choice UI and open the picker.
+    // Defer setState to satisfy react-hooks/set-state-in-effect (avoid sync setState in effect).
+    const hideId = setTimeout(() => setSuppressChoiceUI(true), 0)
     const t = setTimeout(() => {
       if (initialSource === "camera") cameraInputRef.current?.click()
       else fileInputRef.current?.click()
     }, 150)
-    return () => clearTimeout(t)
+    return () => {
+      clearTimeout(hideId)
+      clearTimeout(t)
+    }
   }, [open, initialSource])
 
   useEffect(() => {
