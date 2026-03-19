@@ -31,6 +31,10 @@ export interface BuildExportFilenameOptions {
 
 const ENV_NAME_MAX_LEN = 20
 const TAG_MAX_LEN = 15
+/** Max envelope/tag parts to include in filename to avoid very long names on some filesystems. */
+const MAX_ENV_PARTS = 3
+const MAX_TAG_PARTS = 3
+const MAX_FILENAME_LEN = 200
 
 function sanitizeFilenamePart(name: string, maxLen: number): string {
   return name
@@ -46,16 +50,32 @@ export function buildExportFilename(options: BuildExportFilenameOptions): string
   if (hasPayeeSearch) name += "-payee-search"
   if (typeFilter) name += `-${typeFilter}`
   if (envelopeNames?.length) {
-    const parts = envelopeNames.map((n) => sanitizeFilenamePart(n, ENV_NAME_MAX_LEN)).filter(Boolean)
-    if (parts.length > 0) name += `-envelope-${parts.join("-")}`
+    const parts = envelopeNames
+      .map((n) => sanitizeFilenamePart(n, ENV_NAME_MAX_LEN))
+      .filter(Boolean)
+      .slice(0, MAX_ENV_PARTS)
+    if (parts.length > 0) {
+      const suffix = envelopeNames.length > MAX_ENV_PARTS ? "-and-more" : ""
+      name += `-envelope-${parts.join("-")}${suffix}`
+    }
   }
   if (tagNames?.length) {
-    const parts = tagNames.map((t) => sanitizeFilenamePart(t, TAG_MAX_LEN)).filter(Boolean)
-    if (parts.length > 0) name += `-tags-${parts.join("-")}`
+    const parts = tagNames
+      .map((t) => sanitizeFilenamePart(t, TAG_MAX_LEN))
+      .filter(Boolean)
+      .slice(0, MAX_TAG_PARTS)
+    if (parts.length > 0) {
+      const suffix = tagNames.length > MAX_TAG_PARTS ? "-and-more" : ""
+      name += `-tags-${parts.join("-")}${suffix}`
+    }
   }
   if (startDate) name += `-from-${startDate}`
   if (endDate) name += `-to-${endDate}`
-  return `${name}.csv`
+  const withExt = `${name}.csv`
+  if (withExt.length > MAX_FILENAME_LEN) {
+    return withExt.slice(0, MAX_FILENAME_LEN - 4) + ".csv"
+  }
+  return withExt
 }
 
 export interface TransactionExportRow {
@@ -83,5 +103,5 @@ export function buildTransactionsCsv(rows: TransactionExportRow[]): string {
       escapeCsvField(r.tags),
     ].join(",")
   )
-  return [header, ...body].join("\n")
+  return [header, ...body].join("\r\n")
 }
