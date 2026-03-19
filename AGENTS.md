@@ -52,7 +52,7 @@ styles/                  Tailwind globals
 - Use `@/` path aliases (`@/lib/...`, `@/components/...`).
 
 ### Components
-- All UI components are client components (`"use client"` directive).
+- Components that use React hooks, local state, or browser-only APIs must be client components (include the `"use client"` directive at the top of the file). Purely presentational components that don't rely on client-only features can be server components.
 - Page-level components live in `components/` (e.g. `dashboard-page.tsx`, `transactions-page.tsx`).
 - The app uses hash-based routing managed by `AppContext` (`navigateTo`, `currentPage`), not the Next.js file-based router, for in-app navigation after auth.
 - `app/page.tsx` is the shell: `OnboardingGate → AppProvider → EncryptionGate → BtcPriceProvider → layout`.
@@ -60,7 +60,7 @@ styles/                  Tailwind globals
 ### State Management
 - `AppContext` (`lib/app-context.tsx`) is the single source of truth for app state. It holds transactions, envelopes, tags, user settings, encryption state, and navigation.
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
-- `BtcPriceContext` is a separate provider for BTC price data. When called outside a provider (vanilla mode), `useBtcPrices()` returns safe zero-value fallback — it does not throw.
+- `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **must** be called within `BtcPriceProvider`; using it outside the provider will throw. Wrap any component that uses BTC prices in `BtcPriceProvider`.
 
 ### TypeScript
 - Use exhaustive `switch` handling for union types and enums (use `default` with a `never` assertion or handle all cases explicitly).
@@ -113,7 +113,7 @@ These are **non-negotiable**:
 - CSV import parses and encrypts on the client side before sending to the server.
 - Backend-sourced transactions (Plaid, email, SMS) encrypt sensitive fields using the user's public key via `lib/server-encrypt.ts`. These arrive as `PendingTransaction` for client-side review and decryption.
 - Never add `console.log` or logging that would print decrypted user data, encryption keys, PINs, or passwords.
-- The `encryptForStorage` and `decryptFromStorage` functions in `AppContext` are the canonical entry points for client-side encryption.
+- The `encryptForStorage` function in `AppContext` and the `decryptFieldAsymmetric` helper used in refresh/add flows are the canonical entry points for client-side encryption and decryption.
 
 ## Envelope Archiving
 
