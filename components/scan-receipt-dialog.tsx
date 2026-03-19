@@ -23,6 +23,7 @@ export function ScanReceiptDialog({
 }) {
   const { openNewTransaction } = useApp()
   const [scanning, setScanning] = useState(false)
+  const [isCameraAvailable, setIsCameraAvailable] = useState(false)
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<string | null>(null)
   const [suppressChoiceUI, setSuppressChoiceUI] = useState(false)
@@ -147,6 +148,11 @@ export function ScanReceiptDialog({
   }
 
   const skipChoiceUI = !!initialSource && suppressChoiceUI && !scanning && !error
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsCameraAvailable(!!cameraInputRef.current)
+    }
+  }, [cameraInputRef])
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -196,6 +202,7 @@ export function ScanReceiptDialog({
               <div className="flex flex-col text-left">
                 <span className="font-semibold text-foreground">Take Photo</span>
                 <span className="text-xs text-muted-foreground">Use your camera to scan a receipt</span>
+                {!isCameraAvailable && <span className="text-xs text-muted-foreground">Camera not available on this device</span>}
               </div>
             </button>
 

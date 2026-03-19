@@ -28,11 +28,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { encryptedPrivacyKey, privacyKeySalt } = await req.json()
+  const existing = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { encryptedPrivacyKey: true },
+  })
+
+  if (existing?.encryptedPrivacyKey && existing.encryptedPrivacyKey.length > 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Encryption is already configured for this account. You cannot replace it from onboarding. Use your existing passphrase on the main app, or contact support if you need a recovery flow.",
+        code: "ENCRYPTION_ALREADY_CONFIGURED",
+      },
+      { status: 409 }
+    )
+  }
+
+  const body = (await req.json()) as {
+    encryptedPrivacyKey?: string | null
+    privacyKeySalt?: string | null
+  }
+
+  const data: { encryptedPrivacyKey?: string | null; privacyKeySalt?: string | null } = {}
+  if (body.encryptedPrivacyKey !== undefined) data.encryptedPrivacyKey = body.encryptedPrivacyKey
+  if (body.privacyKeySalt !== undefined) data.privacyKeySalt = body.privacyKeySalt
 
   await prisma.user.update({
     where: { id: session.user.id },
-    data: { encryptedPrivacyKey, privacyKeySalt },
+    data,
   })
 
   return NextResponse.json({ success: true })

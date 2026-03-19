@@ -24,6 +24,7 @@ export async function GET() {
       email: true,
       subscriptionTier: true,
       role: true,
+      _count: { select: { transactions: true } },
     },
   })
 
@@ -31,7 +32,11 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  return NextResponse.json(user)
+  const { _count, ...rest } = user
+  return NextResponse.json({
+    ...rest,
+    transactionCount: _count.transactions,
+  })
 }
 
 export async function PUT(req: NextRequest) {
@@ -41,14 +46,14 @@ export async function PUT(req: NextRequest) {
   }
 
   const body = await req.json()
+  // Never allow encryptedPrivacyKey / privacyKeySalt via this route — use POST /api/user/encryption
+  // (guarded) so existing keys cannot be clobbered by mistake or a buggy client.
   const allowedFields = [
     "monthlyIncome",
     "payCadence",
     "onboardingComplete",
     "btcDisplayUnit",
     "opportunityCostEnabled",
-    "encryptedPrivacyKey",
-    "privacyKeySalt",
     "receiptInboxToken",
     "name",
   ] as const
