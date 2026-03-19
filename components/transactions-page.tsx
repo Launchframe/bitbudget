@@ -3,12 +3,13 @@
 import { useState, useMemo, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { formatUsd, formatBtcAmountFromSats, type TransactionType } from "@/lib/data"
+import { formatUsd, formatUsdPrecise, formatBtcAmountFromSats, type TransactionType } from "@/lib/data"
+import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
 import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { getEnvelopeIcon } from "@/lib/envelope-icons"
-import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X, Plus } from "lucide-react"
+import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X, Plus, Download } from "lucide-react"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import {
   Select,
@@ -154,6 +155,41 @@ export function TransactionsPage() {
     setPage(1)
   }
 
+  function handleExport() {
+    const stampDate = new Date().toISOString().slice(0, 10)
+    const envelopeNames =
+      envelopeFilters.size > 0
+        ? Array.from(envelopeFilters).map((id) => envelopeMap[id]?.name ?? id)
+        : undefined
+    const tagNames = tagFilters.size > 0 ? Array.from(tagFilters) : undefined
+    const filename = buildExportFilename({
+      stampDate,
+      hasPayeeSearch: !!searchQuery.trim(),
+      typeFilter: typeFilter === "all" ? undefined : typeFilter,
+      envelopeNames,
+      tagNames,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    })
+    const rows = filteredTransactions.map((t) => ({
+      type: t.type,
+      date: t.date,
+      payee: t.payee,
+      amountFormatted: formatUsdPrecise(t.amount),
+      notes: t.notes ?? "",
+      envelopeName: envelopeMap[t.envelopeId]?.name ?? "",
+      tags: (t.tags ?? []).join(", "),
+    }))
+    const csv = buildTransactionsCsv(rows)
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
@@ -190,13 +226,23 @@ export function TransactionsPage() {
             </>
           )}
         </div>
-        <button
-          onClick={() => openNewTransaction()}
-          className="self-start flex items-center gap-2 mt-3 px-4 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          New Transaction
-        </button>
+        <div className="self-start flex items-center gap-2 mt-3">
+          <button
+            onClick={() => openNewTransaction()}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            New Transaction
+          </button>
+          <button
+            type="button"
+            onClick={handleExport}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#0D0D0D] text-foreground rounded-xl font-semibold text-sm hover:bg-[#1A1A1A] transition-colors border border-[#333]"
+          >
+            <Download className="h-4 w-4" />
+            Export
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3">
