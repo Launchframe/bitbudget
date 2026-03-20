@@ -60,7 +60,7 @@ styles/                  Tailwind globals
 ### State Management
 - `AppContext` (`lib/app-context.tsx`) is the single source of truth for app state. It holds transactions, envelopes, tags, user settings, encryption state, and navigation.
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
-- `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **must** be called within `BtcPriceProvider`; using it outside the provider will throw. Wrap any component that uses BTC prices in `BtcPriceProvider`.
+- `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **should** be called within `BtcPriceProvider`. If it runs outside the provider (e.g. vanilla mode or a missing wrapper), it returns **`NOOP_PRICES`** (zeros / no-op helpers) and logs a **dev-time warning** — it does not throw. Still wrap components that need real BTC data in `BtcPriceProvider` when `opportunityCostEnabled` is on.
 
 ### React effects and `setState` (`react-hooks/set-state-in-effect`)
 
@@ -148,7 +148,7 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 ## Common Pitfalls
 
 - **Adding a Prisma field but forgetting `pnpm prisma generate`** — TypeScript won't see the new field until the client is regenerated.
-- **Calling `useBtcPrices()` in a component that renders in vanilla mode or outside `BtcPriceProvider`** — the hook throws instead of returning a NOOP fallback. Ensure the component is wrapped in `BtcPriceProvider` and gated with `state.opportunityCostEnabled`.
+- **Calling `useBtcPrices()` outside `BtcPriceProvider`** — the hook returns **`NOOP_PRICES`** and warns in development; it does not throw. Real prices and OC math need `BtcPriceProvider`; gate Bitcoin UI with `state.opportunityCostEnabled` so vanilla mode does not depend on live BTC data.
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
 - **Stale encryption keys** — switching accounts or clearing data can leave cached keys in `sessionStorage`. The `EncryptionGate` and `PinUnlockDialog` handle re-prompting; don't bypass them.
