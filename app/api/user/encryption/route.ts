@@ -30,10 +30,14 @@ export async function POST(req: NextRequest) {
 
   const existing = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { encryptedPrivacyKey: true },
+    select: { encryptedPrivacyKey: true, nostrPubkey: true },
   })
 
-  if (existing?.encryptedPrivacyKey && existing.encryptedPrivacyKey.length > 0) {
+  if (!existing) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 })
+  }
+
+  if (existing.encryptedPrivacyKey && existing.encryptedPrivacyKey.length > 0) {
     return NextResponse.json(
       {
         error:
@@ -44,19 +48,75 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const body = (await req.json()) as {
-    encryptedPrivacyKey?: string | null
-    privacyKeySalt?: string | null
+  let body: { encryptedPrivacyKey?: string | null; privacyKeySalt?: string | null }
+  try {
+    body = (await req.json()) as { encryptedPrivacyKey?: string | null; privacyKeySalt?: string | null }
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const data: { encryptedPrivacyKey?: string | null; privacyKeySalt?: string | null } = {}
-  if (body.encryptedPrivacyKey !== undefined) data.encryptedPrivacyKey = body.encryptedPrivacyKey
-  if (body.privacyKeySalt !== undefined) data.privacyKeySalt = body.privacyKeySalt
+  const hasKey = body.encryptedPrivacyKey !== undefined
+  const hasSalt = body.privacyKeySalt !== undefined
 
-  await prisma.user.update({
-    where: { id: session.user.id },
-    data,
-  })
+  if (!hasKey && !hasSalt) {
+    return NextResponse.json(
+      { error: "Provide encryptedPrivacyKey (and privacyKeySalt for passphrase-based accounts)." },
+      { status: 400 }
+    )
+  }
+
+  const isNostr = Boolean(existing.nostrPubkey)
+
+  const keyStr =
+    body.encryptedPrivacyKey === undefined || body.encryptedPrivacyKey === null
+      ? ""
+      : String(body.encryptedPrivacyKey).trim()
+  const saltStr =
+    body.privacyKeySalt === undefined || body.privacyKeySalt === null
+      ? ""
+      : String(body.privacyKeySalt).trim()
+
+  if (isNostr) {
+    if (!hasKey || keyStr.length === 0) {
+      return NextResponse.json(
+        { error: "encryptedPrivacyKey is required for Nostr accounts." },
+        { status: 400 }
+      )
+    }
+    if (hasSalt && saltStr.length === 0) {
+      return NextResponse.json(
+        { error: "privacyKeySalt cannot be empty when provided." },
+        { status: 400 }
+      )
+    }
+    await prisma.user.update({
+      where: { id: session.user.id },
+      data: {
+        encryptedPrivacyKey: body.encryptedPrivacyKey,
+        ...(hasSalt ? { privacyKeySalt: body.privacyKeySalt } : {}),
+      },
+    })
+  } else {
+    if (!hasKey || !hasSalt) {
+      return NextResponse.json(
+        { error: "Both encryptedPrivacyKey and privacyKeySalt are required for passphrase-based accounts." },
+        { status: 400 }
+      )
+    }
+    if (keyStr.length === 0 || saltStr.length === 0) {
+      return NextResponse.json(
+        { error: "encryptedPrivacyKey and privacyKeySalt must be non-empty strings." },
+        { status: 400 }
+      )
+    }
+    await prisma.user.update({
+      where: { id: session.user.id },
+      data: {
+        encryptedPrivacyKey: body.encryptedPrivacyKey,
+        privacyKeySalt: body.privacyKeySalt,
+      },
+    })
+  }
 
   return NextResponse.json({ success: true })
 }
