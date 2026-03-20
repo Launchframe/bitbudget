@@ -300,10 +300,21 @@ export default function OnboardingPage() {
             setStep(prev => (prev === "security" ? "income" : prev))
           }
         }
-      } catch {
-        /* continue */
-      } finally {
-        if (!cancelled) setBootstrapped(true)
+
+        const markNsecFallback = hasPendingNsec || hasNsecOnboardingIntent()
+        if (markNsecFallback) {
+          setIsNsecFallback(true)
+        }
+
+        // Security UI only renders for (!isNostr || isNsecFallback). Extension Nostr users who are
+        // not on the nsec-fallback path must not stay on "security" without that UI (Copilot).
+        setStep(prev => {
+          if (prev !== "security") return prev
+          if (hasPendingNsec) return "security"
+          if (!markNsecFallback) return "income"
+          if (hasEnc) return "income"
+          return "security"
+        })
       }
     }
 
