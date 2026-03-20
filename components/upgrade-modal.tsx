@@ -102,9 +102,9 @@ export function UpgradeModal({ feature, open, onClose }: UpgradeModalProps) {
               </>
             ) : (
               <>
-                Thanks — we&apos;ve recorded your interest. Checkout isn&apos;t live yet. Check your Nostr DMs tomorrow for next 
-                steps.
+                Thanks — we&apos;ve recorded your interest. Checkout isn&apos;t live yet. Check your Nostr DMs tomorrow for next steps.
               </>
+            )}
             )}
           </p>
         ) : interestState === "done_already_premium" ? (
