@@ -227,7 +227,6 @@ export default function AuthPage() {
     setLoading(true)
     try {
       const { secretKey, pubkey } = decodeNsec(nsecValue)
-      setNsecValue("")
       const signed = signAuthEvent(secretKey, window.location.origin)
       const profile = await fetchNostrProfile(pubkey)
       const result = await signIn("nostr", {
@@ -241,6 +240,7 @@ export default function AuthPage() {
         setError(`Nostr authentication failed: ${result.error}`)
         return
       }
+      setNsecValue("")
       // Bridge to onboarding security step (memory + session intent). Must not block navigation
       // if storage/helpers fail after sign-in already succeeded.
       try {
