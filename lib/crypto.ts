@@ -1,7 +1,7 @@
 /**
  * Client-side E2E encryption utilities.
  *
- * For Web 2.0 users: a PIN derives an AES-GCM key via PBKDF2. That key wraps
+ * For Web 2.0 users: a passphrase derives an AES-GCM key via PBKDF2. That key wraps
  * a random "privacy key" which is stored (encrypted) server-side.
  *
  * For Nostr users: encryption uses the nostr extension (NIP-04 or NIP-44).

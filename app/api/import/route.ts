@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 import { PRESET_ENVELOPE_COLORS } from "@/lib/constants"
+import { suggestIcon } from "@/lib/envelope-icon-suggest"
 
 const ENVELOPE_COLORS = PRESET_ENVELOPE_COLORS
 
@@ -47,6 +48,7 @@ export async function POST(req: NextRequest) {
 
   let envelopeCount = userEnvelopes.length
   const resolvedMapping: Record<string, string> = {}
+  const newEnvelopes: string[] = []
 
   for (const [csvName, target] of Object.entries(envelopeMapping)) {
     if (target === SKIP) {
@@ -64,11 +66,13 @@ export async function POST(req: NextRequest) {
             name: csvName,
             monthlyAllotment: 0,
             color: ENVELOPE_COLORS[envelopeCount % ENVELOPE_COLORS.length],
+            icon: suggestIcon(csvName),
           },
         })
         resolvedMapping[csvName.toLowerCase()] = newEnv.id
         envelopeByName[csvName.toLowerCase()] = newEnv.id
         envelopeCount++
+        newEnvelopes.push(csvName)
       }
     } else {
       resolvedMapping[csvName.toLowerCase()] = target
@@ -87,7 +91,6 @@ export async function POST(req: NextRequest) {
 
   let created = 0
   let skipped = 0
-  const newEnvelopes: string[] = []
 
   for (const txn of transactions) {
     const lowerName = txn.envelopeName.toLowerCase()
@@ -102,6 +105,7 @@ export async function POST(req: NextRequest) {
           name: txn.envelopeName,
           monthlyAllotment: 0,
           color: ENVELOPE_COLORS[envelopeCount % ENVELOPE_COLORS.length],
+          icon: suggestIcon(txn.envelopeName),
         },
       })
       envelopeId = newEnv.id

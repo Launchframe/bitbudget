@@ -124,10 +124,14 @@ export default function OnboardingPage() {
         if (saved.income) setIncome(saved.income)
         if (saved.cadence) setCadence(saved.cadence)
         if (saved.envelopes?.length) setEnvelopes(
-          saved.envelopes.map((e: { allocationCadence?: string }) => ({
-            ...e,
-            allocationCadence: e.allocationCadence ?? "monthly",
-          }))
+          saved.envelopes.map((e: { allocationCadence?: string; monthlyAllotment?: number }) => {
+            const raw = typeof e.monthlyAllotment === "number" ? e.monthlyAllotment : 0
+            return {
+              ...e,
+              allocationCadence: e.allocationCadence ?? "monthly",
+              monthlyAllotment: Math.round(raw / 5) * 5,
+            }
+          })
         )
         if (saved.allocSnapshot) allocSnapshotRef.current = saved.allocSnapshot
       }
@@ -190,11 +194,11 @@ export default function OnboardingPage() {
 
   async function handleSecuritySetup() {
     if (pin.length < 4) {
-      setPinError("PIN must be at least 4 characters")
+      setPinError("Passphrase must be at least 4 characters")
       return
     }
     if (pin !== pinConfirm) {
-      setPinError("PINs don't match")
+      setPinError("Passphrases don't match")
       return
     }
     setPinError("")
@@ -407,13 +411,13 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Secure Your Data</h2>
-                  <p className="text-sm text-muted-foreground">Create a PIN to encrypt your private data</p>
+                  <p className="text-sm text-muted-foreground">Create a passphrase to encrypt your private data</p>
                 </div>
               </div>
 
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Your transaction details (payees, descriptions) are encrypted before leaving your device.
-                This PIN derives the encryption key. <strong>If you lose it, your data cannot be recovered.</strong>
+                This passphrase derives the encryption key. <strong>If you lose it, your data cannot be recovered.</strong>
               </p>
 
               <div className="flex flex-col gap-4">
@@ -429,12 +433,12 @@ export default function OnboardingPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Confirm PIN</Label>
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Confirm passphrase</Label>
                   <Input
                     type="password"
                     value={pinConfirm}
                     onChange={e => setPinConfirm(e.target.value)}
-                    placeholder="Re-enter your PIN"
+                    placeholder="Re-enter your passphrase"
                     className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
                   />
                 </div>
@@ -690,6 +694,7 @@ export default function OnboardingPage() {
                   border-radius: 3px;
                   outline: none;
                   cursor: pointer;
+                  touch-action: none;
                 }
                 input[type="range"].alloc-slider::-webkit-slider-thumb {
                   -webkit-appearance: none;
@@ -809,7 +814,11 @@ export default function OnboardingPage() {
                   const Icon = getEnvelopeIcon(env.icon)
                   const sliderMax = env.monthlyAllotment + savings
                   const pct = monthlyIncome > 0 ? Math.round((env.monthlyAllotment / monthlyIncome) * 100) : 0
-                  const sliderPct = sliderMax > 0 ? (env.monthlyAllotment / sliderMax) * 100 : 0
+                  const rangeDisplayValue = Math.min(
+                    sliderMax,
+                    Math.max(0, Math.round(env.monthlyAllotment / 5) * 5),
+                  )
+                  const sliderPct = sliderMax > 0 ? (rangeDisplayValue / sliderMax) * 100 : 0
 
                   return (
                     <div
@@ -837,7 +846,9 @@ export default function OnboardingPage() {
                               const raw = parseFloat(e.target.value)
                               const cadenceMax = fromMonthly(sliderMax, env.allocationCadence ?? "monthly")
                               const cadenceAmount = isNaN(raw) ? 0 : Math.min(Math.max(0, raw), cadenceMax)
-                              const monthly = toMonthly(cadenceAmount, env.allocationCadence ?? "monthly")
+                              let monthly = toMonthly(cadenceAmount, env.allocationCadence ?? "monthly")
+                              monthly = Math.round(monthly / 5) * 5
+                              monthly = Math.min(sliderMax, Math.max(0, monthly))
                               setEnvelopes(prev => prev.map((en, i) =>
                                 i === idx ? { ...en, monthlyAllotment: monthly } : en,
                               ))
@@ -869,8 +880,9 @@ export default function OnboardingPage() {
                         className="alloc-slider"
                         min={0}
                         max={sliderMax}
-                        step={1}
-                        value={env.monthlyAllotment}
+                        step={5}
+                        value={rangeDisplayValue}
+                        aria-label={`${env.name} monthly allotment`}
                         onChange={e => {
                           const val = parseInt(e.target.value, 10) || 0
                           setEnvelopes(prev => prev.map((en, i) =>

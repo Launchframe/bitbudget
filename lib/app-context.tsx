@@ -16,6 +16,7 @@ export type PageId =
   | "dashboard"
   | "analytics"
   | "envelopes"
+  | "envelope-allocations"
   | "envelope-detail"
   | "transactions"
   | "btc-price"
@@ -27,6 +28,7 @@ export type PageId =
 
 function pageToHash(page: PageId, envelopeId?: string | null): string {
   if (page === "envelope-detail" && envelopeId) return `#/envelope/${envelopeId}`
+  if (page === "envelope-allocations") return "#/envelopes/allocations"
   return `#/${page}`
 }
 
@@ -36,6 +38,8 @@ function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
 
   const envelopeMatch = path.match(/^envelope\/(.+)$/)
   if (envelopeMatch) return { page: "envelope-detail", envelopeId: envelopeMatch[1] }
+
+  if (path === "envelopes/allocations") return { page: "envelope-allocations" }
 
   const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox"]
   if (validPages.includes(path as PageId)) return { page: path as PageId }
@@ -67,13 +71,15 @@ interface AppContextValue {
   highlightTransactionId: string | null
   transactionDialogOpen: boolean
   transactionPrefill: TransactionPrefill | null
+  inputModeSheetOpen: boolean
+  setInputModeSheetOpen: (open: boolean) => void
   loading: boolean
   encryption: EncryptionState
   unlockWithKey: (key: Uint8Array) => void
 
   transactionEnvelopeFilter: Set<string>
   clearTransactionEnvelopeFilter: () => void
-  navigateTo: (page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string }) => void
+  navigateTo: (page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => void
   setTransactionDialogOpen: (open: boolean) => void
   openNewTransaction: (prefill?: TransactionPrefill) => void
 
@@ -166,6 +172,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
   const [transactionPrefill, setTransactionPrefill] = useState<TransactionPrefill | null>(null)
+  const [inputModeSheetOpen, setInputModeSheetOpen] = useState(false)
   const [transactionEnvelopeFilter, setTransactionEnvelopeFilter] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set()
     const { page, envelopeId } = hashToPage(window.location.hash)
@@ -358,16 +365,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [encryption.ready, refreshData])
 
-  const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string }) => {
-    setCurrentPage(page)
+  const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => {
+    const targetPage = page === "envelopes" && opts?.openAllocations ? "envelope-allocations" : page
+    setCurrentPage(targetPage)
     if (envelopeId) setSelectedEnvelopeId(envelopeId)
     setHighlightTransactionId(opts?.highlightTxnId ?? null)
     if (opts?.envelopeFilter) setTransactionEnvelopeFilter(new Set([opts.envelopeFilter]))
 
     if (!isPopstate.current) {
-      const hash = pageToHash(page, envelopeId)
+      const hash = pageToHash(targetPage, envelopeId)
       if (window.location.hash !== hash) {
-        window.history.pushState({ page, envelopeId }, "", hash)
+        window.history.pushState({ page: targetPage, envelopeId }, "", hash)
       }
     }
     isPopstate.current = false
@@ -792,6 +800,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         highlightTransactionId,
         transactionDialogOpen,
         transactionPrefill,
+        inputModeSheetOpen,
+        setInputModeSheetOpen,
         loading,
         encryption,
         unlockWithKey,

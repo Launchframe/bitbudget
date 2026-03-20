@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { RECEIPT_SCAN_MAX_BYTES } from "@/lib/receipt-scan-validate"
 import {
@@ -14,21 +14,64 @@ import { Camera, Upload, Loader2, AlertCircle, X } from "lucide-react"
 export function ScanReceiptDialog({
   open,
   onOpenChange,
+  initialSource,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** When set, opens dialog and immediately triggers camera or file picker (e.g. from mobile nav one-tap). */
+  initialSource?: "camera" | "upload"
 }) {
   const { openNewTransaction } = useApp()
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<string | null>(null)
+  const [suppressChoiceUI, setSuppressChoiceUI] = useState(false)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  /** After programmatic file/camera click, next focus/visibility return without a file means picker was dismissed. */
+  const expectCloseAfterPickerRef = useRef(false)
+
+  useEffect(() => {
+    if (!open || !initialSource) {
+      expectCloseAfterPickerRef.current = false
+      return
+    }
+    // When an initial source is provided, hide the choice UI and open the picker.
+    // Defer setState to satisfy react-hooks/set-state-in-effect (avoid sync setState in effect).
+    const hideId = setTimeout(() => setSuppressChoiceUI(true), 0)
+    const t = setTimeout(() => {
+      if (initialSource === "camera") cameraInputRef.current?.click()
+      else fileInputRef.current?.click()
+      expectCloseAfterPickerRef.current = true
+    }, 150)
+    return () => {
+      clearTimeout(hideId)
+      clearTimeout(t)
+    }
+  }, [open, initialSource])
+
+  useEffect(() => {
+    if (!open || !initialSource) return
+    const tryCloseAfterPickerDismissed = () => {
+      if (!expectCloseAfterPickerRef.current) return
+      if (scanning || error) return
+      expectCloseAfterPickerRef.current = false
+      setSuppressChoiceUI(false)
+      onOpenChange(false)
+    }
+    window.addEventListener("focus", tryCloseAfterPickerDismissed)
+    document.addEventListener("visibilitychange", tryCloseAfterPickerDismissed)
+    return () => {
+      window.removeEventListener("focus", tryCloseAfterPickerDismissed)
+      document.removeEventListener("visibilitychange", tryCloseAfterPickerDismissed)
+    }
+  }, [open, initialSource, scanning, error, onOpenChange])
 
   function reset() {
     setScanning(false)
     setError("")
     setPreview(null)
+    setSuppressChoiceUI(false)
   }
 
   function handleClose(open: boolean) {
@@ -103,9 +146,14 @@ export function ScanReceiptDialog({
     e.target.value = ""
   }
 
+  const skipChoiceUI = !!initialSource && suppressChoiceUI && !scanning && !error
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-md">
+      <DialogContent
+        className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-md"
+        invisible={skipChoiceUI}
+      >
         <DialogHeader>
           <DialogTitle className="text-lg font-bold text-foreground">Scan Receipt</DialogTitle>
         </DialogHeader>

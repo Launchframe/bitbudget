@@ -38,7 +38,7 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
       sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
       onUnlock(privacyKey)
     } catch {
-      setError("Incorrect PIN. Please try again.")
+      setError("Incorrect passphrase. Please try again.")
     } finally {
       setLoading(false)
     }
@@ -56,7 +56,7 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
             </div>
             <h2 className="text-xl font-bold text-foreground">Unlock Your Data</h2>
             <p className="text-sm text-muted-foreground text-center">
-              Enter your PIN to decrypt your transaction data.
+              Enter your passphrase to decrypt your transaction data.
             </p>
           </div>
 
@@ -69,12 +69,12 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label className="text-muted-foreground text-xs uppercase tracking-wider">PIN or Password</Label>
+              <Label className="text-muted-foreground text-xs uppercase tracking-wider">Passphrase</Label>
               <Input
                 type="password"
                 value={pin}
                 onChange={e => setPin(e.target.value)}
-                placeholder="Enter your PIN"
+                placeholder="Enter your passphrase"
                 className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
                 autoFocus
               />
@@ -100,7 +100,7 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
         )}
 
         <p className="text-xs text-muted-foreground text-center max-w-sm">
-          Your data is encrypted end-to-end. This PIN never leaves your device.
+          Your data is encrypted end-to-end. This passphrase never leaves your device.
         </p>
       </div>
     </div>
