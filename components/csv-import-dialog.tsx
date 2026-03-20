@@ -137,6 +137,16 @@ export function CSVImportDialog({
   const [expandedDupIndex, setExpandedDupIndex] = useState<number | null>(null)
 
   const lastLoadedFile = useRef<File | null>(null)
+  const deferredImportRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearDeferredImport = useCallback(() => {
+    if (deferredImportRef.current) {
+      clearTimeout(deferredImportRef.current)
+      deferredImportRef.current = null
+    }
+  }, [])
+
+  useEffect(() => () => clearDeferredImport(), [clearDeferredImport])
 
   useEffect(() => {
     if (!open || !file || file === lastLoadedFile.current) return
@@ -225,6 +235,7 @@ export function CSVImportDialog({
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
       if (!isOpen) {
+        clearDeferredImport()
         setParseResult(null)
         setCsvEnvelopes([])
         setExistingEnvelopes([])
@@ -240,7 +251,7 @@ export function CSVImportDialog({
       }
       onOpenChange(isOpen)
     },
-    [onOpenChange],
+    [onOpenChange, clearDeferredImport],
   )
 
   const skippedNames = useCallback(() => {
@@ -338,7 +349,9 @@ export function CSVImportDialog({
     setStep("importing")
     onLoadingChange?.(true)
     setError(null)
-    setTimeout(() => {
+    clearDeferredImport()
+    deferredImportRef.current = setTimeout(() => {
+      deferredImportRef.current = null
       const skipEnv = skippedNames()
       const existingByKey = buildExistingByKey(dedupExistingTransactions)
 
@@ -659,7 +672,11 @@ export function CSVImportDialog({
                   setStep("importing")
                   onLoadingChange?.(true)
                   setError(null)
-                  setTimeout(() => void runImport(dupIndexSet, discardDupIndices), 0)
+                  clearDeferredImport()
+                  deferredImportRef.current = setTimeout(() => {
+                    deferredImportRef.current = null
+                    void runImport(dupIndexSet, discardDupIndices)
+                  }, 0)
                 }}
                 className="flex items-center gap-2 px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
