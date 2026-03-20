@@ -1,8 +1,19 @@
 // @vitest-environment node
 import { webcrypto } from "node:crypto"
-import { beforeAll, describe, it, expect } from "vitest"
+import { beforeAll, beforeEach, describe, it, expect, vi } from "vitest"
 import { generateSecretKey } from "nostr-tools"
 import { nsecEncode } from "nostr-tools/nip19"
+
+const mockGet = vi.fn()
+const mockClose = vi.fn()
+
+vi.mock("nostr-tools/pool", () => ({
+  SimplePool: class {
+    get = mockGet
+    close = mockClose
+  },
+}))
+
 import {
   buildAuthEventTemplate,
   decodeNsec,
@@ -15,6 +26,11 @@ beforeAll(() => {
   if (!globalThis.crypto) {
     globalThis.crypto = webcrypto as unknown as Crypto
   }
+})
+
+beforeEach(() => {
+  mockGet.mockReset()
+  mockClose.mockReset()
 })
 
 describe("buildAuthEventTemplate", () => {
@@ -116,10 +132,21 @@ describe("signAuthEvent", () => {
 })
 
 describe("fetchNostrProfile", () => {
-  it("returns object with optional name and image (NostrProfile shape)", async () => {
-    const profile = await fetchNostrProfile("0000000000000000000000000000000000000000000000000000000000000001")
-    expect(profile).toEqual(expect.any(Object))
-    if ("name" in profile && profile.name != null) expect(typeof profile.name).toBe("string")
-    if ("image" in profile && profile.image != null) expect(typeof profile.image).toBe("string")
+  const pk = "0".repeat(64)
+
+  it("returns {} when pool returns no event", async () => {
+    mockGet.mockResolvedValue(null)
+    const profile = await fetchNostrProfile(pk)
+    expect(profile).toEqual({})
+    expect(mockClose).toHaveBeenCalled()
+  })
+
+  it("parses kind 0 content for name and image", async () => {
+    mockGet.mockResolvedValue({
+      content: JSON.stringify({ display_name: "Alice", picture: "https://example.com/p.png" }),
+    })
+    const profile = await fetchNostrProfile(pk)
+    expect(profile).toEqual({ name: "Alice", image: "https://example.com/p.png" })
+    expect(mockClose).toHaveBeenCalled()
   })
 })
