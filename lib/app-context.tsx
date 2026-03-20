@@ -706,12 +706,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
-    sessionStorage.removeItem("bitbudget-privacy-key")
-    sessionStorage.removeItem("bitbudget-privacy-user")
+    try {
+      sessionStorage.removeItem("bitbudget-privacy-key")
+      sessionStorage.removeItem("bitbudget-privacy-user")
+      sessionStorage.removeItem("bitbudget-pending-nsec")
+    } catch {
+      /* ignore */
+    }
     if (typeof localStorage !== "undefined") {
-      localStorage.removeItem("bitbudget-nsec")
-      localStorage.removeItem("bitbudget-nsec-salt")
-      localStorage.removeItem("bitbudget-nsec-user")
+      try {
+        localStorage.removeItem("bitbudget-nsec")
+        localStorage.removeItem("bitbudget-nsec-user")
+      } catch {
+        /* ignore */
+      }
     }
     privacyKeyRef.current = null
     publicKeyRef.current = null

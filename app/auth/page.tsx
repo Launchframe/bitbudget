@@ -7,6 +7,7 @@ import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft, HelpCircle, ChevronLeft, ChevronRight, X } from "lucide-react"
+// Nostr profile fetch, relay list, and auth event shape live in nostr-local-signer (shared by extension + nsec flows).
 import { decodeNsec, signAuthEvent, fetchNostrProfile, buildAuthEventTemplate } from "@/lib/nostr-local-signer"
 import { uint8ToHex } from "@/lib/crypto"
 import { usePlatform } from "@/lib/platform-context"
@@ -234,7 +235,12 @@ export default function AuthPage() {
         setError(`Nostr authentication failed: ${result.error}`)
         return
       }
-      sessionStorage.setItem("bitbudget-pending-nsec", uint8ToHex(secretKey))
+      // Plaintext nsec in sessionStorage is short-lived (cleared after passphrase encrypt on onboarding).
+      try {
+        sessionStorage.setItem("bitbudget-pending-nsec", uint8ToHex(secretKey))
+      } catch {
+        /* Private mode / quota: still navigate; user may need extension or another browser for full setup */
+      }
       router.push("/")
       router.refresh()
     } catch (err) {

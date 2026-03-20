@@ -73,6 +73,9 @@ function parsePlatform(): PlatformInfo {
 const PlatformContext = React.createContext<PlatformInfo>(defaultPlatform)
 
 export function PlatformProvider({ children }: { children: React.ReactNode }) {
+  // `parsePlatform()` uses `navigator`, which differs between SSR and the browser. A lazy
+  // `useState(() => parsePlatform())` would risk hydration mismatch, so we match the server
+  // with `defaultPlatform` first and sync after mount (one extra render; intentional).
   const [platform, setPlatform] = React.useState<PlatformInfo>(defaultPlatform)
 
   React.useEffect(() => {

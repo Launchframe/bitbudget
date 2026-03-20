@@ -226,7 +226,8 @@ export default function OnboardingPage() {
         }
         
         // Nsec fallback users have pending nsec in sessionStorage; show security step. Extension users skip it.
-        const hasPendingNsec = typeof window !== "undefined" && sessionStorage.getItem("bitbudget-pending-nsec")
+        const hasPendingNsec =
+          typeof window !== "undefined" && Boolean(sessionStorage.getItem("bitbudget-pending-nsec"))
         if (hasPendingNsec) setIsNsecFallback(true)
         setStep(prev => (prev === "security" && hasPendingNsec ? "security" : prev === "security" ? "income" : prev))
 
@@ -365,15 +366,23 @@ export default function OnboardingPage() {
       }
 
       if (typeof window !== "undefined") {
-        sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
-        if (userId) sessionStorage.setItem("bitbudget-privacy-user", userId)
-        const pendingNsecHex = sessionStorage.getItem("bitbudget-pending-nsec")
-        if (pendingNsecHex) {
-          const nsecBytes = hexToUint8(pendingNsecHex)
-          const nsecEncrypted = await encryptPrivacyKey(nsecBytes, derivedKey)
-          localStorage.setItem("bitbudget-nsec", JSON.stringify(nsecEncrypted))
-          if (userId) localStorage.setItem("bitbudget-nsec-user", userId)
-          sessionStorage.removeItem("bitbudget-pending-nsec")
+        try {
+          sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
+          if (userId) sessionStorage.setItem("bitbudget-privacy-user", userId)
+        } catch {
+          /* continue; server encryption is already saved */
+        }
+        try {
+          const pendingNsecHex = sessionStorage.getItem("bitbudget-pending-nsec")
+          if (pendingNsecHex) {
+            const nsecBytes = hexToUint8(pendingNsecHex)
+            const nsecEncrypted = await encryptPrivacyKey(nsecBytes, derivedKey)
+            localStorage.setItem("bitbudget-nsec", JSON.stringify(nsecEncrypted))
+            if (userId) localStorage.setItem("bitbudget-nsec-user", userId)
+            sessionStorage.removeItem("bitbudget-pending-nsec")
+          }
+        } catch {
+          /* localStorage quota / disabled — passphrase setup still succeeded */
         }
       }
       await syncUserPublicKey(privacyKey)
