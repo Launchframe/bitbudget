@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react"
 import { X } from "lucide-react"
 
 interface WalkthroughStep {
@@ -33,10 +33,22 @@ const STEPS: WalkthroughStep[] = [
 
 const STORAGE_KEY = "bitbudget-walkthrough-completed"
 
+/** Estimated tooltip size for viewport clamping before/without layout measure */
+const EST_TOOLTIP_W = 300
+const EST_TOOLTIP_H = 200
+const VIEW_PAD = 12
+
+type TooltipVariant = "right" | "below" | "above"
+
 export function WalkthroughOverlay() {
   const [currentStep, setCurrentStep] = useState(0)
   const [visible, setVisible] = useState(false)
-  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0, centred: false })
+  const [tooltipPos, setTooltipPos] = useState<{
+    top: number
+    left: number
+    centred: boolean
+    variant: TooltipVariant
+  }>({ top: 0, left: 0, centred: false, variant: "right" })
   const tooltipRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -55,31 +67,91 @@ export function WalkthroughOverlay() {
       const cx = window.innerWidth / 2
       const cy = window.innerHeight / 2
       if (step.target === "new-transaction") {
-        setTooltipPos({ top: window.innerHeight - 180, left: cx, centred: true })
+        setTooltipPos({ top: window.innerHeight - 180, left: cx, centred: true, variant: "above" })
       } else if (step.target === "dashboard-area") {
-        setTooltipPos({ top: 200, left: cx, centred: true })
+        setTooltipPos({ top: 200, left: cx, centred: true, variant: "above" })
       } else {
-        setTooltipPos({ top: cy - 80, left: cx, centred: true })
+        setTooltipPos({ top: cy - 80, left: cx, centred: true, variant: "above" })
       }
       return
     }
     const rect = el.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+
     if (step.position === "right") {
-      setTooltipPos({ top: rect.top + rect.height / 2, left: rect.right + 16, centred: false })
-    } else {
-      setTooltipPos({ top: rect.bottom + 16, left: rect.left + rect.width / 2, centred: false })
+      let top = rect.top + rect.height / 2
+      let left = rect.right + 16
+      // Keep tooltip vertically in view (transform uses translateY(-50%))
+      top = Math.max(
+        VIEW_PAD + EST_TOOLTIP_H / 2,
+        Math.min(vh - VIEW_PAD - EST_TOOLTIP_H / 2, top)
+      )
+      const measured = tooltipRef.current?.getBoundingClientRect()
+      const tipW = measured?.width ?? EST_TOOLTIP_W
+      left = Math.max(VIEW_PAD, Math.min(vw - VIEW_PAD - tipW, left))
+      setTooltipPos({ top, left, centred: false, variant: "right" })
+      return
     }
+
+    // "bottom" step: dashboard-area wraps the whole column — rect.bottom is often below the fold.
+    // Anchor near the top of the dashboard content, not below the full column height.
+    const rawAnchorY = rect.top + Math.min(96, Math.max(48, rect.height * 0.12))
+    // Keep anchor inside the viewport so the tooltip can always be placed on-screen.
+    const anchorY = Math.max(
+      VIEW_PAD + 80,
+      Math.min(vh - VIEW_PAD - 80, rawAnchorY)
+    )
+    const anchorX = rect.left + rect.width / 2
+
+    const measured = tooltipRef.current?.getBoundingClientRect()
+    const tipH = measured?.height ?? EST_TOOLTIP_H
+    const tipW = measured?.width ?? EST_TOOLTIP_W
+
+    const spaceBelow = vh - anchorY - VIEW_PAD
+    const spaceAbove = anchorY - VIEW_PAD
+    const preferBelow = spaceBelow >= tipH || spaceBelow >= spaceAbove
+
+    let variant: TooltipVariant = preferBelow ? "below" : "above"
+    let top = preferBelow ? anchorY + VIEW_PAD : anchorY - VIEW_PAD
+
+    // If still off-screen, flip
+    if (preferBelow && top + tipH > vh - VIEW_PAD) {
+      variant = "above"
+      top = anchorY - VIEW_PAD
+    } else if (!preferBelow && top - tipH < VIEW_PAD) {
+      variant = "below"
+      top = anchorY + VIEW_PAD
+    }
+
+    let left = anchorX
+    left = Math.max(
+      VIEW_PAD + tipW / 2,
+      Math.min(vw - VIEW_PAD - tipW / 2, left)
+    )
+
+    setTooltipPos({ top, left, centred: false, variant })
   }, [currentStep])
+
+  useLayoutEffect(() => {
+    if (!visible) return
+    // Defer setState to satisfy react-hooks/set-state-in-effect (avoid sync setState in effect body).
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      positionTooltip()
+      raf2 = requestAnimationFrame(() => positionTooltip())
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
+  }, [visible, currentStep, positionTooltip])
 
   useEffect(() => {
     if (!visible) return
-    const raf = requestAnimationFrame(() => positionTooltip())
     window.addEventListener("resize", positionTooltip)
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener("resize", positionTooltip)
-    }
-  }, [visible, currentStep, positionTooltip])
+    return () => window.removeEventListener("resize", positionTooltip)
+  }, [visible, positionTooltip])
 
   function handleNext() {
     if (currentStep < STEPS.length - 1) {
@@ -110,9 +182,11 @@ export function WalkthroughOverlay() {
           left: tooltipPos.left,
           transform: tooltipPos.centred
             ? "translate(-50%, -50%)"
-            : step.position === "bottom"
+            : tooltipPos.variant === "below"
               ? "translateX(-50%)"
-              : "translateY(-50%)",
+              : tooltipPos.variant === "above"
+                ? "translate(-50%, -100%)"
+                : "translateY(-50%)",
         }}
       >
         <button

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
@@ -11,6 +11,7 @@ import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSi
 import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
 import { suggestIcon, getEnvelopeIcon, filterSuggestions } from "@/lib/envelope-icons"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
+import { Spinner } from "@/components/ui/spinner"
 import {
   deriveKeyFromPin,
   generateSalt,
@@ -20,10 +21,10 @@ import {
 } from "@/lib/crypto"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 
-type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "opportunity-cost" | "complete"
+type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
 
-// Steps are the same for all users; the opportunity-cost step is skipped for BTC-source users in handleImport
-const STEPS: Step[] = ["security", "income", "envelopes", "allocations", "import", "opportunity-cost", "complete"]
+// Opportunity cost is set from entry point (/welcome or / → vanilla off; /landing → btc on), not a separate step.
+const STEPS: Step[] = ["security", "income", "envelopes", "allocations", "import", "complete"]
 const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#EAB308", "#EC4899", "#06B6D4"]
 
 interface DraftEnvelope {
@@ -47,6 +48,33 @@ function toMonthly(amount: number, cadence: string): number {
 function fromMonthly(monthly: number, cadence: string): number {
   const mult = CADENCE_MULTIPLIERS[cadence] ?? 1
   return Math.round((monthly / mult) * 100) / 100
+}
+
+function OnboardingSkipBar({
+  show,
+  disabled,
+  onSkip,
+}: {
+  show: boolean
+  disabled: boolean
+  onSkip: () => void
+}) {
+  if (!show) return null
+  return (
+    <div className="mt-6 pt-4 border-t border-[#1F1F1F]">
+      <p className="text-xs text-muted-foreground text-center mb-2">
+        Already have data in BitBudget? Exit onboarding and return to your dashboard without changing settings here.
+      </p>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onSkip}
+        className="w-full py-2.5 text-sm font-medium text-muted-foreground border border-[#333] rounded-xl hover:bg-[#1A1A1A] hover:text-foreground transition-colors disabled:opacity-50"
+      >
+        Skip onboarding — go to dashboard
+      </button>
+    </div>
+  )
 }
 
 export default function OnboardingPage() {
@@ -99,18 +127,24 @@ export default function OnboardingPage() {
     newEnvelopes: string[]
   } | null>(null)
 
-  // Opportunity Cost feature
+  // Opportunity cost: enabled only for users who entered from /landing (see landing vs welcome pages).
   const [onboardingSource] = useState<"btc" | "vanilla">(() => {
     try {
       const src = sessionStorage.getItem("onboardingSource")
       return src === "btc" ? "btc" : "vanilla"
     } catch { return "vanilla" }
   })
-  const [opportunityCostEnabled, setOpportunityCostEnabled] = useState(() => onboardingSource === "btc")
+  const opportunityCostEnabled = onboardingSource === "btc"
 
   const STORAGE_KEY = "bitbudget-onboarding"
   const [hydrated, setHydrated] = useState(false)
   const [restoredSession, setRestoredSession] = useState(false)
+  /** After first encryption + settings fetch (avoids flashing Secure Your Data when keys already exist). */
+  const [bootstrapped, setBootstrapped] = useState(false)
+  const [hasExistingEncryption, setHasExistingEncryption] = useState(false)
+  /** Shown when user already has transactions — safe escape if onboardingComplete was reset by mistake. */
+  const [canSkipOnboarding, setCanSkipOnboarding] = useState(false)
+  const [skipOnboardingError, setSkipOnboardingError] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -118,7 +152,9 @@ export default function OnboardingPage() {
       if (raw) {
         const saved = JSON.parse(raw)
         if (saved.step && saved.step !== "security") {
-          setStep(saved.step)
+          const restoredStep: Step =
+            saved.step === "opportunity-cost" ? "complete" : saved.step
+          setStep(restoredStep)
           setRestoredSession(true)
         }
         if (saved.income) setIncome(saved.income)
@@ -155,42 +191,130 @@ export default function OnboardingPage() {
   const stepIndex = STEPS.indexOf(step)
   const progress = ((stepIndex + 1) / STEPS.length) * 100
 
-  const checkIfNostr = useCallback(async () => {
-    try {
-      const res = await fetch("/api/user/encryption")
-      const data = await res.json()
-      if (data.userId) setUserId(data.userId)
-      if (data.isNostr) {
-        setIsNostr(true)
+  useEffect(() => {
+    if (!hydrated) return
+    let cancelled = false
 
-        if (!data.encryptedPrivacyKey && data.nostrPubkey) {
-          const nostrExt = (window as unknown as {
-            nostr?: {
-              getPublicKey: () => Promise<string>
-              nip04?: { encrypt: (pubkey: string, plaintext: string) => Promise<string> }
-            }
-          }).nostr
-
-          if (nostrExt?.nip04) {
-            const privacyKey = generatePrivacyKey()
-            const encrypted = await nostrExt.nip04.encrypt(data.nostrPubkey, uint8ToHex(privacyKey))
-            await fetch("/api/user/encryption", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ encryptedPrivacyKey: encrypted }),
-            })
-            sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
-            if (data.userId) sessionStorage.setItem("bitbudget-privacy-user", data.userId)
-            await syncUserPublicKey(privacyKey)
-          }
+    async function bootstrapOnboarding() {
+      try {
+        const [encRes, settingsRes] = await Promise.all([
+          fetch("/api/user/encryption"),
+          fetch("/api/user/settings"),
+        ])
+        if (cancelled) return
+        if (
+          encRes.status === 401 ||
+          encRes.status === 403 ||
+          settingsRes.status === 401 ||
+          settingsRes.status === 403
+        ) {
+          signOut({ callbackUrl: "/auth" })
+          return
         }
 
-        setStep(prev => prev === "security" ? "income" : prev)
-      }
-    } catch { /* continue normally */ }
-  }, [])
+        type EncPayload = {
+          userId?: string
+          encryptedPrivacyKey?: string | null
+          isNostr?: boolean
+          nostrPubkey?: string | null
+        }
+        let enc: EncPayload | null = null
+        if (encRes.ok) {
+          enc = (await encRes.json()) as EncPayload
+        }
 
-  useState(() => { checkIfNostr() })
+        let txCount = 0
+        if (settingsRes.ok) {
+          const settings = (await settingsRes.json()) as { transactionCount?: unknown }
+          txCount = typeof settings.transactionCount === "number" ? settings.transactionCount : 0
+        }
+        setCanSkipOnboarding(txCount >= 1)
+
+        if (cancelled) return
+        if (!enc) {
+          return
+        }
+
+        if (enc.userId) setUserId(enc.userId)
+
+        let hasEnc = !!(enc.encryptedPrivacyKey && String(enc.encryptedPrivacyKey).trim().length > 0)
+
+        if (enc.isNostr) {
+          setIsNostr(true)
+          if (!hasEnc && enc.nostrPubkey) {
+            const nostrExt = (window as unknown as {
+              nostr?: {
+                getPublicKey: () => Promise<string>
+                nip04?: { encrypt: (pubkey: string, plaintext: string) => Promise<string> }
+              }
+            }).nostr
+
+            if (nostrExt?.nip04) {
+              const privacyKey = generatePrivacyKey()
+              const encrypted = await nostrExt.nip04.encrypt(enc.nostrPubkey, uint8ToHex(privacyKey))
+              const res = await fetch("/api/user/encryption", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ encryptedPrivacyKey: encrypted }),
+              })
+              if (res.status === 409) {
+                hasEnc = true
+              } else if (res.ok) {
+                sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
+                if (enc.userId) sessionStorage.setItem("bitbudget-privacy-user", enc.userId)
+                await syncUserPublicKey(privacyKey)
+                hasEnc = true
+              }
+            }
+          }
+          setHasExistingEncryption(hasEnc)
+          setStep(prev => (prev === "security" ? "income" : prev))
+        } else {
+          setHasExistingEncryption(hasEnc)
+          if (hasEnc) {
+            setStep(prev => (prev === "security" ? "income" : prev))
+          }
+        }
+      } catch {
+        /* continue */
+      } finally {
+        if (!cancelled) setBootstrapped(true)
+      }
+    }
+
+    void bootstrapOnboarding()
+    return () => {
+      cancelled = true
+    }
+  }, [hydrated])
+
+  async function skipOnboardingToDashboard() {
+    setSkipOnboardingError(null)
+    setLoading(true)
+    try {
+      const res = await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ onboardingComplete: true, opportunityCostEnabled }),
+      })
+      if (res.status === 401 || res.status === 403) {
+        await signOut({ callbackUrl: "/auth" })
+        return
+      }
+      if (!res.ok) {
+        setSkipOnboardingError("Could not save settings. Try again or sign out and back in.")
+        return
+      }
+      try {
+        sessionStorage.removeItem(STORAGE_KEY)
+        sessionStorage.removeItem("onboardingSource")
+      } catch { /* ignore */ }
+      router.push("/")
+      router.refresh()
+    } finally {
+      setLoading(false)
+    }
+  }
 
   async function handleSecuritySetup() {
     if (pin.length < 4) {
@@ -198,7 +322,7 @@ export default function OnboardingPage() {
       return
     }
     if (pin !== pinConfirm) {
-      setPinError("Passphrases don't match")
+      setPinError("Passphrases don\u2019t match")
       return
     }
     setPinError("")
@@ -210,7 +334,7 @@ export default function OnboardingPage() {
       const privacyKey = generatePrivacyKey()
       const encrypted = await encryptPrivacyKey(privacyKey, derivedKey)
 
-      await fetch("/api/user/encryption", {
+      const encRes = await fetch("/api/user/encryption", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -218,6 +342,20 @@ export default function OnboardingPage() {
           privacyKeySalt: uint8ToHex(salt),
         }),
       })
+
+      if (encRes.status === 409) {
+        let msg = "This account already has encryption. Open the main app and unlock with your existing passphrase."
+        try {
+          const errBody = await encRes.json() as { error?: string }
+          if (typeof errBody.error === "string") msg = errBody.error
+        } catch { /* use default */ }
+        setPinError(msg)
+        return
+      }
+      if (!encRes.ok) {
+        setPinError("Failed to set up encryption. Please try again.")
+        return
+      }
 
       if (typeof window !== "undefined") {
         sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
@@ -325,19 +463,12 @@ export default function OnboardingPage() {
 
   function handleImport() {
     if (!importFile) {
-      // BTC-source users skip the opt-in step (already enabled by default)
-      setStep(onboardingSource === "btc" ? "complete" : "opportunity-cost")
+      setStep("complete")
       return
     }
     setImportDialogOpen(true)
   }
 
-  function handleImportDialogClose(isOpen: boolean) {
-    setImportDialogOpen(isOpen)
-    if (!isOpen) {
-      setStep(onboardingSource === "btc" ? "complete" : "opportunity-cost")
-    }
-  }
 
   async function handleComplete() {
     setLoading(true)
@@ -375,21 +506,32 @@ export default function OnboardingPage() {
 
         <Progress value={progress} className="h-1.5" />
 
+        {skipOnboardingError && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {skipOnboardingError}
+          </div>
+        )}
+
         <div className="bg-[#0D0D0D] rounded-2xl p-8">
           {restoredSession && !isNostr && step !== "security" && step !== "complete" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
               <div className="flex flex-col gap-1.5 flex-1 min-w-0">
                 <p className="text-sm text-[#93C5FD] leading-snug">
-                  Your progress was restored. Don&apos;t remember your password?
+                  Your progress was restored.
+                  {hasExistingEncryption && bootstrapped
+                    ? " Your account already has encryption — use Skip onboarding to return to the app and unlock with your existing passphrase."
+                    : " Don\u2019t remember your passphrase?"}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => { setRestoredSession(false); setStep("security") }}
-                  className="self-start text-xs font-medium text-[#3B82F6] hover:text-[#60A5FA] underline underline-offset-2 transition-colors"
-                >
-                  Set a new password
-                </button>
+                {bootstrapped && !hasExistingEncryption && (
+                  <button
+                    type="button"
+                    onClick={() => { setRestoredSession(false); setStep("security") }}
+                    className="self-start text-xs font-medium text-[#3B82F6] hover:text-[#60A5FA] underline underline-offset-2 transition-colors"
+                  >
+                    Set a new passphrase
+                  </button>
+                )}
               </div>
               <button
                 type="button"
@@ -402,58 +544,70 @@ export default function OnboardingPage() {
             </div>
           )}
 
-          {/* Security Step */}
+          {/* Security Step — hidden when E2E key already exists (API also rejects overwriting). */}
           {step === "security" && !isNostr && (
-            <form onSubmit={e => { e.preventDefault(); handleSecuritySetup() }} className="flex flex-col gap-6">
-              <div className="flex items-center gap-3">
-                <div className="p-3 rounded-xl bg-[#F7931A]/10">
-                  <Lock className="h-6 w-6 text-[#F7931A]" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-foreground">Secure Your Data</h2>
-                  <p className="text-sm text-muted-foreground">Create a passphrase to encrypt your private data</p>
-                </div>
+            !bootstrapped ? (
+              <div className="flex flex-col items-center justify-center gap-4 py-16">
+                <Spinner className="h-8 w-8 text-[#F7931A]" />
+                <p className="text-sm text-muted-foreground text-center">Checking your account…</p>
               </div>
-
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Your transaction details (payees, descriptions) are encrypted before leaving your device.
-                This passphrase derives the encryption key. <strong>If you lose it, your data cannot be recovered.</strong>
-              </p>
-
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">PIN or Password</Label>
-                  <Input
-                    type="password"
-                    value={pin}
-                    onChange={e => setPin(e.target.value)}
-                    placeholder="At least 4 characters"
-                    className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
-                    minLength={4}
-                  />
+            ) : !hasExistingEncryption ? (
+              <form onSubmit={e => { e.preventDefault(); handleSecuritySetup() }} className="flex flex-col gap-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-[#F7931A]/10">
+                    <Lock className="h-6 w-6 text-[#F7931A]" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-foreground">Secure Your Data</h2>
+                    <p className="text-sm text-muted-foreground">Create a passphrase to encrypt your private data</p>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Confirm passphrase</Label>
-                  <Input
-                    type="password"
-                    value={pinConfirm}
-                    onChange={e => setPinConfirm(e.target.value)}
-                    placeholder="Re-enter your passphrase"
-                    className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
-                  />
-                </div>
-                {pinError && <p className="text-sm text-red-400">{pinError}</p>}
-              </div>
 
-              <button
-                type="submit"
-                disabled={loading || !pin || !pinConfirm}
-                className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {loading ? "Setting up..." : "Continue"}
-                {!loading && <ChevronRight className="h-4 w-4" />}
-              </button>
-            </form>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Your transaction details (payees &amp; descriptions) are encrypted before leaving your device.
+                  This passphrase derives the encryption key. <strong>If you lose it, your data cannot be recovered.</strong>
+                </p>
+
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-2">
+                    <Label className="text-muted-foreground text-xs uppercase tracking-wider">Passphrase</Label>
+                    <Input
+                      type="password"
+                      value={pin}
+                      onChange={e => setPin(e.target.value)}
+                      placeholder="At least 4 characters"
+                      className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
+                      minLength={4}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label className="text-muted-foreground text-xs uppercase tracking-wider">Confirm passphrase</Label>
+                    <Input
+                      type="password"
+                      value={pinConfirm}
+                      onChange={e => setPinConfirm(e.target.value)}
+                      placeholder="Re-enter your passphrase"
+                      className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
+                    />
+                  </div>
+                  {pinError && <p className="text-sm text-red-400">{pinError}</p>}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || !pin || !pinConfirm}
+                  className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {loading ? "Setting up..." : "Continue"}
+                  {!loading && <ChevronRight className="h-4 w-4" />}
+                </button>
+                <OnboardingSkipBar
+                  show={canSkipOnboarding}
+                  disabled={loading}
+                  onSkip={skipOnboardingToDashboard}
+                />
+              </form>
+            ) : null
           )}
 
           {/* Income Step */}
@@ -523,6 +677,11 @@ export default function OnboardingPage() {
                 {loading ? "Saving..." : "Continue"}
                 {!loading && <ChevronRight className="h-4 w-4" />}
               </button>
+              <OnboardingSkipBar
+                show={canSkipOnboarding && bootstrapped}
+                disabled={loading}
+                onSkip={skipOnboardingToDashboard}
+              />
             </form>
           )}
 
@@ -679,6 +838,11 @@ export default function OnboardingPage() {
                   {!loading && <ChevronRight className="h-4 w-4" />}
                 </button>
               </div>
+              <OnboardingSkipBar
+                show={canSkipOnboarding && bootstrapped}
+                disabled={loading}
+                onSkip={skipOnboardingToDashboard}
+              />
             </form>
           )}
 
@@ -938,23 +1102,32 @@ export default function OnboardingPage() {
                   {!loading && <ChevronRight className="h-4 w-4" />}
                 </button>
               </div>
+              <OnboardingSkipBar
+                show={canSkipOnboarding && bootstrapped}
+                disabled={loading}
+                onSkip={skipOnboardingToDashboard}
+              />
             </form>
           )}
 
           {/* Import Step */}
           {step === "import" && (
-            <form onSubmit={e => { e.preventDefault(); handleImport() }} className="flex flex-col gap-6">
+            <form
+              onSubmit={e => { e.preventDefault(); handleImport() }}
+              className="flex w-full min-w-0 flex-col gap-6"
+            >
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#06B6D4]/10">
                   <Upload className="h-6 w-6 text-[#06B6D4]" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h2 className="text-xl font-bold text-foreground">Import Transactions</h2>
                   <p className="text-sm text-muted-foreground">Optionally import history from a CSV</p>
                 </div>
               </div>
 
-              <div className="flex flex-col items-center gap-4 p-6 border-2 border-dashed border-[#333] rounded-xl">
+              {/* items-stretch (not items-center) so file row and hints use full card width on mobile */}
+              <div className="flex w-full min-w-0 flex-col items-stretch gap-4 p-6 border-2 border-dashed border-[#333] rounded-xl">
                 <input
                   type="file"
                   accept=".csv"
@@ -962,112 +1135,36 @@ export default function OnboardingPage() {
                     setImportFile(e.target.files?.[0] || null)
                     setImportResult(null)
                   }}
-                  className="text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#F7931A] file:text-[#0D0D0D] hover:file:bg-[#F7931A]/90"
+                  className="w-full min-w-0 text-sm text-muted-foreground file:mr-0 file:mb-3 file:block file:w-full file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#F7931A] file:text-[#0D0D0D] hover:file:bg-[#F7931A]/90 sm:file:mr-4 sm:file:mb-0 sm:file:inline-block sm:file:w-auto"
                 />
                 <p className="text-xs text-muted-foreground text-center">
                   CSV should have columns: Date, Envelope, Name, Amount
                 </p>
               </div>
 
-              <div className="flex gap-3">
+              {/* grid: reliable equal-width actions on narrow viewports (flex-1 alone can collapse oddly on some mobile browsers) */}
+              <div className="grid w-full min-w-0 grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={() => setStep("allocations")}
-                  className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
+                  className="min-w-0 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
                 >
-                  <ChevronLeft className="h-4 w-4" /> Back
+                  <ChevronLeft className="h-4 w-4 shrink-0" /> Back
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
+                  className="min-w-0 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center text-center px-2"
                 >
                   {loading ? "Importing..." : importFile ? "Import & Continue" : "Skip"}
                 </button>
               </div>
+              <OnboardingSkipBar
+                show={canSkipOnboarding && bootstrapped}
+                disabled={loading}
+                onSkip={skipOnboardingToDashboard}
+              />
             </form>
-          )}
-
-          {/* Opportunity Cost Step */}
-          {step === "opportunity-cost" && (
-            <div className="flex flex-col gap-6">
-              <div className="flex flex-col gap-2">
-                <h2 className="text-2xl font-bold text-foreground">One more thing</h2>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  BitBudget can show you the <strong className="text-foreground">Bitcoin opportunity cost</strong> of your spending — how much BTC you could have stacked instead of making each purchase.
-                </p>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  This feature is entirely optional. You can always change this in Settings.
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <button
-                  type="button"
-                  onClick={() => setOpportunityCostEnabled(true)}
-                  className={`flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-colors ${
-                    opportunityCostEnabled
-                      ? "border-[#F7931A] bg-[#F7931A]/5"
-                      : "border-[#1F1F1F] bg-[#0D0D0D] hover:border-[#333]"
-                  }`}
-                >
-                  <div className={`shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                    opportunityCostEnabled ? "border-[#F7931A] bg-[#F7931A]" : "border-[#555]"
-                  }`}>
-                    {opportunityCostEnabled && (
-                      <div className="h-2 w-2 rounded-full bg-[#0D0D0D]" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground mb-0.5">Enable Opportunity Cost</p>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      See the BTC value of every transaction, a price chart, and cumulative opportunity cost over time.
-                    </p>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setOpportunityCostEnabled(false)}
-                  className={`flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-colors ${
-                    !opportunityCostEnabled
-                      ? "border-[#3B82F6] bg-[#3B82F6]/5"
-                      : "border-[#1F1F1F] bg-[#0D0D0D] hover:border-[#333]"
-                  }`}
-                >
-                  <div className={`shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                    !opportunityCostEnabled ? "border-[#3B82F6] bg-[#3B82F6]" : "border-[#555]"
-                  }`}>
-                    {!opportunityCostEnabled && (
-                      <div className="h-2 w-2 rounded-full bg-white" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground mb-0.5">Keep it simple</p>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Focus purely on budgeting. No Bitcoin values, charts, or opportunity cost metrics.
-                    </p>
-                  </div>
-                </button>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setStep("import")}
-                  className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
-                >
-                  <ChevronLeft className="h-4 w-4" /> Back
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStep("complete")}
-                  className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors flex items-center justify-center gap-2"
-                >
-                  Continue <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
           )}
 
           {/* Complete Step */}
@@ -1112,10 +1209,11 @@ export default function OnboardingPage() {
       </div>
       <CSVImportDialog
         open={importDialogOpen}
-        onOpenChange={handleImportDialogClose}
+        onOpenChange={setImportDialogOpen}
         file={importFile}
         dedupExistingTransactions={[]}
         onImportResult={setImportResult}
+        onDone={() => setStep("complete")}
         onRequestAllocations={() => {
           setImportDialogOpen(false)
           setStep("allocations")

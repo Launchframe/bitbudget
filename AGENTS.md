@@ -60,7 +60,23 @@ styles/                  Tailwind globals
 ### State Management
 - `AppContext` (`lib/app-context.tsx`) is the single source of truth for app state. It holds transactions, envelopes, tags, user settings, encryption state, and navigation.
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
-- `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **must** be called within `BtcPriceProvider`; using it outside the provider will throw. Wrap any component that uses BTC prices in `BtcPriceProvider`.
+- `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **should** be called within `BtcPriceProvider`. If it runs outside the provider (e.g. vanilla mode or a missing wrapper), it returns **`NOOP_PRICES`** (zeros / no-op helpers) and logs a **dev-time warning** — it does not throw. Still wrap components that need real BTC data in `BtcPriceProvider` when `opportunityCostEnabled` is on.
+
+### React effects and `setState` (`react-hooks/set-state-in-effect`)
+
+ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayoutEffect`** (including via helpers that set state in the same tick as the effect runs). The goal is to avoid **effects whose only job is to copy props/other state into local state**, which tends to cause extra render passes, harder-to-follow data flow, and sometimes **cascading updates** (effect → setState → render → effect → …) or tight loops in Strict Mode.
+
+**Prefer (in order):**
+
+1. **Derive during render** — If UI can be computed from props + existing state, compute it in the render body instead of mirroring into state in an effect. For “draft” values that diverge from props, use an **overrides map** (or similar): keep only user edits in state; the displayed value is `overrides[id] ?? propValue`, so you never need a sync effect when props change.
+2. **User-driven updates** — Set state in event handlers (`onClick`, `onChange`, etc.). No lint issue; the rule targets effect bodies specifically.
+3. **Defer when you must measure the DOM then update** — If you need `getBoundingClientRect()`, `ResizeObserver`, etc., schedule the `setState` **outside** the synchronous effect body so the linter is satisfied and you avoid stacking updates in the same commit:
+   - `requestAnimationFrame(() => { … setState(…) })` (good for layout/position after paint)
+   - `setTimeout(() => { … setState(…) }, 0)` (macrotask; allows paint before heavy work)
+  - Nested `requestAnimationFrame` when a second pass needs measured node size after the first paint (e.g. walkthrough tooltip positioning).
+ 4. **Refs for non-render values** — If a value does not need to trigger a re-render, store it in `useRef` instead of `useState` + effect.
+
+**Avoid:** `useLayoutEffect(() => { setX(…); })` with no deferral — fix by one of the patterns above. **Examples in this repo:** `components/walkthrough-overlay.tsx` (deferred `positionTooltip` / `setTooltipPos` via nested `requestAnimationFrame`), `components/envelope-allocations-page.tsx` (draft allotments via overrides, no sync-from-props effect).
 
 ### TypeScript
 - Use exhaustive `switch` handling for union types and enums (use `default` with a `never` assertion or handle all cases explicitly).
@@ -89,7 +105,7 @@ styles/                  Tailwind globals
 
 ## Feature Gating: Opportunity Cost
 
-Bitcoin/sats/opportunity-cost features are **opt-in** via `User.opportunityCostEnabled` (default `false`).
+Bitcoin/sats/opportunity-cost features are controlled by `User.opportunityCostEnabled` (default `false`). New users get it from **entry point**: `/welcome` or app shell `/` → off; `/landing` → on. **Premium** users can change it in Settings; free users do not see that control.
 
 When this flag is off, the app is a **vanilla budgeting tool** — no Bitcoin mentions anywhere:
 
@@ -99,12 +115,12 @@ When this flag is off, the app is a **vanilla budgeting tool** — no Bitcoin me
 - Analytics: Opportunity Cost bar chart hidden
 - Transaction tables: Amount (sats) and Opportunity Cost columns hidden
 - Transaction detail dialog: BTC section hidden
-- Settings: BTC Display unit toggle hidden
+- Settings: Opportunity Cost + BTC Display toggles hidden for free tier (premium-only)
 - Favicon: switches dynamically between Bitcoin icon and vanilla envelope icon
 
 When adding **any** Bitcoin, sats, or opportunity-cost content, wrap it with `state.opportunityCostEnabled`. The vanilla experience must be completely clean of BTC references.
 
-Users opt in during onboarding (based on landing page origin) or toggle it in Settings at any time.
+Onboarding no longer has a separate opportunity-cost step; the flag is saved from `sessionStorage` `onboardingSource` (`btc` from `/landing`, otherwise vanilla). Premium users toggle in Settings.
 
 ## Encryption Rules
 
@@ -132,8 +148,10 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 ## Common Pitfalls
 
 - **Adding a Prisma field but forgetting `pnpm prisma generate`** — TypeScript won't see the new field until the client is regenerated.
-- **Calling `useBtcPrices()` in a component that renders in vanilla mode or outside `BtcPriceProvider`** — the hook throws instead of returning a NOOP fallback. Ensure the component is wrapped in `BtcPriceProvider` and gated with `state.opportunityCostEnabled`.
+- **Calling `useBtcPrices()` outside `BtcPriceProvider`** — the hook returns **`NOOP_PRICES`** and warns in development; it does not throw. Real prices and OC math need `BtcPriceProvider`; gate Bitcoin UI with `state.opportunityCostEnabled` so vanilla mode does not depend on live BTC data.
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
 - **Stale encryption keys** — switching accounts or clearing data can leave cached keys in `sessionStorage`. The `EncryptionGate` and `PinUnlockDialog` handle re-prompting; don't bypass them.
 - **`colSpan` mismatch** — when conditionally rendering table columns (e.g. hiding BTC columns in vanilla mode), update the empty-state row's `colSpan` accordingly.
+- **`react-hooks/set-state-in-effect`** — don’t call `setState` synchronously inside `useEffect` / `useLayoutEffect`; it triggers lint and risks extra renders or cascading updates. See **React effects and `setState`** under Code Conventions for patterns (derive during render, defer with `requestAnimationFrame` / `setTimeout(0)`, refs).
+- **Resetting `onboardingComplete` for users who already have `encryptedPrivacyKey`** — never let onboarding show **Secure Your Data** or overwrite keys. `POST /api/user/encryption` returns **409** if a key already exists; `PUT /api/user/settings` must not accept `encryptedPrivacyKey` / `privacyKeySalt`. The onboarding page skips the security step when a key exists and offers **Skip onboarding** if the user has transactions.
