@@ -86,6 +86,13 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json(
+      { error: "No valid settings fields to update" },
+      { status: 400 },
+    )
+  }
+
   const updated = await prisma.user.update({
     where: { id: session.user.id },
     data,
