@@ -21,10 +21,10 @@ import {
 } from "@/lib/crypto"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 
-type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "opportunity-cost" | "complete"
+type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
 
-// Steps are the same for all users; the opportunity-cost step is skipped for BTC-source users in handleImport
-const STEPS: Step[] = ["security", "income", "envelopes", "allocations", "import", "opportunity-cost", "complete"]
+// Opportunity cost is set from entry point (/welcome or / → vanilla off; /landing → btc on), not a separate step.
+const STEPS: Step[] = ["security", "income", "envelopes", "allocations", "import", "complete"]
 const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#EAB308", "#EC4899", "#06B6D4"]
 
 interface DraftEnvelope {
@@ -127,14 +127,14 @@ export default function OnboardingPage() {
     newEnvelopes: string[]
   } | null>(null)
 
-  // Opportunity Cost feature
+  // Opportunity cost: enabled only for users who entered from /landing (see landing vs welcome pages).
   const [onboardingSource] = useState<"btc" | "vanilla">(() => {
     try {
       const src = sessionStorage.getItem("onboardingSource")
       return src === "btc" ? "btc" : "vanilla"
     } catch { return "vanilla" }
   })
-  const [opportunityCostEnabled, setOpportunityCostEnabled] = useState(() => onboardingSource === "btc")
+  const opportunityCostEnabled = onboardingSource === "btc"
 
   const STORAGE_KEY = "bitbudget-onboarding"
   const [hydrated, setHydrated] = useState(false)
@@ -152,7 +152,9 @@ export default function OnboardingPage() {
       if (raw) {
         const saved = JSON.parse(raw)
         if (saved.step && saved.step !== "security") {
-          setStep(saved.step)
+          const restoredStep: Step =
+            saved.step === "opportunity-cost" ? "complete" : saved.step
+          setStep(restoredStep)
           setRestoredSession(true)
         }
         if (saved.income) setIncome(saved.income)
@@ -293,7 +295,7 @@ export default function OnboardingPage() {
       const res = await fetch("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ onboardingComplete: true }),
+        body: JSON.stringify({ onboardingComplete: true, opportunityCostEnabled }),
       })
       if (res.status === 401 || res.status === 403) {
         await signOut({ callbackUrl: "/auth" })
@@ -305,6 +307,7 @@ export default function OnboardingPage() {
       }
       try {
         sessionStorage.removeItem(STORAGE_KEY)
+        sessionStorage.removeItem("onboardingSource")
       } catch { /* ignore */ }
       router.push("/")
       router.refresh()
@@ -460,19 +463,12 @@ export default function OnboardingPage() {
 
   function handleImport() {
     if (!importFile) {
-      // BTC-source users skip the opt-in step (already enabled by default)
-      setStep(onboardingSource === "btc" ? "complete" : "opportunity-cost")
+      setStep("complete")
       return
     }
     setImportDialogOpen(true)
   }
 
-  function handleImportDialogClose(isOpen: boolean) {
-    setImportDialogOpen(isOpen)
-    if (!isOpen) {
-      setStep(onboardingSource === "btc" ? "complete" : "opportunity-cost")
-    }
-  }
 
   async function handleComplete() {
     setLoading(true)
@@ -1171,93 +1167,6 @@ export default function OnboardingPage() {
             </form>
           )}
 
-          {/* Opportunity Cost Step */}
-          {step === "opportunity-cost" && (
-            <div className="flex flex-col gap-6">
-              <div className="flex flex-col gap-2">
-                <h2 className="text-2xl font-bold text-foreground">One more thing</h2>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  BitBudget can show you the <strong className="text-foreground">opportunity cost</strong> of your spending — how much an expense would be worth if you had saved that value in sound money instead.
-                </p>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  This feature is entirely optional. You can always change this later in Settings.
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <button
-                  type="button"
-                  onClick={() => setOpportunityCostEnabled(true)}
-                  className={`flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-colors ${
-                    opportunityCostEnabled
-                      ? "border-[#F7931A] bg-[#F7931A]/5"
-                      : "border-[#1F1F1F] bg-[#0D0D0D] hover:border-[#333]"
-                  }`}
-                >
-                  <div className={`shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                    opportunityCostEnabled ? "border-[#F7931A] bg-[#F7931A]" : "border-[#555]"
-                  }`}>
-                    {opportunityCostEnabled && (
-                      <div className="h-2 w-2 rounded-full bg-[#0D0D0D]" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground mb-0.5">Enable Opportunity Cost</p>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      See the BTC value of every transaction, a price chart, and cumulative opportunity cost over time.
-                    </p>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setOpportunityCostEnabled(false)}
-                  className={`flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-colors ${
-                    !opportunityCostEnabled
-                      ? "border-[#3B82F6] bg-[#3B82F6]/5"
-                      : "border-[#1F1F1F] bg-[#0D0D0D] hover:border-[#333]"
-                  }`}
-                >
-                  <div className={`shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                    !opportunityCostEnabled ? "border-[#3B82F6] bg-[#3B82F6]" : "border-[#555]"
-                  }`}>
-                    {!opportunityCostEnabled && (
-                      <div className="h-2 w-2 rounded-full bg-white" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground mb-0.5">Keep it simple</p>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Focus purely on budgeting. No alternative values, charts, or opportunity cost metrics.
-                    </p>
-                  </div>
-                </button>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setStep("import")}
-                  className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
-                >
-                  <ChevronLeft className="h-4 w-4" /> Back
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStep("complete")}
-                  className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors flex items-center justify-center gap-2"
-                >
-                  Continue <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-              <OnboardingSkipBar
-                show={canSkipOnboarding && bootstrapped}
-                disabled={loading}
-                onSkip={skipOnboardingToDashboard}
-              />
-            </div>
-          )}
-
           {/* Complete Step */}
           {step === "complete" && (
             <form onSubmit={e => { e.preventDefault(); handleComplete() }} className="flex flex-col items-center gap-6 py-4">
@@ -1300,10 +1209,11 @@ export default function OnboardingPage() {
       </div>
       <CSVImportDialog
         open={importDialogOpen}
-        onOpenChange={handleImportDialogClose}
+        onOpenChange={setImportDialogOpen}
         file={importFile}
         dedupExistingTransactions={[]}
         onImportResult={setImportResult}
+        onDone={() => setStep("complete")}
         onRequestAllocations={() => {
           setImportDialogOpen(false)
           setStep("allocations")

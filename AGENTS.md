@@ -105,7 +105,7 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 
 ## Feature Gating: Opportunity Cost
 
-Bitcoin/sats/opportunity-cost features are **opt-in** via `User.opportunityCostEnabled` (default `false`).
+Bitcoin/sats/opportunity-cost features are controlled by `User.opportunityCostEnabled` (default `false`). New users get it from **entry point**: `/welcome` or app shell `/` → off; `/landing` → on. **Premium** users can change it in Settings; free users do not see that control.
 
 When this flag is off, the app is a **vanilla budgeting tool** — no Bitcoin mentions anywhere:
 
@@ -115,12 +115,12 @@ When this flag is off, the app is a **vanilla budgeting tool** — no Bitcoin me
 - Analytics: Opportunity Cost bar chart hidden
 - Transaction tables: Amount (sats) and Opportunity Cost columns hidden
 - Transaction detail dialog: BTC section hidden
-- Settings: BTC Display unit toggle hidden
+- Settings: Opportunity Cost + BTC Display toggles hidden for free tier (premium-only)
 - Favicon: switches dynamically between Bitcoin icon and vanilla envelope icon
 
 When adding **any** Bitcoin, sats, or opportunity-cost content, wrap it with `state.opportunityCostEnabled`. The vanilla experience must be completely clean of BTC references.
 
-Users opt in during onboarding (based on landing page origin) or toggle it in Settings at any time.
+Onboarding no longer has a separate opportunity-cost step; the flag is saved from `sessionStorage` `onboardingSource` (`btc` from `/landing`, otherwise vanilla). Premium users toggle in Settings.
 
 ## Encryption Rules
 

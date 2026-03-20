@@ -39,6 +39,13 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
         if (res.ok) {
           const data = await res.json()
           if (!data.onboardingComplete) {
+            try {
+              if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("onboardingSource") !== "btc") {
+                sessionStorage.setItem("onboardingSource", "vanilla")
+              }
+            } catch {
+              /* ignore */
+            }
             router.replace("/onboarding")
             return
           }
