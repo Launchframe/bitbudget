@@ -99,6 +99,14 @@ describe("decodeNsec", () => {
   it("throws if decoded type is not nsec", () => {
     expect(() => decodeNsec("nsec1invalid")).toThrow()
   })
+
+  it("accepts case-insensitive nsec1 prefix", () => {
+    const secretKey = generateSecretKey()
+    const nsec = nsecEncode(secretKey)
+    const mixedHrp = `NSEC${nsec.slice(4)}`
+    const result = decodeNsec(mixedHrp)
+    expect(result.secretKey).toEqual(secretKey)
+  })
 })
 
 describe("signAuthEvent", () => {

@@ -49,10 +49,11 @@ export interface DecodedNsecResult {
  */
 export function decodeNsec(nsec: string): DecodedNsecResult {
   const trimmed = nsec.trim()
-  if (!trimmed.startsWith("nsec1")) {
+  // Bech32 must be all-lower or all-upper (@scure/base rejects mixed case). Normalize to lower.
+  if (!trimmed.toLowerCase().startsWith("nsec1")) {
     throw new Error("Invalid nsec: must start with nsec1")
   }
-  const decoded = decode(trimmed)
+  const decoded = decode(trimmed.toLowerCase())
   if (decoded.type !== "nsec") {
     throw new Error("Invalid nsec format")
   }
