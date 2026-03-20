@@ -148,11 +148,6 @@ export function ScanReceiptDialog({
   }
 
   const skipChoiceUI = !!initialSource && suppressChoiceUI && !scanning && !error
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setIsCameraAvailable(!!cameraInputRef.current)
-    }
-  }, [cameraInputRef])
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
