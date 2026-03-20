@@ -23,7 +23,6 @@ export function ScanReceiptDialog({
 }) {
   const { openNewTransaction } = useApp()
   const [scanning, setScanning] = useState(false)
-  const [isCameraAvailable, setIsCameraAvailable] = useState(false)
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<string | null>(null)
   const [suppressChoiceUI, setSuppressChoiceUI] = useState(false)
@@ -31,15 +30,6 @@ export function ScanReceiptDialog({
   const fileInputRef = useRef<HTMLInputElement>(null)
   /** After programmatic file/camera click, next focus/visibility return without a file means picker was dismissed. */
   const expectCloseAfterPickerRef = useRef(false)
-
-  // Radix often unmounts dialog content while closed; re-check once open and choice UI is shown (inputs in DOM).
-  useEffect(() => {
-    if (typeof window === "undefined" || !open || scanning) return
-    const update = () => setIsCameraAvailable(!!cameraInputRef.current)
-    update()
-    const id = requestAnimationFrame(update)
-    return () => cancelAnimationFrame(id)
-  }, [open, scanning])
 
   useEffect(() => {
     if (!open || !initialSource) {
@@ -206,7 +196,6 @@ export function ScanReceiptDialog({
               <div className="flex flex-col text-left">
                 <span className="font-semibold text-foreground">Take Photo</span>
                 <span className="text-xs text-muted-foreground">Use your camera to scan a receipt</span>
-                {!isCameraAvailable && <span className="text-xs text-muted-foreground">Camera not available on this device</span>}
               </div>
             </button>
 
