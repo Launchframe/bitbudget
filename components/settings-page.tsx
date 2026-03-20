@@ -670,6 +670,7 @@ export function SettingsPage() {
       </div>
 
       <UpgradeModal
+        key={upgradeModalFeature ?? "closed"}
         feature={upgradeModalFeature ?? "plaid"}
         open={upgradeModalFeature !== null}
         onClose={() => setUpgradeModalFeature(null)}

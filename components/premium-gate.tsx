@@ -30,7 +30,12 @@ export function PremiumGate({ feature, children }: PremiumGateProps) {
         >
           {children}
         </div>
-        <UpgradeModal feature={feature} open={showUpgrade} onClose={() => setShowUpgrade(false)} />
+        <UpgradeModal
+          key={showUpgrade ? feature : "hidden"}
+          feature={feature}
+          open={showUpgrade}
+          onClose={() => setShowUpgrade(false)}
+        />
       </>
     )
   }
