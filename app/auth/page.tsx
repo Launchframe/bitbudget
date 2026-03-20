@@ -15,13 +15,13 @@ import {
   setPendingNsec,
   setNsecOnboardingIntent,
 } from "@/lib/nostr-local-signer"
-import { usePlatform } from "@/lib/platform-context"
+import { usePlatform, type PlatformOS } from "@/lib/platform-context"
 
 type AuthMethod = "email" | "nostr" | "nsec" | null
 
 type SignerEntry = { name: string; href: string; img: string; recommended?: boolean; note?: string }
 
-function getSignersForPlatform(os: string): SignerEntry[] {
+function getSignersForPlatform(os: PlatformOS): SignerEntry[] {
   if (os === "android") {
     return [
       { name: "Alby on Firefox", href: "https://addons.mozilla.org/en-US/android/addon/alby/", img: "https://www.satlantis.io/images/alby-logo.svg", note: "Requires Firefox for Android" },
@@ -227,6 +227,7 @@ export default function AuthPage() {
     setLoading(true)
     try {
       const { secretKey, pubkey } = decodeNsec(nsecValue)
+      setNsecValue("")
       const signed = signAuthEvent(secretKey, window.location.origin)
       const profile = await fetchNostrProfile(pubkey)
       const result = await signIn("nostr", {
@@ -322,6 +323,15 @@ export default function AuthPage() {
               >
                 <Zap className="h-5 w-5" />
                 {nostrAvailable ? "Continue with Nostr" : "Continue with Nostr Extension"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setMethod("nsec"); setError("") }}
+                disabled={loading}
+                className="w-full py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                Sign in with nsec (paste key)
               </button>
 
               <div className="flex items-center gap-4 my-2">
