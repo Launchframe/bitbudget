@@ -204,17 +204,33 @@ export default function OnboardingPage() {
           signOut({ callbackUrl: "/auth" })
           return
         }
-        if (!encRes.ok || !settingsRes.ok) return
 
-        const enc = await encRes.json()
-        const settings = await settingsRes.json()
+        type EncPayload = {
+          userId?: string
+          encryptedPrivacyKey?: string | null
+          isNostr?: boolean
+          nostrPubkey?: string | null
+        }
+        let enc: EncPayload | null = null
+        if (encRes.ok) {
+          enc = (await encRes.json()) as EncPayload
+        }
+
+        let txCount = 0
+        if (settingsRes.ok) {
+          const settings = (await settingsRes.json()) as { transactionCount?: unknown }
+          txCount = typeof settings.transactionCount === "number" ? settings.transactionCount : 0
+        }
+        setCanSkipOnboarding(txCount >= 1)
+
         if (cancelled) return
+        if (!enc) {
+          return
+        }
 
         if (enc.userId) setUserId(enc.userId)
 
         let hasEnc = !!(enc.encryptedPrivacyKey && String(enc.encryptedPrivacyKey).trim().length > 0)
-        const txCount = typeof settings.transactionCount === "number" ? settings.transactionCount : 0
-        setCanSkipOnboarding(txCount >= 1)
 
         if (enc.isNostr) {
           setIsNostr(true)
