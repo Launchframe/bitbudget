@@ -8,6 +8,7 @@ interface UserRow {
   name: string | null
   role: string | null
   subscriptionTier: string | null
+  premiumInterestAt: string | null
   createdAt: string
   transactionCount: number
 }
@@ -76,6 +77,7 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Name</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Role</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Tier</th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Premium interest</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Transactions</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#919191]">Joined</th>
               </tr>
@@ -98,6 +100,16 @@ export default function AdminUsersPage() {
                       <option value="free">Free</option>
                       <option value="premium">Premium</option>
                     </select>
+                  </td>
+                  <td className="px-4 py-3 text-[#919191] text-sm">
+                    {u.premiumInterestAt ? (
+                      <span className="inline-flex items-center gap-1.5 text-[#F7931A]" title={u.premiumInterestAt}>
+                        <span className="h-2 w-2 rounded-full bg-[#F7931A]" aria-hidden />
+                        {new Date(u.premiumInterestAt).toLocaleString()}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="px-4 py-3 text-[#E7E7E7]">{u.transactionCount}</td>
                   <td className="px-4 py-3 text-[#919191]">

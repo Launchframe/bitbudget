@@ -38,6 +38,8 @@ model User {
   remindersEnabled Boolean @default(false)
   reminderTime    String?  @default("20:00")
   subscriptionTier String @default("free")
+  // Set when a free user taps Upgrade to Premium (checkout not yet available).
+  premiumInterestAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

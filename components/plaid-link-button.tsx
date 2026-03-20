@@ -76,7 +76,7 @@ export function PlaidLinkButton() {
   return (
     <button
       onClick={handleConnect}
-      disabled={loading}
+      disabled={true}
       className="flex items-center gap-3 px-4 py-3 bg-[#1A1A1A] border border-[#333] rounded-xl text-sm text-foreground hover:border-btc-orange/50 transition-colors disabled:opacity-50"
     >
       {loading ? (
@@ -84,7 +84,7 @@ export function PlaidLinkButton() {
       ) : (
         <Building2 className="h-4 w-4 text-btc-orange" />
       )}
-      Connect Bank Account
+      Coming Soon!
     </button>
   )
 }
