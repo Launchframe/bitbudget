@@ -719,6 +719,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         localStorage.removeItem("bitbudget-nsec")
         localStorage.removeItem("bitbudget-nsec-user")
+        localStorage.removeItem("bitbudget-nsec-salt")
       } catch {
         /* ignore */
       }

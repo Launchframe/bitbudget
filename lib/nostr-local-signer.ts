@@ -102,7 +102,8 @@ interface NostrPool {
 // Pending nsec (auth → onboarding): in-memory + sessionStorage hex mirror
 // ---------------------------------------------------------------------------
 // Raw key bytes are mirrored to sessionStorage so a full reload can still reach
-// the PIN encrypt step. Encrypted at-rest nsec uses `bitbudget-nsec` (JSON iv+ciphertext).
+// the PIN encrypt step. This trades a larger XSS blast radius for UX (reload survival);
+// at-rest protection is `bitbudget-nsec` (PIN-encrypted JSON) after the security step.
 // Intent flag `bitbudget-nsec-onboarding-intent` marks nsec-login users who owe PIN setup.
 
 /** Hex-encoded secret key bytes; cleared with `clearPendingNsec()`. */
