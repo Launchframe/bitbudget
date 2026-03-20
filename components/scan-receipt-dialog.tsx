@@ -32,6 +32,15 @@ export function ScanReceiptDialog({
   /** After programmatic file/camera click, next focus/visibility return without a file means picker was dismissed. */
   const expectCloseAfterPickerRef = useRef(false)
 
+  // Radix often unmounts dialog content while closed; re-check once open and choice UI is shown (inputs in DOM).
+  useEffect(() => {
+    if (typeof window === "undefined" || !open || scanning) return
+    const update = () => setIsCameraAvailable(!!cameraInputRef.current)
+    update()
+    const id = requestAnimationFrame(update)
+    return () => cancelAnimationFrame(id)
+  }, [open, scanning])
+
   useEffect(() => {
     if (!open || !initialSource) {
       expectCloseAfterPickerRef.current = false
