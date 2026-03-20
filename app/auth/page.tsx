@@ -240,8 +240,14 @@ export default function AuthPage() {
         setError(`Nostr authentication failed: ${result.error}`)
         return
       }
-      setPendingNsec(secretKey)
-      setNsecOnboardingIntent()
+      // Bridge to onboarding security step (memory + session intent). Must not block navigation
+      // if storage/helpers fail after sign-in already succeeded.
+      try {
+        setPendingNsec(secretKey)
+        setNsecOnboardingIntent()
+      } catch {
+        /* continue — user is authenticated */
+      }
       router.push("/")
       router.refresh()
     } catch (err) {

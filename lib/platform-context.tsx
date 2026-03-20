@@ -73,9 +73,11 @@ function parsePlatform(): PlatformInfo {
 const PlatformContext = React.createContext<PlatformInfo>(defaultPlatform)
 
 export function PlatformProvider({ children }: { children: React.ReactNode }) {
-  // `parsePlatform()` uses `navigator`, which differs between SSR and the browser. A lazy
-  // `useState(() => parsePlatform())` would risk hydration mismatch, so we match the server
-  // with `defaultPlatform` first and sync after mount (one extra render; intentional).
+  // `parsePlatform()` uses `navigator` / touch heuristics. On the server, `navigator` is
+  // undefined so we get `defaultPlatform`. A lazy `useState(() => parsePlatform())` on the
+  // client would parse real values on the first paint and can mismatch SSR markup if any
+  // child renders platform-dependent UI. We intentionally accept one post-mount sync
+  // instead of risking hydration mismatch for platform-dependent subtrees.
   const [platform, setPlatform] = React.useState<PlatformInfo>(defaultPlatform)
 
   React.useEffect(() => {
