@@ -367,10 +367,13 @@ export function EnvelopeAllocationsPage() {
                       onChange={e => {
                         const raw = parseFloat(e.target.value)
                         const clamped = isNaN(raw) ? 0 : Math.min(Math.max(0, raw), sliderMax)
-                        setDraft(env.id, clamped)
+                        const snapped = snapSliderDisplayValue(clamped, sliderMax, ALLOCATION_SLIDER_STEP)
+                        setDraft(env.id, snapped)
                       }}
                       placeholder="0"
                       min="0"
+                      step={ALLOCATION_SLIDER_STEP}
+                      aria-label={`${env.name} monthly allotment amount`}
                       className="w-20 bg-transparent border-b border-[#333] text-right text-foreground text-sm font-semibold py-0.5 focus:outline-none focus:border-[#F7931A] transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     />
                     <span className="text-xs text-muted-foreground w-10 text-right">{pct}%</span>

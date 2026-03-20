@@ -124,10 +124,14 @@ export default function OnboardingPage() {
         if (saved.income) setIncome(saved.income)
         if (saved.cadence) setCadence(saved.cadence)
         if (saved.envelopes?.length) setEnvelopes(
-          saved.envelopes.map((e: { allocationCadence?: string }) => ({
-            ...e,
-            allocationCadence: e.allocationCadence ?? "monthly",
-          }))
+          saved.envelopes.map((e: { allocationCadence?: string; monthlyAllotment?: number }) => {
+            const raw = typeof e.monthlyAllotment === "number" ? e.monthlyAllotment : 0
+            return {
+              ...e,
+              allocationCadence: e.allocationCadence ?? "monthly",
+              monthlyAllotment: Math.round(raw / 5) * 5,
+            }
+          })
         )
         if (saved.allocSnapshot) allocSnapshotRef.current = saved.allocSnapshot
       }
@@ -842,7 +846,9 @@ export default function OnboardingPage() {
                               const raw = parseFloat(e.target.value)
                               const cadenceMax = fromMonthly(sliderMax, env.allocationCadence ?? "monthly")
                               const cadenceAmount = isNaN(raw) ? 0 : Math.min(Math.max(0, raw), cadenceMax)
-                              const monthly = toMonthly(cadenceAmount, env.allocationCadence ?? "monthly")
+                              let monthly = toMonthly(cadenceAmount, env.allocationCadence ?? "monthly")
+                              monthly = Math.round(monthly / 5) * 5
+                              monthly = Math.min(sliderMax, Math.max(0, monthly))
                               setEnvelopes(prev => prev.map((en, i) =>
                                 i === idx ? { ...en, monthlyAllotment: monthly } : en,
                               ))
