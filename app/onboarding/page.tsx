@@ -195,8 +195,8 @@ export default function OnboardingPage() {
     } catch { /* storage full or unavailable */ }
   }, [hydrated, step, income, cadence, envelopes])
 
-  // Nsec paste login keeps the raw key only in memory; refresh loses it. Intent survives in
-  // sessionStorage so we can sign the user out and have them paste nsec again (Copilot / UX).
+  // Pending nsec is mirrored to sessionStorage; intent flag marks nsec-login users. If intent
+  // exists but the key is gone, or user is on security as nsec fallback without a key, sign out.
   useEffect(() => {
     if (!hydrated) return
     const pending = getPendingNsec()
@@ -306,6 +306,48 @@ export default function OnboardingPage() {
         if (!cancelled) setBootstrapped(true)
       }
     }
+
+    const hasPendingNsec = getPendingNsec() !== null
+    if (hasPendingNsec || hasNsecOnboardingIntent()) {
+      setIsNsecFallback(true)
+    }
+
+    let hasEnc = !!(data.encryptedPrivacyKey && String(data.encryptedPrivacyKey).trim().length > 0)
+
+    // Nsec paste users owe the PIN step; do not auto-provision extension NIP-04 encryption.
+    if (!hasPendingNsec && !hasEnc && data.nostrPubkey) {
+      const nostrExt = (window as unknown as {
+        nostr?: {
+          getPublicKey: () => Promise<string>
+          nip04?: { encrypt: (pubkey: string, plaintext: string) => Promise<string> }
+        }
+      }).nostr
+
+      if (nostrExt?.nip04) {
+        const privacyKey = generatePrivacyKey()
+        const encrypted = await nostrExt.nip04.encrypt(data.nostrPubkey, uint8ToHex(privacyKey))
+        const post = await fetch("/api/user/encryption", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ encryptedPrivacyKey: encrypted }),
+        })
+        if (post.ok) {
+          hasEnc = true
+          try {
+            sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
+            if (data.userId) sessionStorage.setItem("bitbudget-privacy-user", data.userId)
+          } catch { /* ignore */ }
+          await syncUserPublicKey(privacyKey)
+        }
+      }
+    }
+
+    setStep(prev => {
+      if (prev !== "security") return prev
+      if (hasPendingNsec) return "security"
+      if (hasEnc) return "income"
+      return "security"
+    })
 
     void bootstrapOnboarding()
     return () => {
