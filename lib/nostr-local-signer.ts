@@ -6,6 +6,7 @@
 import { decode } from "nostr-tools/nip19"
 import { getPublicKey, finalizeEvent } from "nostr-tools"
 import type { VerifiedEvent } from "nostr-tools"
+import { hexToUint8, uint8ToHex } from "@/lib/crypto"
 
 const AUTH_EVENT_KIND = 27235
 
@@ -55,7 +56,14 @@ export function decodeNsec(nsec: string): DecodedNsecResult {
   if (decoded.type !== "nsec") {
     throw new Error("Invalid nsec format")
   }
-  const secretKey = decoded.data
+  const raw = decoded.data
+  if (!(raw instanceof Uint8Array)) {
+    throw new Error("Invalid nsec: decoded data is not a Uint8Array")
+  }
+  if (raw.length !== 32) {
+    throw new Error("Invalid nsec: secret key must be 32 bytes")
+  }
+  const secretKey = raw
   const pubkey = getPublicKey(secretKey)
   return { secretKey, pubkey }
 }
@@ -90,33 +98,69 @@ interface NostrPool {
 }
 
 // ---------------------------------------------------------------------------
-// In-memory pending nsec (auth page → onboarding bridge, never touches storage)
+// Pending nsec (auth → onboarding): in-memory + sessionStorage hex mirror
 // ---------------------------------------------------------------------------
+// Raw key bytes are mirrored to sessionStorage so a full reload can still reach
+// the PIN encrypt step. Encrypted at-rest nsec uses `bitbudget-nsec` (JSON iv+ciphertext).
+// Intent flag `bitbudget-nsec-onboarding-intent` marks nsec-login users who owe PIN setup.
+
+/** Hex-encoded secret key bytes; cleared with `clearPendingNsec()`. */
+export const PENDING_NSEC_SESSION_KEY = "bitbudget-pending-nsec"
 
 let _pendingNsec: Uint8Array | null = null
 
-/** Hold a raw nsec in memory so the onboarding security step can encrypt it. */
+/** Hold a raw nsec so the onboarding security step can encrypt it. */
 export function setPendingNsec(key: Uint8Array): void {
   _pendingNsec = key
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem(PENDING_NSEC_SESSION_KEY, uint8ToHex(key))
+    }
+  } catch {
+    /* private mode / quota */
+  }
 }
 
 /** Read the pending nsec (returns null if none). Does NOT clear it. */
 export function getPendingNsec(): Uint8Array | null {
-  return _pendingNsec
+  if (_pendingNsec) return _pendingNsec
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      const hex = sessionStorage.getItem(PENDING_NSEC_SESSION_KEY)
+      if (!hex) return null
+      const bytes = hexToUint8(hex)
+      if (bytes.length !== 32) {
+        sessionStorage.removeItem(PENDING_NSEC_SESSION_KEY)
+        return null
+      }
+      _pendingNsec = bytes
+      return _pendingNsec
+    }
+  } catch {
+    /* ignore */
+  }
+  return null
 }
 
-/** Wipe the pending nsec from memory. */
+/** Wipe the pending nsec from memory and sessionStorage. */
 export function clearPendingNsec(): void {
   if (_pendingNsec) {
     _pendingNsec.fill(0)
     _pendingNsec = null
   }
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem(PENDING_NSEC_SESSION_KEY)
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
  * Session flag: user signed in via nsec paste and still owes the onboarding PIN step.
- * Survives soft navigation; used to detect refresh / full reload where `_pendingNsec` is lost.
- * Never stores the key — only intent.
+ * Used with `getPendingNsec()` to detect reload where memory was cleared but key may
+ * still be in sessionStorage — or to sign out when intent exists but the key is gone.
  */
 export const NSEC_ONBOARDING_INTENT_KEY = "bitbudget-nsec-onboarding-intent"
 
@@ -149,7 +193,8 @@ export function hasNsecOnboardingIntent(): boolean {
 }
 
 /**
- * Fetch kind-0 profile (name, picture) for a pubkey from relays.
+ * Fetch kind-0 profile metadata for a pubkey from relays.
+ * Returns `name` (from display_name or name) and `image` (from picture).
  */
 export async function fetchNostrProfile(pubkey: string): Promise<NostrProfile> {
   let pool: NostrPool | undefined
