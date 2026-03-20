@@ -305,14 +305,14 @@ export default function OnboardingPage() {
             setIsNsecFallback(true)
           }
 
-          // Security UI only renders for (!isNostr || isNsecFallback). Extension Nostr users who
-          // are not on the nsec-fallback path must not stay on "security" without that UI.
+          // Security UI only renders when (!isNostr || isNsecFallback). Extension Nostr users who
+          // are not on the nsec-fallback path must never stay on "security" without that UI
+          // (e.g. NIP-04 missing or POST failed would otherwise leave a blank card). Nsec users
+          // with a pending key stay on Security for PIN; everyone else advances to Income.
           setStep(prev => {
             if (prev !== "security") return prev
             if (hasPendingNsec) return "security"
-            if (!markNsecFallback) return "income"
-            if (hasEnc) return "income"
-            return "security"
+            return "income"
           })
         }
       } catch {
