@@ -81,12 +81,15 @@ export function WalkthroughOverlay() {
 
     if (step.position === "right") {
       let top = rect.top + rect.height / 2
-      const left = rect.right + 16
+      let left = rect.right + 16
       // Keep tooltip vertically in view (transform uses translateY(-50%))
       top = Math.max(
         VIEW_PAD + EST_TOOLTIP_H / 2,
         Math.min(vh - VIEW_PAD - EST_TOOLTIP_H / 2, top)
       )
+      const measured = tooltipRef.current?.getBoundingClientRect()
+      const tipW = measured?.width ?? EST_TOOLTIP_W
+      left = Math.max(VIEW_PAD, Math.min(vw - VIEW_PAD - tipW, left))
       setTooltipPos({ top, left, centred: false, variant: "right" })
       return
     }
