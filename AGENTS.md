@@ -73,10 +73,10 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 3. **Defer when you must measure the DOM then update** — If you need `getBoundingClientRect()`, `ResizeObserver`, etc., schedule the `setState` **outside** the synchronous effect body so the linter is satisfied and you avoid stacking updates in the same commit:
    - `requestAnimationFrame(() => { … setState(…) })` (good for layout/position after paint)
    - `setTimeout(() => { … setState(…) }, 0)` (macrotask; allows paint before heavy work)
-   - Nested `requestAnimationFrame` when a second pass needs measured node size after the first paint (e.g. walkthrough tooltip positioning).
-4. **Refs for non-render values** — If a value does not need to trigger a re-render, store it in `useRef` instead of `useState` + effect.
+  - Nested `requestAnimationFrame` when a second pass needs measured node size after the first paint (e.g. walkthrough tooltip positioning).
+ 4. **Refs for non-render values** — If a value does not need to trigger a re-render, store it in `useRef` instead of `useState` + effect.
 
-**Avoid:** `useLayoutEffect(() => { setX(…); })` with no deferral — fix by one of the patterns above. **Examples in this repo:** `components/walkthrough-overlay.tsx` (deferred `positionTooltip` / `setTooltipPos` via nested `requestAnimationFrame`), `components/upgrade-modal.tsx` (`onCloseRef` synced in an effect + auto-close via `setTimeout`), `components/envelope-allocations-page.tsx` (draft allotments via overrides, no sync-from-props effect).
+**Avoid:** `useLayoutEffect(() => { setX(…); })` with no deferral — fix by one of the patterns above. **Examples in this repo:** `components/walkthrough-overlay.tsx` (deferred `positionTooltip` / `setTooltipPos` via nested `requestAnimationFrame`), `components/envelope-allocations-page.tsx` (draft allotments via overrides, no sync-from-props effect).
 
 ### TypeScript
 - Use exhaustive `switch` handling for union types and enums (use `default` with a `never` assertion or handle all cases explicitly).
