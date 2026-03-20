@@ -16,6 +16,14 @@ function useDraftAllotments() {
   return { getDraft, setDraft }
 }
 
+const ALLOCATION_SLIDER_STEP = 5
+
+/** Align range input value to step so browsers don’t clamp unpredictably when draft ≠ multiple of step. */
+function snapSliderDisplayValue(value: number, max: number, step: number): number {
+  const snapped = Math.round(value / step) * step
+  return Math.min(max, Math.max(0, snapped))
+}
+
 export function EnvelopeAllocationsPage() {
   const { state, navigateTo, editEnvelope, setMonthlyIncome } = useApp()
   const activeEnvelopes = useMemo(
@@ -331,7 +339,8 @@ export function EnvelopeAllocationsPage() {
             const val = getDraft(env.id, env.monthlyAllotment)
             const sliderMax = val + draftSavings
             const pct = state.monthlyIncome > 0 ? Math.round((val / state.monthlyIncome) * 100) : 0
-            const sliderPct = sliderMax > 0 ? (val / sliderMax) * 100 : 0
+            const rangeDisplayValue = snapSliderDisplayValue(val, sliderMax, ALLOCATION_SLIDER_STEP)
+            const sliderPct = sliderMax > 0 ? (rangeDisplayValue / sliderMax) * 100 : 0
 
             return (
               <div
@@ -373,8 +382,8 @@ export function EnvelopeAllocationsPage() {
                   className="env-alloc-slider"
                   min={0}
                   max={sliderMax}
-                  step={5}
-                  value={val}
+                  step={ALLOCATION_SLIDER_STEP}
+                  value={rangeDisplayValue}
                   aria-label={`${env.name} monthly allotment`}
                   onChange={e => {
                     const v = parseInt(e.target.value, 10) || 0

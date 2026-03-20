@@ -810,7 +810,11 @@ export default function OnboardingPage() {
                   const Icon = getEnvelopeIcon(env.icon)
                   const sliderMax = env.monthlyAllotment + savings
                   const pct = monthlyIncome > 0 ? Math.round((env.monthlyAllotment / monthlyIncome) * 100) : 0
-                  const sliderPct = sliderMax > 0 ? (env.monthlyAllotment / sliderMax) * 100 : 0
+                  const rangeDisplayValue = Math.min(
+                    sliderMax,
+                    Math.max(0, Math.round(env.monthlyAllotment / 5) * 5),
+                  )
+                  const sliderPct = sliderMax > 0 ? (rangeDisplayValue / sliderMax) * 100 : 0
 
                   return (
                     <div
@@ -871,7 +875,8 @@ export default function OnboardingPage() {
                         min={0}
                         max={sliderMax}
                         step={5}
-                        value={env.monthlyAllotment}
+                        value={rangeDisplayValue}
+                        aria-label={`${env.name} monthly allotment`}
                         onChange={e => {
                           const val = parseInt(e.target.value, 10) || 0
                           setEnvelopes(prev => prev.map((en, i) =>

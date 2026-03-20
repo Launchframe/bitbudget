@@ -22,6 +22,21 @@ describe("escapeCsvField", () => {
     expect(escapeCsvField("line1\nline2")).toBe('"line1\nline2"')
   })
 
+  it("wraps in double quotes when value contains carriage return", () => {
+    expect(escapeCsvField("a\rb")).toBe('"a\rb"')
+  })
+
+  it("neutralizes spreadsheet formula injection in payee-like strings", () => {
+    expect(escapeCsvField("=1+1")).toBe("'=1+1")
+    expect(escapeCsvField("@SUM(A1)")).toBe("'@SUM(A1)")
+    expect(escapeCsvField("\t=cmd")).toBe("'\t=cmd")
+  })
+
+  it("does not neutralize negative currency amounts", () => {
+    expect(escapeCsvField("-$42.50")).toBe("-$42.50")
+    expect(escapeCsvField("- $10.00")).toBe("- $10.00")
+  })
+
   it("escapes double quotes by doubling them", () => {
     expect(escapeCsvField('Say "hello"')).toBe('"Say ""hello"""')
   })
@@ -216,7 +231,7 @@ describe("buildTransactionsCsv", () => {
       },
     ]
     const csv = buildTransactionsCsv(rows)
-    expect(csv.split("\n").length).toBe(3)
+    expect(csv.split(/\r?\n/).filter(Boolean).length).toBe(3)
     expect(csv).toContain("expense,2026-02-15,")
     expect(csv).toContain("credit,2026-02-14,")
     expect(csv).toContain("food")
