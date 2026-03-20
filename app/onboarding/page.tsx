@@ -20,7 +20,12 @@ import {
   uint8ToHex,
 } from "@/lib/crypto"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
-import { getPendingNsec, clearPendingNsec } from "@/lib/nostr-local-signer"
+import {
+  getPendingNsec,
+  clearPendingNsec,
+  hasNsecOnboardingIntent,
+  clearNsecOnboardingIntent,
+} from "@/lib/nostr-local-signer"
 
 type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
 
@@ -189,6 +194,20 @@ export default function OnboardingPage() {
       }))
     } catch { /* storage full or unavailable */ }
   }, [hydrated, step, income, cadence, envelopes])
+
+  // Nsec paste login keeps the raw key only in memory; refresh loses it. Intent survives in
+  // sessionStorage so we can sign the user out and have them paste nsec again (Copilot / UX).
+  useEffect(() => {
+    if (!hydrated) return
+    const pending = getPendingNsec()
+    const lostKeyWithIntent = hasNsecOnboardingIntent() && pending === null
+    const lostKeyOnPinStep =
+      step === "security" && isNostr && isNsecFallback && pending === null
+    if (lostKeyWithIntent || lostKeyOnPinStep) {
+      clearNsecOnboardingIntent()
+      void signOut({ callbackUrl: "/auth" })
+    }
+  }, [hydrated, step, isNostr, isNsecFallback])
 
   const stepIndex = STEPS.indexOf(step)
   const progress = ((stepIndex + 1) / STEPS.length) * 100
@@ -379,11 +398,14 @@ export default function OnboardingPage() {
           } catch {
             /* localStorage quota / disabled — passphrase setup still succeeded */
           } finally {
+            // Clear intent before zeroing pending so the guard effect cannot sign out mid-setup.
+            clearNsecOnboardingIntent()
             clearPendingNsec()
           }
         }
       }
       await syncUserPublicKey(privacyKey)
+      clearNsecOnboardingIntent()
 
       setStep("income")
     } catch {

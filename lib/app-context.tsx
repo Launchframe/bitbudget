@@ -11,7 +11,7 @@ import {
   hexToUint8,
 } from "@/lib/crypto"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
-import { clearPendingNsec } from "@/lib/nostr-local-signer"
+import { clearPendingNsec, clearNsecOnboardingIntent } from "@/lib/nostr-local-signer"
 
 export type PageId =
   | "dashboard"
@@ -714,6 +714,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
     clearPendingNsec()
+    clearNsecOnboardingIntent()
     if (typeof localStorage !== "undefined") {
       try {
         localStorage.removeItem("bitbudget-nsec")

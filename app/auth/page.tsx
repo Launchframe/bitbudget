@@ -7,7 +7,14 @@ import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft, HelpCircle, ChevronLeft, ChevronRight, X } from "lucide-react"
-import { decodeNsec, signAuthEvent, fetchNostrProfile, buildAuthEventTemplate, setPendingNsec } from "@/lib/nostr-local-signer"
+import {
+  decodeNsec,
+  signAuthEvent,
+  fetchNostrProfile,
+  buildAuthEventTemplate,
+  setPendingNsec,
+  setNsecOnboardingIntent,
+} from "@/lib/nostr-local-signer"
 import { usePlatform } from "@/lib/platform-context"
 
 type AuthMethod = "email" | "nostr" | "nsec" | null
@@ -234,6 +241,7 @@ export default function AuthPage() {
         return
       }
       setPendingNsec(secretKey)
+      setNsecOnboardingIntent()
       router.push("/")
       router.refresh()
     } catch (err) {

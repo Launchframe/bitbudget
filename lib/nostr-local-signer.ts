@@ -114,6 +114,41 @@ export function clearPendingNsec(): void {
 }
 
 /**
+ * Session flag: user signed in via nsec paste and still owes the onboarding PIN step.
+ * Survives soft navigation; used to detect refresh / full reload where `_pendingNsec` is lost.
+ * Never stores the key — only intent.
+ */
+export const NSEC_ONBOARDING_INTENT_KEY = "bitbudget-nsec-onboarding-intent"
+
+export function setNsecOnboardingIntent(): void {
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem(NSEC_ONBOARDING_INTENT_KEY, "1")
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearNsecOnboardingIntent(): void {
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem(NSEC_ONBOARDING_INTENT_KEY)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function hasNsecOnboardingIntent(): boolean {
+  try {
+    return typeof sessionStorage !== "undefined" && sessionStorage.getItem(NSEC_ONBOARDING_INTENT_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+/**
  * Fetch kind-0 profile (name, picture) for a pubkey from relays.
  */
 export async function fetchNostrProfile(pubkey: string): Promise<NostrProfile> {
