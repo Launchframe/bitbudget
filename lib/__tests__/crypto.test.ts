@@ -67,32 +67,25 @@ describe("generatePrivacyKey", () => {
 describe("deriveKeyFromPin", () => {
   it("derives same key for same pin and salt", async () => {
     const salt = new Uint8Array(16).fill(1)
-    const [key1, key2] = await Promise.all([
-      deriveKeyFromPin("mypin123", salt),
-      deriveKeyFromPin("mypin123", salt),
-    ])
+    const key1 = await deriveKeyFromPin("mypin123", salt)
+    const key2 = await deriveKeyFromPin("mypin123", salt)
     expect(key1).toEqual(key2)
   })
 
-  it("derives different keys for different pins", async () => {
+  // One PBKDF2-heavy block: different pins vs different salts (Copilot: fewer CI iterations).
+  it("derives distinct keys for different pins or salts", async () => {
     const salt = new Uint8Array(16).fill(1)
-    const [key1, key2] = await Promise.all([
-      deriveKeyFromPin("pin1", salt),
-      deriveKeyFromPin("pin2", salt),
-    ])
-    const data = await encryptPrivacyKey(generatePrivacyKey(), key1)
-    await expect(decryptPrivacyKey(data, key2)).rejects.toThrow()
-  })
+    const saltAlt = new Uint8Array(16).fill(2)
+    const keyPin1 = await deriveKeyFromPin("pin1", salt)
+    const keyPin2 = await deriveKeyFromPin("pin2", salt)
+    const privacy = generatePrivacyKey()
+    const encA = await encryptPrivacyKey(privacy, keyPin1)
+    await expect(decryptPrivacyKey(encA, keyPin2)).rejects.toThrow()
 
-  it("derives different keys for different salts", async () => {
-    const salt1 = new Uint8Array(16).fill(1)
-    const salt2 = new Uint8Array(16).fill(2)
-    const [key1, key2] = await Promise.all([
-      deriveKeyFromPin("samepin", salt1),
-      deriveKeyFromPin("samepin", salt2),
-    ])
-    const data = await encryptPrivacyKey(generatePrivacyKey(), key1)
-    await expect(decryptPrivacyKey(data, key2)).rejects.toThrow()
+    const keySalt1 = await deriveKeyFromPin("samepin", salt)
+    const keySalt2 = await deriveKeyFromPin("samepin", saltAlt)
+    const encB = await encryptPrivacyKey(privacy, keySalt1)
+    await expect(decryptPrivacyKey(encB, keySalt2)).rejects.toThrow()
   })
 })
 
