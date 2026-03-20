@@ -56,13 +56,22 @@ function parsePlatform(): PlatformInfo {
     os = "ios"
   }
 
+  // Order matters: Edge (incl. Chromium Edge `edg/`, iOS `edgios`, Android `edga`) before Chrome.
+  const isEdgeUa =
+    /\bedge\b/.test(uaLower) ||
+    /edg\//.test(uaLower) ||
+    /\bedgios\b/.test(uaLower) ||
+    /\bedga\b/.test(uaLower)
+  const isChromeUa =
+    /\bchrome\b/.test(uaLower) ||
+    /\bchromium\b/.test(uaLower) ||
+    /\bcrios\b/.test(uaLower)
+
   let browser: PlatformBrowser = "other"
-  if (/\bedge\b|edg\//.test(uaLower)) browser = "edge"
-  else if (/\bchrome\b|chromium\b/.test(uaLower) && !/\bedge\b/.test(uaLower))
-    browser = "chrome"
-  else if (/\bfirefox\b|fxios\b/.test(uaLower)) browser = "firefox"
-  else if (/\bsafari\b/.test(uaLower) && !/\bchrome\b/.test(uaLower))
-    browser = "safari"
+  if (isEdgeUa) browser = "edge"
+  else if (isChromeUa && !isEdgeUa) browser = "chrome"
+  else if (/\bfirefox\b/.test(uaLower) || /\bfxios\b/.test(uaLower)) browser = "firefox"
+  else if (/\bsafari\b/.test(uaLower) && !isChromeUa) browser = "safari"
 
   const isMobileDevice =
     os === "android" || os === "ios" || /mobile|tablet/.test(uaLower)
