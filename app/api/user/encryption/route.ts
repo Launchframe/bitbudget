@@ -92,8 +92,8 @@ export async function POST(req: NextRequest) {
     await prisma.user.update({
       where: { id: session.user.id },
       data: {
-        encryptedPrivacyKey: body.encryptedPrivacyKey,
-        ...(hasSalt ? { privacyKeySalt: body.privacyKeySalt } : {}),
+        encryptedPrivacyKey: keyStr,
+        ...(hasSalt ? { privacyKeySalt: saltStr } : {}),
       },
     })
   } else {
@@ -112,8 +112,8 @@ export async function POST(req: NextRequest) {
     await prisma.user.update({
       where: { id: session.user.id },
       data: {
-        encryptedPrivacyKey: body.encryptedPrivacyKey,
-        privacyKeySalt: body.privacyKeySalt,
+        encryptedPrivacyKey: keyStr,
+        privacyKeySalt: saltStr,
       },
     })
   }

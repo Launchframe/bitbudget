@@ -200,7 +200,12 @@ export default function OnboardingPage() {
           fetch("/api/user/settings"),
         ])
         if (cancelled) return
-        if (encRes.status === 401 || settingsRes.status === 401) {
+        if (
+          encRes.status === 401 ||
+          encRes.status === 403 ||
+          settingsRes.status === 401 ||
+          settingsRes.status === 403
+        ) {
           signOut({ callbackUrl: "/auth" })
           return
         }
@@ -290,6 +295,10 @@ export default function OnboardingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ onboardingComplete: true }),
       })
+      if (res.status === 401 || res.status === 403) {
+        await signOut({ callbackUrl: "/auth" })
+        return
+      }
       if (!res.ok) {
         setSkipOnboardingError("Could not save settings. Try again or sign out and back in.")
         return
