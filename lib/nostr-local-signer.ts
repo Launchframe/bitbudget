@@ -89,6 +89,30 @@ interface NostrPool {
   close(relays: string[]): void
 }
 
+// ---------------------------------------------------------------------------
+// In-memory pending nsec (auth page → onboarding bridge, never touches storage)
+// ---------------------------------------------------------------------------
+
+let _pendingNsec: Uint8Array | null = null
+
+/** Hold a raw nsec in memory so the onboarding security step can encrypt it. */
+export function setPendingNsec(key: Uint8Array): void {
+  _pendingNsec = key
+}
+
+/** Read the pending nsec (returns null if none). Does NOT clear it. */
+export function getPendingNsec(): Uint8Array | null {
+  return _pendingNsec
+}
+
+/** Wipe the pending nsec from memory. */
+export function clearPendingNsec(): void {
+  if (_pendingNsec) {
+    _pendingNsec.fill(0)
+    _pendingNsec = null
+  }
+}
+
 /**
  * Fetch kind-0 profile (name, picture) for a pubkey from relays.
  */

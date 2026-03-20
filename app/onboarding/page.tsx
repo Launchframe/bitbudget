@@ -18,9 +18,9 @@ import {
   generatePrivacyKey,
   encryptPrivacyKey,
   uint8ToHex,
-  hexToUint8,
 } from "@/lib/crypto"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
+import { getPendingNsec, clearPendingNsec } from "@/lib/nostr-local-signer"
 
 type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
 
@@ -225,9 +225,7 @@ export default function OnboardingPage() {
           enc = (await encRes.json()) as EncPayload
         }
         
-        // Nsec fallback users have pending nsec in sessionStorage; show security step. Extension users skip it.
-        const hasPendingNsec =
-          typeof window !== "undefined" && Boolean(sessionStorage.getItem("bitbudget-pending-nsec"))
+        const hasPendingNsec = getPendingNsec() !== null
         if (hasPendingNsec) setIsNsecFallback(true)
         setStep(prev => (prev === "security" && hasPendingNsec ? "security" : prev === "security" ? "income" : prev))
 
@@ -372,17 +370,17 @@ export default function OnboardingPage() {
         } catch {
           /* continue; server encryption is already saved */
         }
-        try {
-          const pendingNsecHex = sessionStorage.getItem("bitbudget-pending-nsec")
-          if (pendingNsecHex) {
-            const nsecBytes = hexToUint8(pendingNsecHex)
-            const nsecEncrypted = await encryptPrivacyKey(nsecBytes, derivedKey)
+        const pendingNsec = getPendingNsec()
+        if (pendingNsec) {
+          try {
+            const nsecEncrypted = await encryptPrivacyKey(pendingNsec, derivedKey)
             localStorage.setItem("bitbudget-nsec", JSON.stringify(nsecEncrypted))
             if (userId) localStorage.setItem("bitbudget-nsec-user", userId)
-            sessionStorage.removeItem("bitbudget-pending-nsec")
+          } catch {
+            /* localStorage quota / disabled — passphrase setup still succeeded */
+          } finally {
+            clearPendingNsec()
           }
-        } catch {
-          /* localStorage quota / disabled — passphrase setup still succeeded */
         }
       }
       await syncUserPublicKey(privacyKey)
