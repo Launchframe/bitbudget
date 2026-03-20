@@ -246,7 +246,6 @@ export default function OnboardingPage() {
         
         const hasPendingNsec = getPendingNsec() !== null
         if (hasPendingNsec) setIsNsecFallback(true)
-        setStep(prev => (prev === "security" && hasPendingNsec ? "security" : prev === "security" ? "income" : prev))
 
         let txCount = 0
         if (settingsRes.ok) {
@@ -293,7 +292,6 @@ export default function OnboardingPage() {
             }
           }
           setHasExistingEncryption(hasEnc)
-          setStep(prev => (prev === "security" ? "income" : prev))
         } else {
           setHasExistingEncryption(hasEnc)
           if (hasEnc) {
@@ -301,64 +299,28 @@ export default function OnboardingPage() {
           }
         }
 
-        const markNsecFallback = hasPendingNsec || hasNsecOnboardingIntent()
-        if (markNsecFallback) {
-          setIsNsecFallback(true)
-        }
+        if (enc.isNostr) {
+          const markNsecFallback = hasPendingNsec || hasNsecOnboardingIntent()
+          if (markNsecFallback) {
+            setIsNsecFallback(true)
+          }
 
-        // Security UI only renders for (!isNostr || isNsecFallback). Extension Nostr users who are
-        // not on the nsec-fallback path must not stay on "security" without that UI (Copilot).
-        setStep(prev => {
-          if (prev !== "security") return prev
-          if (hasPendingNsec) return "security"
-          if (!markNsecFallback) return "income"
-          if (hasEnc) return "income"
-          return "security"
-        })
+          // Security UI only renders for (!isNostr || isNsecFallback). Extension Nostr users who
+          // are not on the nsec-fallback path must not stay on "security" without that UI.
+          setStep(prev => {
+            if (prev !== "security") return prev
+            if (hasPendingNsec) return "security"
+            if (!markNsecFallback) return "income"
+            if (hasEnc) return "income"
+            return "security"
+          })
+        }
+      } catch {
+        /* continue */
+      } finally {
+        if (!cancelled) setBootstrapped(true)
       }
     }
-
-    const hasPendingNsec = getPendingNsec() !== null
-    if (hasPendingNsec || hasNsecOnboardingIntent()) {
-      setIsNsecFallback(true)
-    }
-
-    let hasEnc = !!(data.encryptedPrivacyKey && String(data.encryptedPrivacyKey).trim().length > 0)
-
-    // Nsec paste users owe the PIN step; do not auto-provision extension NIP-04 encryption.
-    if (!hasPendingNsec && !hasEnc && data.nostrPubkey) {
-      const nostrExt = (window as unknown as {
-        nostr?: {
-          getPublicKey: () => Promise<string>
-          nip04?: { encrypt: (pubkey: string, plaintext: string) => Promise<string> }
-        }
-      }).nostr
-
-      if (nostrExt?.nip04) {
-        const privacyKey = generatePrivacyKey()
-        const encrypted = await nostrExt.nip04.encrypt(data.nostrPubkey, uint8ToHex(privacyKey))
-        const post = await fetch("/api/user/encryption", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ encryptedPrivacyKey: encrypted }),
-        })
-        if (post.ok) {
-          hasEnc = true
-          try {
-            sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
-            if (data.userId) sessionStorage.setItem("bitbudget-privacy-user", data.userId)
-          } catch { /* ignore */ }
-          await syncUserPublicKey(privacyKey)
-        }
-      }
-    }
-
-    setStep(prev => {
-      if (prev !== "security") return prev
-      if (hasPendingNsec) return "security"
-      if (hasEnc) return "income"
-      return "security"
-    })
 
     void bootstrapOnboarding()
     return () => {
