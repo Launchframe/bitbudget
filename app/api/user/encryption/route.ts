@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 
+/** Matches `generateSalt()` in lib/crypto.ts (16 bytes → 32 hex chars). */
+const PRIVACY_SALT_HEX_LEN = 32
+const MAX_ENCRYPTED_PRIVACY_KEY_LEN = 512 * 1024
+
+function isValidPrivacyKeySaltHex(s: string): boolean {
+  if (s.length !== PRIVACY_SALT_HEX_LEN) return false
+  return /^[0-9a-fA-F]+$/.test(s)
+}
+
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) {
@@ -65,16 +74,42 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  if (hasKey && (body.encryptedPrivacyKey === null || typeof body.encryptedPrivacyKey !== "string")) {
+    return NextResponse.json(
+      { error: "encryptedPrivacyKey, when provided, must be a non-null string." },
+      { status: 400 },
+    )
+  }
+  if (hasSalt && (body.privacyKeySalt === null || typeof body.privacyKeySalt !== "string")) {
+    return NextResponse.json(
+      { error: "privacyKeySalt, when provided, must be a non-null string." },
+      { status: 400 },
+    )
+  }
+
   const isNostr = Boolean(existing.nostrPubkey)
 
   const keyStr =
     body.encryptedPrivacyKey === undefined || body.encryptedPrivacyKey === null
       ? ""
-      : String(body.encryptedPrivacyKey).trim()
+      : body.encryptedPrivacyKey.trim()
   const saltStr =
     body.privacyKeySalt === undefined || body.privacyKeySalt === null
       ? ""
-      : String(body.privacyKeySalt).trim()
+      : body.privacyKeySalt.trim()
+
+  if (keyStr.length > MAX_ENCRYPTED_PRIVACY_KEY_LEN) {
+    return NextResponse.json(
+      { error: `encryptedPrivacyKey exceeds maximum length (${MAX_ENCRYPTED_PRIVACY_KEY_LEN}).` },
+      { status: 400 },
+    )
+  }
+  if (saltStr.length > PRIVACY_SALT_HEX_LEN) {
+    return NextResponse.json(
+      { error: `privacyKeySalt must be at most ${PRIVACY_SALT_HEX_LEN} hex characters.` },
+      { status: 400 },
+    )
+  }
 
   const emptyKeyWhere = {
     id: session.user.id,
@@ -91,6 +126,14 @@ export async function POST(req: NextRequest) {
     if (hasSalt && saltStr.length === 0) {
       return NextResponse.json(
         { error: "privacyKeySalt cannot be empty when provided." },
+        { status: 400 },
+      )
+    }
+    if (hasSalt && saltStr.length > 0 && !isValidPrivacyKeySaltHex(saltStr)) {
+      return NextResponse.json(
+        {
+          error: `privacyKeySalt must be exactly ${PRIVACY_SALT_HEX_LEN} hexadecimal characters (16-byte salt).`,
+        },
         { status: 400 },
       )
     }
@@ -122,6 +165,14 @@ export async function POST(req: NextRequest) {
     if (keyStr.length === 0 || saltStr.length === 0) {
       return NextResponse.json(
         { error: "encryptedPrivacyKey and privacyKeySalt must be non-empty strings." },
+        { status: 400 },
+      )
+    }
+    if (!isValidPrivacyKeySaltHex(saltStr)) {
+      return NextResponse.json(
+        {
+          error: `privacyKeySalt must be exactly ${PRIVACY_SALT_HEX_LEN} hexadecimal characters (16-byte salt).`,
+        },
         { status: 400 },
       )
     }
