@@ -149,4 +149,11 @@ describe("fetchNostrProfile", () => {
     expect(profile).toEqual({ name: "Alice", image: "https://example.com/p.png" })
     expect(mockClose).toHaveBeenCalled()
   })
+
+  it("closes pool when get rejects (no connection leak)", async () => {
+    mockGet.mockRejectedValue(new Error("relay down"))
+    const profile = await fetchNostrProfile(pk)
+    expect(profile).toEqual({})
+    expect(mockClose).toHaveBeenCalled()
+  })
 })
