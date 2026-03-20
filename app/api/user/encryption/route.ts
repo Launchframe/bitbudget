@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
           "Encryption is already configured for this account. You cannot replace it from onboarding. Use your existing passphrase on the main app, or contact support if you need a recovery flow.",
         code: "ENCRYPTION_ALREADY_CONFIGURED",
       },
-      { status: 409 }
+      { status: 409 },
     )
   }
 
@@ -76,46 +76,72 @@ export async function POST(req: NextRequest) {
       ? ""
       : String(body.privacyKeySalt).trim()
 
+  const emptyKeyWhere = {
+    id: session.user.id,
+    OR: [{ encryptedPrivacyKey: null }, { encryptedPrivacyKey: "" }],
+  }
+
   if (isNostr) {
     if (!hasKey || keyStr.length === 0) {
       return NextResponse.json(
         { error: "encryptedPrivacyKey is required for Nostr accounts." },
-        { status: 400 }
+        { status: 400 },
       )
     }
     if (hasSalt && saltStr.length === 0) {
       return NextResponse.json(
         { error: "privacyKeySalt cannot be empty when provided." },
-        { status: 400 }
+        { status: 400 },
       )
     }
-    await prisma.user.update({
-      where: { id: session.user.id },
-      data: {
-        encryptedPrivacyKey: keyStr,
-        ...(hasSalt ? { privacyKeySalt: saltStr } : {}),
-      },
+    const data = {
+      encryptedPrivacyKey: keyStr,
+      ...(hasSalt ? { privacyKeySalt: saltStr } : {}),
+    }
+    const result = await prisma.user.updateMany({
+      where: emptyKeyWhere,
+      data,
     })
+    if (result.count === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Encryption is already configured for this account. You cannot replace it from onboarding. Use your existing passphrase on the main app, or contact support if you need a recovery flow.",
+          code: "ENCRYPTION_ALREADY_CONFIGURED",
+        },
+        { status: 409 },
+      )
+    }
   } else {
     if (!hasKey || !hasSalt) {
       return NextResponse.json(
         { error: "Both encryptedPrivacyKey and privacyKeySalt are required for passphrase-based accounts." },
-        { status: 400 }
+        { status: 400 },
       )
     }
     if (keyStr.length === 0 || saltStr.length === 0) {
       return NextResponse.json(
         { error: "encryptedPrivacyKey and privacyKeySalt must be non-empty strings." },
-        { status: 400 }
+        { status: 400 },
       )
     }
-    await prisma.user.update({
-      where: { id: session.user.id },
+    const result = await prisma.user.updateMany({
+      where: emptyKeyWhere,
       data: {
         encryptedPrivacyKey: keyStr,
         privacyKeySalt: saltStr,
       },
     })
+    if (result.count === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Encryption is already configured for this account. You cannot replace it from onboarding. Use your existing passphrase on the main app, or contact support if you need a recovery flow.",
+          code: "ENCRYPTION_ALREADY_CONFIGURED",
+        },
+        { status: 409 },
+      )
+    }
   }
 
   return NextResponse.json({ success: true })
