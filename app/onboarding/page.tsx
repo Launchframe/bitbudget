@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
@@ -35,7 +35,10 @@ import {
   hasNsecOnboardingIntent,
   clearNsecOnboardingIntent,
 } from "@/lib/nostr-local-signer"
-import { monthlyBudgetForAllocation } from "@/lib/onboarding-allocate-budget"
+import {
+  monthlyBudgetForAllocation,
+  snapOnboardingAllocationToStep,
+} from "@/lib/onboarding-allocate-budget"
 import {
   cadenceDisplayInteger,
   fromMonthly,
@@ -49,6 +52,10 @@ type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "co
 // Opportunity cost is set from entry point (/welcome or / → vanilla off; /landing → btc on), not a separate step.
 const STEPS: Step[] = ["security", "income", "envelopes", "allocations", "import", "complete"]
 const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#EAB308", "#EC4899", "#06B6D4"]
+
+/** Stacked allocation bar: smooth width when envelope totals change ($50 bucket steps). */
+const ALLOC_STACK_BAR_WIDTH_TRANSITION =
+  "width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1), min-width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1)"
 
 interface DraftEnvelope {
   /** Server id after first sync from Your Envelopes; used to update/delete on repeat continues. */
@@ -126,6 +133,14 @@ export default function OnboardingPage() {
 
   // Allocations
   const [activeEnvIdx, setActiveEnvIdx] = useState<number | null>(null)
+  /**
+   * Slider thumb can sit between $50 ticks while $ / % show the last crossed bucket.
+   * Cleared when the user edits the dollar field or cadence for that row.
+   */
+  const [allocSliderRawOverride, setAllocSliderRawOverride] = useState<{
+    idx: number
+    raw: number
+  } | null>(null)
   const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
 
   /** Append one draft envelope from trimmed name (shared by Add button and Continue). */
@@ -692,6 +707,25 @@ export default function OnboardingPage() {
   const savingsPct =
     allocateMonthlyBudget > 0 ? Math.round((savings / allocateMonthlyBudget) * 100) : 0
 
+  /**
+   * Align committed allotment with the nearest $50 bucket for the current thumb position.
+   * Usually a no-op during drag (bucket updates on midpoint crossings); used on release/blur to clamp.
+   */
+  const commitOnboardingSliderSnap = useCallback(
+    (rowIdx: number, input: HTMLInputElement) => {
+      const raw = parseInt(input.value, 10)
+      const v = Number.isFinite(raw) ? raw : 0
+      setEnvelopes(prev => {
+        const maxForRow =
+          allocateMonthlyBudget -
+          prev.reduce((s, x, j) => s + (j === rowIdx ? 0 : x.monthlyAllotment), 0)
+        const snapped = snapOnboardingAllocationToStep(v, maxForRow)
+        return prev.map((en, i) => (i === rowIdx ? { ...en, monthlyAllotment: snapped } : en))
+      })
+    },
+    [allocateMonthlyBudget],
+  )
+
   return (
     <div className="min-h-screen bg-background flex flex-col items-center p-6">
       <DocumentFavicon href={opportunityCostEnabled ? "/icon.svg" : "/icon-vanilla.svg"} />
@@ -1199,11 +1233,11 @@ export default function OnboardingPage() {
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Allocate Income</h2>
                   <p className="text-sm text-muted-foreground">
-                    How do you want to split your{" "}
+                    How do you use your{" "}
                     <span className="text-foreground font-medium">
                       ${allocateMonthlyBudget.toLocaleString()}
                     </span>{" "}
-                    monthly budget across envelopes?
+                    of income each month? You can always change this later.
                   </p>
                 </div>
               </div>
@@ -1235,8 +1269,7 @@ export default function OnboardingPage() {
                                 width: `${pct}%`,
                                 minWidth: 4,
                                 backgroundColor: env.color,
-                                transition:
-                                  "width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1), min-width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1)",
+                                transition: ALLOC_STACK_BAR_WIDTH_TRANSITION,
                               }}
                               aria-label={`${env.name}, $${amt.toLocaleString()} per month allocated`}
                             >
@@ -1273,8 +1306,7 @@ export default function OnboardingPage() {
                               width: `${(savings / allocateMonthlyBudget) * 100}%`,
                               minWidth: 4,
                               backgroundColor: "rgba(34, 197, 94, 0.25)",
-                              transition:
-                                "width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1), min-width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1)",
+                              transition: ALLOC_STACK_BAR_WIDTH_TRANSITION,
                             }}
                             aria-label={`Savings, $${Math.round(savings).toLocaleString()} per month, ${savingsPct}% of budget`}
                           >
@@ -1296,7 +1328,7 @@ export default function OnboardingPage() {
                     )}
                   </div>
                   <div className="flex items-center justify-between text-xs text-muted-foreground px-1 transition-[color] duration-300">
-                    <span className="tabular-nums transition-all duration-300 ease-out">
+                    <span className="tabular-nums">
                       ${totalAllocated.toLocaleString()} allocated
                     </span>
                     <span className="tabular-nums">${allocateMonthlyBudget.toLocaleString()} monthly budget</span>
@@ -1316,7 +1348,12 @@ export default function OnboardingPage() {
                   const sliderValueClamped =
                     sliderMax <= 0
                       ? 0
-                      : Math.min(sliderMax, Math.max(0, Math.round(env.monthlyAllotment)))
+                      : allocSliderRawOverride?.idx === idx
+                        ? Math.min(
+                            sliderMax,
+                            Math.max(0, Math.round(allocSliderRawOverride.raw)),
+                          )
+                        : Math.min(sliderMax, Math.max(0, Math.round(env.monthlyAllotment)))
                   const sliderPct = sliderMax > 0 ? (sliderValueClamped / sliderMax) * 100 : 0
 
                   return (
@@ -1358,6 +1395,9 @@ export default function OnboardingPage() {
                               env.allocationCadence ?? "monthly",
                             )}
                             onChange={e => {
+                              setAllocSliderRawOverride(prev =>
+                                prev?.idx === idx ? null : prev,
+                              )
                               const cadence = (env.allocationCadence ?? "monthly") as AllocationCadence
                               const monthly = monthlyFromDigitOnlyInput(e.target.value, cadence, sliderMax)
                               setEnvelopes(prev => prev.map((en, i) =>
@@ -1371,6 +1411,9 @@ export default function OnboardingPage() {
                             value={env.allocationCadence ?? "monthly"}
                             onChange={e => {
                               const newCadence = e.target.value as "weekly" | "biweekly" | "monthly"
+                              setAllocSliderRawOverride(prev =>
+                                prev?.idx === idx ? null : prev,
+                              )
                               setEnvelopes(prev => prev.map((en, i) => {
                                 if (i !== idx) return en
                                 const oldCadence = en.allocationCadence ?? "monthly"
@@ -1405,17 +1448,52 @@ export default function OnboardingPage() {
                         className="alloc-slider"
                         min={0}
                         max={Math.max(0, sliderMax)}
-                        step={50}
+                        step={1}
                         value={sliderValueClamped}
                         aria-label={`${env.name} monthly allotment`}
                         onChange={e => {
-                          const raw = parseInt(e.target.value, 10)
-                          const val = Number.isFinite(raw)
-                            ? Math.min(sliderMax, Math.max(0, raw))
+                          const rawParsed = parseInt(e.target.value, 10)
+                          const val = Number.isFinite(rawParsed)
+                            ? Math.min(sliderMax, Math.max(0, rawParsed))
                             : 0
-                          setEnvelopes(prev => prev.map((en, i) =>
-                            i === idx ? { ...en, monthlyAllotment: val } : en,
-                          ))
+                          setAllocSliderRawOverride({ idx, raw: val })
+                          const newBucket = snapOnboardingAllocationToStep(val, sliderMax)
+                          if (newBucket !== env.monthlyAllotment) {
+                            setEnvelopes(prev => prev.map((en, i) =>
+                              i === idx ? { ...en, monthlyAllotment: newBucket } : en,
+                            ))
+                          }
+                        }}
+                        onPointerDown={e => {
+                          const rawInit = parseInt(e.currentTarget.value, 10)
+                          const init = Number.isFinite(rawInit)
+                            ? Math.min(sliderMax, Math.max(0, rawInit))
+                            : 0
+                          setAllocSliderRawOverride({ idx, raw: init })
+                          try {
+                            e.currentTarget.setPointerCapture(e.pointerId)
+                          } catch {
+                            /* noop */
+                          }
+                        }}
+                        onPointerUp={e => {
+                          try {
+                            e.currentTarget.releasePointerCapture(e.pointerId)
+                          } catch {
+                            /* noop */
+                          }
+                          commitOnboardingSliderSnap(idx, e.currentTarget)
+                        }}
+                        onPointerCancel={e => {
+                          try {
+                            e.currentTarget.releasePointerCapture(e.pointerId)
+                          } catch {
+                            /* noop */
+                          }
+                          commitOnboardingSliderSnap(idx, e.currentTarget)
+                        }}
+                        onBlur={e => {
+                          commitOnboardingSliderSnap(idx, e.currentTarget)
                         }}
                         onFocus={() => setActiveEnvIdx(idx)}
                         style={{

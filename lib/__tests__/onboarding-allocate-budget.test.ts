@@ -1,18 +1,26 @@
 import { describe, expect, it } from "vitest"
-import { monthlyBudgetForAllocation } from "../onboarding-allocate-budget"
+import { snapOnboardingAllocationToStep } from "../onboarding-allocate-budget"
 
-describe("monthlyBudgetForAllocation", () => {
-  it("passes through monthly pay", () => {
-    expect(monthlyBudgetForAllocation(5000, "monthly")).toBe(5000)
+describe("snapOnboardingAllocationToStep", () => {
+  it("uses midpoints step*i + step/2 (e.g. 25, 75) for nearest-50 buckets", () => {
+    expect(snapOnboardingAllocationToStep(24, 1000)).toBe(0)
+    expect(snapOnboardingAllocationToStep(25, 1000)).toBe(50)
+    expect(snapOnboardingAllocationToStep(74, 1000)).toBe(50)
+    expect(snapOnboardingAllocationToStep(75, 1000)).toBe(100)
   })
 
-  it("doubles bi-monthly per-paycheck amount for monthly envelope budget", () => {
-    expect(monthlyBudgetForAllocation(2500, "bimonthly")).toBe(5000)
+  it("snaps to nearest 50 within max", () => {
+    expect(snapOnboardingAllocationToStep(73, 1000)).toBe(50)
+    expect(snapOnboardingAllocationToStep(88, 1000)).toBe(100)
   })
 
-  it("returns 0 for non-positive or NaN", () => {
-    expect(monthlyBudgetForAllocation(0, "monthly")).toBe(0)
-    expect(monthlyBudgetForAllocation(-1, "bimonthly")).toBe(0)
-    expect(monthlyBudgetForAllocation(NaN, "monthly")).toBe(0)
+  it("clamps to max after snapping when nearest step exceeds max", () => {
+    expect(snapOnboardingAllocationToStep(997, 997)).toBe(997)
+    // 996 → round to 1000, then min(1000, 997) = 997
+    expect(snapOnboardingAllocationToStep(996, 997)).toBe(997)
+  })
+
+  it("returns 0 for non-positive max", () => {
+    expect(snapOnboardingAllocationToStep(50, 0)).toBe(0)
   })
 })
