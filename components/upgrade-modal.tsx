@@ -105,7 +105,6 @@ export function UpgradeModal({ feature, open, onClose }: UpgradeModalProps) {
                 Thanks — we&apos;ve recorded your interest. Checkout isn&apos;t live yet. Check your Nostr DMs tomorrow for next steps.
               </>
             )}
-            )}
           </p>
         ) : interestState === "done_already_premium" ? (
           <p className="text-sm text-muted-foreground mb-6">You&apos;re already on Premium. You can close this dialog.</p>
