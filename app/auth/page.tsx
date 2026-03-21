@@ -205,13 +205,27 @@ export default function AuthPage() {
       const msg = err instanceof Error ? err.message : String(err)
       const lower = msg.toLowerCase()
 
-      if (lower.includes("nos2x")) {
+      // Check for user-rejected / denied before extension-name checks. Extensions
+      // like keys.band include their name in both "no account" AND "rejected" errors,
+      // so the rejection keywords must be matched first.
+      const isRejection =
+        lower.includes("reject") ||
+        lower.includes("denied") ||
+        lower.includes("cancel")
+      const isNoAccount =
+        lower.includes("no private key") ||
+        lower.includes("not available") ||
+        lower.includes("no accounts")
+
+      if (isRejection) {
+        setError("You declined the request. Click Continue with Nostr again when you\u2019re ready to approve it.")
+      } else if (lower.includes("nos2x")) {
         setError("nos2x needs to be set up first. Open the nos2x extension, add or import a private key, then try logging in again.")
       } else if (lower.includes("keys.band")) {
         setError("keys.band-setup")
       } else if (lower.includes("alby")) {
         setError("Alby needs to be set up first. Open the Alby extension, make sure you're logged in with a Nostr key, then try logging in again.")
-      } else if (lower.includes("reject") || lower.includes("denied") || lower.includes("cancel") || lower.includes("no private key") || lower.includes("not available")) {
+      } else if (isNoAccount) {
         setError("Your Nostr extension isn't ready. Open it, make sure you have a key set up, then try logging in again.")
       } else {
         setError(`Nostr login failed: ${msg}`)
