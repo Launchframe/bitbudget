@@ -206,16 +206,37 @@ export function decryptFieldAsymmetric(
   return naclUtil.encodeUTF8(decrypted)
 }
 
-// NaCl sealed-box base64: 32-byte ephemeral pk + 24-byte nonce + ≥16-byte MAC → ≥96-char base64.
-const MIN_ASYMMETRIC_SEALED_B64_LEN = 96
-const ASYMMETRIC_B64_RE = /^[A-Za-z0-9+/=]+$/
+/**
+ * Minimum decoded length for our wire format: ephemeral pk + nonce + boxed ciphertext (≥ MAC).
+ * Matches {@link encryptFieldAsymmetric} / {@link decryptFieldAsymmetric} layout.
+ */
+const MIN_SEALED_BOX_DECODED_LEN =
+  nacl.box.publicKeyLength + nacl.box.nonceLength + nacl.box.overheadLength
+
+// Minimal standard base64 length for MIN_SEALED_BOX_DECODED_LEN bytes (no interior NULs).
+const MIN_SEALED_BOX_B64_CHARS = Math.ceil((MIN_SEALED_BOX_DECODED_LEN * 4) / 3)
+const STANDARD_B64_RE = /^[A-Za-z0-9+/]*={0,2}$/
 
 /**
- * True if the string matches the wire shape of {@link encryptFieldAsymmetric} output.
- * Used when decrypt throws to tell legacy plaintext from ciphertext (wrong key still “looks” encrypted).
+ * True only if `value` plausibly matches {@link encryptFieldAsymmetric} output (decodable base64
+ * whose length is a multiple of 4 and whose payload is at least a minimal sealed box).
+ *
+ * **Why this exists:** IndexedDB’s `isDecrypted` and “backend is encrypted” cover happy paths.
+ * When {@link decryptFieldAsymmetric} **throws** (wrong key, corrupt payload), we must still choose:
+ * show “(encrypted)” for real ciphertext vs show the raw string for **legacy plaintext** rows. This
+ * disambiguates that failure path only — not a substitute for successful decrypt or stored flags.
  */
 export function looksLikeAsymmetricCiphertext(value: string): boolean {
-  return value.length >= MIN_ASYMMETRIC_SEALED_B64_LEN && ASYMMETRIC_B64_RE.test(value)
+  if (!value || value.length < MIN_SEALED_BOX_B64_CHARS) return false
+  if (value.length % 4 !== 0) return false
+  if (!STANDARD_B64_RE.test(value)) return false
+  let decoded: Uint8Array
+  try {
+    decoded = naclUtil.decodeBase64(value)
+  } catch {
+    return false
+  }
+  return decoded.length >= MIN_SEALED_BOX_DECODED_LEN
 }
 
 export function publicKeyToHex(key: Uint8Array): string {

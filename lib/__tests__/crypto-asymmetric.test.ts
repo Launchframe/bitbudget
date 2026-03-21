@@ -95,6 +95,17 @@ describe("asymmetric encryption", () => {
     expect(looksLikeAsymmetricCiphertext("")).toBe(false)
   })
 
+  it("looksLikeAsymmetricCiphertext rejects non-base64-multiple-of-4 and short decoded payloads", () => {
+    // Long base64-ish ASCII but invalid length → false (avoids some false positives).
+    const almost = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+    expect(almost.length % 4).toBe(1)
+    expect(looksLikeAsymmetricCiphertext(almost)).toBe(false)
+    // Valid charset + length % 4 but decodes to fewer than sealed-box bytes.
+    const shortB64 = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5eg==" // 64 chars → 48 bytes
+    expect(shortB64.length % 4).toBe(0)
+    expect(looksLikeAsymmetricCiphertext(shortB64)).toBe(false)
+  })
+
   it("round-trips public key through hex encoding", async () => {
     const seed = await deriveAsymmetricSeed("test", "salt")
     const { publicKey } = generateKeyPairFromSeed(seed)

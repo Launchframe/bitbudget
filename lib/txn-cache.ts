@@ -254,7 +254,11 @@ export function apiRowToCachedPlaintext(row: ApiTransactionRow): CachedTransacti
   }
 }
 
-/** Decrypt payee/notes; on failure, mask only values that look like sealed-box ciphertext (legacy plaintext rows must stay visible). */
+/**
+ * Decrypt payee/notes; on failure, mask only values that plausibly are sealed-box ciphertext
+ * (see {@link looksLikeAsymmetricCiphertext} — wrong key vs legacy plaintext). IndexedDB
+ * `isDecrypted` is set from this result, not a substitute for the decrypt-throw branch.
+ */
 function decryptSensitiveFields(
   row: ApiTransactionRow,
   secretKey: Uint8Array,
