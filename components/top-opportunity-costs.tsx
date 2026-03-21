@@ -6,7 +6,7 @@ import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, formatBtcAmount } from "@/lib/data"
 import { TrendingUp, TrendingDown } from "lucide-react"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
-import { ENCRYPTED_DISPLAY } from "@/lib/txn-cache"
+import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 
 import type { Transaction } from "@/lib/data"
 

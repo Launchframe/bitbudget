@@ -6,7 +6,7 @@ import { formatUsd } from "@/lib/data"
 import type { Transaction } from "@/lib/data"
 import { Badge } from "@/components/ui/badge"
 import { ChevronLeft, ChevronRight, Repeat, Trash2 } from "lucide-react"
-import { ENCRYPTED_DISPLAY } from "@/lib/txn-cache"
+import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 

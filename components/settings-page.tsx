@@ -157,7 +157,11 @@ export function SettingsPage() {
         fetch("/api/transactions?all=true", { method: "DELETE" }),
         fetch("/api/envelopes?all=true", { method: "DELETE" }),
       ])
-      await clearLocalTransactionCache()
+      try {
+        await clearLocalTransactionCache()
+      } catch {
+        /* Server deletes already succeeded; cache clear is best-effort */
+      }
       await refreshData()
     } finally {
       setDeleting(false)

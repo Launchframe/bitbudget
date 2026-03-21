@@ -39,10 +39,11 @@ export async function GET(req: NextRequest) {
   const sinceParam = searchParams.get("since")
   if (sinceParam) {
     const sinceDate = new Date(sinceParam)
-    if (!Number.isNaN(sinceDate.getTime())) {
-      // gte: include rows at the same ms as lastSync so we never miss concurrent updates; client upserts by id.
-      where.updatedAt = { gte: sinceDate }
+    if (Number.isNaN(sinceDate.getTime())) {
+      return NextResponse.json({ error: "Invalid since parameter" }, { status: 400 })
     }
+    // gte: include rows at the same ms as lastSync so we never miss concurrent updates; client upserts by id.
+    where.updatedAt = { gte: sinceDate }
   }
 
   const transactions = await prisma.transaction.findMany({

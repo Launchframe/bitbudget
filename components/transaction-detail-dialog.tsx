@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Pencil, Trash2, Repeat, X, Bitcoin } from "lucide-react"
-import { ENCRYPTED_DISPLAY } from "@/lib/txn-cache"
+import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 
 interface TransactionDetailDialogProps {
   transaction: Transaction | null

@@ -5,18 +5,19 @@
 
 import { openDB, type IDBPDatabase } from "idb"
 import { decryptFieldAsymmetric, looksLikeAsymmetricCiphertext } from "@/lib/crypto"
+import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import type { Transaction, TransactionSource } from "@/lib/data"
 
+export { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
+
 const DB_PREFIX = "bitbudget-txns-"
-const DB_VERSION = 1
+const DB_VERSION = 2
 const META_LAST_SYNC = "lastSync"
 
 /** Fields that use asymmetric encrypt/decrypt on the wire. */
 export const SENSITIVE_FIELDS = { payee: true, notes: true } as const
 
 export type SensitiveFieldName = keyof typeof SENSITIVE_FIELDS
-
-export const ENCRYPTED_DISPLAY = "(encrypted)"
 
 export type CachedTransaction = Transaction & {
   isDecrypted: boolean
@@ -46,7 +47,7 @@ interface BitbudgetTxnDB {
   transactions: {
     key: string
     value: CachedTransaction
-    indexes: { date: string }
+    indexes: { date: string; envelopeId: string }
   }
   meta: {
     key: string
@@ -62,10 +63,16 @@ export async function openTxnDb(userId: string): Promise<IDBPDatabase<BitbudgetT
   if (typeof indexedDB === "undefined") return null
   try {
     return await openDB<BitbudgetTxnDB>(dbName(userId), DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, oldVersion, _newVersion, transaction) {
         if (!db.objectStoreNames.contains("transactions")) {
           const store = db.createObjectStore("transactions", { keyPath: "id" })
           store.createIndex("date", "date")
+          store.createIndex("envelopeId", "envelopeId")
+        } else if (oldVersion < 2) {
+          const store = transaction.objectStore("transactions")
+          if (!store.indexNames.contains("envelopeId")) {
+            store.createIndex("envelopeId", "envelopeId")
+          }
         }
         if (!db.objectStoreNames.contains("meta")) {
           db.createObjectStore("meta", { keyPath: "key" })
@@ -100,6 +107,13 @@ export async function setLastSyncIso(userId: string, iso: string | null): Promis
   } finally {
     db.close()
   }
+}
+
+export async function isTxnIndexedDbAvailable(userId: string): Promise<boolean> {
+  const db = await openTxnDb(userId)
+  if (!db) return false
+  db.close()
+  return true
 }
 
 export async function getAllCached(userId: string): Promise<CachedTransaction[]> {
@@ -154,12 +168,21 @@ export async function removeCachedForEnvelope(userId: string, envelopeId: string
   const db = await openTxnDb(userId)
   if (!db) return
   try {
-    const all = await db.getAll("transactions")
-    const tx = db.transaction("transactions", "readwrite")
-    for (const t of all) {
-      if (t.envelopeId === envelopeId) await tx.store.delete(t.id)
+    const idbTx = db.transaction("transactions", "readwrite")
+    const store = idbTx.store
+    if (store.indexNames.contains("envelopeId")) {
+      let cursor = await store.index("envelopeId").openCursor(IDBKeyRange.only(envelopeId))
+      while (cursor) {
+        await cursor.delete()
+        cursor = await cursor.continue()
+      }
+    } else {
+      const all = await store.getAll()
+      for (const t of all) {
+        if (t.envelopeId === envelopeId) await store.delete(t.id)
+      }
     }
-    await tx.done
+    await idbTx.done
   } finally {
     db.close()
   }
@@ -347,7 +370,11 @@ function cachedUndecryptedToApiRow(c: CachedTransaction): ApiTransactionRow {
   }
 }
 
-/** Decrypt rows that were stored ciphertext-only (locked session); persist cleartext to IndexedDB. */
+/**
+ * Decrypt rows that were stored ciphertext-only (locked session) and persist cleartext to IndexedDB.
+ * Tradeoff: cleartext survives tab close until logout/clear cache; mitigations — we do not hydrate
+ * from cache while the session is PIN-locked without a key, and `logout` deletes the DB.
+ */
 export async function decryptAndPersistUndecrypted(
   userId: string,
   secretKey: Uint8Array,

@@ -12,8 +12,8 @@ import {
   looksLikeAsymmetricCiphertext,
   uint8ToHex,
 } from "@/lib/crypto"
+import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import {
-  ENCRYPTED_DISPLAY,
   type ApiTransactionRow,
   cachedToClientTransaction,
   clearDb,
@@ -21,6 +21,7 @@ import {
   deleteCachedTransaction,
   getAllCached,
   getLastSyncIso,
+  isTxnIndexedDbAvailable,
   maxUpdatedAtIso,
   mergeLastSyncIso,
   processApiTransactions,
@@ -380,6 +381,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const uid = currentUserIdRef.current
       if (!uid) return
 
+      const idbAvailable = await isTxnIndexedDbAvailable(uid)
+
       const lastSync = await getLastSyncIso(uid)
       const cachedSnapshot = await getAllCached(uid)
       txnSyncSeqRef.current += 1
@@ -412,10 +415,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const allCached = await getAllCached(uid)
 
-      setState(prev => ({
-        ...prev,
-        transactions: allCached.map(cachedToClientTransaction),
-      }))
+      setState(prev => {
+        let nextTxns: Transaction[]
+        if (allCached.length > 0) {
+          nextTxns = allCached.map(cachedToClientTransaction)
+        } else if (!idbAvailable && cachedTxns.length > 0) {
+          if (fullTxnSync) {
+            nextTxns = cachedTxns.map(cachedToClientTransaction)
+          } else {
+            const byId = new Map(prev.transactions.map(t => [t.id, t]))
+            for (const c of cachedTxns) {
+              byId.set(c.id, cachedToClientTransaction(c))
+            }
+            nextTxns = Array.from(byId.values()).sort((a, b) => b.date.localeCompare(a.date))
+          }
+        } else {
+          nextTxns = []
+        }
+        return {
+          ...prev,
+          transactions: nextTxns,
+        }
+      })
     } catch {
       // On error, keep current state (may be default/empty)
     } finally {
@@ -440,12 +461,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     void (async () => {
       const uid = currentUserIdRef.current
       if (uid) {
-        await decryptAndPersistUndecrypted(uid, key)
+        const decrypted = await decryptAndPersistUndecrypted(uid, key)
         const all = await getAllCached(uid)
-        setState(prev => ({
-          ...prev,
-          transactions: all.map(cachedToClientTransaction),
-        }))
+        const forState = all.length > 0 ? all : decrypted
+        if (forState.length > 0) {
+          setState(prev => ({
+            ...prev,
+            transactions: forState.map(cachedToClientTransaction),
+          }))
+        }
       }
       await refreshData()
     })()
@@ -462,13 +486,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (key) {
             await decryptAndPersistUndecrypted(uid, key)
           }
-          const cachedRows = await getAllCached(uid)
-          if (cachedRows.length > 0) {
-            setState(prev => ({
-              ...prev,
-              transactions: cachedRows.map(cachedToClientTransaction),
-            }))
-            setLoading(false)
+          const lockedWithoutKey = pendingLockedRef.current && !privacyKeyRef.current
+          if (!lockedWithoutKey) {
+            const cachedRows = await getAllCached(uid)
+            if (cachedRows.length > 0) {
+              setState(prev => ({
+                ...prev,
+                transactions: cachedRows.map(cachedToClientTransaction),
+              }))
+              setLoading(false)
+            }
           }
         }
         await refreshData()
@@ -558,6 +585,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             t.id === optimisticId ? cachedToClientTransaction(cached) : t,
           ),
         }))
+      } else {
+        setState(prev => ({
+          ...prev,
+          transactions: prev.transactions.filter(t => t.id !== optimisticId),
+        }))
       }
     } catch {
       setState(prev => ({
@@ -605,6 +637,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             t.id === id ? cachedToClientTransaction(cached) : t,
           ),
         }))
+      } else {
+        await refreshData()
       }
     } catch {
       refreshData()
@@ -621,6 +655,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(`/api/transactions?id=${id}`, { method: "DELETE" })
       if (res.ok && currentUserIdRef.current) {
         await deleteCachedTransaction(currentUserIdRef.current, id)
+      } else if (!res.ok) {
+        await refreshData()
       }
     } catch {
       refreshData()
@@ -719,6 +755,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(`/api/envelopes?id=${id}`, { method: "DELETE" })
       if (res.ok && currentUserIdRef.current) {
         await removeCachedForEnvelope(currentUserIdRef.current, id)
+      } else if (!res.ok) {
+        await refreshData()
       }
     } catch {
       refreshData()
@@ -735,12 +773,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
 
     try {
-      const res = await fetch("/api/envelopes/merge", {
+      await fetch("/api/envelopes/merge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sourceId, targetId }),
       })
-      if (res.ok) await refreshData()
+      await refreshData()
     } catch {
       refreshData()
     }
@@ -842,7 +880,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const clearLocalTransactionCache = useCallback(async () => {
     const uid = currentUserIdRef.current
-    if (uid) await clearDb(uid)
+    if (!uid) return
+    try {
+      await clearDb(uid)
+    } catch {
+      /* Best-effort: IndexedDB delete may be blocked or fail in private mode */
+    }
   }, [])
 
   const logout = useCallback(() => {

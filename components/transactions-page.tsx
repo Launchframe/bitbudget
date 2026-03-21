@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X, Plus, Download } from "lucide-react"
-import { ENCRYPTED_DISPLAY } from "@/lib/txn-cache"
+import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import {
