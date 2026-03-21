@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useRef, createElement } from "react"
+import { useState, useMemo, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { getEnvelopeBalance, getCurrentMonthKey, formatUsd } from "@/lib/data"
 import { Progress } from "@/components/ui/progress"
@@ -14,7 +14,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { EnvelopeAppearancePicker, PRESET_COLORS } from "@/components/envelope-appearance-picker"
-import { suggestIcon, getEnvelopeIcon, filterSuggestions } from "@/lib/envelope-icons"
+import { suggestIcon, filterSuggestions, pickEnvelopeIconForName } from "@/lib/envelope-icons"
+import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 
 export function EnvelopesPage() {
   const { state, navigateTo, addEnvelope, editEnvelope, archiveEnvelope, restoreEnvelope, deleteEnvelope, mergeEnvelope, setMonthlyIncome } = useApp()
@@ -72,8 +73,15 @@ export function EnvelopesPage() {
   const displayFormIcon = useMemo(() => {
     if (iconCustomized) return formIcon
     const t = formName.trim()
-    return t ? suggestIcon(t) : formIcon
-  }, [iconCustomized, formIcon, formName])
+    if (!t) return formIcon
+    const used = new Set(
+      activeEnvelopes
+        .filter(e => e.id !== editingId)
+        .map(e => e.icon)
+        .filter((x): x is string => !!x),
+    )
+    return pickEnvelopeIconForName(t, used)
+  }, [iconCustomized, formIcon, formName, activeEnvelopes, editingId])
 
   function openAddDialog() {
     setEditingId(null)
@@ -201,8 +209,6 @@ export function EnvelopesPage() {
           const balance = getEnvelopeBalance(state.transactions, env.id, currentMonth, env.monthlyAllotment)
           const percentage = env.monthlyAllotment > 0 ? Math.max(0, (balance / env.monthlyAllotment) * 100) : 0
           const healthColor = percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
-          const Icon = getEnvelopeIcon(env.icon)
-
           return (
             <div
               key={env.id}
@@ -217,7 +223,11 @@ export function EnvelopesPage() {
                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                     style={{ backgroundColor: `${env.color}22` }}
                   >
-                    <Icon className="h-4 w-4" style={{ color: env.color }} />
+                    <EnvelopeIconDisplay
+                      icon={env.icon}
+                      className="h-4 w-4 text-[10px]"
+                      style={{ color: env.color }}
+                    />
                   </div>
                   <span className="font-semibold text-foreground truncate">{env.name}</span>
                 </div>
@@ -309,9 +319,7 @@ export function EnvelopesPage() {
                   if (filtered.length === 0) return null
                   return (
                     <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg max-h-48 overflow-y-auto shadow-xl">
-                      {filtered.map(name => {
-                        const SugIcon = getEnvelopeIcon(suggestIcon(name))
-                        return (
+                      {filtered.map(name => (
                           <button
                             key={name}
                             type="button"
@@ -319,11 +327,13 @@ export function EnvelopesPage() {
                             onClick={() => { setFormName(name); setShowNameSuggestions(false) }}
                             className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-[#252525] transition-colors text-left"
                           >
-                            <SugIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <EnvelopeIconDisplay
+                              icon={suggestIcon(name)}
+                              className="h-3.5 w-3.5 text-[9px] text-muted-foreground shrink-0"
+                            />
                             {name}
                           </button>
-                        )
-                      })}
+                        ))}
                     </div>
                   )
                 })()}
@@ -387,10 +397,11 @@ export function EnvelopesPage() {
                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                     style={{ backgroundColor: `${source.color}22` }}
                   >
-                    {createElement(getEnvelopeIcon(source.icon), {
-                      className: "h-4 w-4",
-                      style: { color: source.color },
-                    })}
+                    <EnvelopeIconDisplay
+                      icon={source.icon}
+                      className="h-4 w-4 text-[10px]"
+                      style={{ color: source.color }}
+                    />
                   </div>
                   <div className="flex flex-col">
                     <span className="text-sm font-medium text-foreground">{source.name}</span>
@@ -407,9 +418,7 @@ export function EnvelopesPage() {
                 <div className="flex flex-col gap-1.5">
                   <span className="text-xs text-muted-foreground uppercase tracking-wider">Merge into</span>
                   <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
-                    {targets.map(target => {
-                      const TargetIcon = getEnvelopeIcon(target.icon)
-                      return (
+                    {targets.map(target => (
                         <button
                           key={target.id}
                           type="button"
@@ -424,7 +433,11 @@ export function EnvelopesPage() {
                             className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                             style={{ backgroundColor: `${target.color}22` }}
                           >
-                            <TargetIcon className="h-4 w-4" style={{ color: target.color }} />
+                            <EnvelopeIconDisplay
+                              icon={target.icon}
+                              className="h-4 w-4 text-[10px]"
+                              style={{ color: target.color }}
+                            />
                           </div>
                           <div className="flex flex-col">
                             <span className="text-sm font-medium text-foreground">{target.name}</span>
@@ -432,8 +445,7 @@ export function EnvelopesPage() {
                           </div>
                           <Merge className="h-4 w-4 text-muted-foreground ml-auto" />
                         </button>
-                      )
-                    })}
+                      ))}
                   </div>
                 </div>
               </div>
@@ -458,7 +470,6 @@ export function EnvelopesPage() {
           {archivedExpanded && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {archivedEnvelopes.map((env) => {
-                const Icon = getEnvelopeIcon(env.icon)
                 const txnCount = state.transactions.filter(t => t.envelopeId === env.id).length
                 return (
                   <div
@@ -470,7 +481,11 @@ export function EnvelopesPage() {
                         className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                         style={{ backgroundColor: `${env.color}22` }}
                       >
-                        <Icon className="h-4 w-4" style={{ color: env.color }} />
+                        <EnvelopeIconDisplay
+                          icon={env.icon}
+                          className="h-4 w-4 text-[10px]"
+                          style={{ color: env.color }}
+                        />
                       </div>
                       <div className="flex flex-col min-w-0">
                         <span className="font-semibold text-foreground truncate">{env.name}</span>

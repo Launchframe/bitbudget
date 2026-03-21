@@ -10,9 +10,15 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck } from "lucide-react"
 import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
-import { suggestIcon, getEnvelopeIcon, filterSuggestions } from "@/lib/envelope-icons"
+import {
+  suggestIcon,
+  filterSuggestions,
+  pickEnvelopeIconForName,
+} from "@/lib/envelope-icons"
+import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import { Spinner } from "@/components/ui/spinner"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   deriveKeyFromPin,
   generateSalt,
@@ -27,6 +33,17 @@ import {
   hasNsecOnboardingIntent,
   clearNsecOnboardingIntent,
 } from "@/lib/nostr-local-signer"
+import {
+  monthlyBudgetForAllocation,
+  ONBOARDING_ALLOCATE_SLIDER_STEP,
+} from "@/lib/onboarding-allocate-budget"
+import {
+  cadenceDisplayInteger,
+  fromMonthly,
+  monthlyFromDigitOnlyInput,
+  toMonthly,
+  type AllocationCadence,
+} from "@/lib/allocation-cadence"
 
 type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
 
@@ -40,21 +57,6 @@ interface DraftEnvelope {
   icon: string
   monthlyAllotment: number
   allocationCadence: "weekly" | "biweekly" | "monthly"
-}
-
-const CADENCE_MULTIPLIERS: Record<string, number> = {
-  weekly: 52 / 12,
-  biweekly: 26 / 12,
-  monthly: 1,
-}
-
-function toMonthly(amount: number, cadence: string): number {
-  return Math.round(amount * (CADENCE_MULTIPLIERS[cadence] ?? 1) * 100) / 100
-}
-
-function fromMonthly(monthly: number, cadence: string): number {
-  const mult = CADENCE_MULTIPLIERS[cadence] ?? 1
-  return Math.round((monthly / mult) * 100) / 100
 }
 
 function OnboardingSkipBar({
@@ -114,15 +116,35 @@ export default function OnboardingPage() {
   // Allocations
   const [activeEnvIdx, setActiveEnvIdx] = useState<number | null>(null)
   const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
-  const allocSnapshotRef = useRef<string>("")
 
-  function enterAllocations() {
-    const snapshot = `${income}|${envelopes.map(e => e.name).join(",")}`
-    if (snapshot !== allocSnapshotRef.current) {
-      setEnvelopes(prev => prev.map(e => ({ ...e, monthlyAllotment: 0 })))
-      setActiveEnvIdx(null)
-      allocSnapshotRef.current = snapshot
-    }
+  /** Append one draft envelope from trimmed name (shared by Add button and Continue). */
+  function appendDraftEnvelope(prev: DraftEnvelope[], rawName: string): DraftEnvelope[] {
+    const trimmed = rawName.trim()
+    if (!trimmed) return prev
+    const usedColors = new Set(prev.map(e => e.color))
+    const nextColor = ENVELOPE_COLORS.find(c => !usedColors.has(c))
+      ?? ENVELOPE_COLORS[prev.length % ENVELOPE_COLORS.length]
+    return [
+      ...prev,
+      {
+        name: trimmed,
+        color: nextColor,
+        icon: pickEnvelopeIconForName(trimmed, prev.map(e => e.icon)),
+        monthlyAllotment: 0,
+        allocationCadence: "monthly",
+      },
+    ]
+  }
+
+  /**
+   * Advance to allocations. Pass `envelopeList` when the list was just computed in an async handler
+   * so React state matches what was POSTed before `await` (closure may be stale otherwise).
+   * Pending `monthlyAllotment` values are preserved; new envelopes already start at 0; removed
+   * envelopes drop out with the rest of draft state.
+   */
+  function enterAllocations(envelopeList?: DraftEnvelope[]) {
+    if (envelopeList) setEnvelopes(envelopeList)
+    setActiveEnvIdx(null)
     setStep("allocations")
   }
 
@@ -177,7 +199,6 @@ export default function OnboardingPage() {
             }
           })
         )
-        if (saved.allocSnapshot) allocSnapshotRef.current = saved.allocSnapshot
       }
     } catch { /* ignore corrupt data */ }
     setHydrated(true)
@@ -191,7 +212,6 @@ export default function OnboardingPage() {
         income,
         cadence,
         envelopes,
-        allocSnapshot: allocSnapshotRef.current,
       }))
     } catch { /* storage full or unavailable */ }
   }, [hydrated, step, income, cadence, envelopes])
@@ -455,11 +475,12 @@ export default function OnboardingPage() {
   async function handleIncomeSave() {
     setLoading(true)
     try {
+      const rawIncome = parseFloat(income) || 0
       await fetch("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          monthlyIncome: parseFloat(income) || 0,
+          monthlyIncome: monthlyBudgetForAllocation(rawIncome, cadence),
           payCadence: cadence,
         }),
       })
@@ -471,22 +492,7 @@ export default function OnboardingPage() {
 
   function addEnvelopeWithName(name: string) {
     if (!name.trim()) return
-    const trimmed = name.trim()
-    setEnvelopes(prev => {
-      const usedColors = new Set(prev.map(e => e.color))
-      const nextColor = ENVELOPE_COLORS.find(c => !usedColors.has(c))
-        ?? ENVELOPE_COLORS[prev.length % ENVELOPE_COLORS.length]
-      return [
-        ...prev,
-        {
-          name: trimmed,
-          color: nextColor,
-          icon: suggestIcon(trimmed),
-          monthlyAllotment: 0,
-          allocationCadence: "monthly",
-        },
-      ]
-    })
+    setEnvelopes(prev => appendDraftEnvelope(prev, name))
     setNewEnvName("")
   }
 
@@ -499,17 +505,23 @@ export default function OnboardingPage() {
   }
 
   async function handleEnvelopesSave() {
-    if (envelopes.length === 0) return
+    let list = envelopes
+    if (newEnvName.trim()) {
+      list = appendDraftEnvelope(envelopes, newEnvName)
+      setEnvelopes(list)
+      setNewEnvName("")
+    }
+    if (list.length === 0) return
     setLoading(true)
     try {
-      for (const env of envelopes) {
+      for (const env of list) {
         await fetch("/api/envelopes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: env.name, color: env.color, icon: env.icon, monthlyAllotment: env.monthlyAllotment }),
         })
       }
-      enterAllocations()
+      enterAllocations(list)
     } finally {
       setLoading(false)
     }
@@ -572,9 +584,10 @@ export default function OnboardingPage() {
   }
 
   const totalAllocated = envelopes.reduce((s, e) => s + e.monthlyAllotment, 0)
-  const monthlyIncome = parseFloat(income) || 0
-  const savings = Math.max(0, monthlyIncome - totalAllocated)
-  const savingsPct = monthlyIncome > 0 ? Math.round((savings / monthlyIncome) * 100) : 0
+  const allocateMonthlyBudget = monthlyBudgetForAllocation(parseFloat(income) || 0, cadence)
+  const savings = Math.max(0, allocateMonthlyBudget - totalAllocated)
+  const savingsPct =
+    allocateMonthlyBudget > 0 ? Math.round((savings / allocateMonthlyBudget) * 100) : 0
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center p-6">
@@ -770,7 +783,13 @@ export default function OnboardingPage() {
 
           {/* Envelopes Step */}
           {step === "envelopes" && (
-            <form onSubmit={e => { e.preventDefault(); if (envelopes.length > 0) handleEnvelopesSave() }} className="flex flex-col gap-6">
+            <form
+              onSubmit={e => {
+                e.preventDefault()
+                if (envelopes.length > 0 || newEnvName.trim()) handleEnvelopesSave()
+              }}
+              className="flex flex-col gap-6"
+            >
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#8B5CF6]/10">
                   <Wallet className="h-6 w-6 text-[#8B5CF6]" />
@@ -787,7 +806,6 @@ export default function OnboardingPage() {
 
               <div className="flex flex-col gap-2">
                 {envelopes.map((env, idx) => {
-                  const Icon = getEnvelopeIcon(env.icon)
                   const isExpanded = expandedEnvIdx === idx
                   return (
                     <div key={idx} className="flex flex-col bg-[#1A1A1A] rounded-xl overflow-hidden">
@@ -799,7 +817,11 @@ export default function OnboardingPage() {
                           style={{ backgroundColor: `${env.color}22` }}
                           title="Customize appearance"
                         >
-                          <Icon className="h-4 w-4" style={{ color: env.color }} />
+                          <EnvelopeIconDisplay
+                            icon={env.icon}
+                            className="h-4 w-4 text-[10px]"
+                            style={{ color: env.color }}
+                          />
                         </button>
                         <span className="flex-1 text-sm font-medium text-foreground">{env.name}</span>
                         <button
@@ -871,9 +893,7 @@ export default function OnboardingPage() {
                     if (filtered.length === 0) return null
                     return (
                       <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg max-h-48 overflow-y-auto shadow-xl">
-                        {filtered.map(name => {
-                          const SugIcon = getEnvelopeIcon(suggestIcon(name))
-                          return (
+                        {filtered.map(name => (
                             <button
                               key={name}
                               type="button"
@@ -885,11 +905,13 @@ export default function OnboardingPage() {
                               }}
                               className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-[#252525] transition-colors text-left"
                             >
-                              <SugIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <EnvelopeIconDisplay
+                                icon={suggestIcon(name)}
+                                className="h-3.5 w-3.5 text-[9px] text-muted-foreground shrink-0"
+                              />
                               {name}
                             </button>
-                          )
-                        })}
+                          ))}
                       </div>
                     )
                   })()}
@@ -914,7 +936,7 @@ export default function OnboardingPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || envelopes.length === 0}
+                  disabled={loading || (envelopes.length === 0 && !newEnvName.trim())}
                   className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {loading ? "Saving..." : "Continue"}
@@ -1000,57 +1022,102 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Allocate Income</h2>
-                  <p className="text-sm text-muted-foreground">Distribute ${monthlyIncome.toLocaleString()} across envelopes</p>
+                  <p className="text-sm text-muted-foreground">
+                    How do you want to split your{" "}
+                    <span className="text-foreground font-medium">
+                      ${allocateMonthlyBudget.toLocaleString()}
+                    </span>{" "}
+                    monthly budget across envelopes?
+                  </p>
                 </div>
               </div>
 
-              {/* Stacked bar */}
-              {monthlyIncome > 0 && (
-                <div className="flex flex-col gap-2">
+              {/* Stacked bar — sticky while scrolling envelope sliders */}
+              {allocateMonthlyBudget > 0 && (
+                <div
+                  className="sticky top-0 z-20 -mx-8 px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+                >
+                  <div className="flex flex-col gap-2">
                   <div className="flex h-10 rounded-xl overflow-hidden bg-[#1A1A1A]">
                     {envelopes.map((env, idx) => {
                       if (env.monthlyAllotment <= 0) return null
-                      const pct = (env.monthlyAllotment / monthlyIncome) * 100
-                      const Icon = getEnvelopeIcon(env.icon)
+                      const pct = (env.monthlyAllotment / allocateMonthlyBudget) * 100
+                      const amt = Math.round(env.monthlyAllotment)
                       return (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => {
-                            setActiveEnvIdx(idx)
-                            sliderRowRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "center" })
-                          }}
-                          className={`flex items-center justify-center relative ${
-                            activeEnvIdx === idx ? "brightness-110" : "hover:brightness-110"
-                          }`}
-                          style={{
-                            flex: `${env.monthlyAllotment} 0 0px`,
-                            backgroundColor: env.color,
-                            minWidth: 4,
-                          }}
-                          title={`${env.name}: $${env.monthlyAllotment.toLocaleString()} (${Math.round(pct)}%)`}
-                        >
-                          {pct > 8 && <Icon className="h-4 w-4 text-[#0D0D0D]/70" />}
-                        </button>
+                        <Tooltip key={idx} delayDuration={200}>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveEnvIdx(idx)
+                                sliderRowRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "center" })
+                              }}
+                              className={`flex min-w-0 items-center justify-center relative ${
+                                activeEnvIdx === idx ? "brightness-110" : "hover:brightness-110"
+                              }`}
+                              style={{
+                                flex: `${env.monthlyAllotment} 0 0px`,
+                                backgroundColor: env.color,
+                                minWidth: 4,
+                              }}
+                              aria-label={`${env.name}, $${amt.toLocaleString()} per month allocated`}
+                            >
+                              {pct > 8 && (
+                                <EnvelopeIconDisplay
+                                  icon={env.icon}
+                                  className="h-4 w-4 text-[10px] text-[#0D0D0D]/70"
+                                />
+                              )}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side="top"
+                            sideOffset={6}
+                            className="max-w-[min(100vw-2rem,16rem)] border border-[#333] bg-[#1A1A1A] px-3 py-2 text-foreground shadow-xl [&>svg]:hidden"
+                          >
+                            <p className="text-sm font-semibold leading-tight">{env.name}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              ${amt.toLocaleString()}/mo allocated
+                              <span className="text-muted-foreground/80"> · {Math.round(pct)}%</span>
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
                       )
                     })}
                     {savings > 0 && (
-                      <div
-                        className="flex items-center justify-center"
-                        style={{
-                          flex: `${savings} 0 0px`,
-                          backgroundColor: "rgba(34, 197, 94, 0.25)",
-                          minWidth: 4,
-                        }}
-                        title={`Savings: $${savings.toLocaleString()} (${savingsPct}%)`}
-                      >
-                        {savingsPct > 8 && <PiggyBank className="h-4 w-4 text-[#22C55E]/60" />}
-                      </div>
+                      <Tooltip delayDuration={200}>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex min-w-0 items-center justify-center cursor-default"
+                            style={{
+                              flex: `${savings} 0 0px`,
+                              backgroundColor: "rgba(34, 197, 94, 0.25)",
+                              minWidth: 4,
+                            }}
+                            aria-label={`Savings, $${Math.round(savings).toLocaleString()} per month, ${savingsPct}% of budget`}
+                          >
+                            {savingsPct > 8 && <PiggyBank className="h-4 w-4 text-[#22C55E]/60" />}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          sideOffset={6}
+                          className="max-w-[min(100vw-2rem,16rem)] border border-[#333] bg-[#1A1A1A] px-3 py-2 text-foreground shadow-xl [&>svg]:hidden"
+                        >
+                          <p className="text-sm font-semibold leading-tight">Savings</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            ${Math.round(savings).toLocaleString()}/mo unallocated
+                            <span className="text-muted-foreground/80"> · {savingsPct}%</span>
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
                     )}
                   </div>
                   <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
                     <span>${totalAllocated.toLocaleString()} allocated</span>
-                    <span>${monthlyIncome.toLocaleString()} income</span>
+                    <span>${allocateMonthlyBudget.toLocaleString()} monthly budget</span>
+                  </div>
                   </div>
                 </div>
               )}
@@ -1058,12 +1125,18 @@ export default function OnboardingPage() {
               {/* Per-envelope slider rows */}
               <div className="flex flex-col gap-4">
                 {envelopes.map((env, idx) => {
-                  const Icon = getEnvelopeIcon(env.icon)
                   const sliderMax = env.monthlyAllotment + savings
-                  const pct = monthlyIncome > 0 ? Math.round((env.monthlyAllotment / monthlyIncome) * 100) : 0
+                  const pct =
+                    allocateMonthlyBudget > 0
+                      ? Math.round((env.monthlyAllotment / allocateMonthlyBudget) * 100)
+                      : 0
                   const rangeDisplayValue = Math.min(
                     sliderMax,
-                    Math.max(0, Math.round(env.monthlyAllotment / 5) * 5),
+                    Math.max(
+                      0,
+                      Math.round(env.monthlyAllotment / ONBOARDING_ALLOCATE_SLIDER_STEP) *
+                        ONBOARDING_ALLOCATE_SLIDER_STEP,
+                    ),
                   )
                   const sliderPct = sliderMax > 0 ? (rangeDisplayValue / sliderMax) * 100 : 0
 
@@ -1076,41 +1149,66 @@ export default function OnboardingPage() {
                       }`}
                       onClick={() => setActiveEnvIdx(idx)}
                     >
+                      {/* Narrow screens: title row so name isn&apos;t squeezed out by amount controls */}
+                      <p className="sm:hidden text-xs font-semibold text-foreground leading-snug truncate">
+                        {env.name}
+                      </p>
                       <div className="flex items-center gap-3">
                         <div
                           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                           style={{ backgroundColor: `${env.color}22` }}
                         >
-                          <Icon className="h-4 w-4" style={{ color: env.color }} />
+                          <EnvelopeIconDisplay
+                            icon={env.icon}
+                            className="h-4 w-4 text-[10px]"
+                            style={{ color: env.color }}
+                          />
                         </div>
-                        <span className="flex-1 text-sm font-medium text-foreground truncate">{env.name}</span>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="hidden sm:block flex-1 text-sm font-medium text-foreground truncate">
+                          {env.name}
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0 sm:ml-0 ml-auto">
                           <span className="text-xs text-muted-foreground">$</span>
                           <input
-                            type="number"
-                            value={fromMonthly(env.monthlyAllotment, env.allocationCadence) || ""}
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={cadenceDisplayInteger(
+                              env.monthlyAllotment,
+                              env.allocationCadence ?? "monthly",
+                            )}
                             onChange={e => {
-                              const raw = parseFloat(e.target.value)
-                              const cadenceMax = fromMonthly(sliderMax, env.allocationCadence ?? "monthly")
-                              const cadenceAmount = isNaN(raw) ? 0 : Math.min(Math.max(0, raw), cadenceMax)
-                              let monthly = toMonthly(cadenceAmount, env.allocationCadence ?? "monthly")
-                              monthly = Math.round(monthly / 5) * 5
-                              monthly = Math.min(sliderMax, Math.max(0, monthly))
+                              const cadence = (env.allocationCadence ?? "monthly") as AllocationCadence
+                              const monthly = monthlyFromDigitOnlyInput(e.target.value, cadence, sliderMax)
                               setEnvelopes(prev => prev.map((en, i) =>
                                 i === idx ? { ...en, monthlyAllotment: monthly } : en,
                               ))
                             }}
                             placeholder="0"
-                            min="0"
-                            className="w-20 bg-transparent border-b border-[#333] text-right text-foreground text-sm font-semibold py-0.5 focus:outline-none focus:border-[#F7931A] transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            className="w-20 bg-transparent border-b border-[#333] text-right text-foreground text-sm font-semibold py-0.5 focus:outline-none focus:border-[#F7931A] transition-colors"
                           />
                           <select
                             value={env.allocationCadence ?? "monthly"}
                             onChange={e => {
                               const newCadence = e.target.value as "weekly" | "biweekly" | "monthly"
-                              setEnvelopes(prev => prev.map((en, i) =>
-                                i === idx ? { ...en, allocationCadence: newCadence } : en
-                              ))
+                              setEnvelopes(prev => prev.map((en, i) => {
+                                if (i !== idx) return en
+                                const oldCadence = en.allocationCadence ?? "monthly"
+                                // Keep the dollar amount in the text field; re-derive monthly from that figure + new cadence.
+                                const displayAmount = fromMonthly(en.monthlyAllotment, oldCadence)
+                                let newMonthly = toMonthly(displayAmount, newCadence)
+                                const rowTotal = prev.reduce((s, x) => s + x.monthlyAllotment, 0)
+                                const otherAllocated = rowTotal - en.monthlyAllotment
+                                const maxMonthly = Math.max(0, allocateMonthlyBudget - otherAllocated)
+                                newMonthly = Math.round(
+                                  Math.min(maxMonthly, Math.max(0, newMonthly)),
+                                )
+                                return {
+                                  ...en,
+                                  allocationCadence: newCadence,
+                                  monthlyAllotment: newMonthly,
+                                }
+                              }))
                             }}
                             className="bg-[#1A1A1A] border border-[#333] rounded-md text-xs text-muted-foreground px-1.5 py-1 focus:outline-none focus:border-[#F7931A]"
                           >
@@ -1127,7 +1225,7 @@ export default function OnboardingPage() {
                         className="alloc-slider"
                         min={0}
                         max={sliderMax}
-                        step={5}
+                        step={ONBOARDING_ALLOCATE_SLIDER_STEP}
                         value={rangeDisplayValue}
                         aria-label={`${env.name} monthly allotment`}
                         onChange={e => {

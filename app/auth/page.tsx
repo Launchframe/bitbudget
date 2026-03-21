@@ -37,8 +37,7 @@ function getSignersForPlatform(os: PlatformOS): SignerEntry[] {
   if (os === "android") {
     return [
       { name: "Alby on Firefox", href: "https://addons.mozilla.org/en-US/android/addon/alby/", img: "alby-logo.svg", note: "Requires Firefox for Android" },
-      // No bundled asset yet — placeholder icon avoids a broken /img/ URL.
-      { name: "Amber", href: "https://zapstore.dev/apps/com.greenart7c3.nostrsigner", note: "Use nsec fallback below for web login" },
+      { name: "Amber", href: "https://zapstore.dev/apps/com.greenart7c3.nostrsigner", img: 'amber.png',note: "Use nsec fallback below for web login" },
     ]
   }
   if (os === "ios") {
