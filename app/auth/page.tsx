@@ -24,19 +24,19 @@ type SignerEntry = { name: string; href: string; img?: string; recommended?: boo
 function getSignersForPlatform(os: PlatformOS): SignerEntry[] {
   if (os === "android") {
     return [
-      { name: "Alby on Firefox", href: "https://addons.mozilla.org/en-US/android/addon/alby/", img: "https://www.satlantis.io/images/alby-logo.svg", note: "Requires Firefox for Android" },
-      { name: "Amber", href: "https://zapstore.dev/apps/com.greenart7c3.nostrsigner", note: "Use nsec fallback below for web login" },
+      { name: "Alby on Firefox", href: "https://addons.mozilla.org/en-US/android/addon/alby/", img: "alby-logo.svg", note: "Requires Firefox for Android" },
+      { name: "Amber", href: "https://zapstore.dev/apps/com.greenart7c3.nostrsigner", img: "amber.png", note: "Use nsec fallback below for web login" },
     ]
   }
   if (os === "ios") {
     return [
-      { name: "Nostash", href: "https://apps.apple.com/us/app/nostash/id6744309333", note: "Safari extension for NIP-07" },
+      { name: "Nostash", href: "https://apps.apple.com/us/app/nostash/id6744309333", img: "nostash-logo.webp", note: "Safari extension for NIP-07" },
     ]
   }
   return [
-    { name: "keys.band", href: "https://keys.band/", img: "https://www.satlantis.io/images/keys-band-logo.png", recommended: true },
-    { name: "Alby", href: "https://getalby.com/", img: "https://www.satlantis.io/images/alby-logo.svg" },
-    { name: "nos2x", href: "https://nostrapps.com/nos2x", img: "https://www.satlantis.io/images/nos2x-logo.png" },
+    { name: "keys.band", href: "https://keys.band/", img: "keys-band-logo.png", recommended: true },
+    { name: "Alby", href: "https://getalby.com/", img: "alby-logo.svg" },
+    { name: "nos2x", href: "https://nostrapps.com/nos2x", img: "nos2x-logo.png" },
   ]
 }
 type EmailStep = "enter-email" | "enter-code"
@@ -541,7 +541,7 @@ export default function AuthPage() {
                     >
                       {ext.img ? (
                         /* eslint-disable-next-line @next/next/no-img-element */
-                        <img src={ext.img} alt={ext.name} className="h-8 w-8 shrink-0 rounded-md object-contain" />
+                        <img src={`/img/${ext.img}`} alt={ext.name} className="h-8 w-8 shrink-0 rounded-md object-contain" />
                       ) : (
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#8B5CF6]/15" aria-hidden>
                           <KeyRound className="h-4 w-4 text-[#8B5CF6]" />
@@ -549,7 +549,7 @@ export default function AuthPage() {
                       )}
                       <div className="flex flex-col">
                         <span className="font-semibold text-foreground">{ext.name}</span>
-                        <span className="text-xs text-muted-foreground">{ext.href.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
+                        <span className="text-xs text-muted-foreground">{new URL(ext.href).host || ext.href.split(/\.\w+$/)[0].replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
                         {ext.recommended && <span className="text-xs text-btc-orange">Recommended</span>}
                         {ext.note && <span className="text-xs text-muted-foreground mt-0.5">{ext.note}</span>}
                       </div>
