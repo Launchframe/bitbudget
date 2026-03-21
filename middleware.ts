@@ -13,7 +13,7 @@ export default auth((req) => {
   if (isApiRoute || isPublicAsset) return NextResponse.next()
 
   if (isPublicLanding) {
-    if (isLoggedIn) return NextResponse.redirect(new URL("/", req.url))
+    // Logged-in users may still open /welcome or /landing (e.g. re-read marketing copy).
     return NextResponse.next()
   }
 

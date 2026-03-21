@@ -89,6 +89,10 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 - BTC numeric values use `font-ibm-plex-mono` class for monospace rendering.
 - Mobile-first responsive design. Use Tailwind breakpoints (`sm:`, `md:`, `lg:`).
 
+### Marketing routes & `bitbudget_visited`
+- **`/welcome`** and **`/landing`** are public for everyone (including logged-in users). Middleware must not redirect authenticated users away from them.
+- **`bitbudget_visited`** is set only after a **successful sign-in** (`components/returning-user-cookie.tsx`). Middleware uses it so unauthenticated visits to **`/`** go to **`/auth`** instead of **`/welcome`**. Do **not** set this cookie on `/auth` page load or from “Get Started” alone — that trapped users who hadn’t logged in yet and blocked re-reading the landing pages.
+
 ### API Routes
 - Every **user-scoped** API route starts with `const session = await auth()` and returns 401 if unauthenticated.
 - All **user-scoped** Prisma queries filter by `userId: session.user.id` — never trust the client to scope user data.

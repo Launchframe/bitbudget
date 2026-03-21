@@ -1,6 +1,5 @@
 "use client"
 
-import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { ArrowRight, Shield, TrendingUp, Wallet, Zap } from "lucide-react"
@@ -8,14 +7,7 @@ import { ArrowRight, Shield, TrendingUp, Wallet, Zap } from "lucide-react"
 export default function LandingPage() {
   const router = useRouter()
 
-  useEffect(() => {
-    if (document.cookie.includes("bitbudget_visited=1")) {
-      router.replace("/auth")
-    }
-  }, [router])
-
   function handleGetStarted() {
-    document.cookie = "bitbudget_visited=1; path=/; max-age=31536000; SameSite=Lax"
     try { sessionStorage.setItem("onboardingSource", "btc") } catch {}
     router.push("/auth")
   }
