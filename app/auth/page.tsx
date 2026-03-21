@@ -16,6 +16,7 @@ import {
   setPendingNsec,
   setNsecOnboardingIntent,
 } from "@/lib/nostr-local-signer"
+import { debugLogger } from "@/lib/debug-logger"
 import { usePlatform, type PlatformOS } from "@/lib/platform-context"
 
 type AuthMethod = "email" | "nostr" | "nsec" | null
@@ -219,6 +220,7 @@ export default function AuthPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       const lower = msg.toLowerCase()
+      debugLogger.log("Nostr login error:", msg)
 
       // Check for user-rejected / denied before extension-name checks. Extensions
       // like keys.band include their name in both "no account" AND "rejected" errors,
