@@ -269,29 +269,35 @@ export default function OnboardingPage() {
           // If we ran NIP-04 here, server encryption would flip hasExistingEncryption on while
           // we remain on "security" — the passphrase branch renders `null` and the card is blank.
           if (!hasEnc && enc.nostrPubkey && !hasPendingNsec) {
-            const nostrExt = (window as unknown as {
-              nostr?: {
-                getPublicKey: () => Promise<string>
-                nip04?: { encrypt: (pubkey: string, plaintext: string) => Promise<string> }
-              }
-            }).nostr
+            try {
+              const nostrExt = (window as unknown as {
+                nostr?: {
+                  getPublicKey: () => Promise<string>
+                  nip04?: { encrypt: (pubkey: string, plaintext: string) => Promise<string> }
+                }
+              }).nostr
 
-            if (nostrExt?.nip04) {
-              const privacyKey = generatePrivacyKey()
-              const encrypted = await nostrExt.nip04.encrypt(enc.nostrPubkey, uint8ToHex(privacyKey))
-              const res = await fetch("/api/user/encryption", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ encryptedPrivacyKey: encrypted }),
-              })
-              if (res.status === 409) {
-                hasEnc = true
-              } else if (res.ok) {
-                sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
-                if (enc.userId) sessionStorage.setItem("bitbudget-privacy-user", enc.userId)
-                await syncUserPublicKey(privacyKey)
-                hasEnc = true
+              if (nostrExt?.nip04) {
+                const privacyKey = generatePrivacyKey()
+                const encrypted = await nostrExt.nip04.encrypt(enc.nostrPubkey, uint8ToHex(privacyKey))
+                const res = await fetch("/api/user/encryption", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ encryptedPrivacyKey: encrypted }),
+                })
+                if (res.status === 409) {
+                  hasEnc = true
+                } else if (res.ok) {
+                  sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
+                  if (enc.userId) sessionStorage.setItem("bitbudget-privacy-user", enc.userId)
+                  await syncUserPublicKey(privacyKey)
+                  hasEnc = true
+                }
               }
+            } catch {
+              // NIP-04 encrypt was rejected or unavailable (e.g. keys.band authorized
+              // getPublicKey but not nip04, or user denied the prompt). Continue without
+              // auto-provisioning; the step routing below still advances past security.
             }
           }
           setHasExistingEncryption(hasEnc)
