@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     if (name.startsWith(TMP_PREFIX)) {
       return NextResponse.json({ error: "This envelope name is reserved" }, { status: 400 })
     }
-    const nameKey = name.toLocaleLowerCase()
+    const nameKey = name.toLowerCase()
     if (seenNameKeys.has(nameKey)) {
       return NextResponse.json({ error: "Duplicate envelope names in request" }, { status: 400 })
     }
