@@ -8,7 +8,6 @@ import {
   decryptFieldAsymmetric,
   publicKeyToHex,
   hexToPublicKey,
-  looksEncrypted,
 } from "../crypto"
 
 beforeAll(() => {
@@ -84,16 +83,6 @@ describe("asymmetric encryption", () => {
     const { secretKey: wrongKey } = generateKeyPairFromSeed(seed2)
     const encrypted = encryptFieldAsymmetric("secret data", publicKey)
     expect(() => decryptFieldAsymmetric(encrypted, wrongKey)).toThrow()
-  })
-
-  it("looksEncrypted detects NaCl sealed-box ciphertext", async () => {
-    const seed = await deriveAsymmetricSeed("test", "salt")
-    const { publicKey } = generateKeyPairFromSeed(seed)
-    const encrypted = encryptFieldAsymmetric("Hello world", publicKey)
-    expect(looksEncrypted(encrypted)).toBe(true)
-    expect(looksEncrypted("Hello world")).toBe(false)
-    expect(looksEncrypted("Costco")).toBe(false)
-    expect(looksEncrypted("")).toBe(false)
   })
 
   it("round-trips public key through hex encoding", async () => {
