@@ -6,6 +6,7 @@ import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, formatBtcAmount } from "@/lib/data"
 import { TrendingUp, TrendingDown } from "lucide-react"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
+import { ENCRYPTED_DISPLAY } from "@/lib/txn-cache"
 
 import type { Transaction } from "@/lib/data"
 
@@ -68,7 +69,13 @@ export function TopOpportunityCosts() {
                 >
                   <td className="py-3 pl-2 text-muted-foreground text-sm rounded-l-xl">{idx + 1}</td>
                   <td className="py-3">
-                    <span className="font-medium text-foreground text-sm">{txn.payee}</span>
+                    <span className="font-medium text-foreground text-sm">
+                      {txn.isDecrypted === false ? (
+                        <span className="text-muted-foreground italic">{ENCRYPTED_DISPLAY}</span>
+                      ) : (
+                        txn.payee
+                      )}
+                    </span>
                   </td>
                   <td className="py-3 text-muted-foreground text-sm hidden sm:table-cell">
                     {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}

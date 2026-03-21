@@ -6,13 +6,15 @@ import { formatUsd } from "@/lib/data"
 import type { Transaction } from "@/lib/data"
 import { Badge } from "@/components/ui/badge"
 import { ChevronLeft, ChevronRight, Repeat, Trash2 } from "lucide-react"
+import { ENCRYPTED_DISPLAY } from "@/lib/txn-cache"
+import { Skeleton } from "@/components/ui/skeleton"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 
 const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 export function RecentTransactions() {
-  const { state, activeTransactions, deleteTransaction } = useApp()
+  const { state, activeTransactions, deleteTransaction, loading } = useApp()
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
   const [pageSize, setPageSize] = useState(15)
   const [page, setPage] = useState(1)
@@ -31,6 +33,21 @@ export function RecentTransactions() {
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const safePage = Math.min(page, totalPages)
   const paginated = sorted.slice((safePage - 1) * pageSize, safePage * pageSize)
+
+  if (loading) {
+    return (
+      <div className="bg-[#0D0D0D] rounded-2xl overflow-hidden">
+        <div className="px-4 md:px-6 pt-4 md:pt-6 pb-3">
+          <Skeleton className="h-6 w-48 rounded-md bg-[#1A1A1A]" />
+        </div>
+        <div className="px-4 pb-4 space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-12 w-full rounded-lg bg-[#1A1A1A]" />
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="bg-[#0D0D0D] rounded-2xl overflow-hidden">
@@ -64,7 +81,11 @@ export function RecentTransactions() {
                   </td>
                   <td className="py-3.5 px-4 text-sm font-medium text-foreground">
                     <span className="flex items-center gap-1.5">
-                      {txn.payee}
+                      {txn.isDecrypted === false ? (
+                        <span className="text-muted-foreground italic">{ENCRYPTED_DISPLAY}</span>
+                      ) : (
+                        txn.payee
+                      )}
                       {txn.recurringId && (
                         <span title="Recurring transaction">
                           <Repeat className="h-3 w-3 text-muted-foreground shrink-0" />

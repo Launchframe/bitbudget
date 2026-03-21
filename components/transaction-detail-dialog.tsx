@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Pencil, Trash2, Repeat, X, Bitcoin } from "lucide-react"
+import { ENCRYPTED_DISPLAY } from "@/lib/txn-cache"
 
 interface TransactionDetailDialogProps {
   transaction: Transaction | null
@@ -117,7 +118,7 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
           </DialogTitle>
         </DialogHeader>
 
-        {editing ? (
+        {editing && transaction.isDecrypted !== false ? (
           <div className="flex flex-col gap-4 pt-2 max-h-[70vh] overflow-y-auto pr-1">
             <div className="flex flex-col gap-2">
               <Label className="text-muted-foreground text-xs uppercase tracking-wider">Type</Label>
@@ -269,6 +270,7 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
             currentPrice={currentPrice}
             onDelete={handleDelete}
             onEdit={() => setEditing(true)}
+            canEdit={transaction.isDecrypted !== false}
           />
         )}
       </DialogContent>
@@ -294,6 +296,7 @@ function ViewMode({
   currentPrice,
   onDelete,
   onEdit,
+  canEdit,
 }: {
   transaction: Transaction
   envelope?: { name: string; color: string; monthlyAllotment: number }
@@ -303,6 +306,7 @@ function ViewMode({
   currentPrice: number | null
   onDelete: () => void
   onEdit: () => void
+  canEdit: boolean
 }) {
   const { state } = useApp()
   const multiplier = transaction.amount > 0 && btcValueToday > 0 ? btcValueToday / transaction.amount : 0
@@ -315,7 +319,15 @@ function ViewMode({
       <div className="flex flex-col gap-3.5">
         <DetailRow
           label="Payee"
-          value={<span className="font-medium">{transaction.payee}</span>}
+          value={
+            <span className="font-medium">
+              {transaction.isDecrypted === false ? (
+                <span className="text-muted-foreground italic">{ENCRYPTED_DISPLAY}</span>
+              ) : (
+                transaction.payee
+              )}
+            </span>
+          }
         />
         <DetailRow
           label="Date"
@@ -373,7 +385,11 @@ function ViewMode({
         {transaction.notes && (
           <DetailRow
             label="Notes"
-            value={<span className="text-sm text-muted-foreground italic">{transaction.notes}</span>}
+            value={
+              <span className="text-sm text-muted-foreground italic">
+                {transaction.isDecrypted === false ? ENCRYPTED_DISPLAY : transaction.notes}
+              </span>
+            }
           />
         )}
       </div>
@@ -415,8 +431,11 @@ function ViewMode({
 
       <div className="flex items-center border-t border-[#1A1A1A] mt-1 -mx-6">
         <button
+          type="button"
           onClick={onEdit}
-          className="flex-1 flex items-center justify-center gap-1.5 py-4 text-xs text-muted-foreground hover:text-foreground hover:bg-[#1A1A1A] transition-colors"
+          disabled={!canEdit}
+          title={!canEdit ? "Unlock encryption to edit payee and notes" : undefined}
+          className="flex-1 flex items-center justify-center gap-1.5 py-4 text-xs text-muted-foreground hover:text-foreground hover:bg-[#1A1A1A] transition-colors disabled:opacity-40 disabled:pointer-events-none"
         >
           <Pencil className="h-3 w-3" /> Edit
         </button>
