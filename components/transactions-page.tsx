@@ -8,7 +8,7 @@ import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-exp
 import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { getEnvelopeIcon } from "@/lib/envelope-icons"
+import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X, Plus, Download } from "lucide-react"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import {
@@ -368,7 +368,6 @@ export function TransactionsPage() {
         {activeEnvelopes.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
             {activeEnvelopes.map((env) => {
-              const Icon = getEnvelopeIcon(env.icon)
               const active = envelopeFilters.has(env.id)
               return (
                 <button
@@ -387,7 +386,11 @@ export function TransactionsPage() {
                     color: env.color,
                   } : undefined}
                 >
-                  <Icon className="h-3 w-3 shrink-0" />
+                  <EnvelopeIconDisplay
+                    icon={env.icon}
+                    fallbackName={env.name}
+                    className="h-3 w-3 shrink-0 text-[8px]"
+                  />
                   <span>{env.name}</span>
                 </button>
               )

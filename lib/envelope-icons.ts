@@ -6,9 +6,117 @@ import {
   Bus, Landmark, Stethoscope, Bike, Star, Sparkles, Wallet,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
-import { suggestIcon, KEYWORD_RULES } from "./envelope-icon-suggest"
+import { suggestIcon, suggestIconWithMatch, KEYWORD_RULES } from "./envelope-icon-suggest"
 
 export { suggestIcon }
+
+/** Persisted `icon` value for bold letter placeholder (not a Lucide name). */
+export const LETTERS_ENVELOPE_ICON_PREFIX = "__bb_letters__:"
+
+export function isLettersEnvelopeIcon(
+  icon: string | null | undefined,
+): icon is string {
+  return typeof icon === "string" && icon.startsWith(LETTERS_ENVELOPE_ICON_PREFIX)
+}
+
+export function getLettersEnvelopeIconText(icon: string | null | undefined): string {
+  if (!isLettersEnvelopeIcon(icon)) return ""
+  return icon.slice(LETTERS_ENVELOPE_ICON_PREFIX.length)
+}
+
+/**
+ * Single-word / prefix style: first character uppercase; remaining letters lowercase; digits unchanged.
+ * (Multi-word initials use both letters uppercase — see `initialsForEnvelopeName`.)
+ */
+function formatLetterIconBody(raw: string): string {
+  const s = raw.replace(/[^a-zA-Z0-9]/g, "")
+  if (!s) return "?"
+  if (s.length === 1) return s[0]!.toUpperCase()
+  return (
+    s[0]!.toUpperCase() +
+    s
+      .slice(1)
+      .split("")
+      .map(c => (/[A-Za-z]/.test(c) ? c.toLowerCase() : c))
+      .join("")
+  )
+}
+
+/**
+ * Persisted `__bb_letters__:…` value. Strips non-alphanumeric and truncates to 4 chars;
+ * casing is preserved (callers should pass strings from `initialsForEnvelopeName` or `formatLetterIconBody`).
+ */
+export function makeLettersEnvelopeIcon(letters: string): string {
+  const cleaned = letters.replace(/[^a-zA-Z0-9]/g, "").slice(0, 4)
+  return LETTERS_ENVELOPE_ICON_PREFIX + (cleaned || "?")
+}
+
+/** Two-letter (or single-letter) abbreviation from envelope name for placeholder icons. */
+export function initialsForEnvelopeName(name: string): string {
+  const t = name.trim()
+  if (!t) return "?"
+  const parts = t
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(p => p.replace(/[^a-zA-Z0-9]/g, ""))
+    .filter(Boolean)
+  if (parts.length === 0) return "?"
+  if (parts.length >= 2) {
+    const a = parts[0]!
+    const b = parts[parts.length - 1]!
+    const c0 = a[0]
+    const c1 = b[0]
+    if (c0 === undefined || c1 === undefined) return "?"
+    return (c0 + c1).toUpperCase()
+  }
+  const w = parts[0]!
+  if (w.length >= 2) return formatLetterIconBody(w.slice(0, 2))
+  return w[0]!.toUpperCase()
+}
+
+function uniqueLettersEnvelopeIcon(name: string, used: Set<string>): string {
+  const compact = name.replace(/[^a-zA-Z0-9]+/g, "").toUpperCase()
+  const initials = initialsForEnvelopeName(name).replace(/[^a-zA-Z0-9]/g, "")
+
+  const attempts: string[] = []
+  if (initials.length >= 2) attempts.push(initials.slice(0, 2))
+  else if (initials.length === 1) attempts.push(initials)
+  for (let len = 3; len <= 5; len++) {
+    if (compact.length >= len) attempts.push(formatLetterIconBody(compact.slice(0, len)))
+  }
+
+  const seenAttempts = new Set<string>()
+  for (const raw of attempts) {
+    if (!raw || seenAttempts.has(raw)) continue
+    seenAttempts.add(raw)
+    const key = makeLettersEnvelopeIcon(raw)
+    if (!used.has(key)) return key
+  }
+
+  const base = (initials.slice(0, 2) || initials || "X").replace(/[^a-zA-Z0-9]/g, "") || "X"
+  for (let i = 2; i < 100; i++) {
+    const key = makeLettersEnvelopeIcon(base + String(i))
+    if (!used.has(key)) return key
+  }
+  return makeLettersEnvelopeIcon("?")
+}
+
+/**
+ * Lucide icon name when a keyword rule matched confidently and that icon is unused; otherwise a unique letters placeholder.
+ */
+const MIN_CONFIDENT_ICON_SCORE = 2000
+
+export function pickEnvelopeIconForName(
+  name: string,
+  usedIcons: Iterable<string | null | undefined>,
+): string {
+  const used = new Set(
+    Array.from(usedIcons).filter((x): x is string => typeof x === "string" && x.length > 0),
+  )
+  const { icon: suggested, matched, score } = suggestIconWithMatch(name)
+  if (matched && score >= MIN_CONFIDENT_ICON_SCORE && !used.has(suggested)) return suggested
+  return uniqueLettersEnvelopeIcon(name, used)
+}
 
 export const ENVELOPE_ICON_LIST: { name: string; Icon: LucideIcon }[] = [
   { name: "Home", Icon: Home },
@@ -53,11 +161,6 @@ export const ENVELOPE_ICON_LIST: { name: string; Icon: LucideIcon }[] = [
 export const ENVELOPE_ICONS: Record<string, LucideIcon> = Object.fromEntries(
   ENVELOPE_ICON_LIST.map(({ name, Icon }) => [name, Icon]),
 )
-
-export function getEnvelopeIcon(iconName: string | null | undefined): LucideIcon {
-  if (iconName && ENVELOPE_ICONS[iconName]) return ENVELOPE_ICONS[iconName]
-  return Wallet
-}
 
 export const ENVELOPE_SUGGESTIONS = [
   "Rent", "Groceries", "Transportation", "Dining Out", "Utilities",

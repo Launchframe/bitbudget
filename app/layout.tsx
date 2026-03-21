@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next"
 import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { SessionProvider } from "@/components/session-provider"
+import { ReturningUserCookie } from "@/components/returning-user-cookie"
+import { PlatformProvider } from "@/lib/platform-context"
 import "./globals.css"
 
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"] })
@@ -34,7 +36,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${spaceGrotesk.className} ${ibmPlexMono.variable} antialiased`}>
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          <ReturningUserCookie />
+          <PlatformProvider>{children}</PlatformProvider>
+        </SessionProvider>
         <Analytics />
       </body>
     </html>

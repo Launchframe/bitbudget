@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
+import { useApp } from "@/lib/app-context"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Lock, AlertCircle, LogOut } from "lucide-react"
@@ -20,6 +21,7 @@ interface PinUnlockDialogProps {
 }
 
 export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock, onLogout }: PinUnlockDialogProps) {
+  const { state } = useApp()
   const [pin, setPin] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
@@ -47,7 +49,7 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm flex flex-col items-center gap-8">
-        <BitbudgetLogo />
+        <BitbudgetLogo variant={state.opportunityCostEnabled ? "btc" : "vanilla"} />
 
         <div className="w-full bg-[#0D0D0D] rounded-2xl p-8">
           <div className="flex flex-col items-center gap-4 mb-6">

@@ -1,7 +1,7 @@
 /**
  * Server-safe icon suggestion: keyword rules and suggestIcon only.
  * No lucide-react or icon components — use from API routes and server code.
- * For UI, use lib/envelope-icons (getEnvelopeIcon(suggestIcon(name))).
+ * For UI, use pickEnvelopeIconForName / EnvelopeIconDisplay from lib/envelope-icons.
  */
 
 // Keyword → icon name rules; suggestIcon() picks the best match by score. Exported for envelope-icons SUGGESTION_SEARCH_INDEX.
@@ -44,7 +44,7 @@ export const KEYWORD_RULES: [RegExp, string][] = [
   [/heart|love|tithes/i, "Heart"],
 ]
 
-export function suggestIcon(name: string): string {
+export function suggestIconWithMatch(name: string): { icon: string; matched: boolean; score: number } {
   const nameLower = name.toLowerCase()
   const nameWords = nameLower.split(/[\s&,]+/).filter(Boolean)
 
@@ -83,5 +83,9 @@ export function suggestIcon(name: string): string {
     }
   }
 
-  return bestIcon
+  return { icon: bestIcon, matched: bestScore > -1, score: bestScore }
+}
+
+export function suggestIcon(name: string): string {
+  return suggestIconWithMatch(name).icon
 }

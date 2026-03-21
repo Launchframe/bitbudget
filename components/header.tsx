@@ -34,7 +34,7 @@ export function Header() {
     <>
       <header className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-3 py-4 md:p-6 bg-background/80 backdrop-blur-[120px]">
         <div className="flex items-center gap-3">
-          <BitbudgetLogo />
+          <BitbudgetLogo variant={state.opportunityCostEnabled ? "btc" : "vanilla"} />
           {subscriptionTier === "premium" && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full bg-[#F7931A]/15 text-[#F7931A] text-[10px] sm:text-xs font-semibold border border-[#F7931A]/30">
               <Crown className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
@@ -52,10 +52,12 @@ export function Header() {
           </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="h-10 w-10 rounded-full overflow-hidden bg-gradient-to-br from-[#F7931A] to-[#E2761B] hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-[#F7931A]/30" aria-label="User menu">
-                {userImage && (
+              <button className="h-10 w-10 rounded-full overflow-hidden bg-gradient-to-br from-[#F7931A] to-[#E2761B] hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-[#F7931A]/30 flex items-center justify-center" aria-label="User menu">
+                {userImage ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={userImage} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <User className="h-5 w-5 text-[#0D0D0D]/80" aria-hidden />
                 )}
               </button>
             </DropdownMenuTrigger>

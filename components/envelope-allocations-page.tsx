@@ -5,7 +5,7 @@ import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Check, Info, X, PiggyBank } from "lucide-react"
-import { getEnvelopeIcon } from "@/lib/envelope-icons"
+import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 
 /** Draft value for an envelope: user override or current allotment. Avoids syncing state in useEffect. */
 function useDraftAllotments() {
@@ -292,7 +292,6 @@ export function EnvelopeAllocationsPage() {
             {activeEnvelopes.map((env) => {
               const val = getDraft(env.id, env.monthlyAllotment)
               if (val <= 0) return null
-              const Icon = getEnvelopeIcon(env.icon)
               const pct = (val / state.monthlyIncome) * 100
               return (
                 <button
@@ -311,8 +310,15 @@ export function EnvelopeAllocationsPage() {
                     minWidth: 4,
                   }}
                   title={`${env.name}: ${formatUsd(val)} (${Math.round(pct)}%)`}
+                  aria-label={`${env.name}, ${formatUsd(val)}, ${Math.round(pct)} percent of income`}
                 >
-                  {pct > 8 && <Icon className="h-4 w-4 text-[#0D0D0D]/70" />}
+                  {pct > 8 && (
+                    <EnvelopeIconDisplay
+                      icon={env.icon}
+                      fallbackName={env.name}
+                      className="h-4 w-4 text-[10px] text-[#0D0D0D]/70"
+                    />
+                  )}
                 </button>
               )
             })}
@@ -335,7 +341,6 @@ export function EnvelopeAllocationsPage() {
         {/* Per-envelope slider rows */}
         <div className="flex flex-col gap-3">
           {activeEnvelopes.map((env) => {
-            const Icon = getEnvelopeIcon(env.icon)
             const val = getDraft(env.id, env.monthlyAllotment)
             const sliderMax = val + draftSavings
             const pct = state.monthlyIncome > 0 ? Math.round((val / state.monthlyIncome) * 100) : 0
@@ -356,7 +361,12 @@ export function EnvelopeAllocationsPage() {
                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                     style={{ backgroundColor: `${env.color}22` }}
                   >
-                    <Icon className="h-4 w-4" style={{ color: env.color }} />
+                    <EnvelopeIconDisplay
+                      icon={env.icon}
+                      fallbackName={env.name}
+                      className="h-4 w-4 text-[10px]"
+                      style={{ color: env.color }}
+                    />
                   </div>
                   <span className="flex-1 text-sm font-medium text-foreground truncate">{env.name}</span>
                   <div className="flex items-baseline gap-1.5 shrink-0">

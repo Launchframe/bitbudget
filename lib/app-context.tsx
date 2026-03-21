@@ -9,8 +9,11 @@ import {
   decryptFieldAsymmetric,
   generateKeyPairFromSeed,
   hexToUint8,
+  uint8ToHex,
+  looksEncrypted,
 } from "@/lib/crypto"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
+import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
 
 export type PageId =
   | "dashboard"
@@ -130,6 +133,8 @@ export function useApp(): AppContextValue {
   return ctx
 }
 
+const ENCRYPTED_PLACEHOLDER = "(encrypted)"
+
 function decryptTxnLikeRecords<T extends { payee: string; notes?: string | null }>(
   records: T[],
   secretKey: Uint8Array,
@@ -140,17 +145,28 @@ function decryptTxnLikeRecords<T extends { payee: string; notes?: string | null 
     try {
       payee = decryptFieldAsymmetric(t.payee, secretKey)
     } catch {
-      /* plaintext or legacy */
+      if (looksEncrypted(t.payee)) payee = ENCRYPTED_PLACEHOLDER
     }
     if (t.notes) {
       try {
         notes = decryptFieldAsymmetric(t.notes, secretKey)
       } catch {
-        /* keep */
+        if (looksEncrypted(t.notes)) notes = ENCRYPTED_PLACEHOLDER
       }
     }
     return { ...t, payee, notes }
   })
+}
+
+/** Mask fields that are still ciphertext when we have no key to decrypt them. */
+function maskEncryptedRecords<T extends { payee: string; notes?: string | null }>(
+  records: T[],
+): T[] {
+  return records.map((t) => ({
+    ...t,
+    payee: looksEncrypted(t.payee) ? ENCRYPTED_PLACEHOLDER : t.payee,
+    notes: t.notes && looksEncrypted(t.notes) ? ENCRYPTED_PLACEHOLDER : t.notes,
+  }))
 }
 
 function applyPrivacyKey(key: Uint8Array, publicKeyRef: React.MutableRefObject<Uint8Array | null>) {
@@ -239,7 +255,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         sessionStorage.removeItem("bitbudget-privacy-user")
       }
 
-      if (data.isNostr && data.nostrPubkey) {
+      // Nsec fallback users have privacyKeySalt (PIN-based); skip NIP-04 and use PIN unlock path.
+      const isNsecFallback = data.isNostr && data.privacyKeySalt != null
+      if (data.isNostr && data.nostrPubkey && !isNsecFallback) {
         const nostrExt = (window as unknown as {
           nostr?: { nip04?: { decrypt: (pubkey: string, ciphertext: string) => Promise<string> } }
         }).nostr
@@ -256,7 +274,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             pendingLockedRef.current = false
             setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
             return
-          } catch { /* fall through to show unlock needed */ }
+          } catch { /* fall through */ }
+        }
+
+        // No extension (or it refused). If the raw nsec is still in memory (nsec-paste
+        // login for a returning user), use nostr-tools NIP-04 decrypt locally.
+        const pendingNsec = getPendingNsec()
+        if (pendingNsec) {
+          try {
+            const { decrypt: nip04Decrypt } = await import("nostr-tools/nip04")
+            const hexKey = nip04Decrypt(pendingNsec, data.nostrPubkey, data.encryptedPrivacyKey)
+            const pk = hexToUint8(hexKey)
+            privacyKeyRef.current = pk
+            applyPrivacyKey(pk, publicKeyRef)
+            void syncUserPublicKey(pk)
+            sessionStorage.setItem("bitbudget-privacy-key", hexKey)
+            sessionStorage.setItem("bitbudget-privacy-user", data.userId)
+            pendingLockedRef.current = false
+            setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+            return
+          } catch { /* fall through to PIN unlock */ }
         }
       }
 
@@ -279,7 +316,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     void syncUserPublicKey(key)
     pendingLockedRef.current = false
     if (currentUserIdRef.current) {
-      sessionStorage.setItem("bitbudget-privacy-user", currentUserIdRef.current)
+      try {
+        sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(key))
+        sessionStorage.setItem("bitbudget-privacy-user", currentUserIdRef.current)
+      } catch {
+        /* private mode / quota */
+      }
     }
     setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
   }, [])
@@ -314,6 +356,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           let pendingData: PendingTransaction[] = await pendingRes.json()
           if (privacyKeyRef.current) {
             pendingData = decryptTxnLikeRecords(pendingData, privacyKeyRef.current)
+          } else {
+            pendingData = maskEncryptedRecords(pendingData)
           }
           setPendingTransactions(pendingData)
         }
@@ -330,6 +374,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (privacyKeyRef.current) {
         transactions = decryptTxnLikeRecords(transactions, privacyKeyRef.current)
+      } else {
+        transactions = maskEncryptedRecords(transactions)
       }
 
       setUserRole(settings.role ?? null)
@@ -704,8 +750,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
-    sessionStorage.removeItem("bitbudget-privacy-key")
-    sessionStorage.removeItem("bitbudget-privacy-user")
+    try {
+      sessionStorage.removeItem("bitbudget-privacy-key")
+      sessionStorage.removeItem("bitbudget-privacy-user")
+      sessionStorage.removeItem("nostr-login")
+    } catch {
+      /* ignore */
+    }
+    clearPendingNsec()
+    clearNsecOnboardingIntent()
+    if (typeof localStorage !== "undefined") {
+      try {
+        localStorage.removeItem("bitbudget-nsec")
+        localStorage.removeItem("bitbudget-nsec-user")
+      } catch {
+        /* ignore */
+      }
+    }
     privacyKeyRef.current = null
     publicKeyRef.current = null
     currentUserIdRef.current = null

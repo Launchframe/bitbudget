@@ -3,16 +3,77 @@
 import { useState, useEffect, useRef } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { BitbudgetLogo } from "@/components/bitbudget-logo"
+import { BitbudgetLogo, type BitbudgetLogoVariant } from "@/components/bitbudget-logo"
+import { DocumentFavicon } from "@/components/document-favicon"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft, HelpCircle, ChevronLeft, ChevronRight, X } from "lucide-react"
+import {
+  decodeNsec,
+  signAuthEvent,
+  fetchNostrProfile,
+  buildAuthEventTemplate,
+  setPendingNsec,
+  setNsecOnboardingIntent,
+} from "@/lib/nostr-local-signer"
+import { usePlatform, type PlatformOS } from "@/lib/platform-context"
 
-type AuthMethod = "email" | "nostr" | null
+type AuthMethod = "email" | "nostr" | "nsec" | null
+
+type SignerEntry = { name: string; href: string; img?: string; recommended?: boolean; note?: string }
+
+function clearNostrLoginSessionFlag() {
+  try {
+    sessionStorage.removeItem("nostr-login")
+  } catch {
+    /* storage blocked */
+  }
+}
+
+/** Host label for store links; avoids `new URL` throwing on unexpected `href` values. */
+function signerHrefLabel(href: string): string {
+  try {
+    const host = new URL(href).host
+    if (host) return host
+  } catch {
+    /* fall through */
+  }
+  return href.replace(/^https?:\/\//, "").replace(/\/$/, "").split("/")[0] ?? href
+}
+
+function getSignersForPlatform(os: PlatformOS): SignerEntry[] {
+  if (os === "android") {
+    return [
+      { name: "Alby on Firefox", href: "https://addons.mozilla.org/en-US/android/addon/alby/", img: "alby-logo.svg", note: "Requires Firefox for Android" },
+      {
+        name: "Amber",
+        href: "https://zapstore.dev/apps/com.greenart7c3.nostrsigner",
+        img: "amber.png",
+        note: "Use nsec fallback below for web login",
+      },
+    ]
+  }
+  if (os === "ios") {
+    return [
+      {
+        name: "Nostash",
+        href: "https://apps.apple.com/us/app/nostash/id6744309333",
+        img: "nostash-logo.webp",
+        note: "Safari extension for NIP-07",
+      },
+    ]
+  }
+  return [
+    { name: "keys.band", href: "https://keys.band/", img: "keys-band-logo.png", recommended: true },
+    { name: "Alby", href: "https://getalby.com/", img: "alby-logo.svg" },
+    { name: "nos2x", href: "https://nostrapps.com/nos2x", img: "nos2x-logo.png" },
+  ]
+}
 type EmailStep = "enter-email" | "enter-code"
 
 export default function AuthPage() {
   const router = useRouter()
+  const platform = usePlatform()
   const [method, setMethod] = useState<AuthMethod>(null)
   const [email, setEmail] = useState("")
   const [code, setCode] = useState("")
@@ -23,10 +84,24 @@ export default function AuthPage() {
   const [cooldown, setCooldown] = useState(0)
   const [keysGuideOpen, setKeysGuideOpen] = useState(false)
   const [keysGuideStep, setKeysGuideStep] = useState(0)
+  const [nsecValue, setNsecValue] = useState("")
   const codeInputRef = useRef<HTMLInputElement>(null)
 
+  const [entryBranding, setEntryBranding] = useState<{
+    favicon: string
+    logo: BitbudgetLogoVariant
+  }>({ favicon: "/icon-vanilla.svg", logo: "vanilla" })
+
   useEffect(() => {
-    document.cookie = "bitbudget_visited=1; path=/; max-age=31536000; SameSite=Lax"
+    try {
+      const btc = sessionStorage.getItem("onboardingSource") === "btc"
+      setEntryBranding({
+        favicon: btc ? "/icon.svg" : "/icon-vanilla.svg",
+        logo: btc ? "btc" : "vanilla",
+      })
+    } catch {
+      setEntryBranding({ favicon: "/icon-vanilla.svg", logo: "vanilla" })
+    }
   }, [])
 
   useEffect(() => {
@@ -98,6 +173,7 @@ export default function AuthPage() {
       if (result?.error) {
         setError("Invalid or expired code. Please try again.")
       } else {
+        clearNostrLoginSessionFlag()
         router.push("/")
         router.refresh()
       }
@@ -133,29 +209,6 @@ export default function AuthPage() {
     }
   }
 
-  async function fetchNostrProfile(pubkey: string): Promise<{ name?: string; picture?: string }> {
-    const RELAYS = [
-      "wss://relay.damus.io",
-      "wss://relay.nostr.band",
-      "wss://nos.lol",
-      "wss://relay.primal.net",
-    ]
-    try {
-      const { SimplePool } = await import("nostr-tools/pool")
-      const pool = new SimplePool()
-      const event = await pool.get(RELAYS, { kinds: [0], authors: [pubkey] })
-      pool.close(RELAYS)
-      if (!event?.content) return {}
-      const meta = JSON.parse(event.content) as Record<string, string>
-      return {
-        name: meta.display_name || meta.name || undefined,
-        picture: meta.picture || undefined,
-      }
-    } catch {
-      return {}
-    }
-  }
-
   async function handleNostrLogin() {
     setError("")
     setLoading(true)
@@ -168,23 +221,11 @@ export default function AuthPage() {
 
       if (!nostrExt) {
         setError("No Nostr extension found. Install nos2x or similar.")
-        setLoading(false)
         return
       }
 
       const pubkey = await nostrExt.getPublicKey()
-
-      const event = {
-        kind: 27235,
-        created_at: Math.floor(Date.now() / 1000),
-        tags: [
-          ["u", window.location.origin],
-          ["method", "login"],
-        ],
-        content: "BitBudget Login",
-        pubkey,
-      }
-
+      const event = { ...buildAuthEventTemplate(window.location.origin), pubkey }
       const signed = await nostrExt.signEvent(event)
 
       const profile = await fetchNostrProfile(pubkey)
@@ -192,14 +233,15 @@ export default function AuthPage() {
       const result = await signIn("nostr", {
         pubkey,
         event: JSON.stringify(signed),
-        profileName: profile.name || "",
-        profileImage: profile.picture || "",
+        profileName: profile.name ?? "",
+        profileImage: profile.image ?? "",
         redirect: false,
       })
 
       if (result?.error) {
         setError(`Nostr authentication failed: ${result.error}`)
       } else {
+        try { sessionStorage.setItem("nostr-login", pubkey) } catch { /* SSR guard */ }
         router.push("/")
         router.refresh()
       }
@@ -207,13 +249,30 @@ export default function AuthPage() {
       const msg = err instanceof Error ? err.message : String(err)
       const lower = msg.toLowerCase()
 
-      if (lower.includes("nos2x")) {
+      // Check for user-rejected / denied before extension-name checks. Extensions
+      // like keys.band include their name in both "no account" AND "rejected" errors,
+      // so the rejection keywords must be matched first.
+      const isRejection =
+        lower.includes("reject") ||
+        lower.includes("denied") ||
+        lower.includes("cancel")
+      const isNoAccount =
+        lower.includes("no private key") ||
+        lower.includes("not available") ||
+        lower.includes("no accounts")
+
+      if (isRejection) {
+        const host = typeof window !== "undefined" ? window.location.host : "this site"
+        setError(
+          `You declined the request. Click Continue with Nostr again when you\u2019re ready to approve it, or go into your extension settings and approve ${host}`,
+        )
+      } else if (lower.includes("nos2x")) {
         setError("nos2x needs to be set up first. Open the nos2x extension, add or import a private key, then try logging in again.")
       } else if (lower.includes("keys.band")) {
         setError("keys.band-setup")
       } else if (lower.includes("alby")) {
         setError("Alby needs to be set up first. Open the Alby extension, make sure you're logged in with a Nostr key, then try logging in again.")
-      } else if (lower.includes("reject") || lower.includes("denied") || lower.includes("cancel") || lower.includes("no private key") || lower.includes("not available")) {
+      } else if (isNoAccount) {
         setError("Your Nostr extension isn't ready. Open it, make sure you have a key set up, then try logging in again.")
       } else {
         setError(`Nostr login failed: ${msg}`)
@@ -223,8 +282,47 @@ export default function AuthPage() {
     }
   }
 
+  async function handleNsecLogin(e: React.FormEvent) {
+    e.preventDefault()
+    setError("")
+    setLoading(true)
+    try {
+      const { secretKey, pubkey } = decodeNsec(nsecValue)
+      const signed = signAuthEvent(secretKey, window.location.origin)
+      const profile = await fetchNostrProfile(pubkey)
+      const result = await signIn("nostr", {
+        pubkey,
+        event: JSON.stringify(signed),
+        profileName: profile.name ?? "",
+        profileImage: profile.image ?? "",
+        redirect: false,
+      })
+      if (result?.error) {
+        setError(`Nostr authentication failed: ${result.error}`)
+        return
+      }
+      setNsecValue("")
+      // Bridge to onboarding security step (in-memory key + session intent flag). Must not block navigation
+      // if helpers fail after sign-in already succeeded.
+      try {
+        setPendingNsec(secretKey)
+        setNsecOnboardingIntent()
+      } catch {
+        /* continue — user is authenticated */
+      }
+      router.push("/")
+      router.refresh()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(msg.startsWith("Invalid nsec") ? msg : `Sign-in failed: ${msg}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function handleOAuth(provider: string) {
     setLoading(true)
+    clearNostrLoginSessionFlag()
     await signIn(provider, { callbackUrl: "/" })
   }
 
@@ -232,14 +330,16 @@ export default function AuthPage() {
     setMethod(null)
     setEmailStep("enter-email")
     setCode("")
+    setNsecValue("")
     setError("")
     setCooldown(0)
   }
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
+      <DocumentFavicon href={entryBranding.favicon} />
       <div className="w-full max-w-md flex flex-col items-center gap-8">
-        <BitbudgetLogo />
+        <BitbudgetLogo variant={entryBranding.logo} />
 
         <div className="w-full bg-[#0D0D0D] rounded-2xl p-8">
           <h1 className="text-2xl font-bold text-foreground text-center mb-2">
@@ -254,7 +354,7 @@ export default function AuthPage() {
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               {error === "keys.band-setup" ? (
                 <div className="flex flex-col gap-1.5 flex-1">
-                  <span>keys.band needs an active account. Open the keys.band extension, select or create an account, then try logging in again.</span>
+                  <span>keys.band needs an active account. Open the keys.band extension, select an account, and then try logging in again.</span>
                   <button
                     type="button"
                     onClick={() => { setKeysGuideStep(0); setKeysGuideOpen(true) }}
@@ -288,6 +388,19 @@ export default function AuthPage() {
                 {nostrAvailable ? "Continue with Nostr" : "Continue with Nostr Extension"}
               </button>
 
+              <button
+                type="button"
+                onClick={() => {
+                  setError("")
+                  setNsecValue("")
+                  setMethod("nsec")
+                }}
+                disabled={loading}
+                className="w-full py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                Sign in with nsec (paste key)
+              </button>
+
               <div className="flex items-center gap-4 my-2">
                 <div className="flex-1 h-px bg-[#1F1F1F]" />
                 <span className="text-xs text-muted-foreground">or continue with</span>
@@ -295,7 +408,10 @@ export default function AuthPage() {
               </div>
 
               <button
-                onClick={() => setMethod("email")}
+                onClick={() => {
+                  clearNostrLoginSessionFlag()
+                  setMethod("email")
+                }}
                 disabled={loading}
                 className="flex items-center justify-center gap-3 w-full py-3 px-4 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] disabled:opacity-50"
               >
@@ -422,6 +538,48 @@ export default function AuthPage() {
             </form>
           )}
 
+          {/* Nsec fallback: sign in with raw nsec */}
+          {method === "nsec" && (
+            <form onSubmit={handleNsecLogin} className="flex flex-col gap-4">
+              <button
+                type="button"
+                onClick={() => { setMethod("nostr"); setNsecValue(""); setError("") }}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors self-start mb-2"
+              >
+                <ArrowLeft className="h-3 w-3" />
+                Back
+              </button>
+              <div className="flex flex-col items-center gap-2 py-2">
+                <KeyRound className="h-8 w-8 text-[#8B5CF6]" />
+                <h3 className="text-lg font-semibold text-foreground">Sign in with your nsec</h3>
+                <p className="text-xs text-muted-foreground text-center">
+                  Your nsec never leaves your device. It is held in this tab&apos;s memory until you set a PIN on the next
+                  screen; then it is encrypted and stored locally. A full reload before then clears the key and you will
+                  need to sign in again.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label className="text-muted-foreground text-xs uppercase tracking-wider">Private key</Label>
+                <Input
+                  type="password"
+                  value={nsecValue}
+                  onChange={e => setNsecValue(e.target.value)}
+                  placeholder="nsec1..."
+                  className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] text-sm"
+                  autoComplete="off"
+                  autoFocus
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading || !nsecValue.trim()}
+                className="w-full py-3 bg-[#8B5CF6] text-white rounded-xl font-semibold text-sm hover:bg-[#8B5CF6]/90 transition-colors disabled:opacity-50"
+              >
+                {loading ? "Signing in..." : "Continue"}
+              </button>
+            </form>
+          )}
+
           {/* Nostr extension not found */}
           {method === "nostr" && !nostrAvailable && (
             <div className="flex flex-col gap-4">
@@ -440,16 +598,12 @@ export default function AuthPage() {
                 </div>
                 <h3 className="text-lg font-semibold text-foreground">No Nostr Extension Detected</h3>
                 <p className="text-sm text-muted-foreground text-center leading-relaxed">
-                  To sign in with Nostr you need a browser extension that manages your keys.
+                  To sign in with Nostr you need a browser extension or app that manages your keys.
                   Install one of these, create or import your keypair, then reload this page.
                 </p>
 
                 <div className="flex flex-col gap-3 w-full">
-                  {([
-                    { name: "keys.band", href: "https://keys.band/", img: "https://www.satlantis.io/images/keys-band-logo.png" },
-                    { name: "Alby", href: "https://getalby.com/", img: "https://www.satlantis.io/images/alby-logo.svg" },
-                    { name: "nos2x", href: "https://nostrapps.com/nos2x", img: "https://www.satlantis.io/images/nos2x-logo.png" },
-                  ] as const).map((ext) => (
+                  {getSignersForPlatform(platform.os).map((ext) => (
                     <a
                       key={ext.name}
                       href={ext.href}
@@ -457,12 +611,19 @@ export default function AuthPage() {
                       rel="noopener noreferrer"
                       className="flex items-center gap-4 w-full py-3 px-4 bg-[#1A1A1A] rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={ext.img} alt={ext.name} className="h-8 w-8 rounded-md object-contain" />
+                      {ext.img ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={`/img/${ext.img}`} alt={ext.name} className="h-8 w-8 shrink-0 rounded-md object-contain" />
+                      ) : (
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#8B5CF6]/15" aria-hidden>
+                          <KeyRound className="h-4 w-4 text-[#8B5CF6]" />
+                        </span>
+                      )}
                       <div className="flex flex-col">
                         <span className="font-semibold text-foreground">{ext.name}</span>
-                        <span className="text-xs text-muted-foreground">{ext.href.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
-                        {ext.name === 'keys.band' && <span className="text-xs text-btc-orange">Recommended</span>}
+                        <span className="text-xs text-muted-foreground">{signerHrefLabel(ext.href)}</span>
+                        {ext.recommended && <span className="text-xs text-btc-orange">Recommended</span>}
+                        {ext.note && <span className="text-xs text-muted-foreground mt-0.5">{ext.note}</span>}
                       </div>
                     </a>
                   ))}
@@ -474,22 +635,35 @@ export default function AuthPage() {
                 >
                   I&apos;ve Installed It — Reload
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError("")
+                    setNsecValue("")
+                    setMethod("nsec")
+                  }}
+                  className="w-full py-2.5 mt-2 text-sm text-muted-foreground hover:text-foreground transition-colors border border-[#333] rounded-xl"
+                >
+                  Or sign in with your nsec
+                </button>
               </div>
             </div>
           )}
         </div>
 
         <p className="text-xs text-muted-foreground text-center max-w-sm">
-          Your data is encrypted end-to-end. BitBudget cannot read your transaction details.
+          Payee and notes are encrypted end-to-end. BitBudget can still see some transaction metadata, including date,
+          amount, and certain categories or tags.
         </p>
       </div>
 
       {keysGuideOpen && (() => {
         const steps = [
           { img: "/onboarding/keys-band/1-add-account.jpeg", title: "Add an account", desc: "Open keys.band from your browser's extensions, and click to add your first account." },
-          { img: "/onboarding/keys-band/2-credentials.jpeg", title: "Set up your key", desc: "Generate a new key, or enter an existing one if you already have one." },
-          { img: "/onboarding/keys-band/3-select-account.jpeg", title: "Select your account", desc: "Open the Accounts selector and choose your account." },
-          { img: "/onboarding/keys-band/4-confirm-account-selected.jpeg", title: "You\u2019re ready!", desc: "Once your account is selected, come back here and try logging in again." },
+          { img: "/onboarding/keys-band/2-credentials.jpeg", title: "Set up your key", desc: 'Generate a new key, or enter an existing key and choose "Add Account".' },
+          { img: "/onboarding/keys-band/3-select-account.jpeg", title: "Select your account", desc: "Now that you have a key loaded, open the Accounts selector and choose your account." },
+          { img: "/onboarding/keys-band/4-confirm-account-selected.jpeg", title: "You\u2019re ready!", desc: "With your account selected, come back here and try logging in again." },
         ]
         const s = steps[keysGuideStep]
         const isLast = keysGuideStep === steps.length - 1

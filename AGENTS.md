@@ -45,6 +45,17 @@ styles/                  Tailwind globals
 - **Testing:** Vitest (unit), Playwright (e2e)
 - **CI:** GitHub Actions — lint + test on PRs and pushes to main
 
+## Testing
+
+**Unit tests are critical for production stability.** Add or extend Vitest coverage **as you build** each change—not only before merge or in a follow-up. Treat untested new logic in shared code as incomplete work.
+
+- **When to test:** New or changed behavior in `lib/` (crypto, helpers, parsers, matchers), API input handling, pure utilities, and any regression-prone branch should have tests that fail if the behavior breaks.
+- **Where:** Follow existing layout under `lib/__tests__/` (or the project’s co-located `*.test.ts` pattern).
+- **How:** Run `pnpm test` (or a scoped path, e.g. `pnpm test -- lib/__tests__/foo.test.ts`) while developing; CI runs the full suite on PRs.
+- **Quality:** Prefer small, focused cases; mock network/DB where appropriate; keep crypto and time-dependent tests deterministic.
+
+Skipping unit tests for non-trivial changes should be the exception and called out explicitly in the PR if unavoidable.
+
 ## Code Conventions
 
 ### Imports
@@ -89,6 +100,10 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 - BTC numeric values use `font-ibm-plex-mono` class for monospace rendering.
 - Mobile-first responsive design. Use Tailwind breakpoints (`sm:`, `md:`, `lg:`).
 
+### Marketing routes & `bitbudget_visited`
+- **`/welcome`** and **`/landing`** are public for everyone (including logged-in users). Middleware must not redirect authenticated users away from them.
+- **`bitbudget_visited`** is set only after a **successful sign-in** (`components/returning-user-cookie.tsx`). Middleware uses it so unauthenticated visits to **`/`** go to **`/auth`** instead of **`/welcome`**. Do **not** set this cookie on `/auth` page load or from “Get Started” alone — that trapped users who hadn’t logged in yet and blocked re-reading the landing pages.
+
 ### API Routes
 - Every **user-scoped** API route starts with `const session = await auth()` and returns 401 if unauthenticated.
 - All **user-scoped** Prisma queries filter by `userId: session.user.id` — never trust the client to scope user data.
@@ -132,6 +147,40 @@ These are **non-negotiable**:
 - Never add `console.log` or logging that would print decrypted user data, encryption keys, PINs, or passwords.
 - The `encryptForStorage` function in `AppContext` and the `decryptFieldAsymmetric` helper used in refresh/add flows are the canonical entry points for client-side encryption and decryption.
 
+## Privacy key custody & safeguard (expected behavior)
+
+**Goal:** The server must never be able to decrypt user transaction fields. The **privacy key** (NaCl seed) lives only on the client; the server may store a **wrapped** copy (`User.encryptedPrivacyKey`, optional `User.privacyKeySalt` for passphrase users). Nostr accounts may also have `User.nostrPubkey`; the wrap can be NIP-04 to that pubkey or PIN-derived AES for nsec-fallback.
+
+### `POST /api/user/encryption` — no silent overwrites
+
+Implementation: `app/api/user/encryption/route.ts`.
+
+- If `encryptedPrivacyKey` is already **non-empty**, the handler returns **409** with `ENCRYPTION_ALREADY_CONFIGURED` and does **not** replace the blob. This applies to **both** email/passphrase and Nostr-linked accounts (the check is before Nostr-specific branching).
+- Updates use `updateMany` with `emptyKeyWhere`: only rows where `encryptedPrivacyKey` is **null or `""`** can be written. First-time setup only.
+- **Do not** weaken these guards for “convenience.” Accidental re-onboarding or a bug that shows **Secure Your Data** again must **not** rotate keys through this route.
+
+| Situation | Server replaces existing wrapped key? |
+|-----------|--------------------------------------|
+| User already has non-empty `encryptedPrivacyKey`; onboarding/security UI submits again | **No** — 409 |
+| Nostr extension user wrongly submits PIN/passphrase on a security screen | **No** — same 409 if a key exists |
+| `encryptedPrivacyKey` is **null/empty** (setup never completed) | **Yes** — first successful POST may set it (by design) |
+| `encryptedPrivacyKey` is **corrupt** (non-empty garbage) | **No** in-app fix via this route; user is stuck until **recovery** (below) |
+
+### Session vs server
+
+- Client caches the raw privacy key hex in `sessionStorage` (`bitbudget-privacy-key`) when appropriate; import and other flows may re-hydrate via NIP-04 decrypt using the extension (`lib/resolve-import-encrypt-fn.ts`, `lib/app-context.tsx`). Stale keys: clear when `userId` mismatches.
+- Losing session storage does **not** mean losing the account if the wrapped key on the server is valid and the user can still decrypt (passphrase / NIP-04).
+
+### Recovery (product direction — not fully built)
+
+If keys are **lost** or **mismatched** (undecryptable blob), the generic onboarding `POST` must **not** be the fix.
+
+1. **Destructive reset** — After strong identity proof (email OTP, Nostr-signed challenge, etc.), ops or a dedicated endpoint clears `encryptedPrivacyKey` / `privacyKeySalt` and runs a **single** controlled re-setup flow. **All existing server ciphertext** for that user tied to the old privacy key becomes **unreadable**; UX must state that clearly.
+2. **Re-key / rotate (non-destructive)** — User proves identity, then in-session: decrypt with old key, generate new privacy key, re-wrap for server, **batch re-encrypt** all encrypted fields (or a background job). Preserves data; heavier to build.
+3. **Support / admin** — Manual repair (wrong `nostrPubkey` vs ciphertext), restore from backup, or reset flags **only** with explicit user consent.
+
+When designing new endpoints, **never** allow replacing `encryptedPrivacyKey` without explicit recovery semantics and user understanding of data loss or migration.
+
 ## Envelope Archiving
 
 Deleting an envelope **archives** it (`archived: true`). Archived envelopes and their transactions are filtered out of active views via `activeEnvelopes` and `activeTransactions` in `AppContext`. Users can view, restore, or permanently delete archived envelopes from the Envelopes page.
@@ -141,6 +190,7 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 - **Commit often.** Each logical unit of work (a bug fix, a feature slice, a refactor) gets its own commit. Don't batch unrelated changes.
 - **Commit messages** should be concise and describe the "what" and "why": `fix(receipts): validate file type from magic bytes, not Content-Type` or `feat: add vanilla "Your Expenses" chart for non-OC users`.
 - **Run `pnpm lint` and `pnpm test` before pushing.** CI enforces both on PRs.
+- **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don’t rely on manual checks alone for production-critical behavior.
 - **PR descriptions** should have a Summary (bullet points of what changed) and a Test Plan (checkboxes).
 - **Never force-push to main.**
 - **Database migrations** should be committed alongside the schema change and the code that uses the new field.
@@ -152,6 +202,7 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
 - **Stale encryption keys** — switching accounts or clearing data can leave cached keys in `sessionStorage`. The `EncryptionGate` and `PinUnlockDialog` handle re-prompting; don't bypass them.
+- **`POST /api/user/encryption` and existing keys** — see **Privacy key custody & safeguard**; 409 prevents overwrites. Onboarding must handle 409 in `handleSecuritySetup`. Nostr nsec storage: intent `bitbudget-nsec-onboarding-intent`; pending raw key is **in-memory only** until PIN encrypts to `bitbudget-nsec` (JSON iv+ciphertext in localStorage). Legacy `bitbudget-pending-nsec` session key is cleared on `clearPendingNsec`. Logout clears pending/intent and localStorage nsec keys.
 - **`colSpan` mismatch** — when conditionally rendering table columns (e.g. hiding BTC columns in vanilla mode), update the empty-state row's `colSpan` accordingly.
 - **`react-hooks/set-state-in-effect`** — don’t call `setState` synchronously inside `useEffect` / `useLayoutEffect`; it triggers lint and risks extra renders or cascading updates. See **React effects and `setState`** under Code Conventions for patterns (derive during render, defer with `requestAnimationFrame` / `setTimeout(0)`, refs).
-- **Resetting `onboardingComplete` for users who already have `encryptedPrivacyKey`** — never let onboarding show **Secure Your Data** or overwrite keys. `POST /api/user/encryption` returns **409** if a key already exists; `PUT /api/user/settings` must not accept `encryptedPrivacyKey` / `privacyKeySalt`. The onboarding page skips the security step when a key exists and offers **Skip onboarding** if the user has transactions.
+- **Resetting `onboardingComplete` for users who already have `encryptedPrivacyKey`** — never rely on onboarding to rotate keys. `PUT /api/user/settings` must not accept `encryptedPrivacyKey` / `privacyKeySalt`. Prefer **Skip onboarding** and correct step routing; corrupt keys need a **recovery** path, not a silent `POST` overwrite.
