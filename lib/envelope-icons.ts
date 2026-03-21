@@ -22,9 +22,30 @@ export function getLettersEnvelopeIconText(icon: string | null | undefined): str
   return icon.slice(LETTERS_ENVELOPE_ICON_PREFIX.length)
 }
 
-/** Build persisted icon field for initial-letter display (A–Z / 0–9 only, max 4 chars). */
+/**
+ * Single-word / prefix style: first character uppercase; remaining letters lowercase; digits unchanged.
+ * (Multi-word initials use both letters uppercase — see `initialsForEnvelopeName`.)
+ */
+function formatLetterIconBody(raw: string): string {
+  const s = raw.replace(/[^a-zA-Z0-9]/g, "")
+  if (!s) return "?"
+  if (s.length === 1) return s[0]!.toUpperCase()
+  return (
+    s[0]!.toUpperCase() +
+    s
+      .slice(1)
+      .split("")
+      .map(c => (/[A-Za-z]/.test(c) ? c.toLowerCase() : c))
+      .join("")
+  )
+}
+
+/**
+ * Persisted `__bb_letters__:…` value. Strips non-alphanumeric and truncates to 4 chars;
+ * casing is preserved (callers should pass strings from `initialsForEnvelopeName` or `formatLetterIconBody`).
+ */
 export function makeLettersEnvelopeIcon(letters: string): string {
-  const cleaned = letters.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 4)
+  const cleaned = letters.replace(/[^a-zA-Z0-9]/g, "").slice(0, 4)
   return LETTERS_ENVELOPE_ICON_PREFIX + (cleaned || "?")
 }
 
@@ -41,22 +62,25 @@ export function initialsForEnvelopeName(name: string): string {
   if (parts.length >= 2) {
     const a = parts[0]!
     const b = parts[parts.length - 1]!
-    return (a[0]! + b[0]!).toUpperCase()
+    const c0 = a[0]
+    const c1 = b[0]
+    if (c0 === undefined || c1 === undefined) return "?"
+    return (c0 + c1).toUpperCase()
   }
   const w = parts[0]!
-  if (w.length >= 2) return w.slice(0, 2).toUpperCase()
+  if (w.length >= 2) return formatLetterIconBody(w.slice(0, 2))
   return w[0]!.toUpperCase()
 }
 
 function uniqueLettersEnvelopeIcon(name: string, used: Set<string>): string {
   const compact = name.replace(/[^a-zA-Z0-9]+/g, "").toUpperCase()
-  const initials = initialsForEnvelopeName(name).replace(/[^A-Z0-9]/g, "")
+  const initials = initialsForEnvelopeName(name).replace(/[^a-zA-Z0-9]/g, "")
 
   const attempts: string[] = []
   if (initials.length >= 2) attempts.push(initials.slice(0, 2))
   else if (initials.length === 1) attempts.push(initials)
   for (let len = 3; len <= 5; len++) {
-    if (compact.length >= len) attempts.push(compact.slice(0, len))
+    if (compact.length >= len) attempts.push(formatLetterIconBody(compact.slice(0, len)))
   }
 
   const seenAttempts = new Set<string>()
@@ -67,7 +91,7 @@ function uniqueLettersEnvelopeIcon(name: string, used: Set<string>): string {
     if (!used.has(key)) return key
   }
 
-  const base = (initials.slice(0, 2) || initials || "X").replace(/[^A-Z0-9]/g, "") || "X"
+  const base = (initials.slice(0, 2) || initials || "X").replace(/[^a-zA-Z0-9]/g, "") || "X"
   for (let i = 2; i < 100; i++) {
     const key = makeLettersEnvelopeIcon(base + String(i))
     if (!used.has(key)) return key
@@ -135,12 +159,6 @@ export const ENVELOPE_ICON_LIST: { name: string; Icon: LucideIcon }[] = [
 export const ENVELOPE_ICONS: Record<string, LucideIcon> = Object.fromEntries(
   ENVELOPE_ICON_LIST.map(({ name, Icon }) => [name, Icon]),
 )
-
-export function getEnvelopeIcon(iconName: string | null | undefined): LucideIcon {
-  if (iconName && isLettersEnvelopeIcon(iconName)) return Wallet
-  if (iconName && ENVELOPE_ICONS[iconName]) return ENVELOPE_ICONS[iconName]
-  return Wallet
-}
 
 export const ENVELOPE_SUGGESTIONS = [
   "Rent", "Groceries", "Transportation", "Dining Out", "Utilities",

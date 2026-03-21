@@ -315,6 +315,7 @@ export function EnvelopeAllocationsPage() {
                   {pct > 8 && (
                     <EnvelopeIconDisplay
                       icon={env.icon}
+                      fallbackName={env.name}
                       className="h-4 w-4 text-[10px] text-[#0D0D0D]/70"
                     />
                   )}
@@ -362,6 +363,7 @@ export function EnvelopeAllocationsPage() {
                   >
                     <EnvelopeIconDisplay
                       icon={env.icon}
+                      fallbackName={env.name}
                       className="h-4 w-4 text-[10px]"
                       style={{ color: env.color }}
                     />

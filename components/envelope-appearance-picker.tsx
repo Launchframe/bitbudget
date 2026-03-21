@@ -69,7 +69,7 @@ export function EnvelopeAppearancePicker({
             aria-label="Custom color"
           >
             {PRESET_COLORS.includes(color) && (
-              <span className="text-[#555] text-xs leading-none">+</span>
+              <span className="text-[#555] text-xs md:text-sm leading-none">+</span>
             )}
           </button>
           <input
@@ -107,7 +107,7 @@ export function EnvelopeAppearancePicker({
                 } as React.CSSProperties : undefined}
               >
                 <Icon
-                  className="h-4 w-4"
+                  className="h-4 w-4 md:h-6 md:w-6"
                   style={{ color: isSelected ? color : "#666" }}
                 />
               </button>

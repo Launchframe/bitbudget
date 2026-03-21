@@ -388,6 +388,7 @@ export function TransactionsPage() {
                 >
                   <EnvelopeIconDisplay
                     icon={env.icon}
+                    fallbackName={env.name}
                     className="h-3 w-3 shrink-0 text-[8px]"
                   />
                   <span>{env.name}</span>

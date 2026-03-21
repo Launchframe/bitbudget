@@ -10,7 +10,7 @@ describe("pickEnvelopeIconForName", () => {
   it("uses letters placeholder when no confident keyword match (e.g. Ramsey vs weak substring)", () => {
     const icon = pickEnvelopeIconForName("Ramsey", [])
     expect(isLettersEnvelopeIcon(icon)).toBe(true)
-    expect(icon).toContain("RA")
+    expect(icon).toContain("Ra")
   })
 
   it("avoids Lucide icon collision by using letters", () => {
@@ -27,16 +27,17 @@ describe("pickEnvelopeIconForName", () => {
 
 describe("initialsForEnvelopeName", () => {
   it("uses first two letters of one word", () => {
-    expect(initialsForEnvelopeName("Ramsey")).toBe("RA")
+    expect(initialsForEnvelopeName("Ramsey")).toBe("Ra")
   })
 
-  it("uses first letter of first and last word", () => {
+  it("uses uppercase first letter of first and last word", () => {
     expect(initialsForEnvelopeName("Dave Ramsey")).toBe("DR")
   })
 })
 
 describe("makeLettersEnvelopeIcon", () => {
-  it("stores uppercase alphanumeric slice", () => {
-    expect(makeLettersEnvelopeIcon("ra")).toBe("__bb_letters__:RA")
+  it("preserves casing from initials (single-word vs multi-word)", () => {
+    expect(makeLettersEnvelopeIcon(initialsForEnvelopeName("ramsey"))).toBe("__bb_letters__:Ra")
+    expect(makeLettersEnvelopeIcon(initialsForEnvelopeName("Dave Ramsey"))).toBe("__bb_letters__:DR")
   })
 })

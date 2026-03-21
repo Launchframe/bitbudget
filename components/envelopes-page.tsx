@@ -14,7 +14,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { EnvelopeAppearancePicker, PRESET_COLORS } from "@/components/envelope-appearance-picker"
-import { suggestIcon, filterSuggestions, pickEnvelopeIconForName } from "@/lib/envelope-icons"
+import {
+  filterSuggestions,
+  pickEnvelopeIconForName,
+  isLettersEnvelopeIcon,
+  makeLettersEnvelopeIcon,
+  initialsForEnvelopeName,
+} from "@/lib/envelope-icons"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 
 export function EnvelopesPage() {
@@ -25,7 +31,7 @@ export function EnvelopesPage() {
   const [formName, setFormName] = useState("")
   const [formAllotment, setFormAllotment] = useState("")
   const [formColor, setFormColor] = useState("#F7931A")
-  const [formIcon, setFormIcon] = useState("Wallet")
+  const [formIcon, setFormIcon] = useState(() => pickEnvelopeIconForName("", new Set()))
   const [iconCustomized, setIconCustomized] = useState(false)
   const [showNameSuggestions, setShowNameSuggestions] = useState(false)
   const [editingIncome, setEditingIncome] = useState(false)
@@ -71,7 +77,12 @@ export function EnvelopesPage() {
 
   /** Icon shown in the dialog and saved on submit: suggestion from name until user picks manually. */
   const displayFormIcon = useMemo(() => {
-    if (iconCustomized) return formIcon
+    if (iconCustomized) {
+      if (isLettersEnvelopeIcon(formIcon)) {
+        return makeLettersEnvelopeIcon(initialsForEnvelopeName(formName))
+      }
+      return formIcon
+    }
     const t = formName.trim()
     if (!t) return formIcon
     const used = new Set(
@@ -90,7 +101,10 @@ export function EnvelopesPage() {
     const usedColors = new Set(activeEnvelopes.map(e => e.color))
     const nextColor = PRESET_COLORS.find(c => !usedColors.has(c)) ?? "#F7931A"
     setFormColor(nextColor)
-    setFormIcon("Wallet")
+    const used = new Set(
+      activeEnvelopes.map(e => e.icon).filter((x): x is string => !!x),
+    )
+    setFormIcon(pickEnvelopeIconForName("", used))
     setIconCustomized(false)
     setDialogOpen(true)
   }
@@ -102,7 +116,13 @@ export function EnvelopesPage() {
     setFormName(env.name)
     setFormAllotment(String(env.monthlyAllotment))
     setFormColor(env.color)
-    setFormIcon(env.icon || suggestIcon(env.name))
+    const used = new Set(
+      activeEnvelopes
+        .filter(e => e.id !== envId)
+        .map(e => e.icon)
+        .filter((x): x is string => !!x),
+    )
+    setFormIcon(env.icon ?? pickEnvelopeIconForName(env.name, used))
     setIconCustomized(true)
     setDialogOpen(true)
   }
@@ -113,8 +133,12 @@ export function EnvelopesPage() {
   }
 
   function handleReassignIcon(fromEnvelopeId: string) {
-    setFormIcon(displayFormIcon) // freeze displayed icon for this envelope
-    editEnvelope(fromEnvelopeId, { icon: null })
+    const from = state.envelopes.find(e => e.id === fromEnvelopeId)
+    if (!from) return
+    setFormIcon(displayFormIcon)
+    editEnvelope(fromEnvelopeId, {
+      icon: makeLettersEnvelopeIcon(initialsForEnvelopeName(from.name)),
+    })
     setIconCustomized(true)
   }
 
@@ -225,6 +249,7 @@ export function EnvelopesPage() {
                   >
                     <EnvelopeIconDisplay
                       icon={env.icon}
+                      fallbackName={env.name}
                       className="h-4 w-4 text-[10px]"
                       style={{ color: env.color }}
                     />
@@ -317,6 +342,9 @@ export function EnvelopesPage() {
                   const existingNames = new Set(activeEnvelopes.map(e => e.name.toLowerCase()))
                   const filtered = filterSuggestions(formName, existingNames)
                   if (filtered.length === 0) return null
+                  const usedIcons = new Set(
+                    activeEnvelopes.map(e => e.icon).filter((x): x is string => !!x),
+                  )
                   return (
                     <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg max-h-48 overflow-y-auto shadow-xl">
                       {filtered.map(name => (
@@ -328,7 +356,8 @@ export function EnvelopesPage() {
                             className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-[#252525] transition-colors text-left"
                           >
                             <EnvelopeIconDisplay
-                              icon={suggestIcon(name)}
+                              icon={pickEnvelopeIconForName(name, usedIcons)}
+                              fallbackName={name}
                               className="h-3.5 w-3.5 text-[9px] text-muted-foreground shrink-0"
                             />
                             {name}
@@ -399,6 +428,7 @@ export function EnvelopesPage() {
                   >
                     <EnvelopeIconDisplay
                       icon={source.icon}
+                      fallbackName={source.name}
                       className="h-4 w-4 text-[10px]"
                       style={{ color: source.color }}
                     />
@@ -435,6 +465,7 @@ export function EnvelopesPage() {
                           >
                             <EnvelopeIconDisplay
                               icon={target.icon}
+                              fallbackName={target.name}
                               className="h-4 w-4 text-[10px]"
                               style={{ color: target.color }}
                             />
@@ -483,6 +514,7 @@ export function EnvelopesPage() {
                       >
                         <EnvelopeIconDisplay
                           icon={env.icon}
+                          fallbackName={env.name}
                           className="h-4 w-4 text-[10px]"
                           style={{ color: env.color }}
                         />

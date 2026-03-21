@@ -10,5 +10,5 @@ export function monthlyBudgetForAllocation(
   return payCadence === "bimonthly" ? incomeParsed * 2 : incomeParsed
 }
 
-/** Slider / input snap step for onboarding Allocate Income (USD). */
+/** Legacy coarse step (USD); Allocate Income slider now uses $1 steps — kept for any future coarse UI. */
 export const ONBOARDING_ALLOCATE_SLIDER_STEP = 50

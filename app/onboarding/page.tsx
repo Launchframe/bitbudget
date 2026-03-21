@@ -11,9 +11,11 @@ import { Progress } from "@/components/ui/progress"
 import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck } from "lucide-react"
 import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
 import {
-  suggestIcon,
   filterSuggestions,
   pickEnvelopeIconForName,
+  isLettersEnvelopeIcon,
+  makeLettersEnvelopeIcon,
+  initialsForEnvelopeName,
 } from "@/lib/envelope-icons"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
@@ -33,10 +35,7 @@ import {
   hasNsecOnboardingIntent,
   clearNsecOnboardingIntent,
 } from "@/lib/nostr-local-signer"
-import {
-  monthlyBudgetForAllocation,
-  ONBOARDING_ALLOCATE_SLIDER_STEP,
-} from "@/lib/onboarding-allocate-budget"
+import { monthlyBudgetForAllocation } from "@/lib/onboarding-allocate-budget"
 import {
   cadenceDisplayInteger,
   fromMonthly,
@@ -106,14 +105,24 @@ export default function OnboardingPage() {
   const [cadence, setCadence] = useState<"monthly" | "bimonthly">("monthly")
 
   // Envelopes
-  const [envelopes, setEnvelopes] = useState<DraftEnvelope[]>([
-    { name: "Rent", color: ENVELOPE_COLORS[0], icon: suggestIcon("Rent"), monthlyAllotment: 0, allocationCadence: "monthly" },
-    { name: "Food", color: ENVELOPE_COLORS[2], icon: suggestIcon("Food"), monthlyAllotment: 0, allocationCadence: "monthly" },
-    { name: "Transportation", color: ENVELOPE_COLORS[4], icon: suggestIcon("Transportation"), monthlyAllotment: 0, allocationCadence: "monthly" },
-  ])
+  const [envelopes, setEnvelopes] = useState<DraftEnvelope[]>(() => {
+    const used = new Set<string>()
+    const iconFor = (name: string) => {
+      const icon = pickEnvelopeIconForName(name, used)
+      used.add(icon)
+      return icon
+    }
+    return [
+      { name: "Rent", color: ENVELOPE_COLORS[0], icon: iconFor("Rent"), monthlyAllotment: 0, allocationCadence: "monthly" },
+      { name: "Food", color: ENVELOPE_COLORS[2], icon: iconFor("Food"), monthlyAllotment: 0, allocationCadence: "monthly" },
+      { name: "Transportation", color: ENVELOPE_COLORS[4], icon: iconFor("Transportation"), monthlyAllotment: 0, allocationCadence: "monthly" },
+    ]
+  })
   const [newEnvName, setNewEnvName] = useState("")
   const [showEnvSuggestions, setShowEnvSuggestions] = useState(false)
   const [expandedEnvIdx, setExpandedEnvIdx] = useState<number | null>(null)
+  /** Snapshot for reverting invalid/duplicate envelope renames on blur (Your Envelopes step). */
+  const envelopeNameBeforeEditRef = useRef("")
 
   // Allocations
   const [activeEnvIdx, setActiveEnvIdx] = useState<number | null>(null)
@@ -522,31 +531,31 @@ export default function OnboardingPage() {
     const active = all.filter(e => !e.archived)
 
     setEnvelopes(prev => {
-      const used = new Set<string>()
+      const seenIds = new Set<string>()
       const out: DraftEnvelope[] = []
 
       for (const p of prev) {
         if (!p.id) continue
         const se = active.find(e => e.id === p.id)
         if (!se) continue
-        used.add(se.id)
+        seenIds.add(se.id)
         out.push({
           id: se.id,
           name: se.name,
           color: se.color,
-          icon: p.icon ?? se.icon ?? suggestIcon(se.name),
+          icon: p.icon ?? se.icon ?? pickEnvelopeIconForName(se.name, []),
           monthlyAllotment: p.monthlyAllotment,
           allocationCadence: p.allocationCadence,
         })
       }
 
       for (const se of active) {
-        if (used.has(se.id)) continue
+        if (seenIds.has(se.id)) continue
         out.push({
           id: se.id,
           name: se.name,
           color: se.color,
-          icon: se.icon ?? suggestIcon(se.name),
+          icon: se.icon ?? pickEnvelopeIconForName(se.name, []),
           monthlyAllotment: se.monthlyAllotment ?? 0,
           allocationCadence: "monthly",
         })
@@ -618,7 +627,7 @@ export default function OnboardingPage() {
         id: se.id,
         name: se.name,
         color: se.color,
-        icon: listForSync[i]?.icon ?? se.icon ?? suggestIcon(se.name),
+        icon: listForSync[i]?.icon ?? se.icon ?? pickEnvelopeIconForName(se.name, []),
         monthlyAllotment: listForSync[i]?.monthlyAllotment ?? se.monthlyAllotment,
         allocationCadence: listForSync[i]?.allocationCadence ?? "monthly",
       }))
@@ -913,11 +922,59 @@ export default function OnboardingPage() {
                         >
                           <EnvelopeIconDisplay
                             icon={env.icon}
+                            fallbackName={env.name}
                             className="h-4 w-4 text-[10px]"
                             style={{ color: env.color }}
                           />
                         </button>
-                        <span className="flex-1 text-sm font-medium text-foreground">{env.name}</span>
+                        <Input
+                          value={env.name}
+                          onChange={ev =>
+                            setEnvelopes(prev =>
+                              prev.map((row, i) => {
+                                if (i !== idx) return row
+                                const nextName = ev.target.value
+                                let icon = row.icon
+                                if (isLettersEnvelopeIcon(row.icon)) {
+                                  icon = makeLettersEnvelopeIcon(initialsForEnvelopeName(nextName))
+                                }
+                                return { ...row, name: nextName, icon }
+                              }),
+                            )
+                          }
+                          onFocus={() => { envelopeNameBeforeEditRef.current = env.name }}
+                          onBlur={() => {
+                            setEnvelopes(prev =>
+                              prev.map((e, i) => {
+                                if (i !== idx) return e
+                                const revertedName = envelopeNameBeforeEditRef.current
+                                const t = e.name.trim()
+                                const duplicate = prev.some(
+                                  (o, j) => j !== idx && o.name.toLowerCase() === t.toLowerCase(),
+                                )
+                                if (!t || duplicate) {
+                                  return {
+                                    ...e,
+                                    name: revertedName,
+                                    icon: isLettersEnvelopeIcon(e.icon)
+                                      ? makeLettersEnvelopeIcon(initialsForEnvelopeName(revertedName))
+                                      : e.icon,
+                                  }
+                                }
+                                let icon = e.icon
+                                if (isLettersEnvelopeIcon(e.icon)) {
+                                  icon = makeLettersEnvelopeIcon(initialsForEnvelopeName(t))
+                                }
+                                return { ...e, name: t, icon }
+                              }),
+                            )
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+                          }}
+                          aria-label={`Envelope name, ${env.name}`}
+                          className="flex-1 min-w-0 bg-transparent border border-transparent hover:border-[#333] focus-visible:border-[#F7931A] rounded-md px-2 py-1.5 text-sm font-medium text-foreground h-auto shadow-none"
+                        />
                         <button
                           type="button"
                           onClick={() => setExpandedEnvIdx(isExpanded ? null : idx)}
@@ -955,12 +1012,19 @@ export default function OnboardingPage() {
                               name: e.name,
                               icon: e.icon,
                             }))}
-                            editingId={String(idx)}
+                            editingId={env.id ?? `local-${idx}`}
                             onColorChange={color => setEnvelopes(prev => prev.map((e, i) => i === idx ? { ...e, color } : e))}
                             onIconChange={icon => setEnvelopes(prev => prev.map((e, i) => i === idx ? { ...e, icon } : e))}
                             onReassignIcon={fromId => {
-                              const fromIdx = parseInt(fromId)
-                              setEnvelopes(prev => prev.map((e, i) => i === fromIdx ? { ...e, icon: "Wallet" } : e))
+                              setEnvelopes(prev =>
+                                prev.map((e, i) => {
+                                  if ((e.id ?? `local-${i}`) !== fromId) return e
+                                  return {
+                                    ...e,
+                                    icon: makeLettersEnvelopeIcon(initialsForEnvelopeName(e.name)),
+                                  }
+                                }),
+                              )
                             }}
                           />
                         </div>
@@ -989,6 +1053,9 @@ export default function OnboardingPage() {
                     const existingNames = new Set(envelopes.map(e => e.name.toLowerCase()))
                     const filtered = filterSuggestions(newEnvName, existingNames)
                     if (filtered.length === 0) return null
+                    const usedIcons = new Set(
+                      envelopes.map(e => e.icon).filter((x): x is string => !!x),
+                    )
                     return (
                       <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg max-h-48 overflow-y-auto shadow-xl">
                         {filtered.map(name => (
@@ -1004,7 +1071,8 @@ export default function OnboardingPage() {
                               className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground hover:bg-[#252525] transition-colors text-left"
                             >
                               <EnvelopeIconDisplay
-                                icon={suggestIcon(name)}
+                                icon={pickEnvelopeIconForName(name, usedIcons)}
+                                fallbackName={name}
                                 className="h-3.5 w-3.5 text-[9px] text-muted-foreground shrink-0"
                               />
                               {name}
@@ -1080,10 +1148,12 @@ export default function OnboardingPage() {
                   box-shadow: 0 0 0 2px var(--slider-color);
                   cursor: grab;
                   margin-top: -8px;
+                  transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1),
+                    box-shadow 0.2s ease;
                 }
                 input[type="range"].alloc-slider::-webkit-slider-thumb:active {
                   cursor: grabbing;
-                  transform: scale(1.15);
+                  transform: scale(1.12);
                 }
                 input[type="range"].alloc-slider::-moz-range-thumb {
                   width: 22px;
@@ -1093,9 +1163,11 @@ export default function OnboardingPage() {
                   border: 3px solid #0D0D0D;
                   box-shadow: 0 0 0 2px var(--slider-color);
                   cursor: grab;
+                  transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
                 }
                 input[type="range"].alloc-slider::-moz-range-thumb:active {
                   cursor: grabbing;
+                  transform: scale(1.12);
                 }
                 input[type="range"].alloc-slider::-webkit-slider-runnable-track {
                   height: 6px;
@@ -1142,7 +1214,7 @@ export default function OnboardingPage() {
                   className="sticky top-0 z-20 -mx-8 px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
                 >
                   <div className="flex flex-col gap-2">
-                  <div className="flex h-10 rounded-xl overflow-hidden bg-[#1A1A1A]">
+                  <div className="flex h-10 w-full flex-row rounded-xl overflow-hidden bg-[#1A1A1A]">
                     {envelopes.map((env, idx) => {
                       if (env.monthlyAllotment <= 0) return null
                       const pct = (env.monthlyAllotment / allocateMonthlyBudget) * 100
@@ -1156,19 +1228,22 @@ export default function OnboardingPage() {
                                 setActiveEnvIdx(idx)
                                 sliderRowRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "center" })
                               }}
-                              className={`flex min-w-0 items-center justify-center relative ${
+                              className={`flex min-w-0 shrink-0 items-center justify-center relative box-border ${
                                 activeEnvIdx === idx ? "brightness-110" : "hover:brightness-110"
                               }`}
                               style={{
-                                flex: `${env.monthlyAllotment} 0 0px`,
-                                backgroundColor: env.color,
+                                width: `${pct}%`,
                                 minWidth: 4,
+                                backgroundColor: env.color,
+                                transition:
+                                  "width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1), min-width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1)",
                               }}
                               aria-label={`${env.name}, $${amt.toLocaleString()} per month allocated`}
                             >
                               {pct > 8 && (
                                 <EnvelopeIconDisplay
                                   icon={env.icon}
+                                  fallbackName={env.name}
                                   className="h-4 w-4 text-[10px] text-[#0D0D0D]/70"
                                 />
                               )}
@@ -1193,11 +1268,13 @@ export default function OnboardingPage() {
                         <TooltipTrigger asChild>
                           <button
                             type="button"
-                            className="flex min-w-0 items-center justify-center cursor-default"
+                            className="flex min-w-0 shrink-0 items-center justify-center cursor-default box-border"
                             style={{
-                              flex: `${savings} 0 0px`,
-                              backgroundColor: "rgba(34, 197, 94, 0.25)",
+                              width: `${(savings / allocateMonthlyBudget) * 100}%`,
                               minWidth: 4,
+                              backgroundColor: "rgba(34, 197, 94, 0.25)",
+                              transition:
+                                "width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1), min-width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1)",
                             }}
                             aria-label={`Savings, $${Math.round(savings).toLocaleString()} per month, ${savingsPct}% of budget`}
                           >
@@ -1218,9 +1295,11 @@ export default function OnboardingPage() {
                       </Tooltip>
                     )}
                   </div>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-                    <span>${totalAllocated.toLocaleString()} allocated</span>
-                    <span>${allocateMonthlyBudget.toLocaleString()} monthly budget</span>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground px-1 transition-[color] duration-300">
+                    <span className="tabular-nums transition-all duration-300 ease-out">
+                      ${totalAllocated.toLocaleString()} allocated
+                    </span>
+                    <span className="tabular-nums">${allocateMonthlyBudget.toLocaleString()} monthly budget</span>
                   </div>
                   </div>
                 </div>
@@ -1234,15 +1313,11 @@ export default function OnboardingPage() {
                     allocateMonthlyBudget > 0
                       ? Math.round((env.monthlyAllotment / allocateMonthlyBudget) * 100)
                       : 0
-                  const rangeDisplayValue = Math.min(
-                    sliderMax,
-                    Math.max(
-                      0,
-                      Math.round(env.monthlyAllotment / ONBOARDING_ALLOCATE_SLIDER_STEP) *
-                        ONBOARDING_ALLOCATE_SLIDER_STEP,
-                    ),
-                  )
-                  const sliderPct = sliderMax > 0 ? (rangeDisplayValue / sliderMax) * 100 : 0
+                  const sliderValueClamped =
+                    sliderMax <= 0
+                      ? 0
+                      : Math.min(sliderMax, Math.max(0, Math.round(env.monthlyAllotment)))
+                  const sliderPct = sliderMax > 0 ? (sliderValueClamped / sliderMax) * 100 : 0
 
                   return (
                     <div
@@ -1264,6 +1339,7 @@ export default function OnboardingPage() {
                         >
                           <EnvelopeIconDisplay
                             icon={env.icon}
+                            fallbackName={env.name}
                             className="h-4 w-4 text-[10px]"
                             style={{ color: env.color }}
                           />
@@ -1328,12 +1404,15 @@ export default function OnboardingPage() {
                         type="range"
                         className="alloc-slider"
                         min={0}
-                        max={sliderMax}
-                        step={ONBOARDING_ALLOCATE_SLIDER_STEP}
-                        value={rangeDisplayValue}
+                        max={Math.max(0, sliderMax)}
+                        step={50}
+                        value={sliderValueClamped}
                         aria-label={`${env.name} monthly allotment`}
                         onChange={e => {
-                          const val = parseInt(e.target.value, 10) || 0
+                          const raw = parseInt(e.target.value, 10)
+                          const val = Number.isFinite(raw)
+                            ? Math.min(sliderMax, Math.max(0, raw))
+                            : 0
                           setEnvelopes(prev => prev.map((en, i) =>
                             i === idx ? { ...en, monthlyAllotment: val } : en,
                           ))
