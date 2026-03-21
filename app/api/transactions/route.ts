@@ -40,7 +40,8 @@ export async function GET(req: NextRequest) {
   if (sinceParam) {
     const sinceDate = new Date(sinceParam)
     if (!Number.isNaN(sinceDate.getTime())) {
-      where.updatedAt = { gt: sinceDate }
+      // gte: include rows at the same ms as lastSync so we never miss concurrent updates; client upserts by id.
+      where.updatedAt = { gte: sinceDate }
     }
   }
 

@@ -9,6 +9,7 @@ import {
   decryptFieldAsymmetric,
   generateKeyPairFromSeed,
   hexToUint8,
+  looksLikeAsymmetricCiphertext,
   uint8ToHex,
 } from "@/lib/crypto"
 import {
@@ -160,13 +161,13 @@ function decryptPendingRecords(
     try {
       payee = decryptFieldAsymmetric(t.payee, secretKey)
     } catch {
-      payee = ENCRYPTED_DISPLAY
+      payee = looksLikeAsymmetricCiphertext(t.payee) ? ENCRYPTED_DISPLAY : t.payee
     }
     if (t.notes) {
       try {
         notes = decryptFieldAsymmetric(t.notes, secretKey)
       } catch {
-        notes = ENCRYPTED_DISPLAY
+        notes = looksLikeAsymmetricCiphertext(t.notes) ? ENCRYPTED_DISPLAY : t.notes
       }
     }
     return { ...t, payee, notes }
@@ -210,6 +211,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   /** True while user has wrapped privacy key but has not unlocked this session (avoid showing encrypted pending as gibberish). */
   const pendingLockedRef = useRef(false)
   const currentUserIdRef = useRef<string | null>(null)
+  /** Every N refreshes, fetch all transactions so server-side deletes reconcile (delta has no tombstones). */
+  const txnSyncSeqRef = useRef(0)
   const [encryption, setEncryption] = useState<EncryptionState>({
     ready: false,
     needsPinUnlock: false,
@@ -371,7 +374,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const lastSync = await getLastSyncIso(uid)
       const cachedSnapshot = await getAllCached(uid)
-      const fullTxnSync = cachedSnapshot.length === 0 || lastSync == null
+      txnSyncSeqRef.current += 1
+      const forceFullTxnResync = txnSyncSeqRef.current % 12 === 0
+      const fullTxnSync =
+        cachedSnapshot.length === 0 || lastSync == null || forceFullTxnResync
       const txnUrl = fullTxnSync
         ? "/api/transactions"
         : `/api/transactions?since=${encodeURIComponent(lastSync)}`

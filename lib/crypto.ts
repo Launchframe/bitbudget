@@ -206,6 +206,18 @@ export function decryptFieldAsymmetric(
   return naclUtil.encodeUTF8(decrypted)
 }
 
+// NaCl sealed-box base64: 32-byte ephemeral pk + 24-byte nonce + ≥16-byte MAC → ≥96-char base64.
+const MIN_ASYMMETRIC_SEALED_B64_LEN = 96
+const ASYMMETRIC_B64_RE = /^[A-Za-z0-9+/=]+$/
+
+/**
+ * True if the string matches the wire shape of {@link encryptFieldAsymmetric} output.
+ * Used when decrypt throws to tell legacy plaintext from ciphertext (wrong key still “looks” encrypted).
+ */
+export function looksLikeAsymmetricCiphertext(value: string): boolean {
+  return value.length >= MIN_ASYMMETRIC_SEALED_B64_LEN && ASYMMETRIC_B64_RE.test(value)
+}
+
 export function publicKeyToHex(key: Uint8Array): string {
   return uint8ToHex(key)
 }

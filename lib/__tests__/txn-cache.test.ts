@@ -6,6 +6,7 @@ import {
   apiRowToCachedPlaintext,
   cachedToClientTransaction,
   decryptBatch,
+  decryptSingleCachedRow,
   ENCRYPTED_DISPLAY,
   maxUpdatedAtIso,
   type ApiTransactionRow,
@@ -63,6 +64,26 @@ describe("txn-cache", () => {
     const t = cachedToClientTransaction(c)
     expect("serverPayee" in t).toBe(false)
     expect("serverNotes" in t).toBe(false)
+  })
+
+  it("decryptSingleCachedRow keeps legacy plaintext payee when decrypt is not applicable", async () => {
+    const seed = await deriveAsymmetricSeed("p", "s")
+    const { secretKey } = generateKeyPairFromSeed(seed)
+    const row = baseRow({ payee: "Plain old payee", notes: null })
+    const out = decryptSingleCachedRow(row, secretKey)
+    expect(out.isDecrypted).toBe(true)
+    expect(out.payee).toBe("Plain old payee")
+  })
+
+  it("decryptSingleCachedRow masks ciphertext on wrong key", async () => {
+    const seed1 = await deriveAsymmetricSeed("a", "s")
+    const seed2 = await deriveAsymmetricSeed("b", "s")
+    const { publicKey } = generateKeyPairFromSeed(seed1)
+    const { secretKey: wrongKey } = generateKeyPairFromSeed(seed2)
+    const enc = encryptFieldAsymmetric("Secret", publicKey)
+    const out = decryptSingleCachedRow(baseRow({ payee: enc }), wrongKey)
+    expect(out.isDecrypted).toBe(false)
+    expect(out.payee).toBe(ENCRYPTED_DISPLAY)
   })
 
   it("decryptBatch restores cleartext", async () => {

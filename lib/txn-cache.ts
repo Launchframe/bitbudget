@@ -4,7 +4,7 @@
  */
 
 import { openDB, type IDBPDatabase } from "idb"
-import { decryptFieldAsymmetric } from "@/lib/crypto"
+import { decryptFieldAsymmetric, looksLikeAsymmetricCiphertext } from "@/lib/crypto"
 import type { Transaction, TransactionSource } from "@/lib/data"
 
 const DB_PREFIX = "bitbudget-txns-"
@@ -175,7 +175,13 @@ export async function clearDb(userId: string): Promise<void> {
     const req = indexedDB.deleteDatabase(dbName(userId))
     req.onsuccess = () => resolve()
     req.onerror = () => reject(req.error)
-    req.onblocked = () => resolve()
+    req.onblocked = () => {
+      reject(
+        new Error(
+          "IndexedDB delete is blocked (another tab may have the database open). Close other BitBudget tabs and try again.",
+        ),
+      )
+    }
   })
 }
 
@@ -232,17 +238,23 @@ function decryptSensitiveFields(
   try {
     payee = decryptFieldAsymmetric(row.payee, secretKey)
   } catch {
-    return {
-      payee: ENCRYPTED_DISPLAY,
-      notes: row.notes ? ENCRYPTED_DISPLAY : null,
-      isDecrypted: false,
+    if (looksLikeAsymmetricCiphertext(row.payee)) {
+      return {
+        payee: ENCRYPTED_DISPLAY,
+        notes: row.notes && looksLikeAsymmetricCiphertext(row.notes) ? ENCRYPTED_DISPLAY : row.notes,
+        isDecrypted: false,
+      }
     }
+    payee = row.payee
   }
   if (row.notes) {
     try {
       notes = decryptFieldAsymmetric(row.notes, secretKey)
     } catch {
-      return { payee, notes: ENCRYPTED_DISPLAY, isDecrypted: false }
+      if (looksLikeAsymmetricCiphertext(row.notes)) {
+        return { payee, notes: ENCRYPTED_DISPLAY, isDecrypted: false }
+      }
+      notes = row.notes
     }
   }
   return { payee, notes, isDecrypted: true }
