@@ -116,6 +116,7 @@ model Envelope {
   shortcuts           TransactionShortcut[]
   payeeMappings       PayeeEnvelopeMapping[]
 
+  @@unique([userId, name])
   @@index([userId])
 }
 

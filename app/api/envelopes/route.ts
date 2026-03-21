@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 
@@ -36,15 +37,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 })
   }
 
-  const envelope = await prisma.envelope.create({
-    data: {
-      userId: session.user.id,
-      name,
-      monthlyAllotment: monthlyAllotment || 0,
-      color: color || "#F7931A",
-      icon,
-    },
-  })
+  let envelope
+  try {
+    envelope = await prisma.envelope.create({
+      data: {
+        userId: session.user.id,
+        name,
+        monthlyAllotment: monthlyAllotment || 0,
+        color: color || "#F7931A",
+        icon,
+      },
+    })
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return NextResponse.json(
+        { error: "An envelope with this name already exists" },
+        { status: 409 },
+      )
+    }
+    throw e
+  }
 
   return NextResponse.json({
     id: envelope.id,
@@ -74,16 +86,27 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
   }
 
-  const updated = await prisma.envelope.update({
-    where: { id },
-    data: {
-      ...(name !== undefined ? { name } : {}),
-      ...(monthlyAllotment !== undefined ? { monthlyAllotment } : {}),
-      ...(color !== undefined ? { color } : {}),
-      ...(icon !== undefined ? { icon } : {}),
-      ...(archived !== undefined ? { archived } : {}),
-    },
-  })
+  let updated
+  try {
+    updated = await prisma.envelope.update({
+      where: { id },
+      data: {
+        ...(name !== undefined ? { name } : {}),
+        ...(monthlyAllotment !== undefined ? { monthlyAllotment } : {}),
+        ...(color !== undefined ? { color } : {}),
+        ...(icon !== undefined ? { icon } : {}),
+        ...(archived !== undefined ? { archived } : {}),
+      },
+    })
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return NextResponse.json(
+        { error: "An envelope with this name already exists" },
+        { status: 409 },
+      )
+    }
+    throw e
+  }
 
   return NextResponse.json({
     id: updated.id,

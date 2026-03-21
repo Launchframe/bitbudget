@@ -52,6 +52,8 @@ const STEPS: Step[] = ["security", "income", "envelopes", "allocations", "import
 const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#EAB308", "#EC4899", "#06B6D4"]
 
 interface DraftEnvelope {
+  /** Server id after first sync from Your Envelopes; used to update/delete on repeat continues. */
+  id?: string
   name: string
   color: string
   icon: string
@@ -175,6 +177,7 @@ export default function OnboardingPage() {
   /** Shown when user already has transactions — safe escape if onboardingComplete was reset by mistake. */
   const [canSkipOnboarding, setCanSkipOnboarding] = useState(false)
   const [skipOnboardingError, setSkipOnboardingError] = useState<string | null>(null)
+  const [envelopeStepError, setEnvelopeStepError] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -190,10 +193,11 @@ export default function OnboardingPage() {
         if (saved.income) setIncome(saved.income)
         if (saved.cadence) setCadence(saved.cadence)
         if (saved.envelopes?.length) setEnvelopes(
-          saved.envelopes.map((e: { allocationCadence?: string; monthlyAllotment?: number }) => {
+          saved.envelopes.map((e: { id?: string; allocationCadence?: string; monthlyAllotment?: number }) => {
             const raw = typeof e.monthlyAllotment === "number" ? e.monthlyAllotment : 0
             return {
               ...e,
+              id: typeof e.id === "string" && e.id.length > 0 ? e.id : undefined,
               allocationCadence: e.allocationCadence ?? "monthly",
               monthlyAllotment: Math.round(raw / 5) * 5,
             }
@@ -504,6 +508,54 @@ export default function OnboardingPage() {
     setEnvelopes(prev => prev.filter((_, i) => i !== idx))
   }
 
+  async function mergeEnvelopesStateFromServer() {
+    const res = await fetch("/api/envelopes")
+    if (!res.ok) return
+    const all = await res.json() as Array<{
+      id: string
+      name: string
+      color: string
+      icon: string | null
+      monthlyAllotment: number
+      archived: boolean
+    }>
+    const active = all.filter(e => !e.archived)
+
+    setEnvelopes(prev => {
+      const used = new Set<string>()
+      const out: DraftEnvelope[] = []
+
+      for (const p of prev) {
+        if (!p.id) continue
+        const se = active.find(e => e.id === p.id)
+        if (!se) continue
+        used.add(se.id)
+        out.push({
+          id: se.id,
+          name: se.name,
+          color: se.color,
+          icon: p.icon ?? se.icon ?? suggestIcon(se.name),
+          monthlyAllotment: p.monthlyAllotment,
+          allocationCadence: p.allocationCadence,
+        })
+      }
+
+      for (const se of active) {
+        if (used.has(se.id)) continue
+        out.push({
+          id: se.id,
+          name: se.name,
+          color: se.color,
+          icon: se.icon ?? suggestIcon(se.name),
+          monthlyAllotment: se.monthlyAllotment ?? 0,
+          allocationCadence: "monthly",
+        })
+      }
+
+      return out
+    })
+  }
+
   async function handleEnvelopesSave() {
     let list = envelopes
     if (newEnvName.trim()) {
@@ -513,15 +565,64 @@ export default function OnboardingPage() {
     }
     if (list.length === 0) return
     setLoading(true)
+    setEnvelopeStepError(null)
     try {
-      for (const env of list) {
-        await fetch("/api/envelopes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: env.name, color: env.color, icon: env.icon, monthlyAllotment: env.monthlyAllotment }),
-        })
+      let listForSync = list
+      if (listForSync.every(e => !e.id)) {
+        const res = await fetch("/api/envelopes")
+        if (res.ok) {
+          const server = await res.json() as Array<{ id: string; name: string }>
+          const byName = new Map<string, string>()
+          for (const s of server) {
+            if (!byName.has(s.name)) byName.set(s.name, s.id)
+          }
+          listForSync = listForSync.map(d => ({
+            ...d,
+            id: d.id ?? byName.get(d.name),
+          }))
+        }
       }
-      enterAllocations(list)
+
+      const syncRes = await fetch("/api/envelopes/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          envelopes: listForSync.map(e => ({
+            id: e.id,
+            name: e.name,
+            color: e.color,
+            icon: e.icon,
+            monthlyAllotment: e.monthlyAllotment,
+          })),
+        }),
+      })
+      if (!syncRes.ok) {
+        let msg = "Could not save envelopes"
+        try {
+          const err = (await syncRes.json()) as { error?: string }
+          if (err?.error) msg = err.error
+        } catch { /* ignore */ }
+        setEnvelopeStepError(msg)
+        return
+      }
+      const data = await syncRes.json() as {
+        envelopes: Array<{
+          id: string
+          name: string
+          color: string
+          icon: string | null
+          monthlyAllotment: number
+        }>
+      }
+      const merged: DraftEnvelope[] = data.envelopes.map((se, i) => ({
+        id: se.id,
+        name: se.name,
+        color: se.color,
+        icon: listForSync[i]?.icon ?? se.icon ?? suggestIcon(se.name),
+        monthlyAllotment: listForSync[i]?.monthlyAllotment ?? se.monthlyAllotment,
+        allocationCadence: listForSync[i]?.allocationCadence ?? "monthly",
+      }))
+      enterAllocations(merged)
     } finally {
       setLoading(false)
     }
@@ -530,23 +631,16 @@ export default function OnboardingPage() {
   async function handleAllocationsSave() {
     setLoading(true)
     try {
-      const res = await fetch("/api/envelopes")
-      const serverEnvelopes = await res.json()
-
-      for (let i = 0; i < envelopes.length; i++) {
-        const serverEnv = serverEnvelopes.find(
-          (e: { name: string }) => e.name === envelopes[i].name,
-        )
-        if (serverEnv && envelopes[i].monthlyAllotment > 0) {
-          await fetch("/api/envelopes", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id: serverEnv.id,
-              monthlyAllotment: envelopes[i].monthlyAllotment,
-            }),
-          })
-        }
+      for (const env of envelopes) {
+        if (!env.id) continue
+        await fetch("/api/envelopes", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: env.id,
+            monthlyAllotment: env.monthlyAllotment,
+          }),
+        })
       }
       setStep("import")
     } finally {
@@ -856,7 +950,11 @@ export default function OnboardingPage() {
                           <EnvelopeAppearancePicker
                             color={env.color}
                             icon={env.icon}
-                            existingEnvelopes={envelopes.map((e, i) => ({ id: String(i), name: e.name, icon: e.icon }))}
+                            existingEnvelopes={envelopes.map((e, i) => ({
+                              id: e.id ?? `local-${i}`,
+                              name: e.name,
+                              icon: e.icon,
+                            }))}
                             editingId={String(idx)}
                             onColorChange={color => setEnvelopes(prev => prev.map((e, i) => i === idx ? { ...e, color } : e))}
                             onIconChange={icon => setEnvelopes(prev => prev.map((e, i) => i === idx ? { ...e, icon } : e))}
@@ -926,10 +1024,16 @@ export default function OnboardingPage() {
                 </button>
               </div>
 
+              {envelopeStepError && (
+                <p className="text-sm text-red-400 text-center" role="alert">
+                  {envelopeStepError}
+                </p>
+              )}
+
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setStep("income")}
+                  onClick={() => { setEnvelopeStepError(null); setStep("income") }}
                   className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
                 >
                   <ChevronLeft className="h-4 w-4" /> Back
@@ -1396,7 +1500,10 @@ export default function OnboardingPage() {
         onOpenChange={setImportDialogOpen}
         file={importFile}
         dedupExistingTransactions={[]}
-        onImportResult={setImportResult}
+        onImportResult={summary => {
+          setImportResult(summary)
+          void mergeEnvelopesStateFromServer()
+        }}
         onDone={() => setStep("complete")}
         onRequestAllocations={() => {
           setImportDialogOpen(false)
