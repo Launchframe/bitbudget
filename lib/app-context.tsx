@@ -9,6 +9,7 @@ import {
   decryptFieldAsymmetric,
   generateKeyPairFromSeed,
   hexToUint8,
+  uint8ToHex,
 } from "@/lib/crypto"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { clearPendingNsec, clearNsecOnboardingIntent } from "@/lib/nostr-local-signer"
@@ -282,7 +283,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     void syncUserPublicKey(key)
     pendingLockedRef.current = false
     if (currentUserIdRef.current) {
-      sessionStorage.setItem("bitbudget-privacy-user", currentUserIdRef.current)
+      try {
+        sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(key))
+        sessionStorage.setItem("bitbudget-privacy-user", currentUserIdRef.current)
+      } catch {
+        /* private mode / quota */
+      }
     }
     setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
   }, [])

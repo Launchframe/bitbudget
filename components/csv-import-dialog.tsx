@@ -33,7 +33,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { parseCSVFile } from "@/lib/csv"
 import type { CsvParseResult, ParsedTransaction } from "@/lib/csv"
 import type { Transaction } from "@/lib/data"
-import { encryptFieldAsymmetric, generateKeyPairFromSeed, hexToUint8 } from "@/lib/crypto"
+import { resolveEncryptFnForImport } from "@/lib/resolve-import-encrypt-fn"
 
 interface SampleTxn {
   date: string
@@ -76,13 +76,6 @@ function buildExistingByKey(transactions: Transaction[]): Map<string, Transactio
     if (!map.has(k)) map.set(k, t)
   }
   return map
-}
-
-function getSessionEncryptFn(): EncryptFn | null {
-  const hex = sessionStorage.getItem("bitbudget-privacy-key")
-  if (!hex) return null
-  const { publicKey } = generateKeyPairFromSeed(hexToUint8(hex))
-  return (plaintext: string) => Promise.resolve(encryptFieldAsymmetric(plaintext, publicKey))
 }
 
 export function CSVImportDialog({
@@ -268,9 +261,12 @@ export function CSVImportDialog({
     onLoadingChange?.(true)
     setError(null)
     try {
-      const encrypt = encryptFnProp ?? getSessionEncryptFn()
+      const encrypt = encryptFnProp ?? (await resolveEncryptFnForImport())
       if (!encrypt) {
-        throw new Error("Encryption key not available. Please unlock your account and try again.")
+        throw new Error(
+          "Encryption key not available. If you use a Nostr extension, approve the decrypt prompt (NIP-04), " +
+            "or unlock with your passphrase from the main app, then try again.",
+        )
       }
 
       const skipEnv = skippedNames()
