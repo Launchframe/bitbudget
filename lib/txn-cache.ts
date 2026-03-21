@@ -131,6 +131,7 @@ export async function removeMissing(userId: string, serverIds: Set<string>): Pro
     const keys = await db.getAllKeys("transactions")
     const tx = db.transaction("transactions", "readwrite")
     for (const id of keys) {
+      if (typeof id !== "string") continue
       if (!serverIds.has(id)) await tx.store.delete(id)
     }
     await tx.done
@@ -318,6 +319,13 @@ export function maxUpdatedAtIso(rows: CachedTransaction[]): string | null {
     if (u > max) max = u
   }
   return max
+}
+
+/** Advance delta-sync cursor: max of previous high-water mark and new candidate (ISO strings sort lexicographically). */
+export function mergeLastSyncIso(prev: string | null, candidate: string | null): string | null {
+  if (!candidate) return prev
+  if (!prev) return candidate
+  return prev > candidate ? prev : candidate
 }
 
 function cachedUndecryptedToApiRow(c: CachedTransaction): ApiTransactionRow {

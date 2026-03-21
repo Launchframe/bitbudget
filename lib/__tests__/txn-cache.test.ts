@@ -9,6 +9,7 @@ import {
   decryptSingleCachedRow,
   ENCRYPTED_DISPLAY,
   maxUpdatedAtIso,
+  mergeLastSyncIso,
   type ApiTransactionRow,
 } from "../txn-cache"
 import {
@@ -105,5 +106,16 @@ describe("txn-cache", () => {
     const a = apiRowToCachedPlaintext(baseRow({ id: "1", updatedAt: "2025-01-01T00:00:00.000Z" }))
     const b = apiRowToCachedPlaintext(baseRow({ id: "2", updatedAt: "2026-01-01T00:00:00.000Z" }))
     expect(maxUpdatedAtIso([a, b])).toBe("2026-01-01T00:00:00.000Z")
+  })
+
+  it("mergeLastSyncIso advances cursor and preserves higher watermark", () => {
+    expect(mergeLastSyncIso(null, "2025-01-01T00:00:00.000Z")).toBe("2025-01-01T00:00:00.000Z")
+    expect(mergeLastSyncIso("2026-01-01T00:00:00.000Z", null)).toBe("2026-01-01T00:00:00.000Z")
+    expect(
+      mergeLastSyncIso("2025-06-01T00:00:00.000Z", "2025-12-01T00:00:00.000Z"),
+    ).toBe("2025-12-01T00:00:00.000Z")
+    expect(
+      mergeLastSyncIso("2025-12-01T00:00:00.000Z", "2025-06-01T00:00:00.000Z"),
+    ).toBe("2025-12-01T00:00:00.000Z")
   })
 })

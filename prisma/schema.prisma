@@ -145,6 +145,7 @@ model Transaction {
   recurring RecurringTransaction? @relation(fields: [recurringId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([userId, updatedAt])
   @@index([envelopeId])
   @@index([date])
   @@index([recurringId])

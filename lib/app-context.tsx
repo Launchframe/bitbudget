@@ -22,6 +22,7 @@ import {
   getAllCached,
   getLastSyncIso,
   maxUpdatedAtIso,
+  mergeLastSyncIso,
   processApiTransactions,
   putMany,
   removeMissing,
@@ -154,7 +155,14 @@ function decryptPendingRecords(
   records: PendingTransaction[],
   secretKey: Uint8Array | null,
 ): PendingTransaction[] {
-  if (!secretKey) return records
+  if (!secretKey) {
+    return records.map((t) => ({
+      ...t,
+      payee: looksLikeAsymmetricCiphertext(t.payee) ? ENCRYPTED_DISPLAY : t.payee,
+      notes:
+        t.notes != null && looksLikeAsymmetricCiphertext(t.notes) ? ENCRYPTED_DISPLAY : t.notes,
+    }))
+  }
   return records.map((t) => {
     let payee = t.payee
     let notes = t.notes
@@ -397,9 +405,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (fullTxnSync) {
         await removeMissing(uid, new Set(rows.map((r) => r.id)))
       }
+      const incomingMax = maxUpdatedAtIso(cachedTxns)
+      const mergedSync = mergeLastSyncIso(lastSync, incomingMax)
+      if (mergedSync) await setLastSyncIso(uid, mergedSync)
+
       const allCached = await getAllCached(uid)
-      const maxIso = maxUpdatedAtIso(allCached)
-      if (maxIso) await setLastSyncIso(uid, maxIso)
 
       setState(prev => ({
         ...prev,
@@ -537,8 +547,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const [cached] = await processApiTransactions([created], { lockedSession, secretKey })
         if (uid) {
           await putMany(uid, [cached])
-          const maxIso = maxUpdatedAtIso(await getAllCached(uid))
-          if (maxIso) await setLastSyncIso(uid, maxIso)
+          const prevSync = await getLastSyncIso(uid)
+          const nextSync = mergeLastSyncIso(prevSync, cached.updatedAt)
+          if (nextSync) await setLastSyncIso(uid, nextSync)
         }
         setState(prev => ({
           ...prev,
@@ -583,8 +594,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const [cached] = await processApiTransactions([updated], { lockedSession, secretKey })
         if (uid) {
           await putMany(uid, [cached])
-          const maxIso = maxUpdatedAtIso(await getAllCached(uid))
-          if (maxIso) await setLastSyncIso(uid, maxIso)
+          const prevSync = await getLastSyncIso(uid)
+          const nextSync = mergeLastSyncIso(prevSync, cached.updatedAt)
+          if (nextSync) await setLastSyncIso(uid, nextSync)
         }
         setState(prev => ({
           ...prev,
