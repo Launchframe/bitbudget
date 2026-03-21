@@ -13,7 +13,9 @@ export { suggestIcon }
 /** Persisted `icon` value for bold letter placeholder (not a Lucide name). */
 export const LETTERS_ENVELOPE_ICON_PREFIX = "__bb_letters__:"
 
-export function isLettersEnvelopeIcon(icon: string | null | undefined): boolean {
+export function isLettersEnvelopeIcon(
+  icon: string | null | undefined,
+): icon is string {
   return typeof icon === "string" && icon.startsWith(LETTERS_ENVELOPE_ICON_PREFIX)
 }
 
