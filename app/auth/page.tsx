@@ -198,6 +198,7 @@ export default function AuthPage() {
       if (result?.error) {
         setError(`Nostr authentication failed: ${result.error}`)
       } else {
+        try { sessionStorage.setItem("nostr-login", pubkey) } catch { /* SSR guard */ }
         router.push("/")
         router.refresh()
       }

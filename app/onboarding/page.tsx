@@ -243,7 +243,10 @@ export default function OnboardingPage() {
         if (encRes.ok) {
           enc = (await encRes.json()) as EncPayload
         }
-        
+
+        let nostrLoginPubkey: string | null = null
+        try { nostrLoginPubkey = sessionStorage.getItem("nostr-login") } catch { /* SSR guard */ }
+
         const hasPendingNsec = getPendingNsec() !== null
         if (hasPendingNsec) setIsNsecFallback(true)
 
@@ -255,8 +258,22 @@ export default function OnboardingPage() {
         setCanSkipOnboarding(txCount >= 1)
 
         if (cancelled) return
+
         if (!enc) {
-          return
+          if (nostrLoginPubkey) {
+            console.warn("[onboarding] /api/user/encryption returned", encRes.status,
+              "but nostr-login flag present — using fallback")
+            enc = { isNostr: true, nostrPubkey: nostrLoginPubkey }
+          } else {
+            return
+          }
+        }
+
+        if (!enc.isNostr && nostrLoginPubkey) {
+          console.warn("[onboarding] Server reported isNostr=false but nostr-login flag found.",
+            "Server enc:", JSON.stringify(enc), "— overriding to Nostr")
+          enc.isNostr = true
+          enc.nostrPubkey = enc.nostrPubkey || nostrLoginPubkey
         }
 
         if (enc.userId) setUserId(enc.userId)
@@ -357,6 +374,7 @@ export default function OnboardingPage() {
       try {
         sessionStorage.removeItem(STORAGE_KEY)
         sessionStorage.removeItem("onboardingSource")
+        sessionStorage.removeItem("nostr-login")
       } catch { /* ignore */ }
       router.push("/")
       router.refresh()
@@ -549,6 +567,7 @@ export default function OnboardingPage() {
       try {
         sessionStorage.removeItem(STORAGE_KEY)
         sessionStorage.removeItem("onboardingSource")
+        sessionStorage.removeItem("nostr-login")
       } catch {}
       router.push("/")
       router.refresh()
@@ -1267,7 +1286,10 @@ export default function OnboardingPage() {
         <button
           type="button"
           onClick={() => {
-            try { sessionStorage.removeItem(STORAGE_KEY) } catch {}
+            try {
+              sessionStorage.removeItem(STORAGE_KEY)
+              sessionStorage.removeItem("nostr-login")
+            } catch {}
             signOut({ callbackUrl: "/auth" })
           }}
           className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors py-4"
