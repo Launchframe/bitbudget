@@ -16,6 +16,10 @@ export interface Transaction {
   satsAmount?: number | null
   recurringId?: string | null
   source?: TransactionSource
+  /** Server row version for delta sync (ISO 8601). */
+  updatedAt?: string
+  /** Client: false when payee/notes are not shown in cleartext (locked or pending decrypt). */
+  isDecrypted?: boolean
 }
 
 export interface PendingTransaction {
