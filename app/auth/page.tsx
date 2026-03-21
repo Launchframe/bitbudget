@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { BitbudgetLogo } from "@/components/bitbudget-logo"
+import { BitbudgetLogo, type BitbudgetLogoVariant } from "@/components/bitbudget-logo"
+import { DocumentFavicon } from "@/components/document-favicon"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft, HelpCircle, ChevronLeft, ChevronRight, X } from "lucide-react"
@@ -56,6 +57,23 @@ export default function AuthPage() {
   const [keysGuideStep, setKeysGuideStep] = useState(0)
   const [nsecValue, setNsecValue] = useState("")
   const codeInputRef = useRef<HTMLInputElement>(null)
+
+  const [entryBranding, setEntryBranding] = useState<{
+    favicon: string
+    logo: BitbudgetLogoVariant
+  }>({ favicon: "/icon-vanilla.svg", logo: "vanilla" })
+
+  useEffect(() => {
+    try {
+      const btc = sessionStorage.getItem("onboardingSource") === "btc"
+      setEntryBranding({
+        favicon: btc ? "/icon.svg" : "/icon-vanilla.svg",
+        logo: btc ? "btc" : "vanilla",
+      })
+    } catch {
+      setEntryBranding({ favicon: "/icon-vanilla.svg", logo: "vanilla" })
+    }
+  }, [])
 
   useEffect(() => {
     document.cookie = "bitbudget_visited=1; path=/; max-age=31536000; SameSite=Lax"
@@ -291,8 +309,9 @@ export default function AuthPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
+      <DocumentFavicon href={entryBranding.favicon} />
       <div className="w-full max-w-md flex flex-col items-center gap-8">
-        <BitbudgetLogo />
+        <BitbudgetLogo variant={entryBranding.logo} />
 
         <div className="w-full bg-[#0D0D0D] rounded-2xl p-8">
           <h1 className="text-2xl font-bold text-foreground text-center mb-2">

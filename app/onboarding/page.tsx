@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
+import { DocumentFavicon } from "@/components/document-favicon"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
@@ -583,9 +584,10 @@ export default function OnboardingPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center p-6">
+      <DocumentFavicon href={opportunityCostEnabled ? "/icon.svg" : "/icon-vanilla.svg"} />
       <div className="w-full max-w-lg flex flex-col gap-6 pt-8">
         <div className="flex items-center justify-between">
-          <BitbudgetLogo />
+          <BitbudgetLogo variant={opportunityCostEnabled ? "btc" : "vanilla"} />
           <span className="text-xs text-muted-foreground">
             Step {stepIndex + 1} of {STEPS.length}
           </span>

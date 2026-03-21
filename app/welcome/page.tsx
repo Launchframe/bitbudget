@@ -24,7 +24,7 @@ export default function WelcomePage() {
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 bg-background/80 backdrop-blur-[120px]">
-        <BitbudgetLogo />
+        <BitbudgetLogo variant="vanilla" />
         <button
           onClick={handleGetStarted}
           className="px-5 py-2 bg-[#F7931A] text-[#0D0D0D] rounded-xl text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors"
@@ -132,7 +132,7 @@ export default function WelcomePage() {
       {/* Footer */}
       <footer className="px-6 py-8 border-t border-[#1F1F1F] text-center">
         <div className="flex flex-col items-center gap-3">
-          <BitbudgetLogo />
+          <BitbudgetLogo variant="vanilla" />
           <p className="text-xs text-muted-foreground">
             Open-source budgeting app. Your data is encrypted end-to-end.
           </p>
