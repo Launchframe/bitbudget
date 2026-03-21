@@ -753,6 +753,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       sessionStorage.removeItem("bitbudget-privacy-key")
       sessionStorage.removeItem("bitbudget-privacy-user")
+      sessionStorage.removeItem("nostr-login")
     } catch {
       /* ignore */
     }

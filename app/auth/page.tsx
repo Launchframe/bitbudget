@@ -22,6 +22,14 @@ type AuthMethod = "email" | "nostr" | "nsec" | null
 
 type SignerEntry = { name: string; href: string; img?: string; recommended?: boolean; note?: string }
 
+function clearNostrLoginSessionFlag() {
+  try {
+    sessionStorage.removeItem("nostr-login")
+  } catch {
+    /* storage blocked */
+  }
+}
+
 /** Host label for store links; avoids `new URL` throwing on unexpected `href` values. */
 function signerHrefLabel(href: string): string {
   try {
@@ -37,18 +45,28 @@ function getSignersForPlatform(os: PlatformOS): SignerEntry[] {
   if (os === "android") {
     return [
       { name: "Alby on Firefox", href: "https://addons.mozilla.org/en-US/android/addon/alby/", img: "alby-logo.svg", note: "Requires Firefox for Android" },
-      { name: "Amber", href: "https://zapstore.dev/apps/com.greenart7c3.nostrsigner", img: 'amber.png',note: "Use nsec fallback below for web login" },
+      {
+        name: "Amber",
+        href: "https://zapstore.dev/apps/com.greenart7c3.nostrsigner",
+        img: "amber.png",
+        note: "Use nsec fallback below for web login",
+      },
     ]
   }
   if (os === "ios") {
     return [
-      { name: "Nostash", href: "https://apps.apple.com/us/app/nostash/id6744309333", note: "Safari extension for NIP-07" },
+      {
+        name: "Nostash",
+        href: "https://apps.apple.com/us/app/nostash/id6744309333",
+        img: "nostash-logo.webp",
+        note: "Safari extension for NIP-07",
+      },
     ]
   }
   return [
-    { name: "keys.band", href: "https://keys.band/", recommended: true },
+    { name: "keys.band", href: "https://keys.band/", img: "keys-band-logo.png", recommended: true },
     { name: "Alby", href: "https://getalby.com/", img: "alby-logo.svg" },
-    { name: "nos2x", href: "https://nostrapps.com/nos2x" },
+    { name: "nos2x", href: "https://nostrapps.com/nos2x", img: "nos2x-logo.png" },
   ]
 }
 type EmailStep = "enter-email" | "enter-code"
@@ -155,6 +173,7 @@ export default function AuthPage() {
       if (result?.error) {
         setError("Invalid or expired code. Please try again.")
       } else {
+        clearNostrLoginSessionFlag()
         router.push("/")
         router.refresh()
       }
@@ -243,7 +262,10 @@ export default function AuthPage() {
         lower.includes("no accounts")
 
       if (isRejection) {
-        setError("You declined the request. Click Continue with Nostr again when you\u2019re ready to approve it, or go into your extension settings and approve bitbudget.io")
+        const host = typeof window !== "undefined" ? window.location.host : "this site"
+        setError(
+          `You declined the request. Click Continue with Nostr again when you\u2019re ready to approve it, or go into your extension settings and approve ${host}`,
+        )
       } else if (lower.includes("nos2x")) {
         setError("nos2x needs to be set up first. Open the nos2x extension, add or import a private key, then try logging in again.")
       } else if (lower.includes("keys.band")) {
@@ -300,6 +322,7 @@ export default function AuthPage() {
 
   async function handleOAuth(provider: string) {
     setLoading(true)
+    clearNostrLoginSessionFlag()
     await signIn(provider, { callbackUrl: "/" })
   }
 
@@ -385,7 +408,10 @@ export default function AuthPage() {
               </div>
 
               <button
-                onClick={() => setMethod("email")}
+                onClick={() => {
+                  clearNostrLoginSessionFlag()
+                  setMethod("email")
+                }}
                 disabled={loading}
                 className="flex items-center justify-center gap-3 w-full py-3 px-4 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] disabled:opacity-50"
               >

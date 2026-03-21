@@ -592,18 +592,20 @@ export default function OnboardingPage() {
     setEnvelopeStepError(null)
     try {
       let listForSync = list
-      if (listForSync.every(e => !e.id)) {
+      if (listForSync.some(e => !e.id)) {
         const res = await fetch("/api/envelopes")
         if (res.ok) {
           const server = await res.json() as Array<{ id: string; name: string }>
           const byName = new Map<string, string>()
           for (const s of server) {
-            if (!byName.has(s.name)) byName.set(s.name, s.id)
+            const key = s.name.toLocaleLowerCase()
+            if (!byName.has(key)) byName.set(key, s.id)
           }
-          listForSync = listForSync.map(d => ({
-            ...d,
-            id: d.id ?? byName.get(d.name),
-          }))
+          listForSync = listForSync.map(d => {
+            if (d.id) return d
+            const matchedId = byName.get(d.name.trim().toLocaleLowerCase())
+            return matchedId ? { ...d, id: matchedId } : d
+          })
         }
       }
 

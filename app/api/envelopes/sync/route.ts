@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "At least one envelope is required" }, { status: 400 })
   }
 
-  const seenNames = new Set<string>()
+  const seenNameKeys = new Set<string>()
   const normalized: Array<{
     id?: string
     name: string
@@ -52,10 +52,14 @@ export async function POST(req: NextRequest) {
     if (!name) {
       return NextResponse.json({ error: "Each envelope needs a non-empty name" }, { status: 400 })
     }
-    if (seenNames.has(name)) {
+    if (name.startsWith(TMP_PREFIX)) {
+      return NextResponse.json({ error: "This envelope name is reserved" }, { status: 400 })
+    }
+    const nameKey = name.toLocaleLowerCase()
+    if (seenNameKeys.has(nameKey)) {
       return NextResponse.json({ error: "Duplicate envelope names in request" }, { status: 400 })
     }
-    seenNames.add(name)
+    seenNameKeys.add(nameKey)
     normalized.push({
       id: typeof row.id === "string" && row.id.length > 0 ? row.id : undefined,
       name,
@@ -83,6 +87,15 @@ export async function POST(req: NextRequest) {
       const idsToDelete = server.filter(e => !draftIds.has(e.id)).map(e => e.id)
 
       if (idsToDelete.length > 0) {
+        const txnCount = await tx.transaction.count({
+          where: { userId, envelopeId: { in: idsToDelete } },
+        })
+        const recurringCount = await tx.recurringTransaction.count({
+          where: { userId, envelopeId: { in: idsToDelete } },
+        })
+        if (txnCount > 0 || recurringCount > 0) {
+          throw new Error("ENVELOPES_HAVE_DATA")
+        }
         await tx.pendingTransaction.updateMany({
           where: { suggestedEnvelopeId: { in: idsToDelete } },
           data: { suggestedEnvelopeId: null },
@@ -160,6 +173,15 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     if (e instanceof Error && e.message === "UNKNOWN_ID") {
       return NextResponse.json({ error: "Unknown or stale envelope id" }, { status: 400 })
+    }
+    if (e instanceof Error && e.message === "ENVELOPES_HAVE_DATA") {
+      return NextResponse.json(
+        {
+          error:
+            "Cannot remove envelopes that already have transactions or recurring rules. Remove or move them first, or contact support.",
+        },
+        { status: 409 },
+      )
     }
     if (e instanceof Prisma.PrismaClientKnownRequestError) {
       if (e.code === "P2002") {

@@ -24,6 +24,30 @@ type EncApiPayload = {
   nostrPubkey: string | null
 }
 
+function sessionGet(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function sessionSet(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value)
+  } catch {
+    /* private mode / quota / blocked storage */
+  }
+}
+
+function sessionRemove(key: string): void {
+  try {
+    sessionStorage.removeItem(key)
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Resolves the encrypt function used before POST /api/import.
  *
@@ -36,8 +60,8 @@ type EncApiPayload = {
 export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | null> {
   if (typeof window === "undefined") return null
 
-  let hex = sessionStorage.getItem("bitbudget-privacy-key")
-  let cachedUser = sessionStorage.getItem("bitbudget-privacy-user")
+  let hex = sessionGet("bitbudget-privacy-key")
+  let cachedUser = sessionGet("bitbudget-privacy-user")
 
   if (hex && cachedUser) {
     const session = await getSession()
@@ -46,14 +70,14 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
       try {
         return encryptFnFromHexKey(hex)
       } catch {
-        sessionStorage.removeItem("bitbudget-privacy-key")
-        sessionStorage.removeItem("bitbudget-privacy-user")
+        sessionRemove("bitbudget-privacy-key")
+        sessionRemove("bitbudget-privacy-user")
         hex = null
         cachedUser = null
       }
     } else if (sid && sid !== cachedUser) {
-      sessionStorage.removeItem("bitbudget-privacy-key")
-      sessionStorage.removeItem("bitbudget-privacy-user")
+      sessionRemove("bitbudget-privacy-key")
+      sessionRemove("bitbudget-privacy-user")
       hex = null
       cachedUser = null
     }
@@ -64,19 +88,19 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
 
   const data = (await res.json()) as EncApiPayload
 
-  hex = sessionStorage.getItem("bitbudget-privacy-key")
-  cachedUser = sessionStorage.getItem("bitbudget-privacy-user")
+  hex = sessionGet("bitbudget-privacy-key")
+  cachedUser = sessionGet("bitbudget-privacy-user")
 
   if (hex && cachedUser === data.userId) {
     try {
       return encryptFnFromHexKey(hex)
     } catch {
-      sessionStorage.removeItem("bitbudget-privacy-key")
-      sessionStorage.removeItem("bitbudget-privacy-user")
+      sessionRemove("bitbudget-privacy-key")
+      sessionRemove("bitbudget-privacy-user")
     }
   } else if (cachedUser && cachedUser !== data.userId) {
-    sessionStorage.removeItem("bitbudget-privacy-key")
-    sessionStorage.removeItem("bitbudget-privacy-user")
+    sessionRemove("bitbudget-privacy-key")
+    sessionRemove("bitbudget-privacy-user")
   }
 
   if (!data.encryptedPrivacyKey) return null
@@ -92,8 +116,8 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
         const hexKey = await nip04.decrypt(data.nostrPubkey, data.encryptedPrivacyKey)
         const pk = hexToUint8(hexKey)
         generateKeyPairFromSeed(pk)
-        sessionStorage.setItem("bitbudget-privacy-key", hexKey)
-        sessionStorage.setItem("bitbudget-privacy-user", data.userId)
+        sessionSet("bitbudget-privacy-key", hexKey)
+        sessionSet("bitbudget-privacy-user", data.userId)
         void syncUserPublicKey(pk)
         return encryptFnFromHexKey(hexKey)
       } catch {
@@ -108,8 +132,8 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
         const hexKey = nip04Decrypt(pendingNsec, data.nostrPubkey, data.encryptedPrivacyKey)
         const pk = hexToUint8(hexKey)
         generateKeyPairFromSeed(pk)
-        sessionStorage.setItem("bitbudget-privacy-key", hexKey)
-        sessionStorage.setItem("bitbudget-privacy-user", data.userId)
+        sessionSet("bitbudget-privacy-key", hexKey)
+        sessionSet("bitbudget-privacy-user", data.userId)
         void syncUserPublicKey(pk)
         return encryptFnFromHexKey(hexKey)
       } catch {
