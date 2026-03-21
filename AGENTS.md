@@ -45,6 +45,17 @@ styles/                  Tailwind globals
 - **Testing:** Vitest (unit), Playwright (e2e)
 - **CI:** GitHub Actions — lint + test on PRs and pushes to main
 
+## Testing
+
+**Unit tests are critical for production stability.** Add or extend Vitest coverage **as you build** each change—not only before merge or in a follow-up. Treat untested new logic in shared code as incomplete work.
+
+- **When to test:** New or changed behavior in `lib/` (crypto, helpers, parsers, matchers), API input handling, pure utilities, and any regression-prone branch should have tests that fail if the behavior breaks.
+- **Where:** Follow existing layout under `lib/__tests__/` (or the project’s co-located `*.test.ts` pattern).
+- **How:** Run `pnpm test` (or a scoped path, e.g. `pnpm test -- lib/__tests__/foo.test.ts`) while developing; CI runs the full suite on PRs.
+- **Quality:** Prefer small, focused cases; mock network/DB where appropriate; keep crypto and time-dependent tests deterministic.
+
+Skipping unit tests for non-trivial changes should be the exception and called out explicitly in the PR if unavoidable.
+
 ## Code Conventions
 
 ### Imports
@@ -179,6 +190,7 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 - **Commit often.** Each logical unit of work (a bug fix, a feature slice, a refactor) gets its own commit. Don't batch unrelated changes.
 - **Commit messages** should be concise and describe the "what" and "why": `fix(receipts): validate file type from magic bytes, not Content-Type` or `feat: add vanilla "Your Expenses" chart for non-OC users`.
 - **Run `pnpm lint` and `pnpm test` before pushing.** CI enforces both on PRs.
+- **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don’t rely on manual checks alone for production-critical behavior.
 - **PR descriptions** should have a Summary (bullet points of what changed) and a Test Plan (checkboxes).
 - **Never force-push to main.**
 - **Database migrations** should be committed alongside the schema change and the code that uses the new field.
