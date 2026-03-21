@@ -29,7 +29,8 @@ const defaultPlatform: PlatformInfo = {
   isMobileDevice: false,
 }
 
-function parsePlatform(): PlatformInfo {
+/** Exported for unit tests and any SSR-safe platform checks. */
+export function parsePlatform(): PlatformInfo {
   if (typeof navigator === "undefined") return defaultPlatform
   const ua = navigator.userAgent
   const uaLower = ua.toLowerCase()

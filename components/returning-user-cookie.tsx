@@ -13,7 +13,11 @@ export function ReturningUserCookie() {
 
   useEffect(() => {
     if (status !== "authenticated") return
-    document.cookie = "bitbudget_visited=1; path=/; max-age=31536000; SameSite=Lax"
+    let cookie = "bitbudget_visited=1; path=/; max-age=31536000; SameSite=Lax"
+    if (typeof window !== "undefined" && window.location.protocol === "https:") {
+      cookie += "; Secure"
+    }
+    document.cookie = cookie
   }, [status])
 
   return null

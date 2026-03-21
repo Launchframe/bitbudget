@@ -265,7 +265,7 @@ export function CSVImportDialog({
       if (!encrypt) {
         throw new Error(
           "Encryption key not available. If you use a Nostr extension, approve the decrypt prompt (NIP-04). " +
-            "If you unlock with a PIN (web-style or nsec fallback), open the main app and unlock with your PIN or passphrase, then try again.",
+            "If you unlock with a PIN (web2-style / nsec fallback), open the main app and unlock with your PIN or passphrase, then try again.",
         )
       }
 

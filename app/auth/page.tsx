@@ -23,6 +23,17 @@ type AuthMethod = "email" | "nostr" | "nsec" | null
 
 type SignerEntry = { name: string; href: string; img?: string; recommended?: boolean; note?: string }
 
+/** Host label for store links; avoids `new URL` throwing on unexpected `href` values. */
+function signerHrefLabel(href: string): string {
+  try {
+    const host = new URL(href).host
+    if (host) return host
+  } catch {
+    /* fall through */
+  }
+  return href.replace(/^https?:\/\//, "").replace(/\/$/, "").split("/")[0] ?? href
+}
+
 function getSignersForPlatform(os: PlatformOS): SignerEntry[] {
   if (os === "android") {
     return [
@@ -582,7 +593,7 @@ export default function AuthPage() {
                       )}
                       <div className="flex flex-col">
                         <span className="font-semibold text-foreground">{ext.name}</span>
-                        <span className="text-xs text-muted-foreground">{new URL(ext.href).host || ext.href.split(/\.\w+$/)[0].replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
+                        <span className="text-xs text-muted-foreground">{signerHrefLabel(ext.href)}</span>
                         {ext.recommended && <span className="text-xs text-btc-orange">Recommended</span>}
                         {ext.note && <span className="text-xs text-muted-foreground mt-0.5">{ext.note}</span>}
                       </div>

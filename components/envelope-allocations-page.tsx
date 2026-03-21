@@ -311,6 +311,7 @@ export function EnvelopeAllocationsPage() {
                     minWidth: 4,
                   }}
                   title={`${env.name}: ${formatUsd(val)} (${Math.round(pct)}%)`}
+                  aria-label={`${env.name}, ${formatUsd(val)}, ${Math.round(pct)} percent of income`}
                 >
                   {pct > 8 && <Icon className="h-4 w-4 text-[#0D0D0D]/70" />}
                 </button>
