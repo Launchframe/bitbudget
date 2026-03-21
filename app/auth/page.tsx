@@ -16,7 +16,6 @@ import {
   setPendingNsec,
   setNsecOnboardingIntent,
 } from "@/lib/nostr-local-signer"
-import { debugLogger } from "@/lib/debug-logger"
 import { usePlatform, type PlatformOS } from "@/lib/platform-context"
 
 type AuthMethod = "email" | "nostr" | "nsec" | null
@@ -38,18 +37,19 @@ function getSignersForPlatform(os: PlatformOS): SignerEntry[] {
   if (os === "android") {
     return [
       { name: "Alby on Firefox", href: "https://addons.mozilla.org/en-US/android/addon/alby/", img: "alby-logo.svg", note: "Requires Firefox for Android" },
-      { name: "Amber", href: "https://zapstore.dev/apps/com.greenart7c3.nostrsigner", img: "amber.png", note: "Use nsec fallback below for web login" },
+      // No bundled asset yet — placeholder icon avoids a broken /img/ URL.
+      { name: "Amber", href: "https://zapstore.dev/apps/com.greenart7c3.nostrsigner", note: "Use nsec fallback below for web login" },
     ]
   }
   if (os === "ios") {
     return [
-      { name: "Nostash", href: "https://apps.apple.com/us/app/nostash/id6744309333", img: "nostash-logo.webp", note: "Safari extension for NIP-07" },
+      { name: "Nostash", href: "https://apps.apple.com/us/app/nostash/id6744309333", note: "Safari extension for NIP-07" },
     ]
   }
   return [
-    { name: "keys.band", href: "https://keys.band/", img: "keys-band-logo.png", recommended: true },
+    { name: "keys.band", href: "https://keys.band/", recommended: true },
     { name: "Alby", href: "https://getalby.com/", img: "alby-logo.svg" },
-    { name: "nos2x", href: "https://nostrapps.com/nos2x", img: "nos2x-logo.png" },
+    { name: "nos2x", href: "https://nostrapps.com/nos2x" },
   ]
 }
 type EmailStep = "enter-email" | "enter-code"
@@ -203,7 +203,6 @@ export default function AuthPage() {
 
       if (!nostrExt) {
         setError("No Nostr extension found. Install nos2x or similar.")
-        setLoading(false)
         return
       }
 
@@ -231,7 +230,6 @@ export default function AuthPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       const lower = msg.toLowerCase()
-      debugLogger.log("Nostr login error:", msg)
 
       // Check for user-rejected / denied before extension-name checks. Extensions
       // like keys.band include their name in both "no account" AND "rejected" errors,
@@ -370,7 +368,11 @@ export default function AuthPage() {
 
               <button
                 type="button"
-                onClick={() => { setMethod("nsec"); setError("") }}
+                onClick={() => {
+                  setError("")
+                  setNsecValue("")
+                  setMethod("nsec")
+                }}
                 disabled={loading}
                 className="w-full py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
               >
@@ -526,8 +528,9 @@ export default function AuthPage() {
                 <KeyRound className="h-8 w-8 text-[#8B5CF6]" />
                 <h3 className="text-lg font-semibold text-foreground">Sign in with your nsec</h3>
                 <p className="text-xs text-muted-foreground text-center">
-                  Your nsec never leaves your device. It stays in this browser tab until you set a PIN; then it is
-                  encrypted and stored locally. Refreshing before then signs you out and you will need to sign in again.
+                  Your nsec never leaves your device. It is held in this tab&apos;s memory until you set a PIN on the next
+                  screen; then it is encrypted and stored locally. A full reload before then clears the key and you will
+                  need to sign in again.
                 </p>
               </div>
               <div className="flex flex-col gap-2">

@@ -52,6 +52,24 @@ describe("parsePlatform", () => {
     expect(p.browser).toBe("edge")
   })
 
+  it("detects Chrome on iOS (CriOS) as chrome, not safari", () => {
+    setNavigator(
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.119 Mobile/15E148 Safari/604.1",
+    )
+    const p = parsePlatform()
+    expect(p.os).toBe("ios")
+    expect(p.browser).toBe("chrome")
+  })
+
+  it("detects Edge on iOS (EdgiOS) as edge", () => {
+    setNavigator(
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/120.0.2210.141 Mobile/15E148 Safari/605.1.15",
+    )
+    const p = parsePlatform()
+    expect(p.os).toBe("ios")
+    expect(p.browser).toBe("edge")
+  })
+
   it("returns default when navigator is undefined (SSR)", () => {
     vi.stubGlobal("navigator", undefined)
     vi.stubGlobal("window", undefined)

@@ -436,13 +436,12 @@ export default function OnboardingPage() {
             if (userId) localStorage.setItem("bitbudget-nsec-user", userId)
           } catch {
             /* localStorage quota / disabled — passphrase setup still succeeded */
-          } finally {
-            // Clear intent before zeroing pending so the guard effect cannot sign out mid-setup.
-            clearNsecOnboardingIntent()
-            clearPendingNsec()
           }
         }
       }
+      // Single cleanup after encryption setup succeeds (memory + session intent; not tied to window-only branch).
+      clearNsecOnboardingIntent()
+      clearPendingNsec()
       await syncUserPublicKey(privacyKey)
 
       setStep("income")
