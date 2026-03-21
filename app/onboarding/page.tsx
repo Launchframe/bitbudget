@@ -265,7 +265,10 @@ export default function OnboardingPage() {
 
         if (enc.isNostr) {
           setIsNostr(true)
-          if (!hasEnc && enc.nostrPubkey) {
+          // nsec-paste users still owe the PIN step to encrypt the nsec for localStorage.
+          // If we ran NIP-04 here, server encryption would flip hasExistingEncryption on while
+          // we remain on "security" — the passphrase branch renders `null` and the card is blank.
+          if (!hasEnc && enc.nostrPubkey && !hasPendingNsec) {
             const nostrExt = (window as unknown as {
               nostr?: {
                 getPublicKey: () => Promise<string>
@@ -610,7 +613,7 @@ export default function OnboardingPage() {
                 <Spinner className="h-8 w-8 text-[#F7931A]" />
                 <p className="text-sm text-muted-foreground text-center">Checking your account…</p>
               </div>
-            ) : !hasExistingEncryption ? (
+            ) : !hasExistingEncryption || getPendingNsec() !== null ? (
               <form onSubmit={e => { e.preventDefault(); handleSecuritySetup() }} className="flex flex-col gap-6">
                 <div className="flex items-center gap-3">
                   <div className="p-3 rounded-xl bg-[#F7931A]/10">
