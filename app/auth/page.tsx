@@ -291,7 +291,7 @@ export default function AuthPage() {
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               {error === "keys.band-setup" ? (
                 <div className="flex flex-col gap-1.5 flex-1">
-                  <span>keys.band needs an active account. Open the keys.band extension, select or create an account, then try logging in again.</span>
+                  <span>keys.band needs an active account. Open the keys.band extension, select an account, and then try logging in again.</span>
                   <button
                     type="button"
                     onClick={() => { setKeysGuideStep(0); setKeysGuideOpen(true) }}
@@ -483,17 +483,17 @@ export default function AuthPage() {
                 <KeyRound className="h-8 w-8 text-[#8B5CF6]" />
                 <h3 className="text-lg font-semibold text-foreground">Sign in with your nsec</h3>
                 <p className="text-xs text-muted-foreground text-center">
-                  Your nsec never leaves your device. It will be encrypted and stored locally.
+                  Your nsec never leaves your device. It will be encrypted and stored locally to identify your account.
                 </p>
               </div>
               <div className="flex flex-col gap-2">
-                <Label className="text-muted-foreground text-xs uppercase tracking-wider">Private key (nsec1...)</Label>
+                <Label className="text-muted-foreground text-xs uppercase tracking-wider">Private key</Label>
                 <Input
                   type="password"
                   value={nsecValue}
                   onChange={e => setNsecValue(e.target.value)}
                   placeholder="nsec1..."
-                  className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] font-mono text-sm"
+                  className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] text-sm"
                   autoComplete="off"
                   autoFocus
                 />
@@ -577,16 +577,16 @@ export default function AuthPage() {
         </div>
 
         <p className="text-xs text-muted-foreground text-center max-w-sm">
-          Your data is encrypted end-to-end. BitBudget cannot read your transaction details.
+          Your data is encrypted end-to-end. BitBudget cannot read your transaction details except when and how much.
         </p>
       </div>
 
       {keysGuideOpen && (() => {
         const steps = [
           { img: "/onboarding/keys-band/1-add-account.jpeg", title: "Add an account", desc: "Open keys.band from your browser's extensions, and click to add your first account." },
-          { img: "/onboarding/keys-band/2-credentials.jpeg", title: "Set up your key", desc: "Generate a new key, or enter an existing one if you already have one." },
-          { img: "/onboarding/keys-band/3-select-account.jpeg", title: "Select your account", desc: "Open the Accounts selector and choose your account." },
-          { img: "/onboarding/keys-band/4-confirm-account-selected.jpeg", title: "You\u2019re ready!", desc: "Once your account is selected, come back here and try logging in again." },
+          { img: "/onboarding/keys-band/2-credentials.jpeg", title: "Set up your key", desc: 'Generate a new key, or enter an existing key and choose "Add Account".' },
+          { img: "/onboarding/keys-band/3-select-account.jpeg", title: "Select your account", desc: "Now that you have a key loaded, open the Accounts selector and choose your account." },
+          { img: "/onboarding/keys-band/4-confirm-account-selected.jpeg", title: "You\u2019re ready!", desc: "With your account selected, come back here and try logging in again." },
         ]
         const s = steps[keysGuideStep]
         const isLast = keysGuideStep === steps.length - 1
