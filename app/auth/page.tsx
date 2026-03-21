@@ -204,6 +204,7 @@ export default function AuthPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       const lower = msg.toLowerCase()
+      console.log("Nostr login error:", msg)
 
       // Check for user-rejected / denied before extension-name checks. Extensions
       // like keys.band include their name in both "no account" AND "rejected" errors,
@@ -218,7 +219,7 @@ export default function AuthPage() {
         lower.includes("no accounts")
 
       if (isRejection) {
-        setError("You declined the request. Click Continue with Nostr again when you\u2019re ready to approve it.")
+        setError("You declined the request. Click Continue with Nostr again when you\u2019re ready to approve it, or go into your extension settings and approve bitbudget.io")
       } else if (lower.includes("nos2x")) {
         setError("nos2x needs to be set up first. Open the nos2x extension, add or import a private key, then try logging in again.")
       } else if (lower.includes("keys.band")) {
