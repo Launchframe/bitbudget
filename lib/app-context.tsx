@@ -413,21 +413,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const mergedSync = mergeLastSyncIso(lastSync, incomingMax)
       if (mergedSync) await setLastSyncIso(uid, mergedSync)
 
-      const allCached = await getAllCached(uid)
-
       setState(prev => {
         let nextTxns: Transaction[]
-        if (allCached.length > 0) {
-          nextTxns = allCached.map(cachedToClientTransaction)
-        } else if (!idbAvailable && cachedTxns.length > 0) {
+        if (idbAvailable) {
           if (fullTxnSync) {
-            nextTxns = cachedTxns.map(cachedToClientTransaction)
+            nextTxns = cachedTxns
+              .map(cachedToClientTransaction)
+              .sort((a, b) => b.date.localeCompare(a.date))
           } else {
-            const byId = new Map(prev.transactions.map(t => [t.id, t]))
+            const byId = new Map(
+              cachedSnapshot.map((c) => [c.id, cachedToClientTransaction(c)]),
+            )
             for (const c of cachedTxns) {
               byId.set(c.id, cachedToClientTransaction(c))
             }
-            nextTxns = Array.from(byId.values()).sort((a, b) => b.date.localeCompare(a.date))
+            nextTxns = Array.from(byId.values()).sort((a, b) =>
+              b.date.localeCompare(a.date),
+            )
+          }
+        } else if (cachedTxns.length > 0) {
+          if (fullTxnSync) {
+            nextTxns = cachedTxns.map(cachedToClientTransaction)
+          } else {
+            const byId = new Map(prev.transactions.map((t) => [t.id, t]))
+            for (const c of cachedTxns) {
+              byId.set(c.id, cachedToClientTransaction(c))
+            }
+            nextTxns = Array.from(byId.values()).sort((a, b) =>
+              b.date.localeCompare(a.date),
+            )
           }
         } else {
           nextTxns = []

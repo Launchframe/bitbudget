@@ -1,2 +1,2 @@
--- DropIndex
-DROP INDEX "Transaction_userId_idx";
+-- DropIndex (idempotent for partial applies / manual fixes)
+DROP INDEX IF EXISTS "Transaction_userId_idx";
