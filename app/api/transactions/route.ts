@@ -36,6 +36,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const sinceParam = searchParams.get("since")
+  if (sinceParam) {
+    const sinceDate = new Date(sinceParam)
+    if (!Number.isNaN(sinceDate.getTime())) {
+      where.updatedAt = { gt: sinceDate }
+    }
+  }
+
   const transactions = await prisma.transaction.findMany({
     where,
     orderBy: { date: "desc" },
@@ -52,6 +60,7 @@ export async function GET(req: NextRequest) {
     notes: t.notes ?? null,
     satsAmount: t.satsAmount ?? null,
     recurringId: t.recurringId ?? null,
+    updatedAt: t.updatedAt.toISOString(),
   }))
 
   return NextResponse.json(formatted)
@@ -125,6 +134,7 @@ export async function POST(req: NextRequest) {
     notes: transaction.notes ?? null,
     satsAmount: transaction.satsAmount ?? null,
     recurringId: transaction.recurringId ?? null,
+    updatedAt: transaction.updatedAt.toISOString(),
   }, { status: 201 })
 }
 
@@ -224,6 +234,7 @@ export async function PUT(req: NextRequest) {
     notes: updated.notes ?? null,
     satsAmount: updated.satsAmount ?? null,
     recurringId: updated.recurringId ?? null,
+    updatedAt: updated.updatedAt.toISOString(),
   })
 }
 
