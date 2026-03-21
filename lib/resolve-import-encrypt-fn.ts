@@ -1,5 +1,6 @@
 "use client"
 
+import { getSession } from "next-auth/react"
 import {
   encryptFieldAsymmetric,
   generateKeyPairFromSeed,
@@ -26,8 +27,8 @@ type EncApiPayload = {
 /**
  * Resolves the encrypt function used before POST /api/import.
  *
- * - Uses sessionStorage when it matches the current user (same as historical behavior).
- * - If missing, for Nostr extension accounts re-fetches encryption metadata and runs
+ * - Fast path: valid cached key + `getSession()` user id match avoids `/api/user/encryption`.
+ * - Otherwise fetches encryption metadata; for Nostr extension accounts may run
  *   NIP-04 decrypt (same as AppProvider initEncryption). This fixes onboarding import
  *   when sessionStorage was cleared or the key was never written, as long as the
  *   server-stored ciphertext is valid for the current pubkey.
@@ -35,12 +36,36 @@ type EncApiPayload = {
 export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | null> {
   if (typeof window === "undefined") return null
 
+  let hex = sessionStorage.getItem("bitbudget-privacy-key")
+  let cachedUser = sessionStorage.getItem("bitbudget-privacy-user")
+
+  if (hex && cachedUser) {
+    const session = await getSession()
+    const sid = session?.user?.id
+    if (sid && sid === cachedUser) {
+      try {
+        return encryptFnFromHexKey(hex)
+      } catch {
+        sessionStorage.removeItem("bitbudget-privacy-key")
+        sessionStorage.removeItem("bitbudget-privacy-user")
+        hex = null
+        cachedUser = null
+      }
+    } else if (sid && sid !== cachedUser) {
+      sessionStorage.removeItem("bitbudget-privacy-key")
+      sessionStorage.removeItem("bitbudget-privacy-user")
+      hex = null
+      cachedUser = null
+    }
+  }
+
   const res = await fetch("/api/user/encryption")
   if (res.status === 401 || res.status === 403 || !res.ok) return null
 
   const data = (await res.json()) as EncApiPayload
-  const hex = sessionStorage.getItem("bitbudget-privacy-key")
-  const cachedUser = sessionStorage.getItem("bitbudget-privacy-user")
+
+  hex = sessionStorage.getItem("bitbudget-privacy-key")
+  cachedUser = sessionStorage.getItem("bitbudget-privacy-user")
 
   if (hex && cachedUser === data.userId) {
     try {

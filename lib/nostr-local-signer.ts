@@ -6,7 +6,6 @@
 import { decode } from "nostr-tools/nip19"
 import { getPublicKey, finalizeEvent } from "nostr-tools"
 import type { VerifiedEvent } from "nostr-tools"
-import { hexToUint8, uint8ToHex } from "@/lib/crypto"
 
 const AUTH_EVENT_KIND = 27235
 
@@ -99,14 +98,16 @@ interface NostrPool {
 }
 
 // ---------------------------------------------------------------------------
-// Pending nsec (auth → onboarding): in-memory + sessionStorage hex mirror
+// Pending nsec (auth → onboarding): in-memory only
 // ---------------------------------------------------------------------------
-// Raw key bytes are mirrored to sessionStorage so a full reload can still reach
-// the PIN encrypt step. This trades a larger XSS blast radius for UX (reload survival);
-// at-rest protection is `bitbudget-nsec` (PIN-encrypted JSON) after the security step.
-// Intent flag `bitbudget-nsec-onboarding-intent` marks nsec-login users who owe PIN setup.
+// Raw key bytes stay in this tab’s JS heap until the PIN step encrypts to
+// `bitbudget-nsec` (localStorage). We intentionally do not mirror the secret to
+// sessionStorage (XSS / shared-device risk). A full reload before PIN setup
+// clears memory; `bitbudget-nsec-onboarding-intent` + missing key triggers sign-out
+// in onboarding so the user re-authenticates.
+// Legacy: older builds used `bitbudget-pending-nsec` in sessionStorage — removed on clear.
 
-/** Hex-encoded secret key bytes; cleared with `clearPendingNsec()`. */
+/** Legacy sessionStorage key (no longer written; cleared in `clearPendingNsec`). */
 export const PENDING_NSEC_SESSION_KEY = "bitbudget-pending-nsec"
 
 let _pendingNsec: Uint8Array | null = null
@@ -114,37 +115,14 @@ let _pendingNsec: Uint8Array | null = null
 /** Hold a raw nsec so the onboarding security step can encrypt it. */
 export function setPendingNsec(key: Uint8Array): void {
   _pendingNsec = key
-  try {
-    if (typeof sessionStorage !== "undefined") {
-      sessionStorage.setItem(PENDING_NSEC_SESSION_KEY, uint8ToHex(key))
-    }
-  } catch {
-    /* private mode / quota */
-  }
 }
 
 /** Read the pending nsec (returns null if none). Does NOT clear it. */
 export function getPendingNsec(): Uint8Array | null {
-  if (_pendingNsec) return _pendingNsec
-  try {
-    if (typeof sessionStorage !== "undefined") {
-      const hex = sessionStorage.getItem(PENDING_NSEC_SESSION_KEY)
-      if (!hex) return null
-      const bytes = hexToUint8(hex)
-      if (bytes.length !== 32) {
-        sessionStorage.removeItem(PENDING_NSEC_SESSION_KEY)
-        return null
-      }
-      _pendingNsec = bytes
-      return _pendingNsec
-    }
-  } catch {
-    /* ignore */
-  }
-  return null
+  return _pendingNsec
 }
 
-/** Wipe the pending nsec from memory and sessionStorage. */
+/** Wipe the pending nsec from memory and any legacy sessionStorage copy. */
 export function clearPendingNsec(): void {
   if (_pendingNsec) {
     _pendingNsec.fill(0)

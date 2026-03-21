@@ -196,8 +196,8 @@ export default function OnboardingPage() {
     } catch { /* storage full or unavailable */ }
   }, [hydrated, step, income, cadence, envelopes])
 
-  // Pending nsec is mirrored to sessionStorage; intent flag marks nsec-login users. If intent
-  // exists but the key is gone, or user is on security as nsec fallback without a key, sign out.
+  // Pending nsec lives in tab memory only; intent flag marks nsec-login users. If intent exists
+  // but the key is gone (reload, new tab), or user is on security as nsec fallback without a key, sign out.
   useEffect(() => {
     if (!hydrated) return
     const pending = getPendingNsec()
@@ -262,8 +262,6 @@ export default function OnboardingPage() {
 
         if (!enc) {
           if (nostrLoginPubkey) {
-            console.warn("[onboarding] /api/user/encryption returned", encRes.status,
-              "but nostr-login flag present — using fallback")
             enc = { isNostr: true, nostrPubkey: nostrLoginPubkey }
           } else {
             return
@@ -271,8 +269,6 @@ export default function OnboardingPage() {
         }
 
         if (!enc.isNostr && nostrLoginPubkey) {
-          console.warn("[onboarding] Server reported isNostr=false but nostr-login flag found.",
-            "Server enc:", JSON.stringify(enc), "— overriding to Nostr")
           enc.isNostr = true
           enc.nostrPubkey = enc.nostrPubkey || nostrLoginPubkey
         }
@@ -448,7 +444,6 @@ export default function OnboardingPage() {
         }
       }
       await syncUserPublicKey(privacyKey)
-      clearNsecOnboardingIntent()
 
       setStep("income")
     } catch {

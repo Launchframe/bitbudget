@@ -219,7 +219,6 @@ export default function AuthPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       const lower = msg.toLowerCase()
-      console.log("Nostr login error:", msg)
 
       // Check for user-rejected / denied before extension-name checks. Extensions
       // like keys.band include their name in both "no account" AND "rejected" errors,
@@ -271,8 +270,8 @@ export default function AuthPage() {
         return
       }
       setNsecValue("")
-      // Bridge to onboarding security step (memory + session intent). Must not block navigation
-      // if storage/helpers fail after sign-in already succeeded.
+      // Bridge to onboarding security step (in-memory key + session intent flag). Must not block navigation
+      // if helpers fail after sign-in already succeeded.
       try {
         setPendingNsec(secretKey)
         setNsecOnboardingIntent()
@@ -514,7 +513,8 @@ export default function AuthPage() {
                 <KeyRound className="h-8 w-8 text-[#8B5CF6]" />
                 <h3 className="text-lg font-semibold text-foreground">Sign in with your nsec</h3>
                 <p className="text-xs text-muted-foreground text-center">
-                  Your nsec never leaves your device. It will be encrypted and stored locally to identify your account.
+                  Your nsec never leaves your device. It stays in this browser tab until you set a PIN; then it is
+                  encrypted and stored locally. Refreshing before then signs you out and you will need to sign in again.
                 </p>
               </div>
               <div className="flex flex-col gap-2">
@@ -597,7 +597,11 @@ export default function AuthPage() {
 
                 <button
                   type="button"
-                  onClick={() => setMethod("nsec")}
+                  onClick={() => {
+                    setError("")
+                    setNsecValue("")
+                    setMethod("nsec")
+                  }}
                   className="w-full py-2.5 mt-2 text-sm text-muted-foreground hover:text-foreground transition-colors border border-[#333] rounded-xl"
                 >
                   Or sign in with your nsec
@@ -608,7 +612,8 @@ export default function AuthPage() {
         </div>
 
         <p className="text-xs text-muted-foreground text-center max-w-sm">
-          Your data is encrypted end-to-end. BitBudget cannot read your transaction details except when and how much.
+          Payee and notes are encrypted end-to-end. BitBudget can still see some transaction metadata, including date,
+          amount, and certain categories or tags.
         </p>
       </div>
 

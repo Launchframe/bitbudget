@@ -277,7 +277,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           } catch { /* fall through */ }
         }
 
-        // No extension (or it refused). If the raw nsec is in sessionStorage (nsec-paste
+        // No extension (or it refused). If the raw nsec is still in memory (nsec-paste
         // login for a returning user), use nostr-tools NIP-04 decrypt locally.
         const pendingNsec = getPendingNsec()
         if (pendingNsec) {
