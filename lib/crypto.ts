@@ -206,6 +206,17 @@ export function decryptFieldAsymmetric(
   return naclUtil.encodeUTF8(decrypted)
 }
 
+const MIN_SEALED_BOX_B64_LEN = 96
+const B64_RE = /^[A-Za-z0-9+/=]+$/
+
+/**
+ * Heuristic: does the string look like an undecrypted NaCl sealed-box ciphertext?
+ * Used to mask fields we failed to decrypt so raw ciphertext never reaches the UI.
+ */
+export function looksEncrypted(value: string): boolean {
+  return value.length >= MIN_SEALED_BOX_B64_LEN && B64_RE.test(value)
+}
+
 export function publicKeyToHex(key: Uint8Array): string {
   return uint8ToHex(key)
 }

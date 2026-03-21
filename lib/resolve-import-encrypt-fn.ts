@@ -6,6 +6,7 @@ import {
   hexToUint8,
 } from "@/lib/crypto"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
+import { getPendingNsec } from "@/lib/nostr-local-signer"
 
 export type ImportEncryptFn = (plaintext: string) => Promise<string>
 
@@ -72,6 +73,22 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
         return encryptFnFromHexKey(hexKey)
       } catch {
         /* corrupt ciphertext, wrong pubkey, or user denied NIP-04 */
+      }
+    }
+
+    const pendingNsec = getPendingNsec()
+    if (pendingNsec) {
+      try {
+        const { decrypt: nip04Decrypt } = await import("nostr-tools/nip04")
+        const hexKey = nip04Decrypt(pendingNsec, data.nostrPubkey, data.encryptedPrivacyKey)
+        const pk = hexToUint8(hexKey)
+        generateKeyPairFromSeed(pk)
+        sessionStorage.setItem("bitbudget-privacy-key", hexKey)
+        sessionStorage.setItem("bitbudget-privacy-user", data.userId)
+        void syncUserPublicKey(pk)
+        return encryptFnFromHexKey(hexKey)
+      } catch {
+        /* wrong key or corrupt ciphertext */
       }
     }
   }
