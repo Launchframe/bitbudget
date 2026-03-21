@@ -12,7 +12,7 @@ import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 
 export function SettingsPage() {
   type SettingsTab = "general" | "integrations" | "tags" | "data"
-  const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, addTag, deleteTag, refreshData, encryptForStorage, logout, subscriptionTier, navigateTo } = useApp()
+  const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, addTag, deleteTag, refreshData, clearLocalTransactionCache, encryptForStorage, logout, subscriptionTier, navigateTo } = useApp()
   const [editingIncome, setEditingIncome] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general")
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
@@ -109,6 +109,7 @@ export function SettingsPage() {
         fetch("/api/transactions?all=true", { method: "DELETE" }),
         fetch("/api/envelopes?all=true", { method: "DELETE" }),
       ])
+      await clearLocalTransactionCache()
       await refreshData()
     } finally {
       setDeleting(false)

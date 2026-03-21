@@ -10,8 +10,23 @@ import {
   generateKeyPairFromSeed,
   hexToUint8,
   uint8ToHex,
-  looksEncrypted,
 } from "@/lib/crypto"
+import {
+  ENCRYPTED_DISPLAY,
+  type ApiTransactionRow,
+  cachedToClientTransaction,
+  clearDb,
+  decryptAndPersistUndecrypted,
+  deleteCachedTransaction,
+  getAllCached,
+  getLastSyncIso,
+  maxUpdatedAtIso,
+  processApiTransactions,
+  putMany,
+  removeMissing,
+  removeCachedForEnvelope,
+  setLastSyncIso,
+} from "@/lib/txn-cache"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
 
@@ -103,6 +118,7 @@ interface AppContextValue {
   addTag: (tag: string) => void
   deleteTag: (id: string) => void
   refreshData: () => Promise<void>
+  clearLocalTransactionCache: () => Promise<void>
   encryptForStorage: (plaintext: string) => Promise<string>
   logout: () => void
   isAdmin: boolean
@@ -133,40 +149,28 @@ export function useApp(): AppContextValue {
   return ctx
 }
 
-const ENCRYPTED_PLACEHOLDER = "(encrypted)"
-
-function decryptTxnLikeRecords<T extends { payee: string; notes?: string | null }>(
-  records: T[],
-  secretKey: Uint8Array,
-): T[] {
+function decryptPendingRecords(
+  records: PendingTransaction[],
+  secretKey: Uint8Array | null,
+): PendingTransaction[] {
+  if (!secretKey) return records
   return records.map((t) => {
     let payee = t.payee
     let notes = t.notes
     try {
       payee = decryptFieldAsymmetric(t.payee, secretKey)
     } catch {
-      if (looksEncrypted(t.payee)) payee = ENCRYPTED_PLACEHOLDER
+      payee = ENCRYPTED_DISPLAY
     }
     if (t.notes) {
       try {
         notes = decryptFieldAsymmetric(t.notes, secretKey)
       } catch {
-        if (looksEncrypted(t.notes)) notes = ENCRYPTED_PLACEHOLDER
+        notes = ENCRYPTED_DISPLAY
       }
     }
     return { ...t, payee, notes }
   })
-}
-
-/** Mask fields that are still ciphertext when we have no key to decrypt them. */
-function maskEncryptedRecords<T extends { payee: string; notes?: string | null }>(
-  records: T[],
-): T[] {
-  return records.map((t) => ({
-    ...t,
-    payee: looksEncrypted(t.payee) ? ENCRYPTED_PLACEHOLDER : t.payee,
-    notes: t.notes && looksEncrypted(t.notes) ? ENCRYPTED_PLACEHOLDER : t.notes,
-  }))
 }
 
 function applyPrivacyKey(key: Uint8Array, publicKeyRef: React.MutableRefObject<Uint8Array | null>) {
@@ -310,6 +314,98 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const refreshData = useCallback(async () => {
+    try {
+      await fetch("/api/recurring/process", { method: "POST" }).catch(() => {})
+
+      const [envRes, settingsRes, pendingRes, tagsRes] = await Promise.all([
+        fetch("/api/envelopes"),
+        fetch("/api/user/settings"),
+        fetch("/api/pending-transactions"),
+        fetch("/api/tags"),
+      ])
+
+      const authFailure = [envRes, settingsRes, tagsRes].some(
+        (r) => r.status === 401 || r.status === 403,
+      )
+      if (authFailure) {
+        signOut({ callbackUrl: "/auth" })
+        return
+      }
+      if (!envRes.ok || !settingsRes.ok) {
+        throw new Error("Failed to fetch data")
+      }
+
+      if (pendingRes.ok) {
+        if (pendingLockedRef.current && !privacyKeyRef.current) {
+          setPendingTransactions([])
+        } else {
+          let pendingData: PendingTransaction[] = await pendingRes.json()
+          pendingData = decryptPendingRecords(pendingData, privacyKeyRef.current)
+          setPendingTransactions(pendingData)
+        }
+      }
+      if (!tagsRes.ok) throw new Error("Failed to fetch tags")
+
+      const [envelopes, settings] = await Promise.all([
+        envRes.json(),
+        settingsRes.json(),
+      ])
+      const tags = await tagsRes.json() as Tag[]
+
+      setUserRole(settings.role ?? null)
+      setSubscriptionTier(
+        settings.subscriptionTier === "premium" ? "premium" : "free",
+      )
+      setState(prev => ({
+        ...prev,
+        envelopes,
+        tags,
+        monthlyIncome: settings.monthlyIncome || 0,
+        btcDisplayUnit: settings.btcDisplayUnit || "sats",
+        opportunityCostEnabled: settings.opportunityCostEnabled ?? false,
+      }))
+
+      const uid = currentUserIdRef.current
+      if (!uid) return
+
+      const lastSync = await getLastSyncIso(uid)
+      const cachedSnapshot = await getAllCached(uid)
+      const fullTxnSync = cachedSnapshot.length === 0 || lastSync == null
+      const txnUrl = fullTxnSync
+        ? "/api/transactions"
+        : `/api/transactions?since=${encodeURIComponent(lastSync)}`
+
+      const txnRes = await fetch(txnUrl)
+      if (txnRes.status === 401 || txnRes.status === 403) {
+        signOut({ callbackUrl: "/auth" })
+        return
+      }
+      if (!txnRes.ok) throw new Error("Failed to fetch transactions")
+
+      const rows = await txnRes.json() as ApiTransactionRow[]
+      const lockedSession = pendingLockedRef.current && !privacyKeyRef.current
+      const secretKey = privacyKeyRef.current
+      const cachedTxns = await processApiTransactions(rows, { lockedSession, secretKey })
+      await putMany(uid, cachedTxns)
+      if (fullTxnSync) {
+        await removeMissing(uid, new Set(rows.map((r) => r.id)))
+      }
+      const allCached = await getAllCached(uid)
+      const maxIso = maxUpdatedAtIso(allCached)
+      if (maxIso) await setLastSyncIso(uid, maxIso)
+
+      setState(prev => ({
+        ...prev,
+        transactions: allCached.map(cachedToClientTransaction),
+      }))
+    } catch {
+      // On error, keep current state (may be default/empty)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   const unlockWithKey = useCallback((key: Uint8Array) => {
     privacyKeyRef.current = key
     applyPrivacyKey(key, publicKeyRef)
@@ -324,92 +420,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
     setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
-  }, [])
-
-  const refreshData = useCallback(async () => {
-    try {
-      await fetch("/api/recurring/process", { method: "POST" }).catch(() => {})
-
-      const [txnRes, envRes, settingsRes, pendingRes, tagsRes] = await Promise.all([
-        fetch("/api/transactions"),
-        fetch("/api/envelopes"),
-        fetch("/api/user/settings"),
-        fetch("/api/pending-transactions"),
-        fetch("/api/tags"),
-      ])
-
-      const authFailure = [txnRes, envRes, settingsRes, tagsRes].some(
-        (r) => r.status === 401 || r.status === 403,
-      )
-      if (authFailure) {
-        signOut({ callbackUrl: "/auth" })
-        return
+    void (async () => {
+      const uid = currentUserIdRef.current
+      if (uid) {
+        await decryptAndPersistUndecrypted(uid, key)
+        const all = await getAllCached(uid)
+        setState(prev => ({
+          ...prev,
+          transactions: all.map(cachedToClientTransaction),
+        }))
       }
-      if (!txnRes.ok || !envRes.ok || !settingsRes.ok) {
-        throw new Error("Failed to fetch data")
-      }
-
-      if (pendingRes.ok) {
-        if (pendingLockedRef.current && !privacyKeyRef.current) {
-          setPendingTransactions([])
-        } else {
-          let pendingData: PendingTransaction[] = await pendingRes.json()
-          if (privacyKeyRef.current) {
-            pendingData = decryptTxnLikeRecords(pendingData, privacyKeyRef.current)
-          } else {
-            pendingData = maskEncryptedRecords(pendingData)
-          }
-          setPendingTransactions(pendingData)
-        }
-      }
-      if (!tagsRes.ok) throw new Error("Failed to fetch tags")
-
-      const [txns, envelopes, settings] = await Promise.all([
-        txnRes.json() as Promise<Transaction[]>,
-        envRes.json(),
-        settingsRes.json(),
-      ])
-      let transactions = txns
-      const tags = await tagsRes.json() as Tag[]
-
-      if (privacyKeyRef.current) {
-        transactions = decryptTxnLikeRecords(transactions, privacyKeyRef.current)
-      } else {
-        transactions = maskEncryptedRecords(transactions)
-      }
-
-      setUserRole(settings.role ?? null)
-      setSubscriptionTier(
-        settings.subscriptionTier === "premium" ? "premium" : "free",
-      )
-      setState(prev => ({
-        ...prev,
-        transactions,
-        envelopes,
-        tags,
-        monthlyIncome: settings.monthlyIncome || 0,
-        btcDisplayUnit: settings.btcDisplayUnit || "sats",
-        opportunityCostEnabled: settings.opportunityCostEnabled ?? false,
-      }))
-    } catch {
-      // On error, keep current state (may be default/empty)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+      await refreshData()
+    })()
+  }, [refreshData])
 
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true
-      initEncryption().then(() => refreshData())
+      void (async () => {
+        await initEncryption()
+        const uid = currentUserIdRef.current
+        if (uid) {
+          const key = privacyKeyRef.current
+          if (key) {
+            await decryptAndPersistUndecrypted(uid, key)
+          }
+          const cachedRows = await getAllCached(uid)
+          if (cachedRows.length > 0) {
+            setState(prev => ({
+              ...prev,
+              transactions: cachedRows.map(cachedToClientTransaction),
+            }))
+            setLoading(false)
+          }
+        }
+        await refreshData()
+      })()
     }
   }, [initEncryption, refreshData])
-
-  useEffect(() => {
-    if (encryption.ready && privacyKeyRef.current && mounted.current) {
-      refreshData()
-    }
-  }, [encryption.ready, refreshData])
 
   const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => {
     const targetPage = page === "envelopes" && opts?.openAllocations ? "envelope-allocations" : page
@@ -476,21 +524,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify(payload),
       })
       if (res.ok) {
-        const created = await res.json()
-        if (privacyKeyRef.current) {
-          try {
-            created.payee = decryptFieldAsymmetric(created.payee, privacyKeyRef.current)
-          } catch { /* plaintext */ }
-          if (created.notes) {
-            try {
-              created.notes = decryptFieldAsymmetric(created.notes, privacyKeyRef.current)
-            } catch { /* keep */ }
-          }
+        const created = await res.json() as ApiTransactionRow
+        const uid = currentUserIdRef.current
+        const lockedSession = pendingLockedRef.current && !privacyKeyRef.current
+        const secretKey = privacyKeyRef.current
+        const [cached] = await processApiTransactions([created], { lockedSession, secretKey })
+        if (uid) {
+          await putMany(uid, [cached])
+          const maxIso = maxUpdatedAtIso(await getAllCached(uid))
+          if (maxIso) await setLastSyncIso(uid, maxIso)
         }
         setState(prev => ({
           ...prev,
           transactions: prev.transactions.map(t =>
-            t.id === optimisticId ? created : t,
+            t.id === optimisticId ? cachedToClientTransaction(cached) : t,
           ),
         }))
       }
@@ -517,11 +564,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           payload.notes = encryptFieldAsymmetric(payload.notes as string, publicKeyRef.current)
       }
 
-      await fetch("/api/transactions", {
+      const res = await fetch("/api/transactions", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
+      if (res.ok) {
+        const updated = await res.json() as ApiTransactionRow
+        const uid = currentUserIdRef.current
+        const lockedSession = pendingLockedRef.current && !privacyKeyRef.current
+        const secretKey = privacyKeyRef.current
+        const [cached] = await processApiTransactions([updated], { lockedSession, secretKey })
+        if (uid) {
+          await putMany(uid, [cached])
+          const maxIso = maxUpdatedAtIso(await getAllCached(uid))
+          if (maxIso) await setLastSyncIso(uid, maxIso)
+        }
+        setState(prev => ({
+          ...prev,
+          transactions: prev.transactions.map(t =>
+            t.id === id ? cachedToClientTransaction(cached) : t,
+          ),
+        }))
+      }
     } catch {
       refreshData()
     }
@@ -534,7 +599,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
 
     try {
-      await fetch(`/api/transactions?id=${id}`, { method: "DELETE" })
+      const res = await fetch(`/api/transactions?id=${id}`, { method: "DELETE" })
+      if (res.ok && currentUserIdRef.current) {
+        await deleteCachedTransaction(currentUserIdRef.current, id)
+      }
     } catch {
       refreshData()
     }
@@ -629,7 +697,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
 
     try {
-      await fetch(`/api/envelopes?id=${id}`, { method: "DELETE" })
+      const res = await fetch(`/api/envelopes?id=${id}`, { method: "DELETE" })
+      if (res.ok && currentUserIdRef.current) {
+        await removeCachedForEnvelope(currentUserIdRef.current, id)
+      }
     } catch {
       refreshData()
     }
@@ -645,11 +716,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
 
     try {
-      await fetch("/api/envelopes/merge", {
+      const res = await fetch("/api/envelopes/merge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sourceId, targetId }),
       })
+      if (res.ok) await refreshData()
     } catch {
       refreshData()
     }
@@ -749,6 +821,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return encryptFieldAsymmetric(plaintext, publicKeyRef.current)
   }, [])
 
+  const clearLocalTransactionCache = useCallback(async () => {
+    const uid = currentUserIdRef.current
+    if (uid) await clearDb(uid)
+  }, [])
+
   const logout = useCallback(() => {
     try {
       sessionStorage.removeItem("bitbudget-privacy-key")
@@ -767,10 +844,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         /* ignore */
       }
     }
+    const uid = currentUserIdRef.current
     privacyKeyRef.current = null
     publicKeyRef.current = null
     currentUserIdRef.current = null
-    signOut({ callbackUrl: "/auth" })
+    void (async () => {
+      if (uid) await clearDb(uid).catch(() => {})
+      signOut({ callbackUrl: "/auth" })
+    })()
   }, [])
 
   const confirmPending = useCallback(async (
@@ -886,6 +967,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addTag,
         deleteTag,
         refreshData,
+        clearLocalTransactionCache,
         encryptForStorage,
         logout,
         isAdmin: userRole === "admin",
