@@ -383,6 +383,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const lastSync = await getLastSyncIso(uid)
       const cachedSnapshot = await getAllCached(uid)
       txnSyncSeqRef.current += 1
+      // Delta `since=` cannot represent server deletes; periodic full fetch + removeMissing drops stale IDs.
       const forceFullTxnResync = txnSyncSeqRef.current % 12 === 0
       const fullTxnSync =
         cachedSnapshot.length === 0 || lastSync == null || forceFullTxnResync

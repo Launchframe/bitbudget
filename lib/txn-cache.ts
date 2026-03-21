@@ -178,9 +178,10 @@ export async function clearDb(userId: string): Promise<void> {
     req.onerror = () => reject(req.error)
     req.onblocked = () => {
       reject(
-        new Error(
-          "IndexedDB delete is blocked (another tab may have the database open). Close other BitBudget tabs and try again.",
-        ),
+        req.error ??
+          new Error(
+            "IndexedDB delete is blocked (another tab may have the database open). Close other BitBudget tabs and try again.",
+          ),
       )
     }
   })
@@ -230,6 +231,7 @@ export function apiRowToCachedPlaintext(row: ApiTransactionRow): CachedTransacti
   }
 }
 
+/** Decrypt payee/notes; on failure, mask only values that look like sealed-box ciphertext (legacy plaintext rows must stay visible). */
 function decryptSensitiveFields(
   row: ApiTransactionRow,
   secretKey: Uint8Array,
