@@ -11,8 +11,30 @@ import type { Transaction, TransactionSource } from "@/lib/data"
 export { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 
 const DB_PREFIX = "bitbudget-txns-"
-const DB_VERSION = 2
+const DB_VERSION = 3
 const META_LAST_SYNC = "lastSync"
+
+/** Memo store keys for instant cold-start hints (JSON-serialized values). */
+export const MEMO_KEYS = {
+  txnCount: "memo_txnCount",
+  topOCIds: "memo_topOCIds",
+} as const
+
+const REMAINING_BATCH_YIELD_EVERY = 200
+
+/** ISO calendar date `daysBack` days before today (UTC), YYYY-MM-DD. */
+export function startDateForRecentWindow(daysBack: number): string {
+  const d = new Date()
+  d.setUTCDate(d.getUTCDate() - daysBack)
+  return d.toISOString().split("T")[0]!
+}
+
+/** Previous calendar day (UTC), for `endDate` on API / IDB split. */
+export function dayBeforeIsoDate(isoDate: string): string {
+  const d = new Date(`${isoDate}T12:00:00.000Z`)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().split("T")[0]!
+}
 
 /** Fields that use asymmetric encrypt/decrypt on the wire. */
 export const SENSITIVE_FIELDS = { payee: true, notes: true } as const
@@ -53,6 +75,10 @@ interface BitbudgetTxnDB {
     key: string
     value: { key: string; value: string }
   }
+  memos: {
+    key: string
+    value: { key: string; payload: string }
+  }
 }
 
 function dbName(userId: string): string {
@@ -76,6 +102,9 @@ export async function openTxnDb(userId: string): Promise<IDBPDatabase<BitbudgetT
         }
         if (!db.objectStoreNames.contains("meta")) {
           db.createObjectStore("meta", { keyPath: "key" })
+        }
+        if (!db.objectStoreNames.contains("memos")) {
+          db.createObjectStore("memos", { keyPath: "key" })
         }
       },
     })
@@ -116,11 +145,144 @@ export async function isTxnIndexedDbAvailable(userId: string): Promise<boolean> 
   return true
 }
 
+/** Full read of the transaction cache (e.g. after PIN unlock, delta merge). Prefer batched reads for cold start. */
 export async function getAllCached(userId: string): Promise<CachedTransaction[]> {
   const db = await openTxnDb(userId)
   if (!db) return []
   try {
     return await db.getAll("transactions")
+  } finally {
+    db.close()
+  }
+}
+
+/** Transactions with `date >= cutoff` (YYYY-MM-DD), newest first by `date` index. */
+export async function getRecentCached(
+  userId: string,
+  daysBack: number,
+): Promise<CachedTransaction[]> {
+  const cutoff = startDateForRecentWindow(daysBack)
+  const db = await openTxnDb(userId)
+  if (!db) return []
+  try {
+    const tx = db.transaction("transactions", "readonly")
+    const store = tx.store
+    let result: CachedTransaction[]
+    if (!store.indexNames.contains("date")) {
+      const all = await store.getAll()
+      result = all.filter((r) => r.date >= cutoff).sort((a, b) => b.date.localeCompare(a.date))
+    } else {
+      const out: CachedTransaction[] = []
+      let cursor = await store.index("date").openCursor(null, "prev")
+      while (cursor) {
+        const row = cursor.value as CachedTransaction
+        if (row.date < cutoff) break
+        out.push(row)
+        cursor = await cursor.continue()
+      }
+      result = out
+    }
+    await tx.done
+    return result
+  } finally {
+    db.close()
+  }
+}
+
+/**
+ * Transactions with `date < beforeDate` (YYYY-MM-DD), yielding to the main thread every
+ * {@link REMAINING_BATCH_YIELD_EVERY} rows.
+ */
+export async function getRemainingCached(
+  userId: string,
+  beforeDate: string,
+): Promise<CachedTransaction[]> {
+  const db = await openTxnDb(userId)
+  if (!db) return []
+  try {
+    const tx = db.transaction("transactions", "readonly")
+    const store = tx.store
+    let result: CachedTransaction[]
+    if (!store.indexNames.contains("date")) {
+      const all = await store.getAll()
+      const filtered = all.filter((r) => r.date < beforeDate)
+      result = filtered.sort((a, b) => b.date.localeCompare(a.date))
+    } else {
+      const dateIndex = store.index("date")
+      const range = IDBKeyRange.upperBound(beforeDate, true)
+      const out: CachedTransaction[] = []
+      let cursor = await dateIndex.openCursor(range, "prev")
+      let yielded = 0
+      while (cursor) {
+        const row = cursor.value as CachedTransaction
+        out.push(row)
+        yielded++
+        // Schedule continue() before yielding so an IDB request stays in-flight during setTimeout;
+        // otherwise the transaction can auto-commit and the cursor throws TransactionInactiveError.
+        const nextCursorPromise = cursor.continue()
+        if (yielded % REMAINING_BATCH_YIELD_EVERY === 0) {
+          await new Promise<void>((r) => setTimeout(r, 0))
+        }
+        cursor = await nextCursorPromise
+      }
+      result = out
+    }
+    await tx.done
+    return result
+  } finally {
+    db.close()
+  }
+}
+
+export async function getCachedCount(userId: string): Promise<number> {
+  const db = await openTxnDb(userId)
+  if (!db) return 0
+  try {
+    return await db.count("transactions")
+  } finally {
+    db.close()
+  }
+}
+
+export async function getCachedByIds(
+  userId: string,
+  ids: string[],
+): Promise<CachedTransaction[]> {
+  if (ids.length === 0) return []
+  const db = await openTxnDb(userId)
+  if (!db) return []
+  try {
+    const tx = db.transaction("transactions", "readonly")
+    const store = tx.store
+    const rows = await Promise.all(ids.map(id => store.get(id)))
+    await tx.done
+    return rows.filter((row): row is CachedTransaction => Boolean(row))
+  } finally {
+    db.close()
+  }
+}
+
+export async function getMemo<T>(userId: string, memoKey: string): Promise<T | null> {
+  const db = await openTxnDb(userId)
+  if (!db) return null
+  try {
+    const row = await db.get("memos", memoKey)
+    if (!row?.payload) return null
+    try {
+      return JSON.parse(row.payload) as T
+    } catch {
+      return null
+    }
+  } finally {
+    db.close()
+  }
+}
+
+export async function setMemo(userId: string, memoKey: string, value: unknown): Promise<void> {
+  const db = await openTxnDb(userId)
+  if (!db) return
+  try {
+    await db.put("memos", { key: memoKey, payload: JSON.stringify(value) })
   } finally {
     db.close()
   }
@@ -338,6 +500,65 @@ export function cachedToClientTransaction(c: CachedTransaction): Transaction {
   void serverPayee
   void serverNotes
   return rest
+}
+
+function isSortedDescByDate(txns: Transaction[]): boolean {
+  for (let i = 1; i < txns.length; i++) {
+    if (txns[i - 1]!.date < txns[i]!.date) return false
+  }
+  return true
+}
+
+/** Merge decrypted cache rows into existing client transactions (by id), sorted date desc. */
+export function mergeTransactionBatch(
+  prev: Transaction[],
+  batch: CachedTransaction[],
+): Transaction[] {
+  const byId = new Map(prev.map((t) => [t.id, t]))
+  let dateChanged = false
+  const newInBatchOrder: Transaction[] = []
+
+  for (const c of batch) {
+    const clientTxn = cachedToClientTransaction(c)
+    const existing = byId.get(c.id)
+    if (existing) {
+      if (existing.date !== clientTxn.date) dateChanged = true
+    } else {
+      newInBatchOrder.push(clientTxn)
+    }
+    byId.set(c.id, clientTxn)
+  }
+
+  const merged = Array.from(byId.values())
+  if (merged.length <= 1) return merged
+
+  let isPrevSortedDesc = true
+  for (let i = 1; i < prev.length; i++) {
+    if (prev[i - 1]!.date < prev[i]!.date) {
+      isPrevSortedDesc = false
+      break
+    }
+  }
+
+  if (!isPrevSortedDesc || dateChanged) {
+    return merged.sort((a, b) => b.date.localeCompare(a.date))
+  }
+
+  if (newInBatchOrder.length === 0) {
+    return merged
+  }
+
+  if (prev.length === 0) {
+    return merged.sort((a, b) => b.date.localeCompare(a.date))
+  }
+
+  const tailDate = prev[prev.length - 1]!.date
+  const allNewNotAfterTail = newInBatchOrder.every((t) => t.date <= tailDate)
+  if (allNewNotAfterTail && isSortedDescByDate(newInBatchOrder)) {
+    return merged
+  }
+
+  return merged.sort((a, b) => b.date.localeCompare(a.date))
 }
 
 export function maxUpdatedAtIso(rows: CachedTransaction[]): string | null {

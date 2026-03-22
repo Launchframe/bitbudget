@@ -27,7 +27,13 @@ export function SettingsPage() {
     logout,
     subscriptionTier,
     navigateTo,
+    memoTransactionCount,
+    historyReady,
   } = useApp()
+
+  const dataTxnCount = historyReady
+    ? state.transactions.length
+    : Math.max(state.transactions.length, memoTransactionCount ?? 0)
   const [editingIncome, setEditingIncome] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general")
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
@@ -670,7 +676,10 @@ export function SettingsPage() {
           </div>
           <div>
             <Label className="text-muted-foreground text-xs uppercase tracking-wider">Transactions</Label>
-            <p className="text-lg font-semibold text-foreground">{state.transactions.length}</p>
+            <p className="text-lg font-semibold text-foreground">{dataTxnCount}</p>
+            {!historyReady && (
+              <p className="text-[11px] text-muted-foreground mt-1">Full count updates when sync completes.</p>
+            )}
           </div>
         </div>
       </div>
@@ -717,7 +726,7 @@ export function SettingsPage() {
           <h3 className="text-lg font-semibold text-foreground">Danger Zone</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
-          Permanently delete all {state.transactions.length} transaction{state.transactions.length !== 1 ? "s" : ""} and {state.envelopes.length} envelope{state.envelopes.length !== 1 ? "s" : ""}. This cannot be undone.
+          Permanently delete all {dataTxnCount} transaction{dataTxnCount !== 1 ? "s" : ""} and {state.envelopes.length} envelope{state.envelopes.length !== 1 ? "s" : ""}. This cannot be undone.
         </p>
         <div className="flex flex-wrap gap-3">
           <button

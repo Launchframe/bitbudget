@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import {
+  parseTransactionQueryCalendarDate,
+  utcEndOfCalendarDay,
+} from "@/lib/transaction-query-dates"
 
 function parseTagsJson(raw: string): string[] {
   try {
@@ -29,10 +33,19 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = { userId: session.user.id }
   if (envelopeId) where.envelopeId = envelopeId
   if (type && type !== "all") where.type = type
+  // YYYY-MM-DD bounds in UTC so splits (recent vs older) match client `startDateForRecentWindow` / `dayBeforeIsoDate`.
   if (startDate || endDate) {
+    const gte = startDate ? parseTransactionQueryCalendarDate(startDate) : null
+    const lte = endDate ? utcEndOfCalendarDay(endDate) : null
+    if (startDate && !gte) {
+      return NextResponse.json({ error: "Invalid startDate (expected YYYY-MM-DD)" }, { status: 400 })
+    }
+    if (endDate && !lte) {
+      return NextResponse.json({ error: "Invalid endDate (expected YYYY-MM-DD)" }, { status: 400 })
+    }
     where.date = {
-      ...(startDate ? { gte: new Date(startDate) } : {}),
-      ...(endDate ? { lte: new Date(endDate + "T23:59:59") } : {}),
+      ...(gte ? { gte } : {}),
+      ...(lte ? { lte } : {}),
     }
   }
 

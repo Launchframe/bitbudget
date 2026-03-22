@@ -1,12 +1,19 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, formatBtcAmount } from "@/lib/data"
 import { TrendingUp, TrendingDown } from "lucide-react"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
+import {
+  cachedToClientTransaction,
+  getCachedByIds,
+  getMemo,
+  MEMO_KEYS,
+  setMemo,
+} from "@/lib/txn-cache"
 
 import type { Transaction } from "@/lib/data"
 
@@ -16,21 +23,105 @@ interface EnrichedTransaction extends Transaction {
 }
 
 export function TopOpportunityCosts() {
-  const { activeTransactions, state } = useApp()
+  const { activeTransactions, state, currentUserId, txnLoadPhase } = useApp()
   const { calculateOpportunityCost, getPriceOnDate } = useBtcPrices()
   const [selectedTxn, setSelectedTxn] = useState<EnrichedTransaction | null>(null)
+  const [memoBootstrapTxns, setMemoBootstrapTxns] = useState<Transaction[]>([])
+
+  /** Single OC + price pass for both dashboard top-10 and memo top-100 ids. */
+  const rankedExpenseOpportunity = useMemo(() => {
+    const expenses = activeTransactions.filter((t) => t.type === "expense")
+    return expenses
+      .map((t) => ({
+        t,
+        btcValueToday: calculateOpportunityCost(t.amount, t.date),
+        btcPriceAtTime: getPriceOnDate(t.date),
+      }))
+      .sort((a, b) => b.btcValueToday - a.btcValueToday)
+  }, [activeTransactions, calculateOpportunityCost, getPriceOnDate])
+
+  const topOcMemoIds = useMemo(
+    () => rankedExpenseOpportunity.slice(0, 100).map((x) => x.t.id),
+    [rankedExpenseOpportunity],
+  )
+
+  const lastPersistedOcIdsKey = useRef<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!currentUserId || !state.opportunityCostEnabled) {
+      const clearId = setTimeout(() => {
+        if (!cancelled) setMemoBootstrapTxns([])
+      }, 0)
+      return () => {
+        cancelled = true
+        clearTimeout(clearId)
+      }
+    }
+    void (async () => {
+      try {
+        const ids = await getMemo<string[]>(currentUserId, MEMO_KEYS.topOCIds)
+        if (!ids?.length || cancelled) return
+        const cached = await getCachedByIds(currentUserId, ids.slice(0, 100))
+        if (cancelled) return
+        setMemoBootstrapTxns(cached.map(cachedToClientTransaction))
+      } catch (err) {
+        console.error("Failed to bootstrap top opportunity costs from cache", err)
+        setTimeout(() => {
+          if (!cancelled) setMemoBootstrapTxns([])
+        }, 0)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [currentUserId, state.opportunityCostEnabled])
+
+  useEffect(() => {
+    if (!currentUserId || !state.opportunityCostEnabled || txnLoadPhase !== "synced") return
+    const key = `${currentUserId}\u0000${topOcMemoIds.join("\u0001")}`
+    if (lastPersistedOcIdsKey.current === key) return
+    lastPersistedOcIdsKey.current = key
+    void setMemo(currentUserId, MEMO_KEYS.topOCIds, topOcMemoIds).catch((err) => {
+      console.error("Failed to persist top opportunity cost IDs memo", err)
+    })
+  }, [
+    currentUserId,
+    state.opportunityCostEnabled,
+    txnLoadPhase,
+    topOcMemoIds,
+  ])
 
   const topTransactions = useMemo(() => {
-    return activeTransactions
+    const fromLive: EnrichedTransaction[] = rankedExpenseOpportunity
+      .slice(0, 10)
+      .map(({ t, btcValueToday, btcPriceAtTime }) => ({
+        ...t,
+        btcValueToday,
+        btcPriceAtTime,
+      }))
+
+    if (txnLoadPhase === "synced" || memoBootstrapTxns.length === 0) {
+      return fromLive
+    }
+
+    const fromMemo: EnrichedTransaction[] = memoBootstrapTxns
       .filter((t) => t.type === "expense")
       .map((t) => ({
         ...t,
         btcValueToday: calculateOpportunityCost(t.amount, t.date),
         btcPriceAtTime: getPriceOnDate(t.date),
       }))
-      .sort((a, b) => b.btcValueToday - a.btcValueToday)
       .slice(0, 10)
-  }, [activeTransactions, calculateOpportunityCost, getPriceOnDate])
+
+    return fromMemo.length > 0 ? fromMemo : fromLive
+  }, [
+    rankedExpenseOpportunity,
+    memoBootstrapTxns,
+    txnLoadPhase,
+    calculateOpportunityCost,
+    getPriceOnDate,
+  ])
 
   return (
     <div className="bg-[#0D0D0D] rounded-2xl p-4 md:p-6">
@@ -132,4 +223,3 @@ export function TopOpportunityCosts() {
     </div>
   )
 }
-
