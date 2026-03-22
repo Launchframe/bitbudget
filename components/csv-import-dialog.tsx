@@ -711,9 +711,18 @@ export function CSVImportDialog({
               </button>
               <button
                 type="button"
-                onClick={async () => {
-                  await Promise.resolve(onRequestAllocations?.())
-                  handleOpenChange(false)
+                onClick={async (event) => {
+                  const button = event.currentTarget
+                  if (button.disabled) {
+                    return
+                  }
+                  button.disabled = true
+                  try {
+                    await Promise.resolve(onRequestAllocations?.())
+                    handleOpenChange(false)
+                  } finally {
+                    button.disabled = false
+                  }
                 }}
                 className="px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors"
               >
