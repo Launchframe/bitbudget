@@ -20,8 +20,6 @@ export const MEMO_KEYS = {
   topOCIds: "memo_topOCIds",
 } as const
 
-const REMAINING_BATCH_YIELD_EVERY = 200
-
 /** ISO calendar date `daysBack` days before today (UTC), YYYY-MM-DD. */
 export function startDateForRecentWindow(daysBack: number): string {
   const d = new Date()
@@ -190,8 +188,11 @@ export async function getRecentCached(
 }
 
 /**
- * Transactions with `date < beforeDate` (YYYY-MM-DD), yielding to the main thread every
- * {@link REMAINING_BATCH_YIELD_EVERY} rows.
+ * Transactions with `date < beforeDate` (YYYY-MM-DD), newest first by `date` index.
+ *
+ * Do not `setTimeout` / macrotask-yield inside this cursor loop: IndexedDB read-only
+ * transactions auto-commit when the event loop runs with no pending requests; yielding
+ * lets the transaction finish and the next `cursor.continue()` throws TransactionInactiveError.
  */
 export async function getRemainingCached(
   userId: string,
@@ -212,18 +213,9 @@ export async function getRemainingCached(
       const range = IDBKeyRange.upperBound(beforeDate, true)
       const out: CachedTransaction[] = []
       let cursor = await dateIndex.openCursor(range, "prev")
-      let yielded = 0
       while (cursor) {
-        const row = cursor.value as CachedTransaction
-        out.push(row)
-        yielded++
-        // Schedule continue() before yielding so an IDB request stays in-flight during setTimeout;
-        // otherwise the transaction can auto-commit and the cursor throws TransactionInactiveError.
-        const nextCursorPromise = cursor.continue()
-        if (yielded % REMAINING_BATCH_YIELD_EVERY === 0) {
-          await new Promise<void>((r) => setTimeout(r, 0))
-        }
-        cursor = await nextCursorPromise
+        out.push(cursor.value as CachedTransaction)
+        cursor = await cursor.continue()
       }
       result = out
     }
