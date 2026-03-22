@@ -185,7 +185,7 @@ export async function DELETE(req: NextRequest) {
     await tx.transactionShortcut.deleteMany({
       where: { userId, envelopeId: id },
     })
-    await tx.transaction.deleteMany({ where: { envelopeId: id, userId } })
+    // Transactions cascade-delete with the envelope (Prisma schema); explicit deleteMany is redundant.
     await tx.envelope.delete({ where: { id } })
   })
 

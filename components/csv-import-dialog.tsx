@@ -127,6 +127,7 @@ export function CSVImportDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{ imported: number; skipped: number; newEnvelopes: string[] } | null>(null)
+  const [requestingAllocations, setRequestingAllocations] = useState(false)
   const [expandedDupIndex, setExpandedDupIndex] = useState<number | null>(null)
 
   const lastLoadedFile = useRef<File | null>(null)
@@ -140,6 +141,10 @@ export function CSVImportDialog({
   }, [])
 
   useEffect(() => () => clearDeferredImport(), [clearDeferredImport])
+
+  useEffect(() => {
+    if (!open) setRequestingAllocations(false)
+  }, [open])
 
   useEffect(() => {
     if (!open || !file || file === lastLoadedFile.current) return
@@ -711,22 +716,26 @@ export function CSVImportDialog({
               </button>
               <button
                 type="button"
-                onClick={async (event) => {
-                  const button = event.currentTarget
-                  if (button.disabled) {
-                    return
-                  }
-                  button.disabled = true
+                disabled={requestingAllocations}
+                onClick={async () => {
+                  setRequestingAllocations(true)
                   try {
                     await Promise.resolve(onRequestAllocations?.())
                     handleOpenChange(false)
                   } finally {
-                    button.disabled = false
+                    setRequestingAllocations(false)
                   }
                 }}
-                className="px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Update your budget
+                {requestingAllocations ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    Loading…
+                  </>
+                ) : (
+                  "Update your budget"
+                )}
               </button>
             </div>
           )}
