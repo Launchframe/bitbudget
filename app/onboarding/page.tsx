@@ -21,6 +21,16 @@ import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   deriveKeyFromPin,
   generateSalt,
@@ -209,6 +219,31 @@ export default function OnboardingPage() {
   const [canSkipOnboarding, setCanSkipOnboarding] = useState(false)
   const [skipOnboardingError, setSkipOnboardingError] = useState<string | null>(null)
   const [envelopeStepError, setEnvelopeStepError] = useState<string | null>(null)
+  /** Server-side tx / recurring counts per envelope id — used for delete confirmation copy. */
+  const [envelopeUsageById, setEnvelopeUsageById] = useState<
+    Record<string, { transactionCount: number; recurringCount: number }>
+  >({})
+  const [deletingEnvelopeIdx, setDeletingEnvelopeIdx] = useState<number | null>(null)
+  const [pendingDeleteEnvelopeIdx, setPendingDeleteEnvelopeIdx] = useState<number | null>(null)
+
+  const refreshEnvelopeUsage = useCallback(async () => {
+    const res = await fetch("/api/envelopes?usage=1")
+    if (!res.ok) return
+    const rows = await res.json() as Array<{
+      id: string
+      transactionCount?: number
+      recurringCount?: number
+    }>
+    const next: Record<string, { transactionCount: number; recurringCount: number }> = {}
+    for (const r of rows) {
+      if (!r.id) continue
+      next[r.id] = {
+        transactionCount: typeof r.transactionCount === "number" ? r.transactionCount : 0,
+        recurringCount: typeof r.recurringCount === "number" ? r.recurringCount : 0,
+      }
+    }
+    setEnvelopeUsageById(next)
+  }, [])
 
   useEffect(() => {
     try {
@@ -274,6 +309,11 @@ export default function OnboardingPage() {
       void signOut({ callbackUrl: "/auth" })
     }
   }, [hydrated, step, isNostr, isNsecFallback])
+
+  useEffect(() => {
+    if (step !== "envelopes") return
+    void refreshEnvelopeUsage()
+  }, [step, refreshEnvelopeUsage])
 
   const stepIndex = STEPS.indexOf(step)
   const progress = ((stepIndex + 1) / STEPS.length) * 100
@@ -547,6 +587,57 @@ export default function OnboardingPage() {
 
   function removeEnvelope(idx: number) {
     setEnvelopes(prev => prev.filter((_, i) => i !== idx))
+    setExpandedEnvIdx(prev => {
+      if (prev === null) return null
+      if (prev === idx) return null
+      if (prev > idx) return prev - 1
+      return prev
+    })
+  }
+
+  function requestRemoveEnvelopeRow(idx: number) {
+    const env = envelopes[idx]
+    if (!env) return
+    if (!env.id) {
+      removeEnvelope(idx)
+      return
+    }
+    setPendingDeleteEnvelopeIdx(idx)
+  }
+
+  async function confirmDeleteEnvelope() {
+    const idx = pendingDeleteEnvelopeIdx
+    if (idx === null) return
+    const env = envelopes[idx]
+    if (!env?.id) {
+      setPendingDeleteEnvelopeIdx(null)
+      return
+    }
+
+    setDeletingEnvelopeIdx(idx)
+    setEnvelopeStepError(null)
+    try {
+      const res = await fetch(`/api/envelopes?id=${encodeURIComponent(env.id)}`, { method: "DELETE" })
+      if (!res.ok) {
+        let errMsg = "Could not remove envelope"
+        try {
+          const body = (await res.json()) as { error?: string }
+          if (body.error) errMsg = body.error
+        } catch { /* ignore */ }
+        setEnvelopeStepError(errMsg)
+        return
+      }
+      removeEnvelope(idx)
+      setEnvelopeUsageById(prev => {
+        const next = { ...prev }
+        delete next[env.id!]
+        return next
+      })
+      await refreshEnvelopeUsage()
+      setPendingDeleteEnvelopeIdx(null)
+    } finally {
+      setDeletingEnvelopeIdx(null)
+    }
   }
 
   async function mergeEnvelopesStateFromServer() {
@@ -726,6 +817,13 @@ export default function OnboardingPage() {
   const savingsPct =
     allocateMonthlyBudget > 0 ? Math.round((savings / allocateMonthlyBudget) * 100) : 0
 
+  const pendingDeleteEnv =
+    pendingDeleteEnvelopeIdx !== null ? envelopes[pendingDeleteEnvelopeIdx] : undefined
+  const pendingDeleteUsage =
+    pendingDeleteEnv?.id != null ? envelopeUsageById[pendingDeleteEnv.id] : undefined
+  const pendingDeleteTxs = pendingDeleteUsage?.transactionCount ?? 0
+  const pendingDeleteRec = pendingDeleteUsage?.recurringCount ?? 0
+
   /**
    * Align committed allotment with the nearest $50 bucket for the current thumb position.
    * Usually a no-op during drag (bucket updates on midpoint crossings); used on release/blur to clamp.
@@ -870,7 +968,7 @@ export default function OnboardingPage() {
                   <DollarSign className="h-6 w-6 text-[#22C55E]" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-foreground">Your Income</h2>
+                  <h2 className="text-xl font-bold text-foreground">Your income</h2>
                   <p className="text-sm text-muted-foreground">How much do you earn after taxes?</p>
                 </div>
               </div>
@@ -951,7 +1049,7 @@ export default function OnboardingPage() {
                   <Wallet className="h-6 w-6 text-[#8B5CF6]" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-foreground">Your Envelopes</h2>
+                  <h2 className="text-xl font-bold text-foreground">Your envelopes</h2>
                   <p className="text-sm text-muted-foreground">Create your spending categories — you&apos;ll set budget amounts in the next step</p>
                 </div>
               </div>
@@ -1038,8 +1136,10 @@ export default function OnboardingPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => { removeEnvelope(idx); if (expandedEnvIdx === idx) setExpandedEnvIdx(null) }}
-                          className="p-1 text-muted-foreground hover:text-red-400 transition-colors"
+                          disabled={deletingEnvelopeIdx !== null}
+                          onClick={() => requestRemoveEnvelopeRow(idx)}
+                          className="p-1 text-muted-foreground hover:text-red-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-muted-foreground"
+                          aria-label={`Remove ${env.name}`}
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -1250,13 +1350,16 @@ export default function OnboardingPage() {
                   <PieChart className="h-6 w-6 text-[#3B82F6]" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-foreground">Allocate Income</h2>
+                  <h2 className="text-xl font-bold text-foreground">Your budget</h2>
                   <p className="text-sm text-muted-foreground">
                     How do you use your{" "}
                     <span className="text-foreground font-medium">
                       ${allocateMonthlyBudget.toLocaleString()}
                     </span>{" "}
-                    of income each month? You can always change this later.
+                    of income each month? 
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    You can always adjust this later.
                   </p>
                 </div>
               </div>
@@ -1672,6 +1775,74 @@ export default function OnboardingPage() {
           Wrong account? Sign out
         </button>
       </div>
+
+      <AlertDialog
+        open={pendingDeleteEnvelopeIdx !== null}
+        onOpenChange={open => {
+          if (open) return
+          if (deletingEnvelopeIdx !== null) return
+          setPendingDeleteEnvelopeIdx(null)
+        }}
+      >
+        <AlertDialogContent className="border-[#333] bg-[#0D0D0D] sm:rounded-2xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove {pendingDeleteEnv ? `“${pendingDeleteEnv.name}”` : "envelope"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="text-muted-foreground text-sm space-y-2">
+                {!pendingDeleteEnv ? (
+                  <p>This envelope is no longer in your list.</p>
+                ) : pendingDeleteTxs === 0 && pendingDeleteRec === 0 ? (
+                  <p>
+                    This envelope will be removed from your list. You can add it again before you continue.
+                  </p>
+                ) : (
+                  <p>
+                    This will permanently delete{" "}
+                    {[
+                      pendingDeleteTxs > 0
+                        ? `${pendingDeleteTxs} transaction${pendingDeleteTxs === 1 ? "" : "s"}`
+                        : null,
+                      pendingDeleteRec > 0
+                        ? `${pendingDeleteRec} recurring rule${pendingDeleteRec === 1 ? "" : "s"}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" and ")}{" "}
+                    in this envelope. This cannot be undone.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={deletingEnvelopeIdx !== null}
+              className="border-[#333] bg-[#1A1A1A] hover:bg-[#252525]"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deletingEnvelopeIdx !== null || !pendingDeleteEnv}
+              onClick={() => { void confirmDeleteEnvelope() }}
+              className="gap-2"
+            >
+              {deletingEnvelopeIdx !== null ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  Removing…
+                </>
+              ) : (
+                "Remove envelope"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <CSVImportDialog
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}
@@ -1683,6 +1854,7 @@ export default function OnboardingPage() {
           clearOnboardingImportFileInput()
           // Refresh draft envelopes if user dismisses the dialog (close/overlay) instead of “Update allocations”.
           void mergeEnvelopesStateFromServer()
+          void refreshEnvelopeUsage()
         }}
         onDone={() => setStep("complete")}
         onRequestAllocations={async () => {

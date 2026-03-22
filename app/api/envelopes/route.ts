@@ -3,10 +3,40 @@ import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const withUsage = req.nextUrl.searchParams.get("usage") === "1"
+
+  if (withUsage) {
+    const envelopes = await prisma.envelope.findMany({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: "asc" },
+      include: {
+        _count: {
+          select: {
+            transactions: true,
+            recurringTransactions: true,
+          },
+        },
+      },
+    })
+
+    return NextResponse.json(
+      envelopes.map(e => ({
+        id: e.id,
+        name: e.name,
+        monthlyAllotment: e.monthlyAllotment,
+        color: e.color,
+        icon: e.icon,
+        archived: e.archived,
+        transactionCount: e._count.transactions,
+        recurringCount: e._count.recurringTransactions,
+      })),
+    )
   }
 
   const envelopes = await prisma.envelope.findMany({
@@ -145,8 +175,19 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
   }
 
-  await prisma.transaction.deleteMany({ where: { envelopeId: id, userId: session.user.id } })
-  await prisma.envelope.delete({ where: { id } })
+  const userId = session.user.id
+
+  await prisma.$transaction(async tx => {
+    await tx.pendingTransaction.updateMany({
+      where: { userId, suggestedEnvelopeId: id },
+      data: { suggestedEnvelopeId: null },
+    })
+    await tx.transactionShortcut.deleteMany({
+      where: { userId, envelopeId: id },
+    })
+    await tx.transaction.deleteMany({ where: { envelopeId: id, userId } })
+    await tx.envelope.delete({ where: { id } })
+  })
 
   return NextResponse.json({ success: true })
 }

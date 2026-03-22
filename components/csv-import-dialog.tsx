@@ -726,7 +726,7 @@ export function CSVImportDialog({
                 }}
                 className="px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors"
               >
-                Update allocations
+                Update your budget
               </button>
             </div>
           )}
