@@ -1743,13 +1743,7 @@ export default function OnboardingPage() {
               <h2 className="text-2xl font-bold text-foreground">You&apos;re All Set!</h2>
               <p className="text-sm text-muted-foreground text-center">
                 Your envelopes are ready and your data is secured.
-                {importResult && ` Imported ${importResult.imported} transactions.`}
               </p>
-              {importResult && importResult.newEnvelopes.length > 0 && (
-                <p className="text-xs text-muted-foreground text-center">
-                  New envelopes created from import: {importResult.newEnvelopes.join(", ")}
-                </p>
-              )}
               <button
                 type="submit"
                 disabled={loading}
