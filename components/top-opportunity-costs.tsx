@@ -59,7 +59,9 @@ export function TopOpportunityCosts() {
       .sort((a, b) => b.oc - a.oc)
       .slice(0, 100)
       .map((x) => x.id)
-    void setMemo(currentUserId, MEMO_KEYS.topOCIds, ranked)
+    void setMemo(currentUserId, MEMO_KEYS.topOCIds, ranked).catch((err) => {
+      console.error("Failed to persist top opportunity cost IDs memo", err)
+    })
   }, [
     currentUserId,
     state.opportunityCostEnabled,

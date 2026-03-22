@@ -430,6 +430,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const forceFullTxnResync = txnSyncSeqRef.current % 12 === 0
       const fullTxnSync =
         cachedCount === 0 || lastSync == null || forceFullTxnResync
+      if (fullTxnSync) {
+        setTxnLoadPhase("full")
+      }
 
       const lockedSession = pendingLockedRef.current && !privacyKeyRef.current
       const secretKey = privacyKeyRef.current
@@ -449,9 +452,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (fullTxnSync) {
-        // While a full resync runs, keep historyReady false until we reach "synced" at the end.
-        setTxnLoadPhase("full")
-
         async function hydrateRemainingIdb(): Promise<void> {
           if (fullIdbHydratedRef.current) return
           if (!idbAvailable || lockedSession) {
@@ -594,10 +594,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const all = await getAllCached(uid)
         const forState = all.length > 0 ? all : decrypted
         if (forState.length > 0) {
+          const sortedForState = [...forState].sort((a, b) => b.date.localeCompare(a.date))
           fullIdbHydratedRef.current = true
           setState(prev => ({
             ...prev,
-            transactions: forState.map(cachedToClientTransaction),
+            transactions: sortedForState.map(cachedToClientTransaction),
           }))
           setTxnLoadPhase("full")
         }
