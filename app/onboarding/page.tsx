@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
@@ -223,26 +223,36 @@ export default function OnboardingPage() {
   const [envelopeUsageById, setEnvelopeUsageById] = useState<
     Record<string, { transactionCount: number; recurringCount: number }>
   >({})
+  /** True while GET /api/envelopes?usage=1 is in flight — avoids treating unknown usage as zero. */
+  const [envelopeUsageLoading, setEnvelopeUsageLoading] = useState(false)
+  /** False until a usage fetch attempt finishes on this visit to the envelopes step (success or failure). */
+  const [envelopeUsageHydrated, setEnvelopeUsageHydrated] = useState(false)
   const [deletingEnvelopeIdx, setDeletingEnvelopeIdx] = useState<number | null>(null)
   const [pendingDeleteEnvelopeIdx, setPendingDeleteEnvelopeIdx] = useState<number | null>(null)
 
   const refreshEnvelopeUsage = useCallback(async () => {
-    const res = await fetch("/api/envelopes?usage=1")
-    if (!res.ok) return
-    const rows = await res.json() as Array<{
-      id: string
-      transactionCount?: number
-      recurringCount?: number
-    }>
-    const next: Record<string, { transactionCount: number; recurringCount: number }> = {}
-    for (const r of rows) {
-      if (!r.id) continue
-      next[r.id] = {
-        transactionCount: typeof r.transactionCount === "number" ? r.transactionCount : 0,
-        recurringCount: typeof r.recurringCount === "number" ? r.recurringCount : 0,
+    setEnvelopeUsageLoading(true)
+    try {
+      const res = await fetch("/api/envelopes?usage=1")
+      if (!res.ok) return
+      const rows = await res.json() as Array<{
+        id: string
+        transactionCount?: number
+        recurringCount?: number
+      }>
+      const next: Record<string, { transactionCount: number; recurringCount: number }> = {}
+      for (const r of rows) {
+        if (!r.id) continue
+        next[r.id] = {
+          transactionCount: typeof r.transactionCount === "number" ? r.transactionCount : 0,
+          recurringCount: typeof r.recurringCount === "number" ? r.recurringCount : 0,
+        }
       }
+      setEnvelopeUsageById(next)
+    } finally {
+      setEnvelopeUsageLoading(false)
+      setEnvelopeUsageHydrated(true)
     }
-    setEnvelopeUsageById(next)
   }, [])
 
   useEffect(() => {
@@ -310,8 +320,13 @@ export default function OnboardingPage() {
     }
   }, [hydrated, step, isNostr, isNsecFallback])
 
-  useEffect(() => {
-    if (step !== "envelopes") return
+  // useLayoutEffect: reset hydration + start fetch before paint so delete dialog never flashes the error copy on first paint.
+  useLayoutEffect(() => {
+    if (step !== "envelopes") {
+      setEnvelopeUsageHydrated(false)
+      return
+    }
+    setEnvelopeUsageHydrated(false)
     void refreshEnvelopeUsage()
   }, [step, refreshEnvelopeUsage])
 
@@ -820,10 +835,16 @@ export default function OnboardingPage() {
 
   const pendingDeleteEnv =
     pendingDeleteEnvelopeIdx !== null ? envelopes[pendingDeleteEnvelopeIdx] : undefined
+  const pendingDeleteEnvId = pendingDeleteEnv?.id
   const pendingDeleteUsage =
-    pendingDeleteEnv?.id != null ? envelopeUsageById[pendingDeleteEnv.id] : undefined
-  const pendingDeleteTxs = pendingDeleteUsage?.transactionCount ?? 0
-  const pendingDeleteRec = pendingDeleteUsage?.recurringCount ?? 0
+    pendingDeleteEnvId != null ? envelopeUsageById[pendingDeleteEnvId] : undefined
+  const pendingDeleteUsageReady =
+    pendingDeleteEnvId != null &&
+    envelopeUsageHydrated &&
+    !envelopeUsageLoading &&
+    Object.prototype.hasOwnProperty.call(envelopeUsageById, pendingDeleteEnvId)
+  const pendingDeleteTxs = pendingDeleteUsageReady ? (pendingDeleteUsage?.transactionCount ?? 0) : 0
+  const pendingDeleteRec = pendingDeleteUsageReady ? (pendingDeleteUsage?.recurringCount ?? 0) : 0
 
   /**
    * Align committed allotment with the nearest $50 bucket for the current thumb position.
@@ -1788,6 +1809,31 @@ export default function OnboardingPage() {
               <div className="text-muted-foreground text-sm space-y-2">
                 {!pendingDeleteEnv ? (
                   <p>This envelope is no longer in your list.</p>
+                ) : envelopeUsageLoading || !envelopeUsageHydrated ? (
+                  <p className="flex items-center gap-2">
+                    <Spinner className="h-4 w-4 shrink-0" />
+                    Checking whether this envelope has linked transactions or recurring rules…
+                  </p>
+                ) : !pendingDeleteUsageReady ? (
+                  <div className="space-y-3">
+                    <p>
+                      We couldn&apos;t load usage for this envelope yet. Removing it may permanently delete
+                      associated transactions and recurring rules. Try loading usage again, or cancel and
+                      continue once your connection is stable.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="border-[#333] bg-[#1A1A1A] hover:bg-[#252525]"
+                      disabled={envelopeUsageLoading}
+                      onClick={() => {
+                        void refreshEnvelopeUsage()
+                      }}
+                    >
+                      Retry
+                    </Button>
+                  </div>
                 ) : pendingDeleteTxs === 0 && pendingDeleteRec === 0 ? (
                   <p>
                     This envelope will be removed from your list. You can add it again before you continue.
@@ -1821,7 +1867,11 @@ export default function OnboardingPage() {
             <Button
               type="button"
               variant="destructive"
-              disabled={deletingEnvelopeIdx !== null || !pendingDeleteEnv}
+              disabled={
+                deletingEnvelopeIdx !== null ||
+                !pendingDeleteEnv ||
+                !pendingDeleteUsageReady
+              }
               onClick={() => { void confirmDeleteEnvelope() }}
               className="gap-2"
             >
