@@ -19,7 +19,7 @@ export function TransactionLoadingIndicator() {
         role="alert"
         className="flex flex-col gap-2 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-200/90 sm:flex-row sm:items-center sm:justify-between"
       >
-        <span>Couldn&apos;t sync transactions: {transactionSyncError}</span>
+        <span>{transactionSyncError}</span>
         <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"

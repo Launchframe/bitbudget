@@ -41,6 +41,7 @@ import {
   startDateForRecentWindow,
 } from "@/lib/txn-cache"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
+import { transactionSyncUserMessage } from "@/lib/transaction-sync-user-message"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
 
 export type PageId =
@@ -597,9 +598,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setTxnLoadPhase("synced")
     } catch (err) {
       console.error("refreshData failed", err)
-      setTransactionSyncError(
-        err instanceof Error ? err.message : "Failed to refresh data",
-      )
+      setTransactionSyncError(transactionSyncUserMessage(err))
       // Do not advance to "synced" on failure — UI should not imply history is complete.
     }
   }, [])
