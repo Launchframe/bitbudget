@@ -646,6 +646,7 @@ export default function OnboardingPage() {
           if (body.error) errMsg = body.error
         } catch { /* ignore */ }
         setEnvelopeStepError(errMsg)
+        setPendingDeleteEnvelopeIdx(null)
         return
       }
       // Close dialog before mutating the list so `pendingDeleteEnvelopeIdx` never points at a shifted index.
@@ -662,10 +663,11 @@ export default function OnboardingPage() {
     }
   }
 
-  async function mergeEnvelopesStateFromServer() {
+  /** @returns whether server envelopes were loaded and merged into draft state */
+  async function mergeEnvelopesStateFromServer(): Promise<boolean> {
     const res = await fetch("/api/envelopes")
-    if (!res.ok) return
-    const all = await res.json() as Array<{
+    if (!res.ok) return false
+    let all: Array<{
       id: string
       name: string
       color: string
@@ -673,6 +675,20 @@ export default function OnboardingPage() {
       monthlyAllotment: number
       archived: boolean
     }>
+    try {
+      const parsed: unknown = await res.json()
+      if (!Array.isArray(parsed)) return false
+      all = parsed as Array<{
+        id: string
+        name: string
+        color: string
+        icon: string | null
+        monthlyAllotment: number
+        archived: boolean
+      }>
+    } catch {
+      return false
+    }
     const active = all.filter(e => !e.archived)
 
     setEnvelopes(prev => {
@@ -708,6 +724,7 @@ export default function OnboardingPage() {
 
       return out
     })
+    return true
   }
 
   async function handleEnvelopesSave() {
@@ -1909,13 +1926,19 @@ export default function OnboardingPage() {
         }}
         onDone={() => setStep("complete")}
         onRequestAllocations={async () => {
-          await mergeEnvelopesStateFromServer()
+          const merged = await mergeEnvelopesStateFromServer()
+          if (!merged) {
+            throw new Error(
+              "Could not refresh your envelopes from the server. Check your connection and try again.",
+            )
+          }
           setImportDialogOpen(false)
           setStep("allocations")
         }}
         onTryAnotherFile={() => {
           setImportFile(null)
           setImportResult(null)
+          clearOnboardingImportFileInput()
         }}
       />
     </div>
