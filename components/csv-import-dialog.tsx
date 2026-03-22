@@ -105,7 +105,7 @@ export function CSVImportDialog({
     newEnvelopes: string[]
   }) => void
   onDone?: () => void
-  onRequestAllocations?: () => void
+  onRequestAllocations?: () => void | Promise<void>
   /** Called when user chooses another file after an all-duplicates result; parent should clear `file`. */
   onTryAnotherFile?: () => void
   /** Called when parsing or import starts/finishes so parent can show loading state. */
@@ -711,8 +711,8 @@ export function CSVImportDialog({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  onRequestAllocations?.()
+                onClick={async () => {
+                  await Promise.resolve(onRequestAllocations?.())
                   handleOpenChange(false)
                 }}
                 className="px-5 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors"

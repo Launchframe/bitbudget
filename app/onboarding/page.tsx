@@ -130,6 +130,8 @@ export default function OnboardingPage() {
   const [expandedEnvIdx, setExpandedEnvIdx] = useState<number | null>(null)
   /** Snapshot for reverting invalid/duplicate envelope renames on blur (Your Envelopes step). */
   const envelopeNameBeforeEditRef = useRef("")
+  const importFileInputRef = useRef<HTMLInputElement>(null)
+  const prevStepForImportResetRef = useRef<Step | undefined>(undefined)
 
   // Allocations
   const [activeEnvIdx, setActiveEnvIdx] = useState<number | null>(null)
@@ -173,6 +175,11 @@ export default function OnboardingPage() {
     setActiveEnvIdx(null)
     setStep("allocations")
   }
+
+  const clearOnboardingImportFileInput = useCallback(() => {
+    const el = importFileInputRef.current
+    if (el) el.value = ""
+  }, [])
 
   // Import
   const [importFile, setImportFile] = useState<File | null>(null)
@@ -243,6 +250,16 @@ export default function OnboardingPage() {
       }))
     } catch { /* storage full or unavailable */ }
   }, [hydrated, step, income, cadence, envelopes])
+
+  /** Clear chosen file + native input when navigating onto the import step (avoids stale File after back/forward or re-import). */
+  useEffect(() => {
+    const prev = prevStepForImportResetRef.current
+    prevStepForImportResetRef.current = step
+    if (step !== "import") return
+    if (prev === "import") return
+    setImportFile(null)
+    clearOnboardingImportFileInput()
+  }, [step, clearOnboardingImportFileInput])
 
   // Pending nsec lives in tab memory only; intent flag marks nsec-login users. If intent exists
   // but the key is gone (reload, new tab), or user is on security as nsec fallback without a key, sign out.
@@ -668,7 +685,7 @@ export default function OnboardingPage() {
           }),
         })
       }
-      setStep("import")
+      setStep(importResult !== null ? "complete" : "import")
     } finally {
       setLoading(false)
     }
@@ -1573,6 +1590,7 @@ export default function OnboardingPage() {
               {/* items-stretch (not items-center) so file row and hints use full card width on mobile */}
               <div className="flex w-full min-w-0 flex-col items-stretch gap-4 p-6 border-2 border-dashed border-[#333] rounded-xl">
                 <input
+                  ref={importFileInputRef}
                   type="file"
                   accept=".csv"
                   onChange={e => {
@@ -1661,10 +1679,12 @@ export default function OnboardingPage() {
         dedupExistingTransactions={[]}
         onImportResult={summary => {
           setImportResult(summary)
-          void mergeEnvelopesStateFromServer()
+          setImportFile(null)
+          clearOnboardingImportFileInput()
         }}
         onDone={() => setStep("complete")}
-        onRequestAllocations={() => {
+        onRequestAllocations={async () => {
+          await mergeEnvelopesStateFromServer()
           setImportDialogOpen(false)
           setStep("allocations")
         }}
