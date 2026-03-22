@@ -1,18 +1,33 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
-import { formatUsd } from "@/lib/data"
+import { formatUsd, formatUsdPrecise } from "@/lib/data"
+import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
-import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, TrendingUp, Crown, Building2, Smartphone, Mail, Tag, Copy, Check, Loader2, CheckCircle2, AlertCircle } from "lucide-react"
+import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, TrendingUp, Crown, Building2, Smartphone, Mail, Tag, Copy, Check, Loader2, CheckCircle2, AlertCircle, Download } from "lucide-react"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 
 export function SettingsPage() {
   type SettingsTab = "general" | "integrations" | "tags" | "data"
-  const { state, setMonthlyIncome, setBtcDisplayUnit, setOpportunityCostEnabled, addTag, deleteTag, refreshData, encryptForStorage, logout, subscriptionTier, navigateTo } = useApp()
+  const {
+    state,
+    activeTransactions,
+    setMonthlyIncome,
+    setBtcDisplayUnit,
+    setOpportunityCostEnabled,
+    addTag,
+    deleteTag,
+    refreshData,
+    clearLocalTransactionCache,
+    encryptForStorage,
+    logout,
+    subscriptionTier,
+    navigateTo,
+  } = useApp()
   const [editingIncome, setEditingIncome] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general")
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
@@ -40,6 +55,39 @@ export function SettingsPage() {
   const handleImportError = useCallback((error: string) => {
     setImportResult({ success: false, error })
   }, [])
+
+  const envelopeMapForExport = useMemo(() => {
+    const map: Record<string, { name: string }> = {}
+    for (const e of state.envelopes) map[e.id] = { name: e.name }
+    return map
+  }, [state.envelopes])
+
+  const handleExportTransactions = useCallback(() => {
+    const now = new Date()
+    const stampDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+    const filename = buildExportFilename({ stampDate })
+    const sorted = [...activeTransactions].sort((a, b) => b.date.localeCompare(a.date))
+    const rows = sorted.map(t => {
+      const amount = t.type === "expense" ? -Math.abs(t.amount) : Math.abs(t.amount)
+      return {
+        type: t.type,
+        date: t.date,
+        payee: t.payee,
+        amountFormatted: formatUsdPrecise(amount),
+        notes: t.notes ?? "",
+        envelopeName: envelopeMapForExport[t.envelopeId]?.name ?? "",
+        tags: (t.tags ?? []).join(", "),
+      }
+    })
+    const csv = buildTransactionsCsv(rows)
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = filename
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 100)
+  }, [activeTransactions, envelopeMapForExport])
 
   useEffect(() => {
     if (subscriptionTier !== "premium") {
@@ -109,6 +157,11 @@ export function SettingsPage() {
         fetch("/api/transactions?all=true", { method: "DELETE" }),
         fetch("/api/envelopes?all=true", { method: "DELETE" }),
       ])
+      try {
+        await clearLocalTransactionCache()
+      } catch {
+        /* Server deletes already succeeded; cache clear is best-effort */
+      }
       await refreshData()
     } finally {
       setDeleting(false)
@@ -620,6 +673,39 @@ export function SettingsPage() {
             <p className="text-lg font-semibold text-foreground">{state.transactions.length}</p>
           </div>
         </div>
+      </div>
+
+      {/* Export — same CSV format as Transactions page (all active transactions) */}
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-[#3B82F6]/10">
+            <Download className="h-5 w-5 text-[#3B82F6]" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground">Export transactions</h3>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Export your active transactions as a CSV. For a filtered export (by date, envelope, tags, or search), use{" "}
+          <button
+            type="button"
+            onClick={() => navigateTo("transactions")}
+            className="text-[#F7931A] hover:underline font-medium"
+          >
+            Transactions
+          </button>
+          .
+        </p>
+        <p className="text-sm text-muted-foreground mb-4">
+          We recommend backing up your data regularly.
+        </p>
+        <button
+          type="button"
+          onClick={handleExportTransactions}
+          disabled={activeTransactions.length === 0}
+          className="flex items-center justify-center gap-2 py-3 px-6 bg-[#1A1A1A] text-foreground rounded-xl text-sm font-medium hover:bg-[#222] transition-colors border border-[#333] disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Download className="h-4 w-4" />
+          Download
+        </button>
       </div>
 
       {/* Danger Zone */}
