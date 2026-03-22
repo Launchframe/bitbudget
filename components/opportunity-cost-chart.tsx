@@ -217,7 +217,7 @@ export function OpportunityCostChart() {
     return new Date(earliestTxnDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
   }, [earliestTxnDate])
 
-  const title = ocEnabled ? "Opportunity Cost" : "Your Expenses"
+  const title = ocEnabled ? "Your opportunity cost" : "Your expenses"
   const emptyMessage = activeTransactions.length === 0
     ? "Add transactions to see your spending trends."
     : !hasAnyExpenses
@@ -264,15 +264,6 @@ export function OpportunityCostChart() {
             </button>
           ))}
         </div>
-
-        {ocEnabled && activeRange === "all" && earliestFormatted && (
-          <div className="flex items-start gap-2 text-xs text-muted-foreground leading-relaxed">
-            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            <span>
-              Although Bitcoin has been running without interruption since 2010, your transaction history begins on {earliestFormatted}.
-            </span>
-          </div>
-        )}
       </div>
 
       {filteredData.length < 3 ? (
@@ -360,7 +351,7 @@ export function OpportunityCostChart() {
               {ocEnabled && !isMobile && (
                 <Legend
                   verticalAlign="top"
-                  align="right"
+                  align="center"
                   height={30}
                   formatter={(value: string) => (
                     <span className="text-xs text-muted-foreground">{value}</span>
