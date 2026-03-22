@@ -518,7 +518,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!fullIdbHydratedRef.current) fullIdbHydratedRef.current = true
       } else {
         const needIdbSnapshot = idbAvailable && !fullIdbHydratedRef.current
-        const cachedSnapshot = needIdbSnapshot ? await getAllCached(userId) : []
+        const cachedSnapshot = needIdbSnapshot
+          ? (
+              await Promise.all([
+                getRecentCached(userId, RECENT_TXN_WINDOW_DAYS),
+                getRemainingCached(userId, cutoff),
+              ])
+            ).flat()
+          : []
         const txnRes = await fetch(
           `/api/transactions?since=${encodeURIComponent(lastSync!)}`,
         )
@@ -618,13 +625,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       void (async () => {
         await initEncryption()
         const uid = currentUserIdRef.current
-        if (uid) {
-          const memoCount = await getMemo<number>(uid, MEMO_KEYS.txnCount)
-          setMemoTransactionCount(memoCount)
-        }
+        // 401 sign-out or failed encryption fetch leaves no user — keep phase "init" until redirect.
+        if (!uid) return
+        const memoCount = await getMemo<number>(uid, MEMO_KEYS.txnCount)
+        setMemoTransactionCount(memoCount)
         const key = privacyKeyRef.current
         const lockedWithoutKey = pendingLockedRef.current && !key
-        if (uid && !lockedWithoutKey) {
+        if (!lockedWithoutKey) {
           if (key) {
             await decryptAndPersistUndecrypted(uid, key)
           }
