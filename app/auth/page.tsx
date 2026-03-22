@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { BitbudgetLogo, type BitbudgetLogoVariant } from "@/components/bitbudget-logo"
@@ -326,14 +326,21 @@ export default function AuthPage() {
     await signIn(provider, { callbackUrl: "/" })
   }
 
-  function resetToMethodPicker() {
+  const resetToMethodPicker = useCallback(() => {
     setMethod(null)
     setEmailStep("enter-email")
     setCode("")
     setNsecValue("")
     setError("")
     setCooldown(0)
-  }
+  }, [])
+
+  /** `method === "nostr"` only renders when no extension — otherwise the card is empty. */
+  useEffect(() => {
+    if (method === "nostr" && nostrAvailable) {
+      resetToMethodPicker()
+    }
+  }, [method, nostrAvailable, resetToMethodPicker])
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
@@ -543,7 +550,17 @@ export default function AuthPage() {
             <form onSubmit={handleNsecLogin} className="flex flex-col gap-4">
               <button
                 type="button"
-                onClick={() => { setMethod("nostr"); setNsecValue(""); setError("") }}
+                onClick={() => {
+                  setNsecValue("")
+                  setError("")
+                  // `method === "nostr"` only renders the extension promo when `!nostrAvailable`.
+                  // If an extension exists, going "back" to `nostr` shows nothing — reset to the picker.
+                  if (nostrAvailable) {
+                    resetToMethodPicker()
+                  } else {
+                    setMethod("nostr")
+                  }
+                }}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors self-start mb-2"
               >
                 <ArrowLeft className="h-3 w-3" />
