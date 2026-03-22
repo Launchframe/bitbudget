@@ -503,6 +503,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...rowsOlder.map((r) => r.id),
         ])
         await removeMissing(userId, allIds)
+        setState(prev => ({
+          ...prev,
+          transactions: prev.transactions.filter(t => allIds.has(t.id)),
+        }))
 
         const mr = maxUpdatedAtFromApiRows(rowsRecent)
         const mo = maxUpdatedAtFromApiRows(rowsOlder)
@@ -564,7 +568,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       setTxnLoadPhase("synced")
     } catch {
-      setTxnLoadPhase("synced")
+      // Do not advance to "synced" on failure — UI should not imply history is complete.
     }
   }, [])
 
@@ -1125,8 +1129,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   )
 
   const loading = txnLoadPhase === "init"
-  const historyReady =
-    txnLoadPhase === "full" || txnLoadPhase === "synced"
+  /** True only after the full sync path (including older API fetch + IDB reconcile) has finished. */
+  const historyReady = txnLoadPhase === "synced"
 
   return (
     <AppContext.Provider

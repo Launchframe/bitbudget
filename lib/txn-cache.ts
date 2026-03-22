@@ -241,12 +241,11 @@ export async function getCachedByIds(
   const db = await openTxnDb(userId)
   if (!db) return []
   try {
-    const out: CachedTransaction[] = []
-    for (const id of ids) {
-      const row = await db.get("transactions", id)
-      if (row) out.push(row)
-    }
-    return out
+    const tx = db.transaction("transactions", "readonly")
+    const store = tx.store
+    const rows = await Promise.all(ids.map(id => store.get(id)))
+    await tx.done
+    return rows.filter((row): row is CachedTransaction => Boolean(row))
   } finally {
     db.close()
   }
