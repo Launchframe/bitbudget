@@ -5,7 +5,9 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
-import { Info, BarChart3 } from "lucide-react"
+// Shared tick rules (incl. short spans / 5Y imported history) live in `lib/chart-x-axis-format.ts`.
+import { formatExpenseChartXAxisTick } from "@/lib/chart-x-axis-format"
+import { BarChart3 } from "lucide-react"
 
 type RangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "5y" | "all"
 
@@ -181,6 +183,18 @@ export function OpportunityCostChart() {
     return [0, Math.ceil(max * 1.1)]
   }, [filteredData, ocEnabled])
 
+  const xAxisTickFormatter = useCallback(
+    (val: string) => {
+      if (filteredData.length === 0) return val
+      return formatExpenseChartXAxisTick(val, {
+        activeRange,
+        dataFirstIso: filteredData[0].date,
+        dataLastIso: filteredData[filteredData.length - 1].date,
+      })
+    },
+    [activeRange, filteredData],
+  )
+
   const spread = useMemo(() => {
     if (filteredData.length === 0) return null
     const last = filteredData[filteredData.length - 1]
@@ -190,21 +204,7 @@ export function OpportunityCostChart() {
     return { spent: last.spent, btcValue: last.btcValue, diff, pct }
   }, [filteredData, ocEnabled])
 
-  const earliestTxnDate = useMemo(() => {
-    if (activeTransactions.length === 0) return null
-    const sorted = activeTransactions
-      .filter(t => t.type === "expense")
-      .map(t => t.date.split("T")[0])
-      .sort()
-    return sorted[0] ?? null
-  }, [activeTransactions])
-
-  const earliestFormatted = useMemo(() => {
-    if (!earliestTxnDate) return null
-    return new Date(earliestTxnDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-  }, [earliestTxnDate])
-
-  const title = ocEnabled ? "Opportunity Cost" : "Your Expenses"
+  const title = ocEnabled ? "Your opportunity cost" : "Your expenses"
   const emptyMessage = activeTransactions.length === 0
     ? "Add transactions to see your spending trends."
     : !hasAnyExpenses
@@ -251,15 +251,6 @@ export function OpportunityCostChart() {
             </button>
           ))}
         </div>
-
-        {ocEnabled && activeRange === "all" && earliestFormatted && (
-          <div className="flex items-start gap-2 text-xs text-muted-foreground leading-relaxed">
-            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            <span>
-              Although Bitcoin has been running without interruption since 2010, your transaction history begins on {earliestFormatted}.
-            </span>
-          </div>
-        )}
       </div>
 
       {filteredData.length < 3 ? (
@@ -290,13 +281,7 @@ export function OpportunityCostChart() {
                 interval="preserveStartEnd"
                 tickCount={isMobile ? 5 : 8}
                 minTickGap={isMobile ? 40 : 50}
-                tickFormatter={(val: string) => {
-                  const d = new Date(val)
-                  const yearOnly = activeRange === "5y" || activeRange === "all"
-                  if (yearOnly) return d.getFullYear().toString()
-                  if (isMobile) return d.toLocaleDateString("en-US", { month: "short" })
-                  return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
-                }}
+                tickFormatter={xAxisTickFormatter}
               />
               <YAxis
                 domain={yDomain}
@@ -353,7 +338,7 @@ export function OpportunityCostChart() {
               {ocEnabled && !isMobile && (
                 <Legend
                   verticalAlign="top"
-                  align="right"
+                  align="center"
                   height={30}
                   formatter={(value: string) => (
                     <span className="text-xs text-muted-foreground">{value}</span>
