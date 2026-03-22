@@ -517,7 +517,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (mergedSync) await setLastSyncIso(userId, mergedSync)
         if (!fullIdbHydratedRef.current) fullIdbHydratedRef.current = true
       } else {
-        const cachedSnapshot = await getAllCached(userId)
+        const needIdbSnapshot = idbAvailable && !fullIdbHydratedRef.current
+        const cachedSnapshot = needIdbSnapshot ? await getAllCached(userId) : []
         const txnRes = await fetch(
           `/api/transactions?since=${encodeURIComponent(lastSync!)}`,
         )
@@ -534,15 +535,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setState(prev => {
           let nextTxns: Transaction[]
           if (idbAvailable) {
-            const byId = new Map(
-              cachedSnapshot.map((c) => [c.id, cachedToClientTransaction(c)]),
-            )
-            for (const c of cachedTxns) {
-              byId.set(c.id, cachedToClientTransaction(c))
+            if (needIdbSnapshot) {
+              const byId = new Map(
+                cachedSnapshot.map((c) => [c.id, cachedToClientTransaction(c)]),
+              )
+              for (const c of cachedTxns) {
+                byId.set(c.id, cachedToClientTransaction(c))
+              }
+              nextTxns = Array.from(byId.values()).sort((a, b) =>
+                b.date.localeCompare(a.date),
+              )
+            } else {
+              nextTxns = mergeTransactionBatch(prev.transactions, cachedTxns)
             }
-            nextTxns = Array.from(byId.values()).sort((a, b) =>
-              b.date.localeCompare(a.date),
-            )
           } else if (cachedTxns.length > 0) {
             const byId = new Map(prev.transactions.map((t) => [t.id, t]))
             for (const c of cachedTxns) {

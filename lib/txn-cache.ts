@@ -212,10 +212,13 @@ export async function getRemainingCached(
       const row = cursor.value as CachedTransaction
       out.push(row)
       yielded++
+      // Schedule continue() before yielding so an IDB request stays in-flight during setTimeout;
+      // otherwise the transaction can auto-commit and the cursor throws TransactionInactiveError.
+      const nextCursorPromise = cursor.continue()
       if (yielded % REMAINING_BATCH_YIELD_EVERY === 0) {
         await new Promise<void>((r) => setTimeout(r, 0))
       }
-      cursor = await cursor.continue()
+      cursor = await nextCursorPromise
     }
     return out
   } finally {
