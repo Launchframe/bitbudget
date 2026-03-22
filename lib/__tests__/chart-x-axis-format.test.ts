@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  daysBetweenIsoInclusiveRange,
+  calendarDaysBetweenIsoExclusive,
   formatExpenseChartXAxisTick,
   parseIsoDateLocal,
 } from "../chart-x-axis-format"
@@ -14,10 +14,10 @@ describe("parseIsoDateLocal", () => {
   })
 })
 
-describe("daysBetweenIsoInclusiveRange", () => {
-  it("returns whole-day difference", () => {
-    expect(daysBetweenIsoInclusiveRange("2025-10-05", "2025-10-06")).toBe(1)
-    expect(daysBetweenIsoInclusiveRange("2025-10-05", "2025-10-05")).toBe(0)
+describe("calendarDaysBetweenIsoExclusive", () => {
+  it("returns exclusive day span", () => {
+    expect(calendarDaysBetweenIsoExclusive("2025-10-05", "2025-10-06")).toBe(1)
+    expect(calendarDaysBetweenIsoExclusive("2025-10-05", "2025-10-05")).toBe(0)
   })
 })
 

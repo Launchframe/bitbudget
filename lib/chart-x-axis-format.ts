@@ -3,7 +3,11 @@ export function parseIsoDateLocal(isoDate: string): Date {
   return new Date(`${isoDate}T12:00:00`)
 }
 
-export function daysBetweenIsoInclusiveRange(a: string, b: string): number {
+/**
+ * Whole calendar days between two ISO dates (exclusive end-style span).
+ * Same date → `0`; consecutive dates → `1`. Not “inclusive count of touched days”.
+ */
+export function calendarDaysBetweenIsoExclusive(a: string, b: string): number {
   return Math.round(
     (parseIsoDateLocal(b).getTime() - parseIsoDateLocal(a).getTime()) / 86_400_000,
   )
@@ -25,7 +29,7 @@ export function formatExpenseChartXAxisTick(
   },
 ): string {
   const d = parseIsoDateLocal(isoDate)
-  const spanDays = daysBetweenIsoInclusiveRange(args.dataFirstIso, args.dataLastIso)
+  const spanDays = calendarDaysBetweenIsoExclusive(args.dataFirstIso, args.dataLastIso)
   const endYear = parseIsoDateLocal(args.dataLastIso).getFullYear()
 
   const shortPreset =

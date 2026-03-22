@@ -627,6 +627,8 @@ export default function OnboardingPage() {
         setEnvelopeStepError(errMsg)
         return
       }
+      // Close dialog before mutating the list so `pendingDeleteEnvelopeIdx` never points at a shifted index.
+      setPendingDeleteEnvelopeIdx(null)
       removeEnvelope(idx)
       setEnvelopeUsageById(prev => {
         const next = { ...prev }
@@ -634,7 +636,6 @@ export default function OnboardingPage() {
         return next
       })
       await refreshEnvelopeUsage()
-      setPendingDeleteEnvelopeIdx(null)
     } finally {
       setDeletingEnvelopeIdx(null)
     }

@@ -5,8 +5,9 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
+// Shared tick rules (incl. short spans / 5Y imported history) live in `lib/chart-x-axis-format.ts`.
 import { formatExpenseChartXAxisTick } from "@/lib/chart-x-axis-format"
-import { Info, BarChart3 } from "lucide-react"
+import { BarChart3 } from "lucide-react"
 
 type RangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "5y" | "all"
 
@@ -202,20 +203,6 @@ export function OpportunityCostChart() {
     const pct = last.spent > 0 ? ((diff / last.spent) * 100).toFixed(0) : "0"
     return { spent: last.spent, btcValue: last.btcValue, diff, pct }
   }, [filteredData, ocEnabled])
-
-  const earliestTxnDate = useMemo(() => {
-    if (activeTransactions.length === 0) return null
-    const sorted = activeTransactions
-      .filter(t => t.type === "expense")
-      .map(t => t.date.split("T")[0])
-      .sort()
-    return sorted[0] ?? null
-  }, [activeTransactions])
-
-  const earliestFormatted = useMemo(() => {
-    if (!earliestTxnDate) return null
-    return new Date(earliestTxnDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-  }, [earliestTxnDate])
 
   const title = ocEnabled ? "Your opportunity cost" : "Your expenses"
   const emptyMessage = activeTransactions.length === 0

@@ -3,6 +3,10 @@ import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 
+/**
+ * List envelopes for the signed-in user.
+ * Query `usage=1` adds `transactionCount` and `recurringCount` per row (for onboarding delete UX).
+ */
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
@@ -158,8 +162,16 @@ export async function DELETE(req: NextRequest) {
   const all = searchParams.get("all")
 
   if (all === "true") {
-    await prisma.transaction.deleteMany({ where: { userId: session.user.id } })
-    const { count } = await prisma.envelope.deleteMany({ where: { userId: session.user.id } })
+    const userId = session.user.id
+    const { count } = await prisma.$transaction(async tx => {
+      await tx.pendingTransaction.updateMany({
+        where: { userId },
+        data: { suggestedEnvelopeId: null },
+      })
+      await tx.transactionShortcut.deleteMany({ where: { userId } })
+      // Transactions/recurring/payee mappings cascade when envelopes are removed; shortcuts do not.
+      return tx.envelope.deleteMany({ where: { userId } })
+    })
     return NextResponse.json({ deleted: count })
   }
 
