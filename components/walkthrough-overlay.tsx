@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
 import { X } from "lucide-react"
+import { useApp } from "@/lib/app-context"
 
 interface WalkthroughStep {
   target: string
@@ -10,26 +11,30 @@ interface WalkthroughStep {
   position: "right" | "bottom"
 }
 
-const STEPS: WalkthroughStep[] = [
-  {
-    target: "transactions",
-    title: "Your Transactions",
-    description: "This is where you'll add and manage your expenses.",
-    position: "right",
-  },
-  {
-    target: "new-transaction",
-    title: "Add a Transaction",
-    description: "Tap here to record your first expense.",
-    position: "right",
-  },
-  {
-    target: "dashboard-area",
-    title: "Your Dashboard",
-    description: "Spending insights and Bitcoin opportunity costs appear here once you have transactions.",
-    position: "bottom",
-  },
-]
+function buildWalkthroughSteps(opportunityCostEnabled: boolean): WalkthroughStep[] {
+  return [
+    {
+      target: "transactions",
+      title: "Your Transactions",
+      description: "This is where you'll add and manage your expenses.",
+      position: "right",
+    },
+    {
+      target: "new-transaction",
+      title: "Add a Transaction",
+      description: "Tap here to record your first expense.",
+      position: "right",
+    },
+    {
+      target: "dashboard-area",
+      title: "Your Dashboard",
+      description: opportunityCostEnabled
+        ? "Spending insights and Bitcoin opportunity costs appear here once you have transactions."
+        : "Spending insights appear here once you have transactions.",
+      position: "bottom",
+    },
+  ]
+}
 
 const STORAGE_KEY = "bitbudget-walkthrough-completed"
 
@@ -41,6 +46,11 @@ const VIEW_PAD = 12
 type TooltipVariant = "right" | "below" | "above"
 
 export function WalkthroughOverlay() {
+  const { state } = useApp()
+  const steps = useMemo(
+    () => buildWalkthroughSteps(state.opportunityCostEnabled),
+    [state.opportunityCostEnabled],
+  )
   const [currentStep, setCurrentStep] = useState(0)
   const [visible, setVisible] = useState(false)
   const [tooltipPos, setTooltipPos] = useState<{
@@ -60,7 +70,7 @@ export function WalkthroughOverlay() {
   }, [])
 
   const positionTooltip = useCallback(() => {
-    const step = STEPS[currentStep]
+    const step = steps[currentStep]
     const el = document.querySelector(`[data-walkthrough="${step.target}"]`)
     if (!el) {
       // Fallback positions when the target element doesn't exist (e.g. on mobile where sidebar items are hidden)
@@ -131,7 +141,7 @@ export function WalkthroughOverlay() {
     )
 
     setTooltipPos({ top, left, centred: false, variant })
-  }, [currentStep])
+  }, [currentStep, steps])
 
   useLayoutEffect(() => {
     if (!visible) return
@@ -154,7 +164,7 @@ export function WalkthroughOverlay() {
   }, [visible, positionTooltip])
 
   function handleNext() {
-    if (currentStep < STEPS.length - 1) {
+    if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1)
     } else {
       dismiss()
@@ -168,8 +178,8 @@ export function WalkthroughOverlay() {
 
   if (!visible) return null
 
-  const step = STEPS[currentStep]
-  const isLast = currentStep === STEPS.length - 1
+  const step = steps[currentStep]
+  const isLast = currentStep === steps.length - 1
 
   return (
     <div className="fixed inset-0 z-50">
@@ -200,7 +210,7 @@ export function WalkthroughOverlay() {
         <p className="text-xs text-muted-foreground leading-relaxed mb-3">{step.description}</p>
         <div className="flex items-center justify-between">
           <div className="flex gap-1">
-            {STEPS.map((_, i) => (
+            {steps.map((_, i) => (
               <div
                 key={i}
                 className={`h-1.5 rounded-full transition-colors ${
