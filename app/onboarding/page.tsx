@@ -234,7 +234,11 @@ export default function OnboardingPage() {
     setEnvelopeUsageLoading(true)
     try {
       const res = await fetch("/api/envelopes?usage=1")
-      if (!res.ok) return
+      if (!res.ok) {
+        // Don’t let a failed refresh leave prior counts trusted as “current”.
+        setEnvelopeUsageById({})
+        return
+      }
       const rows = await res.json() as Array<{
         id: string
         transactionCount?: number
@@ -249,6 +253,8 @@ export default function OnboardingPage() {
         }
       }
       setEnvelopeUsageById(next)
+    } catch {
+      setEnvelopeUsageById({})
     } finally {
       setEnvelopeUsageLoading(false)
       setEnvelopeUsageHydrated(true)

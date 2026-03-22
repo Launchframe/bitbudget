@@ -719,9 +719,16 @@ export function CSVImportDialog({
                 disabled={requestingAllocations}
                 onClick={async () => {
                   setRequestingAllocations(true)
+                  setError(null)
                   try {
                     await Promise.resolve(onRequestAllocations?.())
                     handleOpenChange(false)
+                  } catch (e) {
+                    setError(
+                      e instanceof Error
+                        ? e.message
+                        : "Could not open budget allocations. Please try again.",
+                    )
                   } finally {
                     setRequestingAllocations(false)
                   }
