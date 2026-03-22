@@ -29,10 +29,11 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = { userId: session.user.id }
   if (envelopeId) where.envelopeId = envelopeId
   if (type && type !== "all") where.type = type
+  // YYYY-MM-DD bounds in UTC so splits (recent vs older) match client `startDateForRecentWindow` / `dayBeforeIsoDate`.
   if (startDate || endDate) {
     where.date = {
-      ...(startDate ? { gte: new Date(startDate) } : {}),
-      ...(endDate ? { lte: new Date(endDate + "T23:59:59") } : {}),
+      ...(startDate ? { gte: new Date(`${startDate}T00:00:00.000Z`) } : {}),
+      ...(endDate ? { lte: new Date(`${endDate}T23:59:59.999Z`) } : {}),
     }
   }
 

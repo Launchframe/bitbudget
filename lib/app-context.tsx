@@ -15,6 +15,7 @@ import {
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import {
   type ApiTransactionRow,
+  type CachedTransaction,
   cachedToClientTransaction,
   clearDb,
   dayBeforeIsoDate,
@@ -124,6 +125,9 @@ interface AppContextValue {
   txnLoadPhase: TxnLoadPhase
   /** True once full IDB + API sync finished for the current refresh (search/analytics complete). */
   historyReady: boolean
+  /** Set when `refreshData` fails mid-sync; cleared on the next successful refresh or dismiss. */
+  transactionSyncError: string | null
+  clearTransactionSyncError: () => void
   /** User id for IndexedDB helpers (e.g. memoized top OC). */
   currentUserId: string | null
   /** Last persisted transaction count from IndexedDB memo (instant Settings hint). */
@@ -242,6 +246,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return page === "envelope-detail" && envelopeId ? new Set([envelopeId]) : new Set()
   })
   const [txnLoadPhase, setTxnLoadPhase] = useState<TxnLoadPhase>("init")
+  const [transactionSyncError, setTransactionSyncError] = useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [memoTransactionCount, setMemoTransactionCount] = useState<number | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
@@ -364,7 +369,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const clearTransactionSyncError = useCallback(() => {
+    setTransactionSyncError(null)
+  }, [])
+
   const refreshData = useCallback(async () => {
+    setTransactionSyncError(null)
     try {
       await fetch("/api/recurring/process", { method: "POST" }).catch(() => {})
 
@@ -518,17 +528,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!fullIdbHydratedRef.current) fullIdbHydratedRef.current = true
       } else {
         const needIdbSnapshot = idbAvailable && !fullIdbHydratedRef.current
-        const cachedSnapshot = needIdbSnapshot
-          ? (
-              await Promise.all([
-                getRecentCached(userId, RECENT_TXN_WINDOW_DAYS),
-                getRemainingCached(userId, cutoff),
-              ])
-            ).flat()
-          : []
-        const txnRes = await fetch(
+        const idbSnapshotPromise = needIdbSnapshot
+          ? Promise.all([
+              getRecentCached(userId, RECENT_TXN_WINDOW_DAYS),
+              getRemainingCached(userId, cutoff),
+            ]).then(parts => parts.flat())
+          : Promise.resolve([] as CachedTransaction[])
+
+        const txnResPromise = fetch(
           `/api/transactions?since=${encodeURIComponent(lastSync!)}`,
         )
+
+        const [cachedSnapshot, txnRes] = await Promise.all([
+          idbSnapshotPromise,
+          txnResPromise,
+        ])
+
         if (txnRes.status === 401 || txnRes.status === 403) {
           signOut({ callbackUrl: "/auth" })
           return
@@ -580,7 +595,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await setMemo(userId, MEMO_KEYS.txnCount, count)
 
       setTxnLoadPhase("synced")
-    } catch {
+    } catch (err) {
+      console.error("refreshData failed", err)
+      setTransactionSyncError(
+        err instanceof Error ? err.message : "Failed to refresh data",
+      )
       // Do not advance to "synced" on failure — UI should not imply history is complete.
     }
   }, [])
@@ -1058,6 +1077,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     fullIdbHydratedRef.current = false
     setCurrentUserId(null)
     setMemoTransactionCount(null)
+    setTransactionSyncError(null)
     setTxnLoadPhase("init")
     void (async () => {
       if (uid) await clearDb(uid).catch(() => {})
@@ -1162,6 +1182,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         loading,
         txnLoadPhase,
         historyReady,
+        transactionSyncError,
+        clearTransactionSyncError,
         currentUserId,
         memoTransactionCount,
         encryption,

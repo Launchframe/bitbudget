@@ -28,15 +28,22 @@ export function TopOpportunityCosts() {
   const [selectedTxn, setSelectedTxn] = useState<EnrichedTransaction | null>(null)
   const [memoBootstrapTxns, setMemoBootstrapTxns] = useState<Transaction[]>([])
 
-  /** Ranked expense ids for memo persistence (single OC pass vs duplicating in an effect). */
-  const topOcMemoIds = useMemo(() => {
+  /** Single OC + price pass for both dashboard top-10 and memo top-100 ids. */
+  const rankedExpenseOpportunity = useMemo(() => {
     const expenses = activeTransactions.filter((t) => t.type === "expense")
     return expenses
-      .map((t) => ({ id: t.id, oc: calculateOpportunityCost(t.amount, t.date) }))
-      .sort((a, b) => b.oc - a.oc)
-      .slice(0, 100)
-      .map((x) => x.id)
-  }, [activeTransactions, calculateOpportunityCost])
+      .map((t) => ({
+        t,
+        btcValueToday: calculateOpportunityCost(t.amount, t.date),
+        btcPriceAtTime: getPriceOnDate(t.date),
+      }))
+      .sort((a, b) => b.btcValueToday - a.btcValueToday)
+  }, [activeTransactions, calculateOpportunityCost, getPriceOnDate])
+
+  const topOcMemoIds = useMemo(
+    () => rankedExpenseOpportunity.slice(0, 100).map((x) => x.t.id),
+    [rankedExpenseOpportunity],
+  )
 
   const lastPersistedOcIdsKey = useRef<string | null>(null)
 
@@ -86,34 +93,34 @@ export function TopOpportunityCosts() {
   ])
 
   const topTransactions = useMemo(() => {
-    const enrich = (t: Transaction): EnrichedTransaction => ({
-      ...t,
-      btcValueToday: calculateOpportunityCost(t.amount, t.date),
-      btcPriceAtTime: getPriceOnDate(t.date),
-    })
-
-    const fromLive = activeTransactions
-      .filter((t) => t.type === "expense")
-      .map(enrich)
-      .sort((a, b) => b.btcValueToday - a.btcValueToday)
+    const fromLive: EnrichedTransaction[] = rankedExpenseOpportunity
       .slice(0, 10)
+      .map(({ t, btcValueToday, btcPriceAtTime }) => ({
+        ...t,
+        btcValueToday,
+        btcPriceAtTime,
+      }))
 
     if (txnLoadPhase === "synced" || memoBootstrapTxns.length === 0) {
       return fromLive
     }
 
-    const fromMemo = memoBootstrapTxns
+    const fromMemo: EnrichedTransaction[] = memoBootstrapTxns
       .filter((t) => t.type === "expense")
-      .map(enrich)
+      .map((t) => ({
+        ...t,
+        btcValueToday: calculateOpportunityCost(t.amount, t.date),
+        btcPriceAtTime: getPriceOnDate(t.date),
+      }))
       .slice(0, 10)
 
     return fromMemo.length > 0 ? fromMemo : fromLive
   }, [
-    activeTransactions,
-    calculateOpportunityCost,
-    getPriceOnDate,
+    rankedExpenseOpportunity,
     memoBootstrapTxns,
     txnLoadPhase,
+    calculateOpportunityCost,
+    getPriceOnDate,
   ])
 
   return (
