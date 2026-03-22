@@ -5,6 +5,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
+import { formatExpenseChartXAxisTick } from "@/lib/chart-x-axis-format"
 import { Info, BarChart3 } from "lucide-react"
 
 type RangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "5y" | "all"
@@ -181,6 +182,18 @@ export function OpportunityCostChart() {
     return [0, Math.ceil(max * 1.1)]
   }, [filteredData, ocEnabled])
 
+  const xAxisTickFormatter = useCallback(
+    (val: string) => {
+      if (filteredData.length === 0) return val
+      return formatExpenseChartXAxisTick(val, {
+        activeRange,
+        dataFirstIso: filteredData[0].date,
+        dataLastIso: filteredData[filteredData.length - 1].date,
+      })
+    },
+    [activeRange, filteredData],
+  )
+
   const spread = useMemo(() => {
     if (filteredData.length === 0) return null
     const last = filteredData[filteredData.length - 1]
@@ -290,13 +303,7 @@ export function OpportunityCostChart() {
                 interval="preserveStartEnd"
                 tickCount={isMobile ? 5 : 8}
                 minTickGap={isMobile ? 40 : 50}
-                tickFormatter={(val: string) => {
-                  const d = new Date(val)
-                  const yearOnly = activeRange === "5y" || activeRange === "all"
-                  if (yearOnly) return d.getFullYear().toString()
-                  if (isMobile) return d.toLocaleDateString("en-US", { month: "short" })
-                  return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
-                }}
+                tickFormatter={xAxisTickFormatter}
               />
               <YAxis
                 domain={yDomain}
