@@ -1681,6 +1681,8 @@ export default function OnboardingPage() {
           setImportResult(summary)
           setImportFile(null)
           clearOnboardingImportFileInput()
+          // Refresh draft envelopes if user dismisses the dialog (close/overlay) instead of “Update allocations”.
+          void mergeEnvelopesStateFromServer()
         }}
         onDone={() => setStep("complete")}
         onRequestAllocations={async () => {
