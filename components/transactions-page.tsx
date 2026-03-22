@@ -11,7 +11,6 @@ import { Badge } from "@/components/ui/badge"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X, Plus, Download } from "lucide-react"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
-import { Skeleton } from "@/components/ui/skeleton"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import {
   Select,
@@ -38,7 +37,7 @@ export function TransactionsPage() {
     transactionEnvelopeFilter,
     clearTransactionEnvelopeFilter,
     openNewTransaction,
-    loading,
+    historyReady,
   } = useApp()
   const { calculateOpportunityCost } = useBtcPrices()
 
@@ -418,6 +417,11 @@ export function TransactionsPage() {
             )}
           </div>
         )}
+        {!historyReady && hasActiveFilter && (
+          <p className="text-xs text-amber-400/90 px-1" role="status">
+            Older transactions may still be loading — results are incomplete until sync finishes.
+          </p>
+        )}
       </div>
 
       {availableTags.length > 0 && (
@@ -467,24 +471,7 @@ export function TransactionsPage() {
               </tr>
             </thead>
             <tbody>
-              {loading ? (
-                Array.from({ length: pageSize }).map((_, i) => (
-                  <tr key={`sk-${i}`} className="border-b border-[#1A1A1A]">
-                    <td className="py-3.5 px-4"><Skeleton className="h-4 w-24 bg-[#1A1A1A]" /></td>
-                    <td className="py-3.5 px-4"><Skeleton className="h-4 w-40 bg-[#1A1A1A]" /></td>
-                    <td className="py-3.5 px-4 hidden md:table-cell"><Skeleton className="h-4 w-28 bg-[#1A1A1A]" /></td>
-                    <td className="py-3.5 px-4 hidden sm:table-cell"><Skeleton className="h-6 w-16 bg-[#1A1A1A]" /></td>
-                    <td className="py-3.5 px-4 text-right"><Skeleton className="h-4 w-16 ml-auto bg-[#1A1A1A]" /></td>
-                    {state.opportunityCostEnabled && (
-                      <td className="py-3.5 px-4 text-right hidden md:table-cell"><Skeleton className="h-4 w-14 ml-auto bg-[#1A1A1A]" /></td>
-                    )}
-                    {state.opportunityCostEnabled && (
-                      <td className="py-3.5 px-4 text-right hidden sm:table-cell"><Skeleton className="h-4 w-14 ml-auto bg-[#1A1A1A]" /></td>
-                    )}
-                    <td className="py-3.5 px-4" />
-                  </tr>
-                ))
-              ) : paginatedTransactions.map((txn) => {
+              {paginatedTransactions.map((txn) => {
                 const opCost = calculateOpportunityCost(txn.amount, txn.date)
                 const env = envelopeMap[txn.envelopeId]
                 const isHighlighted = txn.id === highlightTransactionId
@@ -571,7 +558,7 @@ export function TransactionsPage() {
                   </tr>
                 )
               })}
-              {!loading && paginatedTransactions.length === 0 && (
+              {paginatedTransactions.length === 0 && (
                 <tr>
                   <td colSpan={state.opportunityCostEnabled ? 8 : 6} className="py-10 text-center text-muted-foreground text-sm">
                     No transactions found.

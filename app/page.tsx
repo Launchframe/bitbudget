@@ -23,6 +23,7 @@ import { PinUnlockDialog } from "@/components/pin-unlock-dialog"
 import { Spinner } from "@/components/ui/spinner"
 import { FaviconSwitcher } from "@/components/favicon-switcher"
 import { NotificationBanner } from "@/components/notification-banner"
+import { TransactionLoadingIndicator } from "@/components/transaction-loading-indicator"
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -101,9 +102,9 @@ function BtcPriceShell({ children }: { children: React.ReactNode }) {
 }
 
 function PageContent() {
-  const { currentPage, loading } = useApp()
+  const { currentPage, txnLoadPhase } = useApp()
 
-  if (loading) {
+  if (txnLoadPhase === "init") {
     return (
       <div className="flex items-center justify-center py-20">
         <Spinner className="h-8 w-8 text-[#F7931A]" />
@@ -164,6 +165,7 @@ export default function Dashboard() {
                   <Sidebar />
                   <div className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
                     <NotificationBanner />
+                    <TransactionLoadingIndicator />
                     <PageContent />
                   </div>
                 </main>

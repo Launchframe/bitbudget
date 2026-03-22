@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useDeferredValue } from "react"
 import {
   BarChart,
   Bar,
@@ -19,15 +19,24 @@ import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, getMonthKey } from "@/lib/data"
 
 export function AnalyticsPage() {
-  const { state, activeEnvelopes, activeTransactions } = useApp()
+  const { state, activeEnvelopes, activeTransactions, historyReady } = useApp()
   const { calculateOpportunityCost } = useBtcPrices()
   const [startDate, setStartDate] = useState("2025-09-01")
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0])
 
+  const deferredTransactions = useDeferredValue(activeTransactions)
+
   const filtered = useMemo(
-    () => activeTransactions.filter((t) => t.date >= startDate && t.date <= endDate),
-    [activeTransactions, startDate, endDate],
+    () =>
+      deferredTransactions.filter((t) => t.date >= startDate && t.date <= endDate),
+    [deferredTransactions, startDate, endDate],
   )
+
+  const rangeExceeds30Days = useMemo(() => {
+    const a = new Date(`${startDate}T12:00:00.000Z`).getTime()
+    const b = new Date(`${endDate}T12:00:00.000Z`).getTime()
+    return Math.abs(b - a) > 30 * 86400000
+  }, [startDate, endDate])
 
   const cashFlowData = useMemo(() => {
     const months: Record<string, { income: number; expenses: number }> = {}
@@ -84,6 +93,11 @@ export function AnalyticsPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      {!historyReady && rangeExceeds30Days && (
+        <p className="text-xs text-amber-400/90 px-1" role="status">
+          Historical data is still loading — charts will update as more transactions arrive.
+        </p>
+      )}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl">
         <h2 className="text-xl font-semibold text-foreground">Analytics</h2>
         <div className="flex items-center gap-2">

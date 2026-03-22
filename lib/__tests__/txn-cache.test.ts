@@ -10,6 +10,7 @@ import {
   ENCRYPTED_DISPLAY,
   maxUpdatedAtIso,
   mergeLastSyncIso,
+  mergeTransactionBatch,
   type ApiTransactionRow,
 } from "../txn-cache"
 import {
@@ -117,5 +118,18 @@ describe("txn-cache", () => {
     expect(
       mergeLastSyncIso("2025-12-01T00:00:00.000Z", "2025-06-01T00:00:00.000Z"),
     ).toBe("2025-12-01T00:00:00.000Z")
+  })
+
+  it("mergeTransactionBatch overwrites by id and sorts by date desc", () => {
+    const older = cachedToClientTransaction(
+      apiRowToCachedPlaintext(baseRow({ id: "a", date: "2024-01-01", amount: 1 })),
+    )
+    const newer = cachedToClientTransaction(
+      apiRowToCachedPlaintext(baseRow({ id: "b", date: "2025-06-01", amount: 2 })),
+    )
+    const updatedA = apiRowToCachedPlaintext(baseRow({ id: "a", date: "2024-01-01", amount: 99 }))
+    const merged = mergeTransactionBatch([older, newer], [updatedA])
+    expect(merged.map((t) => t.id)).toEqual(["b", "a"])
+    expect(merged.find((t) => t.id === "a")!.amount).toBe(99)
   })
 })

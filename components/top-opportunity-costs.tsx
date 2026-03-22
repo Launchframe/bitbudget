@@ -1,12 +1,19 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, formatBtcAmount } from "@/lib/data"
 import { TrendingUp, TrendingDown } from "lucide-react"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
+import {
+  cachedToClientTransaction,
+  getCachedByIds,
+  getMemo,
+  MEMO_KEYS,
+  setMemo,
+} from "@/lib/txn-cache"
 
 import type { Transaction } from "@/lib/data"
 
@@ -16,21 +23,76 @@ interface EnrichedTransaction extends Transaction {
 }
 
 export function TopOpportunityCosts() {
-  const { activeTransactions, state } = useApp()
+  const { activeTransactions, state, currentUserId, txnLoadPhase } = useApp()
   const { calculateOpportunityCost, getPriceOnDate } = useBtcPrices()
   const [selectedTxn, setSelectedTxn] = useState<EnrichedTransaction | null>(null)
+  const [memoBootstrapTxns, setMemoBootstrapTxns] = useState<Transaction[]>([])
+
+  useEffect(() => {
+    if (!currentUserId || !state.opportunityCostEnabled) {
+      setMemoBootstrapTxns([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const ids = await getMemo<string[]>(currentUserId, MEMO_KEYS.topOCIds)
+      if (!ids?.length || cancelled) return
+      const cached = await getCachedByIds(currentUserId, ids.slice(0, 100))
+      if (cancelled) return
+      setMemoBootstrapTxns(cached.map(cachedToClientTransaction))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [currentUserId, state.opportunityCostEnabled])
+
+  useEffect(() => {
+    if (!currentUserId || !state.opportunityCostEnabled || txnLoadPhase !== "synced") return
+    const expenses = activeTransactions.filter((t) => t.type === "expense")
+    const ranked = expenses
+      .map((t) => ({ id: t.id, oc: calculateOpportunityCost(t.amount, t.date) }))
+      .sort((a, b) => b.oc - a.oc)
+      .slice(0, 100)
+      .map((x) => x.id)
+    void setMemo(currentUserId, MEMO_KEYS.topOCIds, ranked)
+  }, [
+    currentUserId,
+    state.opportunityCostEnabled,
+    txnLoadPhase,
+    activeTransactions,
+    calculateOpportunityCost,
+  ])
 
   const topTransactions = useMemo(() => {
-    return activeTransactions
+    const enrich = (t: Transaction): EnrichedTransaction => ({
+      ...t,
+      btcValueToday: calculateOpportunityCost(t.amount, t.date),
+      btcPriceAtTime: getPriceOnDate(t.date),
+    })
+
+    const fromLive = activeTransactions
       .filter((t) => t.type === "expense")
-      .map((t) => ({
-        ...t,
-        btcValueToday: calculateOpportunityCost(t.amount, t.date),
-        btcPriceAtTime: getPriceOnDate(t.date),
-      }))
+      .map(enrich)
       .sort((a, b) => b.btcValueToday - a.btcValueToday)
       .slice(0, 10)
-  }, [activeTransactions, calculateOpportunityCost, getPriceOnDate])
+
+    if (txnLoadPhase === "synced" || memoBootstrapTxns.length === 0) {
+      return fromLive
+    }
+
+    const fromMemo = memoBootstrapTxns
+      .filter((t) => t.type === "expense")
+      .map(enrich)
+      .slice(0, 10)
+
+    return fromMemo.length > 0 ? fromMemo : fromLive
+  }, [
+    activeTransactions,
+    calculateOpportunityCost,
+    getPriceOnDate,
+    memoBootstrapTxns,
+    txnLoadPhase,
+  ])
 
   return (
     <div className="bg-[#0D0D0D] rounded-2xl p-4 md:p-6">
@@ -132,4 +194,3 @@ export function TopOpportunityCosts() {
     </div>
   )
 }
-

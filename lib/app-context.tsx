@@ -17,18 +17,27 @@ import {
   type ApiTransactionRow,
   cachedToClientTransaction,
   clearDb,
+  dayBeforeIsoDate,
   decryptAndPersistUndecrypted,
   deleteCachedTransaction,
   getAllCached,
+  getCachedCount,
   getLastSyncIso,
+  getMemo,
+  getRecentCached,
+  getRemainingCached,
   isTxnIndexedDbAvailable,
   maxUpdatedAtIso,
+  MEMO_KEYS,
   mergeLastSyncIso,
+  mergeTransactionBatch,
   processApiTransactions,
   putMany,
   removeMissing,
   removeCachedForEnvelope,
   setLastSyncIso,
+  setMemo,
+  startDateForRecentWindow,
 } from "@/lib/txn-cache"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
@@ -68,6 +77,22 @@ function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
   return { page: "dashboard" }
 }
 
+/** Cold-start transaction hydration: init until IDB recent slice; recent → full → synced during refresh. */
+export type TxnLoadPhase = "init" | "recent" | "full" | "synced"
+
+const RECENT_TXN_WINDOW_DAYS = 30
+
+function maxUpdatedAtFromApiRows(rows: ApiTransactionRow[]): string | null {
+  if (rows.length === 0) return null
+  let max = rows[0]!.updatedAt ?? `${rows[0]!.date}T12:00:00.000Z`
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i]!
+    const u = r.updatedAt ?? `${r.date}T12:00:00.000Z`
+    if (u > max) max = u
+  }
+  return max
+}
+
 interface EncryptionState {
   ready: boolean
   needsPinUnlock: boolean
@@ -95,6 +120,14 @@ interface AppContextValue {
   inputModeSheetOpen: boolean
   setInputModeSheetOpen: (open: boolean) => void
   loading: boolean
+  /** Progressive transaction load phase (dashboard renders after `recent`). */
+  txnLoadPhase: TxnLoadPhase
+  /** True once full IDB + API sync finished for the current refresh (search/analytics complete). */
+  historyReady: boolean
+  /** User id for IndexedDB helpers (e.g. memoized top OC). */
+  currentUserId: string | null
+  /** Last persisted transaction count from IndexedDB memo (instant Settings hint). */
+  memoTransactionCount: number | null
   encryption: EncryptionState
   unlockWithKey: (key: Uint8Array) => void
 
@@ -208,7 +241,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { page, envelopeId } = hashToPage(window.location.hash)
     return page === "envelope-detail" && envelopeId ? new Set([envelopeId]) : new Set()
   })
-  const [loading, setLoading] = useState(true)
+  const [txnLoadPhase, setTxnLoadPhase] = useState<TxnLoadPhase>("init")
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [memoTransactionCount, setMemoTransactionCount] = useState<number | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [subscriptionTier, setSubscriptionTier] = useState<"free" | "premium">("free")
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
@@ -222,6 +257,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const currentUserIdRef = useRef<string | null>(null)
   /** Every N refreshes, fetch all transactions so server-side deletes reconcile (delta has no tombstones). */
   const txnSyncSeqRef = useRef(0)
+  /** After first `getRemainingCached` (or full `getAllCached` on unlock), skip re-reading entire older IDB on later refreshes. */
+  const fullIdbHydratedRef = useRef(false)
   const [encryption, setEncryption] = useState<EncryptionState>({
     ready: false,
     needsPinUnlock: false,
@@ -247,6 +284,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       currentUserIdRef.current = data.userId
+      setCurrentUserId(data.userId)
 
       if (!data.encryptedPrivacyKey) {
         pendingLockedRef.current = false
@@ -379,48 +417,118 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }))
 
       const uid = currentUserIdRef.current
-      if (!uid) return
-
-      const idbAvailable = await isTxnIndexedDbAvailable(uid)
-
-      const lastSync = await getLastSyncIso(uid)
-      const cachedSnapshot = await getAllCached(uid)
-      txnSyncSeqRef.current += 1
-      // Delta `since=` cannot represent server deletes; periodic full fetch + removeMissing drops stale IDs.
-      const forceFullTxnResync = txnSyncSeqRef.current % 12 === 0
-      const fullTxnSync =
-        cachedSnapshot.length === 0 || lastSync == null || forceFullTxnResync
-      const txnUrl = fullTxnSync
-        ? "/api/transactions"
-        : `/api/transactions?since=${encodeURIComponent(lastSync)}`
-
-      const txnRes = await fetch(txnUrl)
-      if (txnRes.status === 401 || txnRes.status === 403) {
-        signOut({ callbackUrl: "/auth" })
+      if (!uid) {
+        setTxnLoadPhase("synced")
         return
       }
-      if (!txnRes.ok) throw new Error("Failed to fetch transactions")
+      const userId = uid
 
-      const rows = await txnRes.json() as ApiTransactionRow[]
+      const idbAvailable = await isTxnIndexedDbAvailable(userId)
+      const lastSync = await getLastSyncIso(userId)
+      const cachedCount = await getCachedCount(userId)
+      txnSyncSeqRef.current += 1
+      const forceFullTxnResync = txnSyncSeqRef.current % 12 === 0
+      const fullTxnSync =
+        cachedCount === 0 || lastSync == null || forceFullTxnResync
+
       const lockedSession = pendingLockedRef.current && !privacyKeyRef.current
       const secretKey = privacyKeyRef.current
-      const cachedTxns = await processApiTransactions(rows, { lockedSession, secretKey })
-      await putMany(uid, cachedTxns)
-      if (fullTxnSync) {
-        await removeMissing(uid, new Set(rows.map((r) => r.id)))
-      }
-      const incomingMax = maxUpdatedAtIso(cachedTxns)
-      const mergedSync = mergeLastSyncIso(lastSync, incomingMax)
-      if (mergedSync) await setLastSyncIso(uid, mergedSync)
+      const processOpts = { lockedSession, secretKey }
 
-      setState(prev => {
-        let nextTxns: Transaction[]
-        if (idbAvailable) {
-          if (fullTxnSync) {
-            nextTxns = cachedTxns
-              .map(cachedToClientTransaction)
-              .sort((a, b) => b.date.localeCompare(a.date))
-          } else {
+      const cutoff = startDateForRecentWindow(RECENT_TXN_WINDOW_DAYS)
+      const endOlder = dayBeforeIsoDate(cutoff)
+
+      async function mergeApiRows(rows: ApiTransactionRow[]): Promise<void> {
+        if (rows.length === 0) return
+        const cachedTxns = await processApiTransactions(rows, processOpts)
+        await putMany(userId, cachedTxns)
+        setState(prev => ({
+          ...prev,
+          transactions: mergeTransactionBatch(prev.transactions, cachedTxns),
+        }))
+      }
+
+      if (fullTxnSync) {
+        async function hydrateRemainingIdb(): Promise<void> {
+          if (fullIdbHydratedRef.current) return
+          if (!idbAvailable || lockedSession) {
+            fullIdbHydratedRef.current = true
+            return
+          }
+          const rem = await getRemainingCached(userId, cutoff)
+          setState(prev => ({
+            ...prev,
+            transactions: mergeTransactionBatch(prev.transactions, rem),
+          }))
+          fullIdbHydratedRef.current = true
+        }
+
+        async function fetchRecentApi(): Promise<ApiTransactionRow[] | null> {
+          const txnRes = await fetch(
+            `/api/transactions?startDate=${encodeURIComponent(cutoff)}`,
+          )
+          if (txnRes.status === 401 || txnRes.status === 403) {
+            signOut({ callbackUrl: "/auth" })
+            return null
+          }
+          if (!txnRes.ok) throw new Error("Failed to fetch transactions")
+          const rows = await txnRes.json() as ApiTransactionRow[]
+          await mergeApiRows(rows)
+          return rows
+        }
+
+        const [recentOutcome] = await Promise.all([
+          fetchRecentApi(),
+          hydrateRemainingIdb(),
+        ])
+        if (recentOutcome === null) return
+
+        const rowsRecent = recentOutcome
+
+        setTxnLoadPhase("full")
+
+        const txnResOlder = await fetch(
+          `/api/transactions?endDate=${encodeURIComponent(endOlder)}`,
+        )
+        if (txnResOlder.status === 401 || txnResOlder.status === 403) {
+          signOut({ callbackUrl: "/auth" })
+          return
+        }
+        if (!txnResOlder.ok) throw new Error("Failed to fetch transactions")
+        const rowsOlder = await txnResOlder.json() as ApiTransactionRow[]
+        await mergeApiRows(rowsOlder)
+
+        const allIds = new Set<string>([
+          ...rowsRecent.map((r) => r.id),
+          ...rowsOlder.map((r) => r.id),
+        ])
+        await removeMissing(userId, allIds)
+
+        const mr = maxUpdatedAtFromApiRows(rowsRecent)
+        const mo = maxUpdatedAtFromApiRows(rowsOlder)
+        const incomingMax =
+          mr && mo ? (mr > mo ? mr : mo) : (mr ?? mo ?? null)
+        const mergedSync = mergeLastSyncIso(lastSync, incomingMax)
+        if (mergedSync) await setLastSyncIso(userId, mergedSync)
+        if (!fullIdbHydratedRef.current) fullIdbHydratedRef.current = true
+      } else {
+        const cachedSnapshot = await getAllCached(userId)
+        const txnRes = await fetch(
+          `/api/transactions?since=${encodeURIComponent(lastSync!)}`,
+        )
+        if (txnRes.status === 401 || txnRes.status === 403) {
+          signOut({ callbackUrl: "/auth" })
+          return
+        }
+        if (!txnRes.ok) throw new Error("Failed to fetch transactions")
+
+        const rows = await txnRes.json() as ApiTransactionRow[]
+        const cachedTxns = await processApiTransactions(rows, processOpts)
+        await putMany(userId, cachedTxns)
+
+        setState(prev => {
+          let nextTxns: Transaction[]
+          if (idbAvailable) {
             const byId = new Map(
               cachedSnapshot.map((c) => [c.id, cachedToClientTransaction(c)]),
             )
@@ -430,11 +538,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             nextTxns = Array.from(byId.values()).sort((a, b) =>
               b.date.localeCompare(a.date),
             )
-          }
-        } else if (cachedTxns.length > 0) {
-          if (fullTxnSync) {
-            nextTxns = cachedTxns.map(cachedToClientTransaction)
-          } else {
+          } else if (cachedTxns.length > 0) {
             const byId = new Map(prev.transactions.map((t) => [t.id, t]))
             for (const c of cachedTxns) {
               byId.set(c.id, cachedToClientTransaction(c))
@@ -442,19 +546,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             nextTxns = Array.from(byId.values()).sort((a, b) =>
               b.date.localeCompare(a.date),
             )
+          } else {
+            nextTxns = []
           }
-        } else {
-          nextTxns = []
-        }
-        return {
-          ...prev,
-          transactions: nextTxns,
-        }
-      })
+          return { ...prev, transactions: nextTxns }
+        })
+
+        const incomingMax = maxUpdatedAtIso(cachedTxns)
+        const mergedSync = mergeLastSyncIso(lastSync, incomingMax)
+        if (mergedSync) await setLastSyncIso(userId, mergedSync)
+        fullIdbHydratedRef.current = true
+      }
+
+      const count = await getCachedCount(userId)
+      setMemoTransactionCount(count)
+      await setMemo(userId, MEMO_KEYS.txnCount, count)
+
+      setTxnLoadPhase("synced")
     } catch {
-      // On error, keep current state (may be default/empty)
-    } finally {
-      setLoading(false)
+      setTxnLoadPhase("synced")
     }
   }, [])
 
@@ -479,10 +589,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const all = await getAllCached(uid)
         const forState = all.length > 0 ? all : decrypted
         if (forState.length > 0) {
+          fullIdbHydratedRef.current = true
           setState(prev => ({
             ...prev,
             transactions: forState.map(cachedToClientTransaction),
           }))
+          setTxnLoadPhase("full")
         }
       }
       await refreshData()
@@ -496,22 +608,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await initEncryption()
         const uid = currentUserIdRef.current
         if (uid) {
-          const key = privacyKeyRef.current
+          const memoCount = await getMemo<number>(uid, MEMO_KEYS.txnCount)
+          setMemoTransactionCount(memoCount)
+        }
+        const key = privacyKeyRef.current
+        const lockedWithoutKey = pendingLockedRef.current && !key
+        if (uid && !lockedWithoutKey) {
           if (key) {
             await decryptAndPersistUndecrypted(uid, key)
           }
-          const lockedWithoutKey = pendingLockedRef.current && !privacyKeyRef.current
-          if (!lockedWithoutKey) {
-            const cachedRows = await getAllCached(uid)
-            if (cachedRows.length > 0) {
-              setState(prev => ({
-                ...prev,
-                transactions: cachedRows.map(cachedToClientTransaction),
-              }))
-              setLoading(false)
-            }
-          }
+          const recentRows = await getRecentCached(uid, RECENT_TXN_WINDOW_DAYS)
+          setState(prev => ({
+            ...prev,
+            transactions: mergeTransactionBatch(prev.transactions, recentRows),
+          }))
         }
+        setTxnLoadPhase("recent")
         await refreshData()
       })()
     }
@@ -895,6 +1007,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const clearLocalTransactionCache = useCallback(async () => {
     const uid = currentUserIdRef.current
     if (!uid) return
+    fullIdbHydratedRef.current = false
     try {
       await clearDb(uid)
     } catch {
@@ -924,6 +1037,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     privacyKeyRef.current = null
     publicKeyRef.current = null
     currentUserIdRef.current = null
+    fullIdbHydratedRef.current = false
+    setCurrentUserId(null)
+    setMemoTransactionCount(null)
+    setTxnLoadPhase("init")
     void (async () => {
       if (uid) await clearDb(uid).catch(() => {})
       signOut({ callbackUrl: "/auth" })
@@ -1007,6 +1124,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [state.transactions, archivedEnvelopeIds]
   )
 
+  const loading = txnLoadPhase === "init"
+  const historyReady =
+    txnLoadPhase === "full" || txnLoadPhase === "synced"
+
   return (
     <AppContext.Provider
       value={{
@@ -1021,6 +1142,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         inputModeSheetOpen,
         setInputModeSheetOpen,
         loading,
+        txnLoadPhase,
+        historyReady,
+        currentUserId,
+        memoTransactionCount,
         encryption,
         unlockWithKey,
         transactionEnvelopeFilter,
