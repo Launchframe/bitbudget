@@ -29,11 +29,16 @@ export function TopOpportunityCosts() {
   const [memoBootstrapTxns, setMemoBootstrapTxns] = useState<Transaction[]>([])
 
   useEffect(() => {
-    if (!currentUserId || !state.opportunityCostEnabled) {
-      setMemoBootstrapTxns([])
-      return
-    }
     let cancelled = false
+    if (!currentUserId || !state.opportunityCostEnabled) {
+      const clearId = setTimeout(() => {
+        if (!cancelled) setMemoBootstrapTxns([])
+      }, 0)
+      return () => {
+        cancelled = true
+        clearTimeout(clearId)
+      }
+    }
     void (async () => {
       const ids = await getMemo<string[]>(currentUserId, MEMO_KEYS.topOCIds)
       if (!ids?.length || cancelled) return

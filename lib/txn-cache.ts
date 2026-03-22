@@ -203,17 +203,17 @@ export async function getRemainingCached(
       const filtered = all.filter((r) => r.date < beforeDate)
       return filtered.sort((a, b) => b.date.localeCompare(a.date))
     }
+    const dateIndex = store.index("date")
+    const range = IDBKeyRange.upperBound(beforeDate, true)
     const out: CachedTransaction[] = []
-    let cursor = await store.index("date").openCursor(null, "prev")
+    let cursor = await dateIndex.openCursor(range, "prev")
     let yielded = 0
     while (cursor) {
       const row = cursor.value as CachedTransaction
-      if (row.date < beforeDate) {
-        out.push(row)
-        yielded++
-        if (yielded % REMAINING_BATCH_YIELD_EVERY === 0) {
-          await new Promise<void>((r) => setTimeout(r, 0))
-        }
+      out.push(row)
+      yielded++
+      if (yielded % REMAINING_BATCH_YIELD_EVERY === 0) {
+        await new Promise<void>((r) => setTimeout(r, 0))
       }
       cursor = await cursor.continue()
     }
@@ -491,16 +491,63 @@ export function cachedToClientTransaction(c: CachedTransaction): Transaction {
   return rest
 }
 
+function isSortedDescByDate(txns: Transaction[]): boolean {
+  for (let i = 1; i < txns.length; i++) {
+    if (txns[i - 1]!.date < txns[i]!.date) return false
+  }
+  return true
+}
+
 /** Merge decrypted cache rows into existing client transactions (by id), sorted date desc. */
 export function mergeTransactionBatch(
   prev: Transaction[],
   batch: CachedTransaction[],
 ): Transaction[] {
   const byId = new Map(prev.map((t) => [t.id, t]))
+  let dateChanged = false
+  const newInBatchOrder: Transaction[] = []
+
   for (const c of batch) {
-    byId.set(c.id, cachedToClientTransaction(c))
+    const clientTxn = cachedToClientTransaction(c)
+    const existing = byId.get(c.id)
+    if (existing) {
+      if (existing.date !== clientTxn.date) dateChanged = true
+    } else {
+      newInBatchOrder.push(clientTxn)
+    }
+    byId.set(c.id, clientTxn)
   }
-  return Array.from(byId.values()).sort((a, b) => b.date.localeCompare(a.date))
+
+  const merged = Array.from(byId.values())
+  if (merged.length <= 1) return merged
+
+  let isPrevSortedDesc = true
+  for (let i = 1; i < prev.length; i++) {
+    if (prev[i - 1]!.date < prev[i]!.date) {
+      isPrevSortedDesc = false
+      break
+    }
+  }
+
+  if (!isPrevSortedDesc || dateChanged) {
+    return merged.sort((a, b) => b.date.localeCompare(a.date))
+  }
+
+  if (newInBatchOrder.length === 0) {
+    return merged
+  }
+
+  if (prev.length === 0) {
+    return merged.sort((a, b) => b.date.localeCompare(a.date))
+  }
+
+  const tailDate = prev[prev.length - 1]!.date
+  const allNewNotAfterTail = newInBatchOrder.every((t) => t.date <= tailDate)
+  if (allNewNotAfterTail && isSortedDescByDate(newInBatchOrder)) {
+    return merged
+  }
+
+  return merged.sort((a, b) => b.date.localeCompare(a.date))
 }
 
 export function maxUpdatedAtIso(rows: CachedTransaction[]): string | null {

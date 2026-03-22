@@ -132,4 +132,43 @@ describe("txn-cache", () => {
     expect(merged.map((t) => t.id)).toEqual(["b", "a"])
     expect(merged.find((t) => t.id === "a")!.amount).toBe(99)
   })
+
+  it("mergeTransactionBatch skips full sort when only in-place updates preserve order", () => {
+    const t1 = cachedToClientTransaction(
+      apiRowToCachedPlaintext(baseRow({ id: "a", date: "2025-06-01", amount: 1 })),
+    )
+    const t2 = cachedToClientTransaction(
+      apiRowToCachedPlaintext(baseRow({ id: "b", date: "2024-01-01", amount: 2 })),
+    )
+    const upd = apiRowToCachedPlaintext(baseRow({ id: "a", date: "2025-06-01", amount: 99 }))
+    const merged = mergeTransactionBatch([t1, t2], [upd])
+    expect(merged.map((x) => x.id)).toEqual(["a", "b"])
+    expect(merged[0]!.amount).toBe(99)
+  })
+
+  it("mergeTransactionBatch appends older-only batch in desc order without resorting whole list", () => {
+    const head = cachedToClientTransaction(
+      apiRowToCachedPlaintext(baseRow({ id: "h", date: "2025-06-01", amount: 1 })),
+    )
+    const tail = cachedToClientTransaction(
+      apiRowToCachedPlaintext(baseRow({ id: "t", date: "2024-01-01", amount: 2 })),
+    )
+    const n1 = apiRowToCachedPlaintext(baseRow({ id: "n1", date: "2023-12-01", amount: 3 }))
+    const n2 = apiRowToCachedPlaintext(baseRow({ id: "n2", date: "2023-06-01", amount: 4 }))
+    const merged = mergeTransactionBatch([head, tail], [n1, n2])
+    expect(merged.map((x) => x.id)).toEqual(["h", "t", "n1", "n2"])
+  })
+
+  it("mergeTransactionBatch sorts when new rows are older than tail but batch order is wrong", () => {
+    const head = cachedToClientTransaction(
+      apiRowToCachedPlaintext(baseRow({ id: "h", date: "2025-06-01", amount: 1 })),
+    )
+    const tail = cachedToClientTransaction(
+      apiRowToCachedPlaintext(baseRow({ id: "t", date: "2024-01-01", amount: 2 })),
+    )
+    const olderFirst = apiRowToCachedPlaintext(baseRow({ id: "n1", date: "2023-06-01", amount: 3 }))
+    const newerSecond = apiRowToCachedPlaintext(baseRow({ id: "n2", date: "2023-12-01", amount: 4 }))
+    const merged = mergeTransactionBatch([head, tail], [olderFirst, newerSecond])
+    expect(merged.map((x) => x.id)).toEqual(["h", "t", "n2", "n1"])
+  })
 })

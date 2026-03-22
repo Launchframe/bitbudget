@@ -449,6 +449,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (fullTxnSync) {
+        // While a full resync runs, keep historyReady false until we reach "synced" at the end.
+        setTxnLoadPhase("full")
+
         async function hydrateRemainingIdb(): Promise<void> {
           if (fullIdbHydratedRef.current) return
           if (!idbAvailable || lockedSession) {
@@ -484,8 +487,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (recentOutcome === null) return
 
         const rowsRecent = recentOutcome
-
-        setTxnLoadPhase("full")
 
         const txnResOlder = await fetch(
           `/api/transactions?endDate=${encodeURIComponent(endOlder)}`,
