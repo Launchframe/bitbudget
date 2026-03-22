@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useEffect } from "react"
+import { useMemo, useState, useEffect, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, formatBtcAmount } from "@/lib/data"
@@ -28,6 +28,18 @@ export function TopOpportunityCosts() {
   const [selectedTxn, setSelectedTxn] = useState<EnrichedTransaction | null>(null)
   const [memoBootstrapTxns, setMemoBootstrapTxns] = useState<Transaction[]>([])
 
+  /** Ranked expense ids for memo persistence (single OC pass vs duplicating in an effect). */
+  const topOcMemoIds = useMemo(() => {
+    const expenses = activeTransactions.filter((t) => t.type === "expense")
+    return expenses
+      .map((t) => ({ id: t.id, oc: calculateOpportunityCost(t.amount, t.date) }))
+      .sort((a, b) => b.oc - a.oc)
+      .slice(0, 100)
+      .map((x) => x.id)
+  }, [activeTransactions, calculateOpportunityCost])
+
+  const lastPersistedOcIdsKey = useRef<string | null>(null)
+
   useEffect(() => {
     let cancelled = false
     if (!currentUserId || !state.opportunityCostEnabled) {
@@ -40,11 +52,18 @@ export function TopOpportunityCosts() {
       }
     }
     void (async () => {
-      const ids = await getMemo<string[]>(currentUserId, MEMO_KEYS.topOCIds)
-      if (!ids?.length || cancelled) return
-      const cached = await getCachedByIds(currentUserId, ids.slice(0, 100))
-      if (cancelled) return
-      setMemoBootstrapTxns(cached.map(cachedToClientTransaction))
+      try {
+        const ids = await getMemo<string[]>(currentUserId, MEMO_KEYS.topOCIds)
+        if (!ids?.length || cancelled) return
+        const cached = await getCachedByIds(currentUserId, ids.slice(0, 100))
+        if (cancelled) return
+        setMemoBootstrapTxns(cached.map(cachedToClientTransaction))
+      } catch (err) {
+        console.error("Failed to bootstrap top opportunity costs from cache", err)
+        setTimeout(() => {
+          if (!cancelled) setMemoBootstrapTxns([])
+        }, 0)
+      }
     })()
     return () => {
       cancelled = true
@@ -53,21 +72,17 @@ export function TopOpportunityCosts() {
 
   useEffect(() => {
     if (!currentUserId || !state.opportunityCostEnabled || txnLoadPhase !== "synced") return
-    const expenses = activeTransactions.filter((t) => t.type === "expense")
-    const ranked = expenses
-      .map((t) => ({ id: t.id, oc: calculateOpportunityCost(t.amount, t.date) }))
-      .sort((a, b) => b.oc - a.oc)
-      .slice(0, 100)
-      .map((x) => x.id)
-    void setMemo(currentUserId, MEMO_KEYS.topOCIds, ranked).catch((err) => {
+    const key = `${currentUserId}\u0000${topOcMemoIds.join("\u0001")}`
+    if (lastPersistedOcIdsKey.current === key) return
+    lastPersistedOcIdsKey.current = key
+    void setMemo(currentUserId, MEMO_KEYS.topOCIds, topOcMemoIds).catch((err) => {
       console.error("Failed to persist top opportunity cost IDs memo", err)
     })
   }, [
     currentUserId,
     state.opportunityCostEnabled,
     txnLoadPhase,
-    activeTransactions,
-    calculateOpportunityCost,
+    topOcMemoIds,
   ])
 
   const topTransactions = useMemo(() => {

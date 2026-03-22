@@ -418,7 +418,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const uid = currentUserIdRef.current
       if (!uid) {
-        setTxnLoadPhase("synced")
+        // Do not force "synced" — no txn hydration ran; leaving the phase avoids implying full history.
         return
       }
       const userId = uid

@@ -167,19 +167,23 @@ export async function getRecentCached(
   try {
     const tx = db.transaction("transactions", "readonly")
     const store = tx.store
+    let result: CachedTransaction[]
     if (!store.indexNames.contains("date")) {
       const all = await store.getAll()
-      return all.filter((r) => r.date >= cutoff).sort((a, b) => b.date.localeCompare(a.date))
+      result = all.filter((r) => r.date >= cutoff).sort((a, b) => b.date.localeCompare(a.date))
+    } else {
+      const out: CachedTransaction[] = []
+      let cursor = await store.index("date").openCursor(null, "prev")
+      while (cursor) {
+        const row = cursor.value as CachedTransaction
+        if (row.date < cutoff) break
+        out.push(row)
+        cursor = await cursor.continue()
+      }
+      result = out
     }
-    const out: CachedTransaction[] = []
-    let cursor = await store.index("date").openCursor(null, "prev")
-    while (cursor) {
-      const row = cursor.value as CachedTransaction
-      if (row.date < cutoff) break
-      out.push(row)
-      cursor = await cursor.continue()
-    }
-    return out
+    await tx.done
+    return result
   } finally {
     db.close()
   }
@@ -198,29 +202,33 @@ export async function getRemainingCached(
   try {
     const tx = db.transaction("transactions", "readonly")
     const store = tx.store
+    let result: CachedTransaction[]
     if (!store.indexNames.contains("date")) {
       const all = await store.getAll()
       const filtered = all.filter((r) => r.date < beforeDate)
-      return filtered.sort((a, b) => b.date.localeCompare(a.date))
-    }
-    const dateIndex = store.index("date")
-    const range = IDBKeyRange.upperBound(beforeDate, true)
-    const out: CachedTransaction[] = []
-    let cursor = await dateIndex.openCursor(range, "prev")
-    let yielded = 0
-    while (cursor) {
-      const row = cursor.value as CachedTransaction
-      out.push(row)
-      yielded++
-      // Schedule continue() before yielding so an IDB request stays in-flight during setTimeout;
-      // otherwise the transaction can auto-commit and the cursor throws TransactionInactiveError.
-      const nextCursorPromise = cursor.continue()
-      if (yielded % REMAINING_BATCH_YIELD_EVERY === 0) {
-        await new Promise<void>((r) => setTimeout(r, 0))
+      result = filtered.sort((a, b) => b.date.localeCompare(a.date))
+    } else {
+      const dateIndex = store.index("date")
+      const range = IDBKeyRange.upperBound(beforeDate, true)
+      const out: CachedTransaction[] = []
+      let cursor = await dateIndex.openCursor(range, "prev")
+      let yielded = 0
+      while (cursor) {
+        const row = cursor.value as CachedTransaction
+        out.push(row)
+        yielded++
+        // Schedule continue() before yielding so an IDB request stays in-flight during setTimeout;
+        // otherwise the transaction can auto-commit and the cursor throws TransactionInactiveError.
+        const nextCursorPromise = cursor.continue()
+        if (yielded % REMAINING_BATCH_YIELD_EVERY === 0) {
+          await new Promise<void>((r) => setTimeout(r, 0))
+        }
+        cursor = await nextCursorPromise
       }
-      cursor = await nextCursorPromise
+      result = out
     }
-    return out
+    await tx.done
+    return result
   } finally {
     db.close()
   }
