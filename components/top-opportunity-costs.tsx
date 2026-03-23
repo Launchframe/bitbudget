@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
-import { FormattedBtcAmount } from "./formatted-btc-sats-amount"
+import { FormattedBtcAmount } from "@/components/formatted-btc-sats-amount"
 import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
@@ -160,7 +160,7 @@ export function TopOpportunityCosts() {
               <th className="pb-3 text-right font-medium hidden md:table-cell">BTC Price</th>
               <th className="pb-3 text-right font-medium hidden lg:table-cell">{state.btcDisplayUnit === "btc" ? "BTC" : "Sats"} Equiv.</th>
               <th className="pb-3 text-right font-medium pr-2">BTC Value Today</th>
-              <th className="hidden sm:table-cell pb-3 text-right font-medium">Opp. Cost</th>
+              <th className="hidden sm:table-cell pb-3 text-right font-medium pr-2 rounded-r-xl">Opp. Cost</th>
             </tr>
           </thead>
           <tbody>
@@ -204,7 +204,7 @@ export function TopOpportunityCosts() {
                         </span>
                       : "—"}
                   </td>
-                  <td className="py-3 text-right pr-2 rounded-r-xl">
+                  <td className="py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <span className={`text-sm font-semibold ${gained ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
                         {formatUsd(txn.btcValueToday)}
@@ -214,7 +214,7 @@ export function TopOpportunityCosts() {
                       )}
                     </div>
                   </td>
-                  <td className="py-3 text-right text-muted-foreground text-sm hidden sm:table-cell">
+                  <td className="py-3 text-right text-muted-foreground text-sm hidden sm:table-cell pr-2 rounded-r-xl">
                     {formatUsd(txn.opportunityCost)}
                   </td>
                 </tr>
