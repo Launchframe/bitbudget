@@ -18,27 +18,32 @@ import {
 import type { Transaction } from "@/lib/data"
 
 interface EnrichedTransaction extends Transaction {
+  /** USD value today of the BTC you could have bought with the spend (gross). */
   btcValueToday: number
+  /** Opportunity cost = btcValueToday − amount spent (see calculateOpportunityCost). */
+  opportunityCost: number
   btcPriceAtTime: number
 }
 
 export function TopOpportunityCosts() {
   const { activeTransactions, state, currentUserId, txnLoadPhase } = useApp()
-  const { calculateOpportunityCost, getPriceOnDate } = useBtcPrices()
+  const { calculateOpportunityCost, getPriceOnDate, currentPrice } = useBtcPrices()
   const [selectedTxn, setSelectedTxn] = useState<EnrichedTransaction | null>(null)
   const [memoBootstrapTxns, setMemoBootstrapTxns] = useState<Transaction[]>([])
 
-  /** Single OC + price pass for both dashboard top-10 and memo top-100 ids. */
+  /** Rank by opportunity cost (delta), not gross value today — same ordering as memo top-100. */
   const rankedExpenseOpportunity = useMemo(() => {
     const expenses = activeTransactions.filter((t) => t.type === "expense")
     return expenses
-      .map((t) => ({
-        t,
-        btcValueToday: calculateOpportunityCost(t.amount, t.date),
-        btcPriceAtTime: getPriceOnDate(t.date),
-      }))
-      .sort((a, b) => b.btcValueToday - a.btcValueToday)
-  }, [activeTransactions, calculateOpportunityCost, getPriceOnDate])
+      .map((t) => {
+        const btcPriceAtTime = getPriceOnDate(t.date)
+        const btcValueToday =
+          currentPrice && btcPriceAtTime > 0 ? (t.amount / btcPriceAtTime) * currentPrice : 0
+        const opportunityCost = calculateOpportunityCost(t.amount, t.date)
+        return { t, btcValueToday, opportunityCost, btcPriceAtTime }
+      })
+      .sort((a, b) => b.opportunityCost - a.opportunityCost)
+  }, [activeTransactions, calculateOpportunityCost, getPriceOnDate, currentPrice])
 
   const topOcMemoIds = useMemo(
     () => rankedExpenseOpportunity.slice(0, 100).map((x) => x.t.id),
@@ -95,9 +100,10 @@ export function TopOpportunityCosts() {
   const topTransactions = useMemo(() => {
     const fromLive: EnrichedTransaction[] = rankedExpenseOpportunity
       .slice(0, 10)
-      .map(({ t, btcValueToday, btcPriceAtTime }) => ({
+      .map(({ t, btcValueToday, opportunityCost, btcPriceAtTime }) => ({
         ...t,
         btcValueToday,
+        opportunityCost,
         btcPriceAtTime,
       }))
 
@@ -107,11 +113,18 @@ export function TopOpportunityCosts() {
 
     const fromMemo: EnrichedTransaction[] = memoBootstrapTxns
       .filter((t) => t.type === "expense")
-      .map((t) => ({
-        ...t,
-        btcValueToday: calculateOpportunityCost(t.amount, t.date),
-        btcPriceAtTime: getPriceOnDate(t.date),
-      }))
+      .map((t) => {
+        const btcPriceAtTime = getPriceOnDate(t.date)
+        const btcValueToday =
+          currentPrice && btcPriceAtTime > 0 ? (t.amount / btcPriceAtTime) * currentPrice : 0
+        return {
+          ...t,
+          btcValueToday,
+          opportunityCost: calculateOpportunityCost(t.amount, t.date),
+          btcPriceAtTime,
+        }
+      })
+      .sort((a, b) => b.opportunityCost - a.opportunityCost)
       .slice(0, 10)
 
     return fromMemo.length > 0 ? fromMemo : fromLive
@@ -121,6 +134,7 @@ export function TopOpportunityCosts() {
     txnLoadPhase,
     calculateOpportunityCost,
     getPriceOnDate,
+    currentPrice,
   ])
 
   return (
@@ -130,7 +144,7 @@ export function TopOpportunityCosts() {
           <h2 className="text-lg font-semibold text-foreground">Top Opportunity Costs</h2>
         </div>
         <p className="text-xs text-muted-foreground">
-          What each expense would be worth today if you&apos;d saved in BTC instead.
+          What each expense would be worth today if you&apos;d saved the money in BTC instead.
         </p>
       </div>
 
@@ -143,13 +157,14 @@ export function TopOpportunityCosts() {
               <th className="pb-3 text-left font-medium hidden sm:table-cell">Date</th>
               <th className="pb-3 text-right font-medium hidden md:table-cell">BTC Price</th>
               <th className="pb-3 text-right font-medium">Spent</th>
-              <th className="pb-3 text-right font-medium hidden lg:table-cell">BTC Equiv.</th>
+              <th className="pb-3 text-right font-medium hidden lg:table-cell">{state.btcDisplayUnit === "btc" ? "BTC" : "Sats"} Equiv.</th>
               <th className="pb-3 text-right font-medium pr-2">BTC Value Today</th>
+              <th className="hidden sm:table-cell pb-3 text-right font-medium pr-2">Opp. Cost</th>
             </tr>
           </thead>
           <tbody>
             {topTransactions.map((txn, idx) => {
-              const multiplier = txn.btcValueToday / txn.amount
+              const multiplier = txn.amount > 0 && txn.btcValueToday > 0 ? txn.btcValueToday / txn.amount : 0
               const gained = multiplier >= 1
               const pctChange = Math.abs((multiplier - 1) * 100)
               return (
@@ -180,7 +195,7 @@ export function TopOpportunityCosts() {
                   <td className="py-3 text-right text-muted-foreground text-sm hidden lg:table-cell">
                     {txn.btcPriceAtTime > 0
                       ? <span className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}>
-                          {formatBtcAmount(txn.amount / txn.btcPriceAtTime, state.btcDisplayUnit)}
+                          {formatBtcAmount(txn.amount / txn.btcPriceAtTime, state.btcDisplayUnit, false)}
                         </span>
                       : "—"}
                   </td>
@@ -201,12 +216,15 @@ export function TopOpportunityCosts() {
                       )}
                     </div>
                   </td>
+                  <td className="py-3 text-right text-muted-foreground text-sm hidden sm:table-cell">
+                    {formatUsd(txn.opportunityCost)}
+                  </td>
                 </tr>
               )
             })}
             {topTransactions.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-muted-foreground text-sm">
+                <td colSpan={8} className="py-8 text-center text-muted-foreground text-sm">
                   No expense transactions yet. Add one to see opportunity costs.
                 </td>
               </tr>
