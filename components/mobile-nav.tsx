@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useState, useCallback } from "react"
+import { Fragment, useState, useCallback, useRef, useEffect } from "react"
 import { LayoutDashboard, BarChart3, List, Wallet, Plus, Camera, Upload, Mic } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
@@ -11,6 +11,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { cn } from "@/lib/utils"
 
 const INPUT_MODE_KEY = "bitbudget-input-mode"
 type InputMode = "manual" | "voice" | "camera" | "upload"
@@ -21,6 +22,21 @@ const INPUT_MODE_ICONS: Record<InputMode, React.ElementType> = {
   camera: Camera,
   upload: Upload,
 }
+
+const INPUT_MODE_LABELS: Record<InputMode, string> = {
+  manual: "Manual",
+  voice: "Voice",
+  camera: "Camera",
+  upload: "Upload",
+}
+
+/** 2×2 sheet grid: top-left, top-right, bottom-left, bottom-right */
+const INPUT_MODE_SHEET_ORDER: InputMode[] = [
+  "manual",
+  "upload",
+  "voice",
+  "camera",
+]
 
 function loadInputMode(): InputMode {
   if (typeof window === "undefined") return "manual"
@@ -42,12 +58,53 @@ function isVoiceSupported(): boolean {
     !!(window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition
 }
 
+export function InputModeButton({
+  mode,
+  currentMode,
+  onClick,
+  className,
+}: {
+  mode: InputMode
+  currentMode: InputMode
+  onClick: () => void
+  className?: string
+}) {
+  const Icon = INPUT_MODE_ICONS[mode]
+  const label = INPUT_MODE_LABELS[mode]
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={currentMode === mode}
+      aria-label={`${label} input mode`}
+      className={cn(
+        "flex aspect-square max-w-[120px] w-full cursor-pointer flex-col items-center justify-center gap-2 self-center rounded-full border border-[#333] bg-[#1A1A1A] transition-colors hover:bg-[#222] focus-visible:bg-[#222] focus:outline-none",
+        currentMode === mode
+          ? "bg-[#F7931A] text-[#0D0D0D]"
+          : "text-[#666] active:text-[#999]",
+        className,
+      )}
+    >
+      <Icon className="h-6 w-6 shrink-0 xs:h-8 xs:w-8" />
+      <span className="text-xs font-medium xs:text-sm">{label}</span>
+    </button>
+  )
+}
+
 export function MobileNav() {
   const { currentPage, navigateTo, openNewTransaction, inputModeSheetOpen, setInputModeSheetOpen } = useApp()
   const [inputMode, setInputModeState] = useState<InputMode>(loadInputMode)
   const [scanOpen, setScanOpen] = useState(false)
   const [scanInitialSource, setScanInitialSource] = useState<"camera" | "upload" | undefined>(undefined)
   const [voiceSheetOpen, setVoiceSheetOpen] = useState(false)
+  const [fabNudge, setFabNudge] = useState(false)
+  const fabNudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (fabNudgeTimerRef.current) clearTimeout(fabNudgeTimerRef.current)
+    }
+  }, [])
 
   const setInputMode = useCallback((mode: InputMode) => {
     setInputModeState(mode)
@@ -83,6 +140,24 @@ export function MobileNav() {
     setInputModeSheetOpen(false)
   }, [setInputMode, setInputModeSheetOpen])
 
+  const clearFabNudgeTimer = useCallback(() => {
+    if (fabNudgeTimerRef.current) {
+      clearTimeout(fabNudgeTimerRef.current)
+      fabNudgeTimerRef.current = null
+    }
+  }, [])
+
+  /** Slide up (CSS transition), stay lifted while picker/sheet loads, then ease back. */
+  const handleFabClick = useCallback(() => {
+    clearFabNudgeTimer()
+    setFabNudge(true)
+    runMode(inputMode)
+    fabNudgeTimerRef.current = setTimeout(() => {
+      setFabNudge(false)
+      fabNudgeTimerRef.current = null
+    }, 520)
+  }, [clearFabNudgeTimer, inputMode, runMode])
+
   return (
     <>
       <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-[#0D0D0D] border-t border-[#1F1F1F] pb-[env(safe-area-inset-bottom)]">
@@ -97,9 +172,12 @@ export function MobileNav() {
                 {i === 2 && (
                   <button
                     type="button"
-                    className="flex items-center justify-center w-16 h-16 -mt-6 rounded-full bg-[#F7931A] text-[#0D0D0D] shadow-lg shadow-[#F7931A]/20"
+                    className={cn(
+                      "flex h-16 w-16 -mt-6 touch-manipulation items-center justify-center rounded-full bg-[#F7931A] text-[#0D0D0D] shadow-lg shadow-[#F7931A]/20 transition-transform duration-300 ease-out will-change-transform",
+                      fabNudge && "-translate-y-3",
+                    )}
                     aria-label="New transaction"
-                    onClick={() => runMode(inputMode)}
+                    onClick={handleFabClick}
                   >
                     <FabIcon className="h-6 w-6" />
                   </button>
@@ -127,39 +205,16 @@ export function MobileNav() {
           <SheetHeader className="border-b-2 border-[#333] pb-4 pr-12 text-left">
             <SheetTitle className="text-foreground">Input mode</SheetTitle>
           </SheetHeader>
-          <div className="grid grid-cols-2 gap-8 p-8 pt-10">
-            <button
-              type="button"
-              onClick={() => selectMode("manual")}
-              className="flex aspect-square max-w-[160px] w-full cursor-pointer flex-col items-center justify-center gap-2 self-center ml-auto rounded-full border border-[#333] bg-[#1A1A1A] transition-colors hover:bg-[#222] focus-visible:bg-[#222] focus:outline-none"
-            >
-              <Plus className="h-8 w-8 shrink-0" />
-              <span className="text-sm font-medium">Manual</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => selectMode("upload")}
-              className="flex aspect-square max-w-[160px] w-full cursor-pointer flex-col items-center justify-center gap-2 self-center mr-auto rounded-full border border-[#333] bg-[#1A1A1A] transition-colors hover:bg-[#222] focus-visible:bg-[#222] focus:outline-none"
-            >
-              <Upload className="h-8 w-8 shrink-0 " />
-              <span className="text-sm font-medium">Upload</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => selectMode("voice")}
-              className="flex aspect-square max-w-[160px] w-full cursor-pointer flex-col items-center justify-center gap-2 self-center ml-auto rounded-full border border-[#333] bg-[#1A1A1A] transition-colors hover:bg-[#222] focus-visible:bg-[#222] focus:outline-none"
-            >
-              <Mic className="h-8 w-8 shrink-0" />
-              <span className="text-sm font-medium">Voice</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => selectMode("camera")}
-              className="flex aspect-square max-w-[160px] w-full cursor-pointer flex-col items-center justify-center gap-2 self-center mr-auto rounded-full border border-[#333] bg-[#1A1A1A] transition-colors hover:bg-[#222] focus-visible:bg-[#222] focus:outline-none"
-            >
-              <Camera className="h-8 w-8 shrink-0" />
-              <span className="text-sm font-medium">Camera</span>
-            </button>
+          <div className="grid grid-cols-2 sm:flex sm:flex-row sm:justify-center gap-8 p-12 xs:gap-8 xs:p-8 xs:pt-10">
+            {INPUT_MODE_SHEET_ORDER.map((mode, i) => (
+              <InputModeButton
+                key={mode}
+                mode={mode}
+                currentMode={inputMode}
+                onClick={() => selectMode(mode)}
+                className={i % 2 === 0 ? "ml-auto sm:ml-0" : "mr-auto sm:mr-0"}
+              />
+            ))}
           </div>
         </SheetContent>
       </Sheet>

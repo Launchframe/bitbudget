@@ -84,7 +84,7 @@ export function Header() {
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setInputModeSheetOpen(true)}
-                className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
+                className="flex md:hidden focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
               >
                 <ScanLine className="mr-2 h-4 w-4 text-muted-foreground" />
                 <span>Input mode</span>
