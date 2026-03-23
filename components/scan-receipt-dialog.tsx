@@ -30,6 +30,17 @@ export function ScanReceiptDialog({
   /** After programmatic file/camera click, next focus/visibility return without a file means picker was dismissed. */
   const expectCloseAfterPickerRef = useRef(false)
 
+  function reset() {
+    setScanning(false)
+    setError("")
+    setPreview(null)
+  }
+
+  function handleClose(isOpen: boolean) {
+    if (!isOpen) reset()
+    onOpenChange(isOpen)
+  }
+
   useEffect(() => {
     if (!open || !initialSource) {
       expectCloseAfterPickerRef.current = false
@@ -51,6 +62,7 @@ export function ScanReceiptDialog({
       if (!expectCloseAfterPickerRef.current) return
       if (scanning || error) return
       expectCloseAfterPickerRef.current = false
+      reset()
       onOpenChange(false)
     }
     window.addEventListener("focus", tryCloseAfterPickerDismissed)
@@ -60,17 +72,6 @@ export function ScanReceiptDialog({
       document.removeEventListener("visibilitychange", tryCloseAfterPickerDismissed)
     }
   }, [open, initialSource, scanning, error, onOpenChange])
-
-  function reset() {
-    setScanning(false)
-    setError("")
-    setPreview(null)
-  }
-
-  function handleClose(open: boolean) {
-    if (!open) reset()
-    onOpenChange(open)
-  }
 
   async function processFile(file: File) {
     setError("")
@@ -135,7 +136,10 @@ export function ScanReceiptDialog({
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (file) processFile(file)
+    if (file) {
+      expectCloseAfterPickerRef.current = false
+      processFile(file)
+    }
     e.target.value = ""
   }
 
