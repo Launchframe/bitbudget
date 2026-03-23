@@ -13,6 +13,9 @@ transaction_history.csv
 # production
 /build
 
+# agents
+docs/plans
+
 # debug
 npm-debug.log*
 yarn-debug.log*

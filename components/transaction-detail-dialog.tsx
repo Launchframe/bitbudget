@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { formatUsd, formatBtcAmount } from "@/lib/data"
+import { formatUsd } from "@/lib/data"
+import { FormattedBtcAmount } from "@/components/formatted-btc-sats-amount"
 import type { Transaction, TransactionType } from "@/lib/data"
 import {
   Dialog,
@@ -32,7 +33,7 @@ interface TransactionDetailDialogProps {
 
 export function TransactionDetailDialog({ transaction, open, onOpenChange }: TransactionDetailDialogProps) {
   const { state, activeEnvelopes, editTransaction, deleteTransaction, addTag } = useApp()
-  const { getPriceOnDate, currentPrice } = useBtcPrices()
+  const { getPriceOnDate, currentPrice, calculateOpportunityCost } = useBtcPrices()
 
   const [editing, setEditing] = useState(false)
   const [payee, setPayee] = useState("")
@@ -65,6 +66,10 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
   const btcPrice = getPriceOnDate(transaction.date)
   const btcEquiv = btcPrice > 0 ? transaction.amount / btcPrice : 0
   const btcValueToday = currentPrice && btcPrice > 0 ? (transaction.amount / btcPrice) * currentPrice : 0
+  const opportunityCost =
+    transaction.type === "expense" && btcPrice > 0 && currentPrice
+      ? calculateOpportunityCost(transaction.amount, transaction.date)
+      : 0
 
   function handleClose() {
     setEditing(false)
@@ -267,6 +272,7 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
             btcPrice={btcPrice}
             btcEquiv={btcEquiv}
             btcValueToday={btcValueToday}
+            opportunityCost={opportunityCost}
             currentPrice={currentPrice}
             onDelete={handleDelete}
             onEdit={() => setEditing(true)}
@@ -293,6 +299,7 @@ function ViewMode({
   btcPrice,
   btcEquiv,
   btcValueToday,
+  opportunityCost,
   currentPrice,
   onDelete,
   onEdit,
@@ -303,6 +310,7 @@ function ViewMode({
   btcPrice: number
   btcEquiv: number
   btcValueToday: number
+  opportunityCost: number
   currentPrice: number | null
   onDelete: () => void
   onEdit: () => void
@@ -355,7 +363,7 @@ function ViewMode({
         />
         <DetailRow
           label="Amount"
-          value={<span className="font-semibold">{formatUsd(transaction.amount)}</span>}
+          value={<span className="font-semibold">{formatUsd(transaction.amount, 2)}</span>}
         />
         {envelope && (
           <DetailRow
@@ -407,8 +415,8 @@ function ViewMode({
           <DetailRow
             label="Could have stacked"
             value={
-              <span className={`font-medium${state.btcDisplayUnit === "btc" ? " font-ibm-plex-mono" : ""}`}>
-                {formatBtcAmount(btcEquiv, state.btcDisplayUnit)}
+              <span className="font-medium">
+                <FormattedBtcAmount btcValue={btcEquiv} unit={state.btcDisplayUnit} />
               </span>
             }
           />
@@ -418,10 +426,31 @@ function ViewMode({
               label="Value today"
               value={
                 <span className={`font-semibold ${gained ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
-                  {formatUsd(btcValueToday)}
+                  {formatUsd(btcValueToday, 2)}
                   <span className="ml-1.5 text-xs font-normal opacity-80">
                     ({gained ? "+" : ""}{((multiplier - 1) * 100).toFixed(0)}%)
                   </span>
+                </span>
+              }
+            />
+          )}
+
+          {currentPrice && showBtc && (
+            <DetailRow
+              label="Opportunity cost"
+              value={
+                <span
+                  className={`font-semibold ${
+                    opportunityCost > 0
+                      ? "text-[#F7931A]"
+                      : opportunityCost < 0
+                        ? "text-[#22C55E]"
+                        : "text-foreground"
+                  }`}
+                  title="What you’d be up or down in USD vs. spending: value of that BTC today minus the original spend."
+                >
+                  {opportunityCost > 0 ? "+" : ""}
+                  {formatUsd(opportunityCost, 2)}
                 </span>
               }
             />

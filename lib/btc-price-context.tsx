@@ -210,12 +210,17 @@ export function BtcPriceProvider({
     [priceMap, priceHistory, currentPrice],
   )
 
+  /**
+   * @param amount - the amount spent
+   * @param date - the date of the transaction
+   * @returns the $ amount increase in position USD value if the equivalent BTC was still held today
+   */
   const calculateOpportunityCost = useCallback(
     (amount: number, date: string): number => {
       const priceAtPurchase = getPriceOnDate(date)
       if (!priceAtPurchase || !currentPrice) return 0
       const btcAmount = amount / priceAtPurchase
-      return btcAmount * currentPrice
+      return btcAmount * currentPrice - amount
     },
     [getPriceOnDate, currentPrice],
   )

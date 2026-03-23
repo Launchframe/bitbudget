@@ -155,12 +155,12 @@ export function satsPerDollar(btcPrice: number): number {
   return Math.round(100_000_000 / btcPrice)
 }
 
-export function formatUsd(amount: number): string {
+export function formatUsd(amount: number, fractionDigits: number = 0): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
   }).format(amount)
 }
 
@@ -174,30 +174,35 @@ export function formatUsdPrecise(amount: number): string {
 }
 
 export function formatSats(sats: number): string {
-  return new Intl.NumberFormat("en-US").format(sats) + " sats"
+  return formatSatsInteger(sats) + " sats"
 }
 
-const SATS_PER_BTC = 100_000_000
+/** Integer sats count with grouping (no unit prefix; use {@link FormattedBtcAmountFromSats} in UI for the symbol). */
+export function formatSatsInteger(sats: number): string {
+  return new Intl.NumberFormat("en-US").format(sats)
+}
 
-function formatBtcFixed(btcValue: number): string {
+export const SATS_PER_BTC = 100_000_000
+
+function formatBtcFixed(btcValue: number, displayUnit: boolean = true): string {
   const s = btcValue.toFixed(8)
   // Insert a space before the last 4 decimal digits: 0.00000000 → 0.0000 0000
-  return "₿" + s.slice(0, -4) + "\u2009" + s.slice(-4)
+  return (displayUnit ? "₿" : "") + s.slice(0, -4) + "\u2009" + s.slice(-4)
 }
 
-export function formatBtcAmount(btcValue: number, unit: BtcDisplayUnit): string {
+export function formatBtcAmount(btcValue: number, unit: BtcDisplayUnit, displayUnit: boolean = true): string {
   if (unit === "sats") {
     const sats = Math.round(btcValue * SATS_PER_BTC)
-    return new Intl.NumberFormat("en-US").format(sats) + " sats"
+    return formatSatsInteger(sats)
   }
-  return formatBtcFixed(btcValue)
+  return formatBtcFixed(btcValue, displayUnit)
 }
 
-export function formatBtcAmountFromSats(sats: number, unit: BtcDisplayUnit): string {
+export function formatBtcAmountFromSats(sats: number, unit: BtcDisplayUnit, displayUnit: boolean = true): string {
   if (unit === "sats") {
-    return new Intl.NumberFormat("en-US").format(sats) + " sats"
+    return formatSatsInteger(sats)
   }
-  return formatBtcFixed(sats / SATS_PER_BTC)
+  return formatBtcFixed(sats / SATS_PER_BTC, displayUnit)
 }
 
 
