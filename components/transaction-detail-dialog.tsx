@@ -363,7 +363,7 @@ function ViewMode({
         />
         <DetailRow
           label="Amount"
-          value={<span className="font-semibold">{formatUsd(transaction.amount)}</span>}
+          value={<span className="font-semibold">{formatUsd(transaction.amount, 2)}</span>}
         />
         {envelope && (
           <DetailRow
@@ -426,7 +426,7 @@ function ViewMode({
               label="Value today"
               value={
                 <span className={`font-semibold ${gained ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
-                  {formatUsd(btcValueToday)}
+                  {formatUsd(btcValueToday, 2)}
                   <span className="ml-1.5 text-xs font-normal opacity-80">
                     ({gained ? "+" : ""}{((multiplier - 1) * 100).toFixed(0)}%)
                   </span>
@@ -450,7 +450,7 @@ function ViewMode({
                   title="What you’d be up or down in USD vs. spending: value of that BTC today minus the original spend."
                 >
                   {opportunityCost > 0 ? "+" : ""}
-                  {formatUsd(opportunityCost)}
+                  {formatUsd(opportunityCost, 2)}
                 </span>
               }
             />

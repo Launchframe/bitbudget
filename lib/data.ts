@@ -155,12 +155,12 @@ export function satsPerDollar(btcPrice: number): number {
   return Math.round(100_000_000 / btcPrice)
 }
 
-export function formatUsd(amount: number): string {
+export function formatUsd(amount: number, fractionDigits: number = 0): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
   }).format(amount)
 }
 
@@ -193,16 +193,16 @@ function formatBtcFixed(btcValue: number, displayUnit: boolean = true): string {
 export function formatBtcAmount(btcValue: number, unit: BtcDisplayUnit, displayUnit: boolean = true): string {
   if (unit === "sats") {
     const sats = Math.round(btcValue * SATS_PER_BTC)
-    return formatSatsInteger(sats) + (displayUnit ? " sats" : "")
+    return formatSatsInteger(sats)
   }
   return formatBtcFixed(btcValue, displayUnit)
 }
 
-export function formatBtcAmountFromSats(sats: number, unit: BtcDisplayUnit): string {
+export function formatBtcAmountFromSats(sats: number, unit: BtcDisplayUnit, displayUnit: boolean = true): string {
   if (unit === "sats") {
-    return formatSatsInteger(sats) + " sats"
+    return formatSatsInteger(sats)
   }
-  return formatBtcFixed(sats / SATS_PER_BTC)
+  return formatBtcFixed(sats / SATS_PER_BTC, displayUnit)
 }
 
 

@@ -57,7 +57,7 @@ export function FormattedBtcAmountFromSats({
   if (unit === "btc") {
     return (
       <span className={cn("font-ibm-plex-mono tabular-nums", className)}>
-        {formatBtcAmountFromSats(sats, "btc")}
+        {formatBtcAmountFromSats(sats, "btc", displayUnit)}
       </span>
     )
   }
@@ -69,7 +69,6 @@ export function FormattedBtcAmountFromSats({
     <span className={cn("inline-flex items-center gap-x-1 tabular-nums", className)}>
       <SatSymbol className="h-[0.95em] w-[0.74em] shrink-0 self-center text-current" />
       <span>{num}</span>
-      <span className="text-muted-foreground font-normal">sats</span>
     </span>
   )
 }
