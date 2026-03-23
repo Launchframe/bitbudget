@@ -245,7 +245,7 @@ export function OpportunityCostChart() {
                 activeRange === key
                   ? "bg-[#F7931A] text-[#0D0D0D]"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
+              } ${key === "3m" ? "hidden xs:block" : ""}`}
             >
               {label}
             </button>
