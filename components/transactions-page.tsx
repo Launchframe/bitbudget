@@ -5,6 +5,7 @@ import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, formatUsdPrecise, type BtcDisplayUnit, type TransactionType } from "@/lib/data"
 import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
+import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
 import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
@@ -555,8 +556,26 @@ export function TransactionsPage() {
                       </td>
                     )}
                     {state.opportunityCostEnabled && (
-                      <td className="py-3.5 px-4 text-right text-sm font-semibold text-[#F7931A] hidden sm:table-cell">
-                        {txn.type === "expense" ? formatUsd(opCost) : "—"}
+                      <td className="py-3.5 px-4 text-right text-sm hidden sm:table-cell">
+                        {txn.type === "expense" ? (
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <span
+                              className={`font-semibold tabular-nums ${
+                                opCost >= 0 ? "text-[#F7931A]" : "text-[#22C55E]"
+                              }`}
+                            >
+                              {formatUsd(opCost)}
+                            </span>
+                            {txn.amount > 0 && (
+                              <PriceGainLossBadge
+                                gained={opCost >= 0}
+                                percentChange={Math.abs((opCost / txn.amount) * 100)}
+                              />
+                            )}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                     )}
                     <td className="py-3.5 px-4 text-right">
