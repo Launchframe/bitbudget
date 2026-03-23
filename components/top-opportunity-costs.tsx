@@ -153,7 +153,7 @@ export function TopOpportunityCosts() {
         <table className="w-full">
           <thead>
             <tr className="text-muted-foreground text-xs uppercase tracking-wider border-b border-[#1F1F1F]">
-              <th className="pb-3 text-left font-medium pl-2 w-8">#</th>
+              <th className="hidden xs:table-cell pb-3 text-left font-medium pl-2 w-8">#</th>
               <th className="pb-3 text-left font-medium">Payee</th>
               <th className="pb-3 text-left font-medium hidden sm:table-cell">Date</th>
               <th className="pb-3 text-right font-medium">Spent</th>
@@ -174,8 +174,8 @@ export function TopOpportunityCosts() {
                   className="group hover:bg-[#1A1A1A] transition-colors cursor-pointer"
                   onClick={() => setSelectedTxn(txn)}
                 >
-                  <td className="py-3 pl-2 text-muted-foreground text-sm rounded-l-xl">{idx + 1}</td>
-                  <td className="py-3">
+                  <td className="hidden xs:table-cell py-3 pl-2 text-muted-foreground text-sm rounded-l-xl">{idx + 1}</td>
+                  <td className="py-3 overflow-x-hidden">
                     <span className="font-medium text-foreground text-sm">
                       {txn.isDecrypted === false ? (
                         <span className="text-muted-foreground italic">{ENCRYPTED_DISPLAY}</span>
@@ -187,7 +187,7 @@ export function TopOpportunityCosts() {
                   <td className="py-3 text-muted-foreground text-sm hidden sm:table-cell">
                     {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   </td>
-                  <td className="py-3 text-right text-muted-foreground text-sm">
+                  <td className="py-3 text-right text-muted-foreground text-sm pr-1 sm:pr-0">
                     {formatUsd(txn.amount)}
                   </td>
                   <td className="py-3 text-right text-muted-foreground text-sm hidden md:table-cell">

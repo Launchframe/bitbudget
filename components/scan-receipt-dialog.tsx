@@ -25,7 +25,6 @@ export function ScanReceiptDialog({
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<string | null>(null)
-  const [suppressChoiceUI, setSuppressChoiceUI] = useState(false)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   /** After programmatic file/camera click, next focus/visibility return without a file means picker was dismissed. */
@@ -36,16 +35,12 @@ export function ScanReceiptDialog({
       expectCloseAfterPickerRef.current = false
       return
     }
-    // When an initial source is provided, hide the choice UI and open the picker.
-    // Defer setState to satisfy react-hooks/set-state-in-effect (avoid sync setState in effect).
-    const hideId = setTimeout(() => setSuppressChoiceUI(true), 0)
     const t = setTimeout(() => {
       if (initialSource === "camera") cameraInputRef.current?.click()
       else fileInputRef.current?.click()
       expectCloseAfterPickerRef.current = true
     }, 150)
     return () => {
-      clearTimeout(hideId)
       clearTimeout(t)
     }
   }, [open, initialSource])
@@ -56,7 +51,6 @@ export function ScanReceiptDialog({
       if (!expectCloseAfterPickerRef.current) return
       if (scanning || error) return
       expectCloseAfterPickerRef.current = false
-      setSuppressChoiceUI(false)
       onOpenChange(false)
     }
     window.addEventListener("focus", tryCloseAfterPickerDismissed)
@@ -71,7 +65,6 @@ export function ScanReceiptDialog({
     setScanning(false)
     setError("")
     setPreview(null)
-    setSuppressChoiceUI(false)
   }
 
   function handleClose(open: boolean) {
@@ -146,13 +139,11 @@ export function ScanReceiptDialog({
     e.target.value = ""
   }
 
-  const skipChoiceUI = !!initialSource && suppressChoiceUI && !scanning && !error
-
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-md"
-        invisible={skipChoiceUI}
+        invisible={!!initialSource && !scanning && !error}
       >
         <DialogHeader>
           <DialogTitle className="text-lg font-bold text-foreground">Scan Receipt</DialogTitle>
