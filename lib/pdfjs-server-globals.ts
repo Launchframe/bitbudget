@@ -3,7 +3,8 @@
  * Node / Vercel serverless do not define DOMMatrix, Path2D, or ImageData globally.
  * pdf-parse's own worker entry does the same assignment using @napi-rs/canvas.
  *
- * Import this module before `pdf-parse` in any server route that uses PDFParse.
+ * Import this module (statically or via `await import(...)`) before loading `pdf-parse`
+ * in any server route that uses PDFParse.
  */
 import { DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas"
 

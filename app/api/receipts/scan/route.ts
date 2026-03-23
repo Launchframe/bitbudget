@@ -1,16 +1,17 @@
-import "@/lib/pdfjs-server-globals"
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { premiumForbiddenResponse, requirePremium } from "@/lib/subscription"
 import { matchEnvelope } from "@/lib/envelope-matcher"
 import { parseReceiptText } from "@/lib/receipt-parser"
-import { PDFParse } from "pdf-parse"
 import {
   RECEIPT_SCAN_MAX_BYTES,
   normalizeScanExtraction,
   resolveReceiptFileKind,
 } from "@/lib/receipt-scan-validate"
+
+/** Native canvas + pdf-parse; must not run on Edge. */
+export const runtime = "nodejs"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 const EXTRACTION_PROMPT = `You are a receipt parser. Extract the following from this receipt:
@@ -75,6 +76,19 @@ async function extractFromImage(base64: string, mimeType: string, apiKey: string
   return normalizeScanExtraction(parsed as Record<string, unknown>)
 }
 
+/** Loads canvas shims then pdf-parse only when needed (image uploads skip this). */
+async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
+  await import("@/lib/pdfjs-server-globals")
+  const { PDFParse } = await import("pdf-parse")
+  const parser = new PDFParse({ data: buffer })
+  try {
+    const textResult = await parser.getText()
+    return textResult.text ?? ""
+  } finally {
+    await parser.destroy()
+  }
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
@@ -120,13 +134,11 @@ export async function POST(req: NextRequest) {
     let result: { payee: string; amount: string; date: string }
 
     if (kind === "application/pdf") {
-      const parser = new PDFParse({ data: buffer })
-      const textResult = await parser.getText()
-      await parser.destroy()
-      if (!textResult.text?.trim()) {
+      const text = (await extractTextFromPdfBuffer(buffer)).trim()
+      if (!text) {
         return NextResponse.json({ error: "Could not extract text from PDF" }, { status: 422 })
       }
-      result = await parseReceiptText(textResult.text)
+      result = await parseReceiptText(text)
     } else if (kind.startsWith("image/")) {
       if (kind === "image/heic") {
         return NextResponse.json(
