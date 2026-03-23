@@ -215,7 +215,8 @@ export function BtcPriceProvider({
       const priceAtPurchase = getPriceOnDate(date)
       if (!priceAtPurchase || !currentPrice) return 0
       const btcAmount = amount / priceAtPurchase
-      return btcAmount * currentPrice
+      // return: the $ amount the position would be up by if still held today
+      return btcAmount * currentPrice - amount
     },
     [getPriceOnDate, currentPrice],
   )

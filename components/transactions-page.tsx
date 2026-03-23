@@ -3,7 +3,8 @@
 import { useState, useMemo, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { formatUsd, formatUsdPrecise, formatBtcAmountFromSats, type TransactionType } from "@/lib/data"
+import { formatUsd, formatUsdPrecise, type BtcDisplayUnit, type TransactionType } from "@/lib/data"
+import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
 import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
@@ -20,8 +21,16 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-function BtcAmount({ value, unit, className }: { value: string; unit: string; className?: string }) {
-  return <span className={`${unit === "btc" ? "font-ibm-plex-mono" : ""} ${className ?? ""}`}>{value}</span>
+function BtcAmount({
+  sats,
+  unit,
+  className,
+}: {
+  sats: number
+  unit: BtcDisplayUnit
+  className?: string
+}) {
+  return <FormattedBtcAmountFromSats sats={sats} unit={unit} className={className} />
 }
 
 const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
@@ -230,7 +239,7 @@ export function TransactionsPage() {
               <div className="flex flex-col gap-0.5">
                 <span className="text-xs text-muted-foreground uppercase tracking-wider">You could have stacked</span>
                 <BtcAmount
-                  value={formatBtcAmountFromSats(totalSats, state.btcDisplayUnit)}
+                  sats={totalSats}
                   unit={state.btcDisplayUnit}
                   className="text-lg font-semibold text-foreground"
                 />
@@ -538,7 +547,11 @@ export function TransactionsPage() {
                     </td>
                     {state.opportunityCostEnabled && (
                       <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
-                        {txn.satsAmount != null ? <BtcAmount value={formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit)} unit={state.btcDisplayUnit} /> : "—"}
+                        {txn.satsAmount != null ? (
+                          <BtcAmount sats={txn.satsAmount} unit={state.btcDisplayUnit} />
+                        ) : (
+                          "—"
+                        )}
                       </td>
                     )}
                     {state.opportunityCostEnabled && (

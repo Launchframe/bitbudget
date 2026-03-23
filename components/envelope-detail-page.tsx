@@ -7,11 +7,11 @@ import {
   getEnvelopeBalance,
   getCurrentMonthKey,
   formatUsd,
-  formatBtcAmountFromSats,
   type TransactionType,
 } from "@/lib/data"
 import type { Transaction } from "@/lib/data"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
+import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -259,7 +259,15 @@ export function EnvelopeDetailPage() {
                     </td>
                     {state.opportunityCostEnabled && (
                       <td className="py-3.5 px-4 text-right text-sm text-muted-foreground hidden md:table-cell">
-                        {txn.satsAmount != null ? <span className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}>{formatBtcAmountFromSats(txn.satsAmount, state.btcDisplayUnit)}</span> : "—"}
+                        {txn.satsAmount != null ? (
+                          <FormattedBtcAmountFromSats
+                            sats={txn.satsAmount}
+                            unit={state.btcDisplayUnit}
+                            className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}
+                          />
+                        ) : (
+                          "—"
+                        )}
                       </td>
                     )}
                     {state.opportunityCostEnabled && (

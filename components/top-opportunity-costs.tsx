@@ -3,7 +3,8 @@
 import { useMemo, useState, useEffect, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { formatUsd, formatBtcAmount } from "@/lib/data"
+import { formatUsd } from "@/lib/data"
+import { FormattedBtcAmount } from "./formatted-btc-sats-amount"
 import { TrendingUp, TrendingDown } from "lucide-react"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
@@ -155,11 +156,11 @@ export function TopOpportunityCosts() {
               <th className="pb-3 text-left font-medium pl-2 w-8">#</th>
               <th className="pb-3 text-left font-medium">Payee</th>
               <th className="pb-3 text-left font-medium hidden sm:table-cell">Date</th>
-              <th className="pb-3 text-right font-medium hidden md:table-cell">BTC Price</th>
               <th className="pb-3 text-right font-medium">Spent</th>
+              <th className="pb-3 text-right font-medium hidden md:table-cell">BTC Price</th>
               <th className="pb-3 text-right font-medium hidden lg:table-cell">{state.btcDisplayUnit === "btc" ? "BTC" : "Sats"} Equiv.</th>
               <th className="pb-3 text-right font-medium pr-2">BTC Value Today</th>
-              <th className="hidden sm:table-cell pb-3 text-right font-medium pr-2">Opp. Cost</th>
+              <th className="hidden sm:table-cell pb-3 text-right font-medium">Opp. Cost</th>
             </tr>
           </thead>
           <tbody>
@@ -186,16 +187,20 @@ export function TopOpportunityCosts() {
                   <td className="py-3 text-muted-foreground text-sm hidden sm:table-cell">
                     {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   </td>
-                  <td className="py-3 text-right text-muted-foreground text-sm hidden md:table-cell">
-                    {formatUsd(txn.btcPriceAtTime)}
-                  </td>
                   <td className="py-3 text-right text-muted-foreground text-sm">
                     {formatUsd(txn.amount)}
+                  </td>
+                  <td className="py-3 text-right text-muted-foreground text-sm hidden md:table-cell">
+                    {formatUsd(txn.btcPriceAtTime)}
                   </td>
                   <td className="py-3 text-right text-muted-foreground text-sm hidden lg:table-cell">
                     {txn.btcPriceAtTime > 0
                       ? <span className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}>
-                          {formatBtcAmount(txn.amount / txn.btcPriceAtTime, state.btcDisplayUnit, false)}
+                         <FormattedBtcAmount
+                            btcValue={txn.amount / txn.btcPriceAtTime}
+                            unit={state.btcDisplayUnit}
+                            displayUnit={true}
+                          />
                         </span>
                       : "—"}
                   </td>
