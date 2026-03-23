@@ -5,7 +5,7 @@ import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
 import { FormattedBtcAmount } from "./formatted-btc-sats-amount"
-import { TrendingUp, TrendingDown } from "lucide-react"
+import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import {
@@ -210,14 +210,7 @@ export function TopOpportunityCosts() {
                         {formatUsd(txn.btcValueToday)}
                       </span>
                       {txn.btcValueToday > 0 && (
-                        <span className={`flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                          gained
-                            ? "text-[#F7931A] bg-[#F7931A]/10"
-                            : "text-[#22C55E] bg-[#22C55E]/10"
-                        }`}>
-                          {gained ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                          {gained ? "+" : "-"}{pctChange.toFixed(0)}%
-                        </span>
+                        <PriceGainLossBadge gained={gained} percentChange={pctChange} />
                       )}
                     </div>
                   </td>

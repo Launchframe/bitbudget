@@ -8,6 +8,7 @@ import { formatUsd } from "@/lib/data"
 // Shared tick rules (incl. short spans / 5Y imported history) live in `lib/chart-x-axis-format.ts`.
 import { formatExpenseChartXAxisTick } from "@/lib/chart-x-axis-format"
 import { BarChart3 } from "lucide-react"
+import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 
 type RangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "5y" | "all"
 
@@ -198,13 +199,12 @@ export function OpportunityCostChart() {
   const spread = useMemo(() => {
     if (filteredData.length === 0) return null
     const last = filteredData[filteredData.length - 1]
-    if (!ocEnabled) return { spent: last.spent, btcValue: 0, diff: 0, pct: "0" }
+    if (!ocEnabled) return { spent: last.spent, btcValue: 0, diff: 0 }
     const diff = last.btcValue - last.spent
-    const pct = last.spent > 0 ? ((diff / last.spent) * 100).toFixed(0) : "0"
-    return { spent: last.spent, btcValue: last.btcValue, diff, pct }
+    return { spent: last.spent, btcValue: last.btcValue, diff }
   }, [filteredData, ocEnabled])
 
-  const title = ocEnabled ? "Your opportunity cost" : "Your expenses"
+  const title = ocEnabled ? "Opportunity Cost" : "Your expenses"
   const emptyMessage = activeTransactions.length === 0
     ? "Add transactions to see your spending trends."
     : !hasAnyExpenses
@@ -223,14 +223,18 @@ export function OpportunityCostChart() {
                 Spent: <span className="text-foreground font-medium">{formatUsd(spread.spent)}</span>
               </span>
               {ocEnabled && (
-                <>
-                  <span className="text-muted-foreground">
-                    BTC value: <span className="text-[#F7931A] font-medium">{formatUsd(spread.btcValue)}</span>
+                <span className="text-muted-foreground inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span>
+                    BTC value:{" "}
+                    <span className="text-[#F7931A] font-medium">{formatUsd(spread.btcValue)}</span>
                   </span>
-                  <span className={`font-semibold ${spread.diff >= 0 ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
-                    {spread.diff >= 0 ? "+" : ""}{spread.pct}%
-                  </span>
-                </>
+                  <PriceGainLossBadge
+                    gained={spread.diff >= 0}
+                    percentChange={
+                      spread.spent > 0 ? Math.abs((spread.diff / spread.spent) * 100) : 0
+                    }
+                  />
+                </span>
               )}
             </div>
           )}
