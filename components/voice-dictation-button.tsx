@@ -94,7 +94,7 @@ export function VoiceDictationButton() {
         onClick={voiceState === "listening" ? stopListening : startListening}
         disabled={voiceState === "processing"}
         title="Voice Input"
-        className={`flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-2.5 py-2.5 rounded-xl text-sm transition-colors border ${
+        className={`flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-4 py-2.5 rounded-xl text-sm transition-colors border ${
           voiceState === "listening"
             ? "bg-red-500/20 border-red-500/50 text-red-400 animate-pulse"
             : voiceState === "processing"
@@ -109,7 +109,7 @@ export function VoiceDictationButton() {
         ) : (
           <Mic className="h-4 w-4 text-[#F7931A] shrink-0" />
         )}
-        <span className="hidden lg:inline">
+        <span className="hidden lg:inline ml-1">
           {voiceState === "listening"
             ? "Stop"
             : voiceState === "processing"
