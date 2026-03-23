@@ -1,6 +1,12 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* Tailwind v4: breakpoints live in @theme (tailwind.config.js is not loaded unless you add @config). */
+@theme {
+  --breakpoint-xs: 380px;
+  --breakpoint-3xl: 1920px;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
