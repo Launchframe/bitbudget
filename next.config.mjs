@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Native addon; Turbopack cannot bundle it (js-binding is not ESM-placeable).
+  serverExternalPackages: ["@napi-rs/canvas"],
   images: {
     unoptimized: true,
   },
