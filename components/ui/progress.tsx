@@ -8,8 +8,12 @@ import { cn } from '@/lib/utils'
 function Progress({
   className,
   value,
+  markerPct,
   ...props
-}: React.ComponentProps<typeof ProgressPrimitive.Root>) {
+}: React.ComponentProps<typeof ProgressPrimitive.Root> & {
+  /** Optional 0-100 position for a vertical day-of-month marker line. */
+  markerPct?: number
+}) {
   return (
     <ProgressPrimitive.Root
       data-slot="progress"
@@ -27,6 +31,13 @@ function Progress({
           backgroundColor: "var(--progress-color, var(--primary))",
         }}
       />
+      {markerPct !== undefined && (
+        <div
+          className="absolute top-0 h-full w-px bg-white/70 pointer-events-none"
+          style={{ left: `${Math.max(0, Math.min(100, markerPct))}%` }}
+          aria-hidden
+        />
+      )}
     </ProgressPrimitive.Root>
   )
 }
