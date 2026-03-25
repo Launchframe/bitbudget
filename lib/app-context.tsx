@@ -778,6 +778,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     function onPopState() {
       const { page, envelopeId } = hashToPage(window.location.hash)
+      // Mark as popstate so navigateTo skips pushState — but since navigateTo is
+      // not called inside this handler we must reset the flag ourselves at the end,
+      // otherwise the very next user-triggered navigateTo silently skips pushState
+      // and the history entry for that navigation is never written.
       isPopstate.current = true
       if (page === "envelope-detail" && envelopeId) {
         setCurrentPage("transactions")
@@ -786,7 +790,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } else {
         setCurrentPage(page)
         if (envelopeId) setSelectedEnvelopeId(envelopeId)
+        // Clear any envelope filter when going back to a page that isn't transactions.
+        if (page !== "transactions") setTransactionEnvelopeFilter(new Set())
       }
+      // Reset immediately — navigateTo is never invoked inside this handler so it
+      // will never reset the flag on our behalf.
+      isPopstate.current = false
     }
 
     window.addEventListener("popstate", onPopState)
