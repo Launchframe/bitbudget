@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select"
 import { Pencil, Trash2, Repeat, X, Bitcoin } from "lucide-react"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
+import { cn } from "@/lib/utils"
 
 interface TransactionDetailDialogProps {
   transaction: Transaction | null
@@ -116,7 +117,7 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] max-w-md pb-0 overflow-hidden">
+      <DialogContent className={cn("bg-[#0D0D0D] border-[#1F1F1F] max-w-md overflow-hidden", !editing && "pb-0")}>
         <DialogHeader>
           <DialogTitle className="text-foreground">
             {editing ? "Edit Transaction" : "Transaction Details"}
