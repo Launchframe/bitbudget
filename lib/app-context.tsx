@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { signOut } from "next-auth/react"
-import type { Transaction, Envelope, AppState, BtcDisplayUnit, PendingTransaction, Tag } from "@/lib/data"
+import type { Transaction, Envelope, AppState, BtcDisplayUnit, PendingTransaction, Tag, RecurringTransaction } from "@/lib/data"
 import { generateId, getDefaultState } from "@/lib/data"
 import {
   encryptFieldAsymmetric,
@@ -113,6 +113,10 @@ export interface TransactionPrefill {
   date?: string
   notes?: string
   envelopeId?: string
+  type?: "expense" | "credit"
+  tags?: string[]
+  /** When set, the dialog operates in "post now" mode for the given recurring rule. */
+  recurringId?: string
 }
 
 export interface ReferralSummaryState {
@@ -212,6 +216,22 @@ interface AppContextValue {
   ) => Promise<void>
   dismissPending: (id: string) => Promise<void>
   confirmAllPending: () => Promise<void>
+
+  recurringTransactions: RecurringTransaction[]
+  editRecurringTransaction: (
+    id: string,
+    updates: {
+      payee?: string
+      amount?: number
+      type?: "expense" | "credit"
+      envelopeId?: string
+      cadence?: RecurringTransaction["cadence"]
+      endDate?: string | null
+      tags?: string[]
+      notes?: string | null
+    },
+  ) => Promise<void>
+  deleteRecurringTransaction: (id: string) => Promise<void>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -253,6 +273,42 @@ function decryptPendingRecords(
   })
 }
 
+function decryptRecurringRules(
+  rules: RecurringTransaction[],
+  secretKey: Uint8Array | null,
+  locked: boolean,
+): RecurringTransaction[] {
+  if (locked || !secretKey) {
+    return rules.map((r) => ({
+      ...r,
+      payee: looksLikeAsymmetricCiphertext(r.payee) ? ENCRYPTED_DISPLAY : r.payee,
+      notes:
+        r.notes != null && looksLikeAsymmetricCiphertext(r.notes) ? ENCRYPTED_DISPLAY : r.notes,
+      isDecrypted: false,
+    }))
+  }
+  return rules.map((r) => {
+    let payee = r.payee
+    let notes = r.notes
+    let isDecrypted = true
+    try {
+      payee = decryptFieldAsymmetric(r.payee, secretKey)
+    } catch {
+      payee = looksLikeAsymmetricCiphertext(r.payee) ? ENCRYPTED_DISPLAY : r.payee
+      isDecrypted = false
+    }
+    if (notes) {
+      try {
+        notes = decryptFieldAsymmetric(notes, secretKey)
+      } catch {
+        notes = looksLikeAsymmetricCiphertext(notes) ? ENCRYPTED_DISPLAY : notes
+        isDecrypted = false
+      }
+    }
+    return { ...r, payee, notes, isDecrypted }
+  })
+}
+
 function applyPrivacyKey(key: Uint8Array, publicKeyRef: React.MutableRefObject<Uint8Array | null>) {
   const { publicKey } = generateKeyPairFromSeed(key)
   publicKeyRef.current = publicKey
@@ -291,6 +347,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [refereePendingBankLink, setRefereePendingBankLink] = useState(false)
   const [referralRefereeTrialMonths, setReferralRefereeTrialMonths] = useState<1 | 3 | null>(null)
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
+  const [recurringTransactions, setRecurringTransactions] = useState<RecurringTransaction[]>([])
   const mounted = useRef(false)
   const isPopstate = useRef(false)
 
@@ -409,11 +466,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await fetch("/api/recurring/process", { method: "POST" }).catch(() => {})
 
-      const [envRes, settingsRes, pendingRes, tagsRes] = await Promise.all([
+      const [envRes, settingsRes, pendingRes, tagsRes, recurringRes] = await Promise.all([
         fetch("/api/envelopes"),
         fetch("/api/user/settings"),
         fetch("/api/pending-transactions"),
         fetch("/api/tags"),
+        fetch("/api/recurring"),
       ])
 
       const authFailure = [envRes, settingsRes, tagsRes].some(
@@ -435,6 +493,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           pendingData = decryptPendingRecords(pendingData, privacyKeyRef.current)
           setPendingTransactions(pendingData)
         }
+      }
+      if (recurringRes.ok) {
+        const locked = pendingLockedRef.current && !privacyKeyRef.current
+        const recurringData = await recurringRes.json() as RecurringTransaction[]
+        setRecurringTransactions(decryptRecurringRules(recurringData, privacyKeyRef.current, locked))
       }
       if (!tagsRes.ok) throw new Error("Failed to fetch tags")
 
@@ -1182,6 +1245,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setMemoTransactionCount(null)
     setTransactionSyncError(null)
     setTxnLoadPhase("init")
+    setRecurringTransactions([])
     void (async () => {
       if (uid) await clearDb(uid).catch(() => {})
       signOut({ callbackUrl: "/auth" })
@@ -1249,6 +1313,62 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await refreshData()
     }
   }, [refreshData, pendingTransactions])
+
+  const editRecurringTransaction = useCallback(
+    async (
+      id: string,
+      updates: {
+        payee?: string
+        amount?: number
+        type?: "expense" | "credit"
+        envelopeId?: string
+        cadence?: RecurringTransaction["cadence"]
+        endDate?: string | null
+        tags?: string[]
+        notes?: string | null
+      },
+    ) => {
+      const body: Record<string, unknown> = { id }
+      if (updates.amount !== undefined) body.amount = updates.amount
+      if (updates.type !== undefined) body.type = updates.type
+      if (updates.envelopeId !== undefined) body.envelopeId = updates.envelopeId
+      if (updates.cadence !== undefined) body.cadence = updates.cadence
+      if (updates.endDate !== undefined) body.endDate = updates.endDate
+      if (updates.tags !== undefined) body.tags = updates.tags
+      if (updates.payee !== undefined) {
+        body.payee = publicKeyRef.current
+          ? encryptFieldAsymmetric(updates.payee, publicKeyRef.current)
+          : updates.payee
+      }
+      if (updates.notes !== undefined) {
+        body.notes =
+          updates.notes !== null && publicKeyRef.current
+            ? encryptFieldAsymmetric(updates.notes, publicKeyRef.current)
+            : updates.notes
+      }
+      const res = await fetch("/api/recurring", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (res.ok) {
+        const updated = await res.json() as RecurringTransaction
+        const locked = pendingLockedRef.current && !privacyKeyRef.current
+        const decrypted = decryptRecurringRules([updated], privacyKeyRef.current, locked)[0]
+        setRecurringTransactions((prev) =>
+          prev.map((r) => (r.id === id ? decrypted : r)),
+        )
+      }
+    },
+    [],
+  )
+
+  const deleteRecurringTransaction = useCallback(async (id: string) => {
+    const res = await fetch(`/api/recurring?id=${id}`, { method: "DELETE" })
+    if (res.ok) {
+      setRecurringTransactions((prev) => prev.filter((r) => r.id !== id))
+    }
+  }, [])
 
   const activeEnvelopes = useMemo(
     () => state.envelopes.filter(e => !e.archived),
@@ -1328,6 +1448,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         confirmPending,
         dismissPending,
         confirmAllPending,
+        recurringTransactions,
+        editRecurringTransaction,
+        deleteRecurringTransaction,
       }}
     >
       {children}

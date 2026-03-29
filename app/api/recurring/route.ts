@@ -33,6 +33,7 @@ export async function GET() {
     endDate: r.endDate?.toISOString().split("T")[0] ?? null,
     active: r.active,
     createdAt: r.createdAt.toISOString(),
+    notes: r.notes ?? null,
   }))
 
   return NextResponse.json(formatted)
@@ -123,6 +124,71 @@ export async function POST(req: NextRequest) {
       recurringId: transaction.recurringId,
     },
   }, { status: 201 })
+}
+
+export async function PUT(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const body = await req.json()
+  const { id, payee, amount, type, envelopeId, cadence, endDate, tags, notes } = body
+
+  if (!id) {
+    return NextResponse.json({ error: "Missing id" }, { status: 400 })
+  }
+  if (cadence !== undefined && !VALID_CADENCES.includes(cadence)) {
+    return NextResponse.json({ error: "Invalid cadence" }, { status: 400 })
+  }
+
+  const rec = await prisma.recurringTransaction.findFirst({
+    where: { id, userId: session.user.id },
+  })
+  if (!rec) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+
+  if (envelopeId !== undefined) {
+    const envelope = await prisma.envelope.findFirst({
+      where: { id: envelopeId, userId: session.user.id },
+    })
+    if (!envelope) {
+      return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
+    }
+  }
+
+  const updated = await prisma.recurringTransaction.update({
+    where: { id },
+    data: {
+      ...(payee !== undefined && { payee }),
+      ...(amount !== undefined && { amount: Math.abs(amount) }),
+      ...(type !== undefined && { type }),
+      ...(envelopeId !== undefined && { envelopeId }),
+      ...(cadence !== undefined && { cadence }),
+      ...(endDate !== undefined && { endDate: endDate ? new Date(endDate) : null }),
+      ...(tags !== undefined && { tags: JSON.stringify(tags) }),
+      ...(notes !== undefined && { notes: notes ?? null }),
+    },
+    include: { envelope: { select: { name: true, color: true } } },
+  })
+
+  return NextResponse.json({
+    id: updated.id,
+    payee: updated.payee,
+    amount: updated.amount,
+    type: updated.type,
+    envelopeId: updated.envelopeId,
+    envelopeName: updated.envelope.name,
+    envelopeColor: updated.envelope.color,
+    cadence: updated.cadence,
+    tags: JSON.parse(updated.tags),
+    nextDueDate: updated.nextDueDate.toISOString().split("T")[0],
+    endDate: updated.endDate?.toISOString().split("T")[0] ?? null,
+    active: updated.active,
+    createdAt: updated.createdAt.toISOString(),
+    notes: updated.notes ?? null,
+  })
 }
 
 export async function DELETE(req: NextRequest) {

@@ -52,6 +52,27 @@ export interface Tag {
 
 export type BtcDisplayUnit = "sats" | "btc"
 
+export type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
+
+export interface RecurringTransaction {
+  id: string
+  payee: string
+  amount: number
+  type: TransactionType
+  envelopeId: string
+  envelopeName: string
+  envelopeColor: string
+  cadence: Cadence
+  tags: string[]
+  nextDueDate: string // YYYY-MM-DD
+  endDate: string | null
+  active: boolean
+  createdAt: string
+  notes: string | null
+  /** Client: false when payee/notes are not shown in cleartext (locked or pending decrypt). */
+  isDecrypted?: boolean
+}
+
 export interface AppState {
   transactions: Transaction[]
   envelopes: Envelope[]

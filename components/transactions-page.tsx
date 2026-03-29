@@ -15,6 +15,7 @@ import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { PayeeMappingReviewBanner } from "@/components/payee-mapping-review-banner"
+import { UpcomingRecurringTransactions } from "@/components/upcoming-recurring-transactions"
 import {
   Select,
   SelectContent,
@@ -467,6 +468,8 @@ export function TransactionsPage() {
           )}
         </div>
       )}
+
+      <UpcomingRecurringTransactions />
 
       <div className="bg-[#0D0D0D] rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
