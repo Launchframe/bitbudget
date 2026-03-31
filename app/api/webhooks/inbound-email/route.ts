@@ -9,7 +9,7 @@ import {
   parseMultipartFormFields,
   verifySendGridInboundWebhook,
 } from "@/lib/sendgrid-inbound-verify"
-import { requirePremium } from "@/lib/subscription"
+import { assertPremiumTrialInboxAllowed, requirePremiumOrTrial } from "@/lib/subscription"
 
 const publicKeyEnv = process.env.SENDGRID_INBOUND_WEBHOOK_PUBLIC_KEY
 
@@ -100,14 +100,19 @@ export async function POST(req: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
-    if (!(await requirePremium(user.id))) {
+    if (!(await requirePremiumOrTrial(user.id))) {
       return NextResponse.json(
         {
           error: "Forbidden",
-          message: "Receipt inbox requires a premium subscription",
+          message: "Receipt inbox requires premium or an active premium trial",
         },
         { status: 403 },
       )
+    }
+
+    const cap = await assertPremiumTrialInboxAllowed(user.id)
+    if (!cap.ok) {
+      return NextResponse.json({ error: "Forbidden", message: cap.message }, { status: 403 })
     }
 
     let parsed

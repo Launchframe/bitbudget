@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
-import { requirePremium } from "@/lib/subscription"
+import { requirePremiumOrTrial } from "@/lib/subscription"
 
 export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization")
@@ -18,7 +18,7 @@ export async function GET(req: Request) {
   })
 
   for (const account of accounts) {
-    if (!(await requirePremium(account.user.id))) continue
+    if (!(await requirePremiumOrTrial(account.user.id))) continue
     await prisma.connectedEmailAccount.update({
       where: { id: account.id },
       data: { lastScanAt: new Date() },

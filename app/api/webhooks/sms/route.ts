@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyTwilioWebhookSignature } from "@/lib/twilio-webhook-verify"
 
+/**
+ * When SMS ingestion creates `PendingTransaction` rows with `source: "sms"`, enforce
+ * `assertPremiumTrialInboxAllowed(userId)` for premium-trial users (100/mo cap with email_forward).
+ * User resolution from `From` is product-specific; this route currently does not persist SMS yet.
+ */
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
 export async function POST(req: NextRequest) {

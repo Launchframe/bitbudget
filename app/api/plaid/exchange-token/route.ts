@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { plaidClient } from "@/lib/plaid"
-import { premiumForbiddenResponse, requirePremium } from "@/lib/subscription"
+import { premiumForbiddenResponse, requirePremiumOrTrial } from "@/lib/subscription"
 
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  if (!(await requirePremium(session.user.id))) {
+  if (!(await requirePremiumOrTrial(session.user.id))) {
     return premiumForbiddenResponse("Bank sync requires a premium subscription")
   }
 
