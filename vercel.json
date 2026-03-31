@@ -15,6 +15,14 @@
     {
       "path": "/api/cron/email-scan",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/referral-digest",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/referral-expiry",
+      "schedule": "0 9 * * *"
     }
   ]
 }
