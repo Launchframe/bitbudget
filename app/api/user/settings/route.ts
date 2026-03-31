@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { referralStatsForUser } from "@/lib/referral"
+import { resolveEffectiveTier } from "@/lib/subscription"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
 type UserSettingsPutBody = Partial<{
@@ -45,6 +47,8 @@ export async function GET() {
       email: true,
       subscriptionTier: true,
       role: true,
+      premiumGratisUntil: true,
+      premiumTrialUntil: true,
       _count: { select: { transactions: true } },
     },
   })
@@ -53,10 +57,41 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { _count, ...rest } = user
+  const { _count, premiumGratisUntil, premiumTrialUntil, ...rest } = user
+  const effectiveTier = resolveEffectiveTier({
+    subscriptionTier: user.subscriptionTier,
+    premiumGratisUntil,
+    premiumTrialUntil,
+  })
+
+  let referralPayload: Record<string, unknown> | null = null
+  if (user.onboardingComplete) {
+    const stats = await referralStatsForUser(session.user.id)
+    referralPayload = {
+      code: stats.activeCode?.code ?? null,
+      codeExpiresAt: stats.activeCode?.expiresAt.toISOString() ?? null,
+      lastCode: stats.lastCode
+        ? {
+            code: stats.lastCode.code,
+            expiresAt: stats.lastCode.expiresAt.toISOString(),
+            usedCount: stats.lastCode.usedCount,
+            active: stats.lastCode.active,
+          }
+        : null,
+      referralCount: stats.referralCount,
+      activatedCount: stats.activatedCount,
+      premiumGratisUntil: stats.premiumGratisUntil?.toISOString() ?? null,
+      premiumTrialUntil: stats.premiumTrialUntil?.toISOString() ?? null,
+    }
+  }
+
   return NextResponse.json({
     ...rest,
+    premiumGratisUntil: premiumGratisUntil?.toISOString() ?? null,
+    premiumTrialUntil: premiumTrialUntil?.toISOString() ?? null,
+    effectiveTier,
     transactionCount: _count.transactions,
+    referral: referralPayload,
   })
 }
 
