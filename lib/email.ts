@@ -41,3 +41,129 @@ export async function sendVerificationCode(email: string, code: string): Promise
   console.log(`  Code: ${code}`)
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
 }
+
+async function sendHtmlMail(to: string, subject: string, html: string): Promise<boolean> {
+  const transport = getTransport()
+  if (transport && GMAIL_USER) {
+    await transport.sendMail({
+      from: `BitBudget <${GMAIL_USER}>`,
+      to,
+      subject,
+      html,
+    })
+    return true
+  }
+  console.log(`\n━━━ Email (no transport): ${subject} → ${to} ━━━\n`)
+  return false
+}
+
+export async function sendReferralAcceptedEmail(to: string, refereeName: string): Promise<void> {
+  const subject = "Someone joined BitBudget with your referral"
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+      <h2 style="color: #F7931A;">Referral accepted</h2>
+      <p style="color: #ccc; font-size: 15px;">${escapeHtml(refereeName)} created an account using your referral link.</p>
+      <p style="color: #999; font-size: 13px;">When they connect their bank and complete a first sync, you&apos;ll earn bonus premium time.</p>
+    </div>`
+  await sendHtmlMail(to, subject, html)
+}
+
+export async function sendReferralActivatedEmail(
+  to: string,
+  refereeName: string,
+  rewardMonths: number,
+  newExpiryDate: string,
+): Promise<void> {
+  const subject = "Referral activated — you earned premium time"
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+      <h2 style="color: #F7931A;">Referral activated</h2>
+      <p style="color: #ccc; font-size: 15px;">${escapeHtml(refereeName)} connected their bank.</p>
+      <p style="color: #ccc; font-size: 15px;">You earned <strong>${rewardMonths}</strong> month(s) of premium. Access now runs through <strong>${escapeHtml(newExpiryDate)}</strong>.</p>
+    </div>`
+  await sendHtmlMail(to, subject, html)
+}
+
+export async function sendGratisExpiringEmail(to: string, expiryDate: string, daysRemaining: number): Promise<void> {
+  const subject = `Your bonus premium ends in ${daysRemaining} day(s)`
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+      <h2 style="color: #F7931A;">Premium ending soon</h2>
+      <p style="color: #ccc;">Your referral bonus premium access ends on <strong>${escapeHtml(expiryDate)}</strong> (${daysRemaining} day(s) left).</p>
+    </div>`
+  await sendHtmlMail(to, subject, html)
+}
+
+export async function sendGratisExpiredEmail(to: string): Promise<void> {
+  const subject = "Your bonus premium period has ended"
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+      <h2 style="color: #F7931A;">Bonus premium ended</h2>
+      <p style="color: #ccc;">Your referral bonus premium access has ended. Thanks for growing BitBudget.</p>
+    </div>`
+  await sendHtmlMail(to, subject, html)
+}
+
+export async function sendTrialEndingEmail(to: string, expiryDate: string, daysRemaining: number): Promise<void> {
+  const subject = `Your premium trial ends in ${daysRemaining} day(s)`
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+      <h2 style="color: #F7931A;">Trial ending</h2>
+      <p style="color: #ccc;">Your premium trial ends on <strong>${escapeHtml(expiryDate)}</strong> (${daysRemaining} day(s) left).</p>
+    </div>`
+  await sendHtmlMail(to, subject, html)
+}
+
+export async function sendTrialExpiredEmail(to: string): Promise<void> {
+  const subject = "Your premium trial has ended"
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+      <h2 style="color: #F7931A;">Trial ended</h2>
+      <p style="color: #ccc;">Your premium trial has ended. Upgrade anytime to keep Plaid, receipt inbox, and SMS alerts.</p>
+    </div>`
+  await sendHtmlMail(to, subject, html)
+}
+
+export interface SurveyCompletedEmailPayload {
+  userLabel: string
+  triggerType: string
+  rating: string | null
+  favoriteFeature: string | null
+  leastFavorite: string | null
+  comments: string | null
+  canContact: boolean | null
+}
+
+export async function sendSurveyCompletedAdminEmail(to: string, data: SurveyCompletedEmailPayload): Promise<void> {
+  const subject = `Survey completed — ${data.userLabel}`
+  const html = `
+    <div style="font-family: monospace; font-size: 13px; color: #111; max-width: 560px;">
+      <h2 style="color: #F7931A;">Survey response</h2>
+      <p><strong>User:</strong> ${escapeHtml(data.userLabel)}</p>
+      <p><strong>Trigger:</strong> ${escapeHtml(data.triggerType)}</p>
+      <p><strong>Rating:</strong> ${escapeHtml(data.rating ?? "—")}</p>
+      <p><strong>Favorite:</strong> ${escapeHtml(data.favoriteFeature ?? "—")}</p>
+      <p><strong>Least favorite:</strong> ${escapeHtml(data.leastFavorite ?? "—")}</p>
+      <p><strong>Comments:</strong> ${escapeHtml(data.comments ?? "—")}</p>
+      <p><strong>Can contact:</strong> ${data.canContact === null ? "—" : data.canContact ? "yes" : "no"}</p>
+    </div>`
+  await sendHtmlMail(to, subject, html)
+}
+
+export async function sendAdminDigestEmail(to: string, bodyHtml: string): Promise<void> {
+  const subject = "BitBudget — daily referral digest"
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 640px; margin: 0 auto; padding: 24px;">
+      <h2 style="color: #F7931A;">Daily digest</h2>
+      ${bodyHtml}
+    </div>`
+  await sendHtmlMail(to, subject, html)
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+}
