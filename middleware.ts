@@ -6,14 +6,30 @@ export default auth((req) => {
   const isLoggedIn = !!req.auth
 
   const isAuthPage = pathname.startsWith("/auth")
-  const isPublicLanding = pathname.startsWith("/landing") || pathname.startsWith("/welcome")
+  const firstSegment = pathname.split("/").filter(Boolean)[0] ?? ""
+  const reservedRootSegments = new Set([
+    "auth",
+    "welcome",
+    "landing",
+    "onboarding",
+    "admin",
+    "whitepapers",
+    "ref",
+  ])
+  const isPublicLanding =
+    pathname.startsWith("/landing") ||
+    pathname.startsWith("/welcome") ||
+    pathname.startsWith("/ref")
+  const isPublicOfferSlug =
+    firstSegment.length > 0 && !reservedRootSegments.has(firstSegment) && pathname.split("/").filter(Boolean).length === 1
   const isApiRoute = pathname.startsWith("/api")
   const isPublicAsset = pathname.startsWith("/_next") || pathname.includes(".")
 
   if (isApiRoute || isPublicAsset) return NextResponse.next()
 
-  if (isPublicLanding) {
+  if (isPublicLanding || isPublicOfferSlug) {
     // Logged-in users may still open /welcome or /landing (e.g. re-read marketing copy).
+    // Single-segment paths not in reserved set may be offer codes (validated in app/[slug]).
     return NextResponse.next()
   }
 
