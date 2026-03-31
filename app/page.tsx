@@ -24,6 +24,8 @@ import { Spinner } from "@/components/ui/spinner"
 import { FaviconSwitcher } from "@/components/favicon-switcher"
 import { NotificationBanner } from "@/components/notification-banner"
 import { TransactionLoadingIndicator } from "@/components/transaction-loading-indicator"
+import { TrialWelcomeBanner } from "@/components/trial-welcome-banner"
+import { SurveySheetHost } from "@/components/survey-sheet"
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -165,6 +167,7 @@ export default function Dashboard() {
                   <Sidebar />
                   <div className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
                     <NotificationBanner />
+                    <TrialWelcomeBanner />
                     <TransactionLoadingIndicator />
                     <PageContent />
                   </div>
@@ -172,6 +175,7 @@ export default function Dashboard() {
               </div>
               <MobileNav />
               <NewTransactionDialog />
+              <SurveySheetHost />
             </div>
           </BtcPriceShell>
         </EncryptionGate>

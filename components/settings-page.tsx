@@ -34,6 +34,7 @@ import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
 import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
+import { SettingsReferralsCard } from "@/components/settings-referrals-card"
 
 export function SettingsPage() {
   type SettingsTab = "general" | "integrations" | "tags" | "payees" | "data"
@@ -50,6 +51,8 @@ export function SettingsPage() {
     encryptForStorage,
     logout,
     subscriptionTier,
+    effectiveTier,
+    hasPremiumFeatures,
     navigateTo,
     memoTransactionCount,
     historyReady,
@@ -132,7 +135,7 @@ export function SettingsPage() {
   }, [activeTransactions, envelopeMapForExport])
 
   useEffect(() => {
-    if (subscriptionTier !== "premium") {
+    if (!hasPremiumFeatures) {
       setReceiptInboxLoading(false)
       setReceiptInboxAddress(null)
       setReceiptInboxError(null)
@@ -186,7 +189,7 @@ export function SettingsPage() {
     return () => {
       cancelled = true
     }
-  }, [subscriptionTier, receiptInboxRetryKey])
+  }, [hasPremiumFeatures, receiptInboxRetryKey])
 
   async function handleClearAll() {
     if (!confirmDelete) {
@@ -269,35 +272,46 @@ export function SettingsPage() {
       {/* Plan / Tier */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
         <div className="flex items-center gap-3 mb-4">
-          <div className={`p-2 rounded-lg ${subscriptionTier === "premium" ? "bg-[#F7931A]/20" : "bg-[#333]/50"}`}>
-            <Crown className={`h-5 w-5 ${subscriptionTier === "premium" ? "text-[#F7931A]" : "text-muted-foreground"}`} />
+          <div
+            className={`p-2 rounded-lg ${
+              effectiveTier === "free" ? "bg-[#333]/50" : "bg-[#F7931A]/20"
+            }`}
+          >
+            <Crown
+              className={`h-5 w-5 ${
+                effectiveTier === "free" ? "text-muted-foreground" : "text-[#F7931A]"
+              }`}
+            />
           </div>
           <h3 className="text-lg font-semibold text-foreground">Plan</h3>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <span
             className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold ${
-              subscriptionTier === "premium"
-                ? "bg-[#F7931A]/15 text-[#F7931A] border border-[#F7931A]/30"
-                : "bg-[#1A1A1A] text-muted-foreground border border-[#333]"
+              effectiveTier === "free"
+                ? "bg-[#1A1A1A] text-muted-foreground border border-[#333]"
+                : "bg-[#F7931A]/15 text-[#F7931A] border border-[#F7931A]/30"
             }`}
           >
-            {subscriptionTier === "premium" ? (
+            {effectiveTier === "premium" && (
               <>
                 <Crown className="h-4 w-4" />
                 Premium
               </>
-            ) : (
-              "Free"
             )}
+            {effectiveTier === "premium-trial" && "Premium trial"}
+            {effectiveTier === "free" && "Free"}
           </span>
-          {subscriptionTier === "premium" && (
+          {hasPremiumFeatures && (
             <span className="text-sm text-muted-foreground">
-              You have access to bank sync, SMS alerts, and connected email.
+              Bank sync, receipt inbox, and SMS alerts
+              {effectiveTier === "premium-trial" ? " (trial limits apply)" : ""}.
             </span>
           )}
         </div>
       </div>
+
+      <SettingsReferralsCard />
 
       {/* Income */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
@@ -445,7 +459,7 @@ export function SettingsPage() {
         <p className="text-sm text-muted-foreground mb-4">
           Forward receipts to your dedicated address and they&apos;ll be saved for your review later. We recommend bookmarking this address.
         </p>
-        {subscriptionTier !== "premium" ? (
+        {!hasPremiumFeatures ? (
           <div className="flex flex-col gap-4">
             <div className="rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">
               <p className="text-sm font-medium text-foreground mb-1">Premium feature</p>
@@ -514,7 +528,7 @@ export function SettingsPage() {
                 </p>
               </div>
             </div>
-            {subscriptionTier === "premium" ? (
+            {hasPremiumFeatures ? (
               <PlaidLinkButton />
             ) : (
               <button type="button" onClick={() => setUpgradeModalFeature("plaid")} className={upgradeCtaClass}>
@@ -533,7 +547,7 @@ export function SettingsPage() {
                 </p>
               </div>
             </div>
-            {subscriptionTier !== "premium" && (
+            {!hasPremiumFeatures && (
               <button type="button" onClick={() => setUpgradeModalFeature("sms")} className={upgradeCtaClass}>
                 <Crown className="h-4 w-4" />
                 Upgrade for SMS
@@ -550,7 +564,7 @@ export function SettingsPage() {
                 </p>
               </div>
             </div>
-            {subscriptionTier !== "premium" && (
+            {!hasPremiumFeatures && (
               <button type="button" onClick={() => setUpgradeModalFeature("email_scan")} className={upgradeCtaClass}>
                 <Crown className="h-4 w-4" />
                 Upgrade for email scan

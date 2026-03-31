@@ -8,7 +8,7 @@ import { DocumentFavicon } from "@/components/document-favicon"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck } from "lucide-react"
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck, Gift } from "lucide-react"
 import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
 import {
   filterSuggestions,
@@ -57,10 +57,10 @@ import {
   type AllocationCadence,
 } from "@/lib/allocation-cadence"
 
-type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
+type Step = "referral" | "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
 
 // Opportunity cost is set from entry point (/welcome or / → vanilla off; /landing → btc on), not a separate step.
-const STEPS: Step[] = ["security", "income", "envelopes", "allocations", "import", "complete"]
+const STEPS: Step[] = ["referral", "security", "income", "envelopes", "allocations", "import", "complete"]
 const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#EAB308", "#EC4899", "#06B6D4"]
 
 /** Stacked allocation bar: smooth width when envelope totals change ($50 bucket steps). */
@@ -106,7 +106,7 @@ function OnboardingSkipBar({
 
 export default function OnboardingPage() {
   const router = useRouter()
-  const [step, setStep] = useState<Step>("security")
+  const [step, setStep] = useState<Step>("referral")
   const [loading, setLoading] = useState(false)
   const [isNostr, setIsNostr] = useState(false)
   const [isNsecFallback, setIsNsecFallback] = useState(false)
@@ -230,6 +230,12 @@ export default function OnboardingPage() {
   const [deletingEnvelopeIdx, setDeletingEnvelopeIdx] = useState<number | null>(null)
   const [pendingDeleteEnvelopeIdx, setPendingDeleteEnvelopeIdx] = useState<number | null>(null)
 
+  /** Pending referral applied before security; redeemed after onboarding completes. */
+  const [pendingReferral, setPendingReferral] = useState<{ code: string; shareMethod: string } | null>(null)
+  const [refCodeInput, setRefCodeInput] = useState("")
+  const [refValidating, setRefValidating] = useState(false)
+  const [refError, setRefError] = useState<string | null>(null)
+
   const refreshEnvelopeUsage = useCallback(async () => {
     setEnvelopeUsageLoading(true)
     try {
@@ -266,11 +272,17 @@ export default function OnboardingPage() {
       const raw = sessionStorage.getItem(STORAGE_KEY)
       if (raw) {
         const saved = JSON.parse(raw)
-        if (saved.step && saved.step !== "security") {
+        if (saved.step && saved.step !== "referral" && saved.step !== "security") {
           const restoredStep: Step =
             saved.step === "opportunity-cost" ? "complete" : saved.step
           setStep(restoredStep)
           setRestoredSession(true)
+        }
+        if (saved.pendingReferral?.code) {
+          setPendingReferral({
+            code: saved.pendingReferral.code,
+            shareMethod: typeof saved.pendingReferral.shareMethod === "string" ? saved.pendingReferral.shareMethod : "direct",
+          })
         }
         if (saved.income) setIncome(saved.income)
         if (saved.cadence) setCadence(saved.cadence)
@@ -298,9 +310,10 @@ export default function OnboardingPage() {
         income,
         cadence,
         envelopes,
+        pendingReferral,
       }))
     } catch { /* storage full or unavailable */ }
-  }, [hydrated, step, income, cadence, envelopes])
+  }, [hydrated, step, income, cadence, envelopes, pendingReferral])
 
   /** Clear chosen file + native input when navigating onto the import step (avoids stale File after back/forward or re-import). */
   useEffect(() => {
@@ -335,6 +348,31 @@ export default function OnboardingPage() {
     setEnvelopeUsageHydrated(false)
     void refreshEnvelopeUsage()
   }, [step, refreshEnvelopeUsage])
+
+  useEffect(() => {
+    if (!hydrated || step !== "referral") return
+    try {
+      const m = document.cookie.match(/(?:^|; )bitbudget_ref=([^;]*)/)
+      if (!m?.[1]) return
+      const decoded = decodeURIComponent(m[1]!)
+      const col = decoded.indexOf(":")
+      const code = (col === -1 ? decoded : decoded.slice(0, col)).trim()
+      const shareMethod = col === -1 ? "link" : decoded.slice(col + 1).trim() || "direct"
+      if (!code) return
+      void (async () => {
+        try {
+          const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(code)}`)
+          if (!r.ok) return
+          const j = (await r.json()) as { valid?: boolean }
+          if (j.valid) setPendingReferral({ code, shareMethod })
+        } catch {
+          /* ignore */
+        }
+      })()
+    } catch {
+      /* ignore */
+    }
+  }, [hydrated, step])
 
   const stepIndex = STEPS.indexOf(step)
   const progress = ((stepIndex + 1) / STEPS.length) * 100
@@ -477,6 +515,22 @@ export default function OnboardingPage() {
     }
   }, [hydrated])
 
+  async function redeemPendingReferralIfAny(): Promise<void> {
+    if (!pendingReferral?.code) return
+    try {
+      await fetch("/api/referral/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: pendingReferral.code,
+          shareMethod: pendingReferral.shareMethod,
+        }),
+      })
+    } catch {
+      /* non-blocking */
+    }
+  }
+
   async function skipOnboardingToDashboard() {
     setSkipOnboardingError(null)
     setLoading(true)
@@ -494,6 +548,7 @@ export default function OnboardingPage() {
         setSkipOnboardingError("Could not save settings. Try again or sign out and back in.")
         return
       }
+      await redeemPendingReferralIfAny()
       try {
         sessionStorage.removeItem(STORAGE_KEY)
         sessionStorage.removeItem("onboardingSource")
@@ -833,11 +888,38 @@ export default function OnboardingPage() {
   async function handleComplete() {
     setLoading(true)
     try {
-      await fetch("/api/user/settings", {
+      const res = await fetch("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ onboardingComplete: true, opportunityCostEnabled }),
       })
+      if (res.status === 401 || res.status === 403) {
+        await signOut({ callbackUrl: "/auth" })
+        return
+      }
+      let trialOk = false
+      if (pendingReferral?.code) {
+        try {
+          const rr = await fetch("/api/referral/redeem", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: pendingReferral.code,
+              shareMethod: pendingReferral.shareMethod,
+            }),
+          })
+          trialOk = rr.ok
+        } catch {
+          /* ignore */
+        }
+      }
+      if (trialOk) {
+        try {
+          sessionStorage.setItem("bitbudget-trial-welcome", "1")
+        } catch {
+          /* ignore */
+        }
+      }
       try {
         sessionStorage.removeItem(STORAGE_KEY)
         sessionStorage.removeItem("onboardingSource")
@@ -908,7 +990,7 @@ export default function OnboardingPage() {
         )}
 
         <div className="bg-[#0D0D0D] rounded-2xl p-8">
-          {restoredSession && !isNostr && step !== "security" && step !== "complete" && (
+          {restoredSession && !isNostr && step !== "referral" && step !== "security" && step !== "complete" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
               <div className="flex flex-col gap-1.5 flex-1 min-w-0">
@@ -936,6 +1018,108 @@ export default function OnboardingPage() {
               >
                 <X className="h-4 w-4" />
               </button>
+            </div>
+          )}
+
+          {/* Referral / offer code (optional) */}
+          {step === "referral" && (
+            <div className="flex flex-col gap-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-xl bg-[#F7931A]/10">
+                  <Gift className="h-6 w-6 text-[#F7931A]" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Have a referral code?</h2>
+                  <p className="text-sm text-muted-foreground">Optional — unlock 3 months of premium trial</p>
+                </div>
+              </div>
+              {pendingReferral ? (
+                <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 text-sm text-[#86EFAC]">
+                  Referral code applied: <span className="font-mono font-semibold">{pendingReferral.code}</span>
+                  <button
+                    type="button"
+                    className="ml-2 text-xs underline text-[#BBF7D0]"
+                    onClick={() => {
+                      setPendingReferral(null)
+                      setRefCodeInput("")
+                      try {
+                        document.cookie = "bitbudget_ref=; path=/; max-age=0"
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Code</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={refCodeInput}
+                      onChange={e => setRefCodeInput(e.target.value)}
+                      placeholder="Enter code"
+                      className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={refValidating || !refCodeInput.trim()}
+                      className="shrink-0 border-[#333] bg-[#1A1A1A]"
+                      onClick={() => {
+                        void (async () => {
+                          setRefError(null)
+                          setRefValidating(true)
+                          try {
+                            const r = await fetch(
+                              `/api/referral/validate?code=${encodeURIComponent(refCodeInput.trim())}`,
+                            )
+                            const j = (await r.json()) as { valid?: boolean }
+                            if (!j.valid) {
+                              setRefError("Invalid, expired, or already used code.")
+                              return
+                            }
+                            const code = refCodeInput.trim()
+                            setPendingReferral({ code, shareMethod: "direct" })
+                            try {
+                              document.cookie = `bitbudget_ref=${encodeURIComponent(`${code}:direct`)}; path=/; max-age=${86400 * 30}`
+                            } catch {
+                              /* ignore */
+                            }
+                          } finally {
+                            setRefValidating(false)
+                          }
+                        })()
+                      }}
+                    >
+                      {refValidating ? "…" : "Apply"}
+                    </Button>
+                  </div>
+                  {refError && <p className="text-sm text-red-400">{refError}</p>}
+                </div>
+              )}
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => setStep("security")}
+                  className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors flex items-center justify-center gap-2"
+                >
+                  Continue
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingReferral(null)
+                    setRefCodeInput("")
+                    setStep("security")
+                  }}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors text-center"
+                >
+                  Skip
+                </button>
+              </div>
             </div>
           )}
 
