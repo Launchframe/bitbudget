@@ -61,17 +61,14 @@ export async function validateReferralCodeRow(
   const userNorm = normalizeReferralCodeInput(trimmed)
   const offerNorm = normalizeOfferSlug(trimmed)
 
-  const row = await prisma.referralCode.findFirst({
-    where: {
-      OR: [{ code: userNorm }, { code: offerNorm }],
-      active: true,
-    },
-    include: {
-      owner: { select: { name: true, email: true } },
-    },
-  })
+  const includeOwner = { owner: { select: { name: true, email: true } } }
+  // Prefer user-normalized key first, then offer slug — avoids arbitrary `findFirst` when both exist.
+  let row = await prisma.referralCode.findUnique({ where: { code: userNorm }, include: includeOwner })
+  if (!row && userNorm !== offerNorm) {
+    row = await prisma.referralCode.findUnique({ where: { code: offerNorm }, include: includeOwner })
+  }
 
-  if (!row) return { valid: false, reason: "not_found" }
+  if (!row || !row.active) return { valid: false, reason: "not_found" }
   if (row.startsAt > now) return { valid: false, reason: "not_started" }
   if (row.expiresAt <= now) return { valid: false, reason: "expired" }
   if (row.usedCount >= row.maxUses) return { valid: false, reason: "exhausted" }
@@ -183,40 +180,48 @@ export async function redeemReferralCode(args: {
     }
   }
 
+  if (validation.codeRow.ownerId === args.refereeId) {
+    return {
+      ok: false,
+      status: 400,
+      code: "self_referral",
+      message: "You cannot redeem your own referral code",
+    }
+  }
+
   const trialEnd = addMonthsUtc(now, 3)
+  const codeId = validation.codeRow.id
 
   try {
     await prisma.$transaction(async (tx) => {
-      const locked = await tx.referralCode.findFirst({
-        where: { id: validation.codeRow.id },
-      })
-      if (!locked || !locked.active || locked.startsAt > now || locked.expiresAt <= now) {
-        throw Object.assign(new Error("gone"), { status: 410 })
-      }
-      if (locked.usedCount >= locked.maxUses) {
+      const bumped = await tx.$executeRaw`
+        UPDATE "ReferralCode"
+        SET "usedCount" = "usedCount" + 1
+        WHERE "id" = ${codeId}
+          AND "active" = true
+          AND "startsAt" <= ${now}
+          AND "expiresAt" > ${now}
+          AND "usedCount" < "maxUses"
+      `
+      if (bumped !== 1) {
         throw Object.assign(new Error("gone"), { status: 410 })
       }
 
       await tx.referral.create({
         data: {
-          codeId: locked.id,
-          referrerId: locked.ownerId,
+          codeId,
+          referrerId: validation.codeRow.ownerId,
           refereeId: args.refereeId,
           status: "accepted",
           shareMethod: args.shareMethod ?? "direct",
         },
       })
 
-      await tx.referralCode.update({
-        where: { id: locked.id },
-        data: { usedCount: { increment: 1 } },
-      })
-
       await tx.user.update({
         where: { id: args.refereeId },
         data: {
           premiumTrialUntil: trialEnd,
-          referredByCodeId: locked.id,
+          referredByCodeId: codeId,
         },
       })
     })
@@ -236,68 +241,77 @@ export async function redeemReferralCode(args: {
 }
 
 /**
- * Call after a referred user's first successful Plaid sync. Idempotent per referral row.
+ * Call after a referred user's first successful Plaid sync. Idempotent per referral row
+ * (only one activation wins under concurrency).
  */
 export async function activateReferral(refereeUserId: string, now: Date = new Date()): Promise<void> {
-  const referral = await prisma.referral.findUnique({
-    where: { refereeId: refereeUserId },
-    include: { code: true },
-  })
-  if (!referral || referral.status !== "accepted") return
+  type NotifyArg = {
+    referrerId: string
+    refereeUserId: string
+    rewardMonths: number
+    newGratisUntil: Date
+  }
+  let pendingNotify: NotifyArg | null = null
 
-  const code = referral.code
-  if (code.type === "offer") {
-    await prisma.referral.update({
-      where: { id: referral.id },
+  await prisma.$transaction(async (tx) => {
+    const referral = await tx.referral.findUnique({
+      where: { refereeId: refereeUserId },
+      include: { code: true },
+    })
+    if (!referral || referral.status !== "accepted") return
+
+    const priorActivated = await tx.referral.count({
+      where: { referrerId: referral.referrerId, status: "activated" },
+    })
+
+    const activated = await tx.referral.updateMany({
+      where: { id: referral.id, status: "accepted" },
       data: { status: "activated", activatedAt: now },
     })
-    return
-  }
+    if (activated.count === 0) return
 
-  if (code.type !== "user") return
+    const code = referral.code
+    if (code.type === "offer") return
+    if (code.type !== "user") return
 
-  const priorActivated = await prisma.referral.count({
-    where: { referrerId: referral.referrerId, status: "activated" },
-  })
-  const rewardMonths = priorActivated === 0 ? 3 : 1
+    const rewardMonths = priorActivated === 0 ? 3 : 1
 
-  const referrer = await prisma.user.findUnique({
-    where: { id: referral.referrerId },
-    select: {
-      subscriptionTier: true,
-      premiumGratisUntil: true,
-    },
-  })
-  if (!referrer) return
+    const referrer = await tx.user.findUnique({
+      where: { id: referral.referrerId },
+      select: {
+        subscriptionTier: true,
+        premiumGratisUntil: true,
+      },
+    })
+    if (!referrer) return
 
-  const base =
-    referrer.premiumGratisUntil && referrer.premiumGratisUntil > now
-      ? referrer.premiumGratisUntil
-      : now
-  let newUntil = addMonthsUtc(base, rewardMonths)
-  if (referrer.subscriptionTier !== "premium") {
-    const cap = addMonthsUtc(now, 3)
-    if (newUntil > cap) newUntil = cap
-  }
+    const base =
+      referrer.premiumGratisUntil && referrer.premiumGratisUntil > now
+        ? referrer.premiumGratisUntil
+        : now
+    let newUntil = addMonthsUtc(base, rewardMonths)
+    if (referrer.subscriptionTier !== "premium") {
+      const cap = addMonthsUtc(now, 3)
+      if (newUntil > cap) newUntil = cap
+    }
 
-  await prisma.$transaction([
-    prisma.referral.update({
-      where: { id: referral.id },
-      data: { status: "activated", activatedAt: now },
-    }),
-    prisma.user.update({
+    await tx.user.update({
       where: { id: referral.referrerId },
       data: { premiumGratisUntil: newUntil },
-    }),
-  ])
+    })
 
-  const { notifyReferralActivated } = await import("@/lib/notify")
-  await notifyReferralActivated({
-    referrerId: referral.referrerId,
-    refereeUserId,
-    rewardMonths,
-    newGratisUntil: newUntil,
+    pendingNotify = {
+      referrerId: referral.referrerId,
+      refereeUserId,
+      rewardMonths,
+      newGratisUntil: newUntil,
+    }
   })
+
+  if (pendingNotify) {
+    const { notifyReferralActivated } = await import("@/lib/notify")
+    await notifyReferralActivated(pendingNotify)
+  }
 }
 
 export async function referralStatsForUser(userId: string, now: Date = new Date()) {

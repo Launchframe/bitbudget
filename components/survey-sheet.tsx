@@ -142,6 +142,11 @@ export function SurveySheetHost() {
         closeWithoutDismiss()
         return
       }
+      // Step 6 "Done" with all skips leaves completedAt null; still close the sheet.
+      if (step === 6) {
+        closeWithoutDismiss()
+        return
+      }
       setStep(s.currentStep)
       setTextDraft("")
     } finally {

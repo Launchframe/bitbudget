@@ -92,6 +92,18 @@ export async function PUT(req: NextRequest) {
   })
   const wasComplete = !!prev?.completedAt
 
+  const prevHadNoResponses =
+    !prev ||
+    !surveyHasAnyResponse({
+      rating: prev.rating,
+      favoriteFeature: prev.favoriteFeature,
+      leastFavorite: prev.leastFavorite,
+      comments: prev.comments,
+      canContact: prev.canContact,
+    })
+  const shouldRefreshTrigger =
+    prevHadNoResponses || (prev?.triggerType === "general" && triggerIn !== "general")
+
   const patch: {
     rating?: string | null
     favoriteFeature?: string | null
@@ -167,6 +179,7 @@ export async function PUT(req: NextRequest) {
       completedAt: patch.completedAt ?? null,
     },
     update: {
+      ...(shouldRefreshTrigger ? { triggerType: triggerIn } : {}),
       ...(patch.rating !== undefined ? { rating: patch.rating } : {}),
       ...(patch.favoriteFeature !== undefined ? { favoriteFeature: patch.favoriteFeature } : {}),
       ...(patch.leastFavorite !== undefined ? { leastFavorite: patch.leastFavorite } : {}),

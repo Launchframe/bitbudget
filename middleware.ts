@@ -1,27 +1,29 @@
 import { auth } from "@/lib/auth"
 import { NextResponse } from "next/server"
 
+const RESERVED_ROOT_SEGMENTS = new Set([
+  "auth",
+  "welcome",
+  "landing",
+  "onboarding",
+  "admin",
+  "whitepapers",
+  "ref",
+])
+
 export default auth((req) => {
   const { pathname } = req.nextUrl
   const isLoggedIn = !!req.auth
 
   const isAuthPage = pathname.startsWith("/auth")
-  const firstSegment = pathname.split("/").filter(Boolean)[0] ?? ""
-  const reservedRootSegments = new Set([
-    "auth",
-    "welcome",
-    "landing",
-    "onboarding",
-    "admin",
-    "whitepapers",
-    "ref",
-  ])
+  const pathSegments = pathname.split("/").filter(Boolean)
+  const firstSegment = pathSegments[0] ?? ""
   const isPublicLanding =
     pathname.startsWith("/landing") ||
     pathname.startsWith("/welcome") ||
     pathname.startsWith("/ref")
   const isPublicOfferSlug =
-    firstSegment.length > 0 && !reservedRootSegments.has(firstSegment) && pathname.split("/").filter(Boolean).length === 1
+    firstSegment.length > 0 && !RESERVED_ROOT_SEGMENTS.has(firstSegment) && pathSegments.length === 1
   const isApiRoute = pathname.startsWith("/api")
   const isPublicAsset = pathname.startsWith("/_next") || pathname.includes(".")
 

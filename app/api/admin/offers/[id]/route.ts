@@ -49,6 +49,12 @@ export async function PUT(
     return NextResponse.json({ error: "No valid fields" }, { status: 400 })
   }
 
+  const nextStartsAt = (data.startsAt as Date | undefined) ?? row.startsAt
+  const nextExpiresAt = (data.expiresAt as Date | undefined) ?? row.expiresAt
+  if (nextExpiresAt <= nextStartsAt) {
+    return NextResponse.json({ error: "expiresAt must be after startsAt" }, { status: 400 })
+  }
+
   const updated = await prisma.referralCode.update({
     where: { id },
     data,
