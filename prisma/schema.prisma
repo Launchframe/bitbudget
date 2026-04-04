@@ -88,7 +88,6 @@ model ReferralCode {
   referrals   Referral[]
   referredUsers User[]   @relation("ReferredByCode")
 
-  @@index([code])
   @@index([ownerId])
   @@index([type])
 }
@@ -129,7 +128,6 @@ model Survey {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
   @@index([completedAt])
 }
 

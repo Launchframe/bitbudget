@@ -64,8 +64,10 @@ export async function countTrialReceiptSmsSubmissionsThisMonth(
   userId: string,
   now: Date = new Date(),
 ): Promise<number> {
-  const start = new Date(now.getFullYear(), now.getMonth(), 1)
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+  const y = now.getUTCFullYear()
+  const m = now.getUTCMonth()
+  const start = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0))
+  const end = new Date(Date.UTC(y, m + 1, 1, 0, 0, 0, 0))
   const [txn, pending] = await Promise.all([
     prisma.transaction.count({
       where: {
@@ -112,7 +114,7 @@ export async function assertPremiumTrialInboxAllowed(
 
 /** JSON 403 for authenticated routes that require premium. */
 export function premiumForbiddenResponse(
-  message = "This feature requires a premium subscription",
+  message = "This feature requires a premium subscription or an active premium trial",
 ): NextResponse {
   return NextResponse.json({ error: "Forbidden", message }, { status: 403 })
 }

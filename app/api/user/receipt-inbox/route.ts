@@ -14,7 +14,9 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
   if (!(await requirePremiumOrTrial(session.user.id))) {
-    return premiumForbiddenResponse("Receipt inbox requires a premium subscription")
+    return premiumForbiddenResponse(
+      "Receipt inbox requires a premium subscription or an active premium trial",
+    )
   }
 
   const user = await prisma.user.findUnique({

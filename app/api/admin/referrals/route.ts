@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   const now = new Date()
 
-  const [totalAccepted, totalActivated, activeTrials, activeGratis, codes, recent] =
+  const [totalAccepted, totalActivated, activeTrials, activeGratis, codeSums, recent] =
     await Promise.all([
       prisma.referral.count({ where: { status: "accepted" } }),
       prisma.referral.count({ where: { status: "activated" } }),
@@ -27,13 +27,8 @@ export async function GET(req: NextRequest) {
           subscriptionTier: { not: "premium" },
         },
       }),
-      prisma.referralCode.findMany({
-        select: {
-          id: true,
-          type: true,
-          visitCount: true,
-          usedCount: true,
-        },
+      prisma.referralCode.aggregate({
+        _sum: { visitCount: true, usedCount: true },
       }),
       prisma.referral.findMany({
         where: {
@@ -53,8 +48,8 @@ export async function GET(req: NextRequest) {
       }),
     ])
 
-  const visits = codes.reduce((s, c) => s + c.visitCount, 0)
-  const signups = codes.reduce((s, c) => s + c.usedCount, 0)
+  const visits = codeSums._sum.visitCount ?? 0
+  const signups = codeSums._sum.usedCount ?? 0
 
   const shareRows = await prisma.referral.groupBy({
     by: ["shareMethod"],

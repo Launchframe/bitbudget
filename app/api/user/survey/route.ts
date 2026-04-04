@@ -80,6 +80,57 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "step must be 1-6" }, { status: 400 })
   }
 
+  const referrerHeader = req.headers.get("x-bitbudget-survey-referrer") === "1"
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: {
+      onboardingComplete: true,
+      createdAt: true,
+      referralReceived: { select: { id: true } },
+      _count: { select: { transactions: true } },
+    },
+  })
+  if (!user?.onboardingComplete) {
+    return NextResponse.json({ error: "Survey not available" }, { status: 403 })
+  }
+
+  const prev = await prisma.survey.findUnique({
+    where: { userId: session.user.id },
+  })
+
+  if (prev?.completedAt) {
+    return NextResponse.json({ error: "Survey already completed" }, { status: 409 })
+  }
+  if (prev?.dismissType === "never") {
+    return NextResponse.json({ error: "Survey dismissed" }, { status: 403 })
+  }
+
+  const eligibility = computeSurveyEligibility({
+    onboardingComplete: user.onboardingComplete,
+    createdAt: user.createdAt,
+    transactionCount: user._count.transactions,
+    hasReferralReceived: user.referralReceived !== null,
+    survey: prev
+      ? {
+          completedAt: prev.completedAt,
+          dismissType: prev.dismissType,
+          currentStep: prev.currentStep,
+        }
+      : null,
+    sessionReferrerTrigger: referrerHeader,
+  })
+
+  const continuingPartial =
+    !!prev &&
+    !prev.completedAt &&
+    prev.dismissType !== "never" &&
+    (prev.currentStep > 1 || surveyHasAnyResponse(prev))
+
+  if (!eligibility.eligible && !continuingPartial) {
+    return NextResponse.json({ error: "Survey not available" }, { status: 403 })
+  }
+
   const triggerIn =
     typeof body.triggerType === "string" && body.triggerType.trim()
       ? body.triggerType.trim().slice(0, 32)
@@ -87,23 +138,7 @@ export async function PUT(req: NextRequest) {
 
   const skipStep = body.skip === true
 
-  const prev = await prisma.survey.findUnique({
-    where: { userId: session.user.id },
-  })
-
-  const eligibility = await computeSurveyEligibility(session.user.id)
-  if (!eligibility?.eligible) {
-    return NextResponse.json({ error: "Survey not available" }, { status: 403 })
-  }
-
-  if (prev?.dismissedAt) {
-    return NextResponse.json({ error: "Survey dismissed" }, { status: 409 })
-  }
-
   const wasComplete = !!prev?.completedAt
-  if (wasComplete) {
-    return NextResponse.json({ error: "Survey already completed" }, { status: 409 })
-  }
 
   const prevHadNoResponses =
     !prev ||

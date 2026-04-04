@@ -10,7 +10,9 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
   if (!(await requirePremiumOrTrial(session.user.id))) {
-    return premiumForbiddenResponse("Bank sync requires a premium subscription")
+    return premiumForbiddenResponse(
+      "Bank sync requires a premium subscription or an active premium trial",
+    )
   }
   if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
     return NextResponse.json(

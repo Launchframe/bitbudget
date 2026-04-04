@@ -260,10 +260,6 @@ export async function activateReferral(refereeUserId: string, now: Date = new Da
     })
     if (!referral || referral.status !== "accepted") return
 
-    const priorActivated = await tx.referral.count({
-      where: { referrerId: referral.referrerId, status: "activated" },
-    })
-
     const activated = await tx.referral.updateMany({
       where: { id: referral.id, status: "accepted" },
       data: { status: "activated", activatedAt: now },
@@ -274,7 +270,13 @@ export async function activateReferral(refereeUserId: string, now: Date = new Da
     if (code.type === "offer") return
     if (code.type !== "user") return
 
-    const rewardMonths = priorActivated === 0 ? 3 : 1
+    // Serialize gratis math per referrer so concurrent activations see correct "first" bonus.
+    await tx.$queryRaw`SELECT 1 FROM "User" WHERE "id" = ${referral.referrerId} FOR UPDATE`
+
+    const totalActivated = await tx.referral.count({
+      where: { referrerId: referral.referrerId, status: "activated" },
+    })
+    const rewardMonths = totalActivated === 1 ? 3 : 1
 
     const referrer = await tx.user.findUnique({
       where: { id: referral.referrerId },

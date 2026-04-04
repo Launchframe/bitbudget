@@ -16,7 +16,14 @@ export default async function ReferralLandingPage({
   const method =
     typeof sp.method === "string" && sp.method.trim() ? sp.method.trim().slice(0, 32) : "link"
 
-  const v = await validateReferralCodeRow(decodeURIComponent(rawCode))
+  let normalizedCode = rawCode
+  try {
+    normalizedCode = decodeURIComponent(rawCode)
+  } catch {
+    /* malformed % sequences — validate raw segment */
+  }
+
+  const v = await validateReferralCodeRow(normalizedCode)
 
   if (v.valid && v.type === "user") {
     void incrementReferralVisit(v.codeRow.id)

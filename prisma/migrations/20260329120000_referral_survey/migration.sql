@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS "ReferralCode" (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "ReferralCode_code_key" ON "ReferralCode"("code");
-CREATE INDEX IF NOT EXISTS "ReferralCode_code_idx" ON "ReferralCode"("code");
 CREATE INDEX IF NOT EXISTS "ReferralCode_ownerId_idx" ON "ReferralCode"("ownerId");
 CREATE INDEX IF NOT EXISTS "ReferralCode_type_idx" ON "ReferralCode"("type");
 
@@ -93,7 +92,6 @@ CREATE TABLE IF NOT EXISTS "Survey" (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "Survey_userId_key" ON "Survey"("userId");
-CREATE INDEX IF NOT EXISTS "Survey_userId_idx" ON "Survey"("userId");
 CREATE INDEX IF NOT EXISTS "Survey_completedAt_idx" ON "Survey"("completedAt");
 
 DO $$ BEGIN
