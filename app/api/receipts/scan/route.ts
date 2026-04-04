@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
   if (!(await requirePremiumOrTrial(session.user.id))) {
-    return premiumForbiddenResponse("Receipt scanning requires a premium subscription")
+    return premiumForbiddenResponse("Receipt scanning requires premium or an active premium trial")
   }
 
   if (!OPENAI_API_KEY) {

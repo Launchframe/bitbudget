@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
   if (!(await requirePremiumOrTrial(session.user.id))) {
-    return premiumForbiddenResponse("Bank sync requires a premium subscription")
+    return premiumForbiddenResponse("Bank sync requires a premium subscription or trial")
   }
 
   const { public_token, institution } = (await req.json()) as {

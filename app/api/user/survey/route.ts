@@ -90,7 +90,20 @@ export async function PUT(req: NextRequest) {
   const prev = await prisma.survey.findUnique({
     where: { userId: session.user.id },
   })
+
+  const eligibility = await computeSurveyEligibility(session.user.id)
+  if (!eligibility?.eligible) {
+    return NextResponse.json({ error: "Survey not available" }, { status: 403 })
+  }
+
+  if (prev?.dismissedAt) {
+    return NextResponse.json({ error: "Survey dismissed" }, { status: 409 })
+  }
+
   const wasComplete = !!prev?.completedAt
+  if (wasComplete) {
+    return NextResponse.json({ error: "Survey already completed" }, { status: 409 })
+  }
 
   const prevHadNoResponses =
     !prev ||
