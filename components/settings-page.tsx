@@ -31,6 +31,7 @@ import {
   Plug,
 } from "lucide-react"
 import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
+import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 
@@ -59,6 +60,18 @@ export function SettingsPage() {
     : Math.max(state.transactions.length, memoTransactionCount ?? 0)
   const [editingIncome, setEditingIncome] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general")
+
+  useEffect(() => {
+    try {
+      const t = sessionStorage.getItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      if (t === "payees") {
+        setSettingsTab("payees")
+        sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [])
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importOpen, setImportOpen] = useState(false)

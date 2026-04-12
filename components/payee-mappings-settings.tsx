@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import {
+  buildPayeeDisplayRowsFromTransactions,
   findSimilarPayeeClusters,
-  mergePayeeCandidates,
   normalizePayeeKey,
   type PayeeNameCluster,
   type PayeeNameVariant,
@@ -25,21 +25,10 @@ export function PayeeMappingsSettings() {
   const [formError, setFormError] = useState<string | null>(null)
   const [clusterBusyKey, setClusterBusyKey] = useState<string | null>(null)
 
-  const payeeRows = useMemo(() => {
-    const counts = new Map<string, number>()
-    const displayByKey = new Map<string, string>()
-    for (const t of activeTransactions) {
-      const k = t.payee.toLowerCase()
-      if (!displayByKey.has(k)) displayByKey.set(k, t.payee)
-      counts.set(k, (counts.get(k) ?? 0) + 1)
-    }
-    const rows: { displayName: string; count: number }[] = []
-    for (const [k, count] of counts) {
-      const displayName = displayByKey.get(k)
-      if (displayName) rows.push({ displayName, count })
-    }
-    return mergePayeeCandidates(rows)
-  }, [activeTransactions])
+  const payeeRows = useMemo(
+    () => buildPayeeDisplayRowsFromTransactions(activeTransactions),
+    [activeTransactions],
+  )
 
   const distinctPayeeNames = useMemo(() => {
     const names = [...new Set(payeeRows.map((r) => r.displayName))]

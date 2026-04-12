@@ -98,22 +98,24 @@ export function resolveCanonicalPayee(
 
   const aliasHit = matchLongestAlias(extracted, aliases)
   if (aliasHit) {
+    const extRaw = extracted.trim()
     const canon = aliasHit.canonicalPayee.trim()
-    if (normalizePayeeKey(canon) === ext) return null
+    if (canon === extRaw) return null
     return {
       canonicalPayee: canon,
-      originalExtracted: extracted.trim(),
+      originalExtracted: extRaw,
       reason: "alias",
     }
   }
 
   const ec = collapsePayeeSoftKey(extracted)
+  const extRawForSoft = extracted.trim()
 
   let softEqualBest: { displayName: string; count: number } | null = null
   for (const { displayName, count } of candidates) {
     const nc = normalizePayeeKey(displayName)
     if (nc.length < MIN_CANDIDATE_LEN) continue
-    if (ext === nc) continue
+    if (displayName.trim() === extRawForSoft) continue
     if (ec !== collapsePayeeSoftKey(displayName)) continue
     if (
       !softEqualBest ||
@@ -171,6 +173,85 @@ export function findSimilarPayeeClusters(
     const tb = b.variants.reduce((s, v) => s + v.count, 0)
     return tb - ta
   })
+  return out
+}
+
+/**
+ * Build payee frequency rows from decrypted transaction payees (same logic as Settings → Payee mappings).
+ */
+export function buildPayeeDisplayRowsFromTransactions(
+  transactions: readonly { payee: string }[],
+): PayeeCandidate[] {
+  const counts = new Map<string, number>()
+  const displayByKey = new Map<string, string>()
+  for (const t of transactions) {
+    const k = t.payee.toLowerCase()
+    if (!displayByKey.has(k)) displayByKey.set(k, t.payee)
+    counts.set(k, (counts.get(k) ?? 0) + 1)
+  }
+  const rows: PayeeCandidate[] = []
+  for (const [k, count] of counts) {
+    const displayName = displayByKey.get(k)
+    if (displayName) rows.push({ displayName, count })
+  }
+  return mergePayeeCandidates(rows)
+}
+
+/**
+ * True when some variant can serve as canonical and every other variant has a saved alias mapping to it.
+ */
+export function isClusterResolvedByAliases(
+  cluster: PayeeNameCluster,
+  aliases: PayeeAliasRule[],
+): boolean {
+  const variants = cluster.variants
+  if (variants.length < 2) return true
+
+  for (const candidate of variants) {
+    const kNorm = candidate.normalized
+    let allOk = true
+    for (const v of variants) {
+      if (v.normalized === kNorm) continue
+      const mapped = aliases.some(
+        (a) =>
+          a.sourceNormalized === v.normalized &&
+          normalizePayeeKey(a.canonicalPayee) === kNorm,
+      )
+      if (!mapped) {
+        allOk = false
+        break
+      }
+    }
+    if (allOk) return true
+  }
+  return false
+}
+
+/** Drop ignored spellings; returns null if fewer than two distinct names remain. */
+export function filterClusterIgnoredVariants(
+  cluster: PayeeNameCluster,
+  ignoredNormalized: ReadonlySet<string>,
+): PayeeNameCluster | null {
+  const variants = cluster.variants.filter((v) => !ignoredNormalized.has(v.normalized))
+  const uniqueNorms = new Set(variants.map((v) => v.normalized))
+  if (uniqueNorms.size < 2) return null
+  const sorted = [...variants].sort((a, b) => b.count - a.count)
+  return { softKey: cluster.softKey, variants: sorted }
+}
+
+/** Clusters that still need user action (not fully aliased, after per-name ignores). */
+export function getPayeeMappingReviewClusters(
+  clusters: PayeeNameCluster[],
+  aliases: PayeeAliasRule[],
+  ignoredNormalized: ReadonlySet<string>,
+): PayeeNameCluster[] {
+  const out: PayeeNameCluster[] = []
+  for (const c of clusters) {
+    const filtered = filterClusterIgnoredVariants(c, ignoredNormalized)
+    if (!filtered) continue
+    if (isClusterResolvedByAliases(filtered, aliases)) continue
+    out.push(filtered)
+  }
   return out
 }
 

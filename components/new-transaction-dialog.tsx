@@ -140,20 +140,28 @@ export function NewTransactionDialog() {
     return index
   }, [state.transactions])
 
+  const payeeDisplayNameByLowerKey = useMemo(() => {
+    const index = new Map<string, string>()
+    for (const txn of state.transactions) {
+      const key = txn.payee.toLowerCase()
+      if (!index.has(key)) index.set(key, txn.payee)
+    }
+    return index
+  }, [state.transactions])
+
   const payeeCanonicalCandidates = useMemo((): PayeeCandidate[] => {
     const rows: PayeeCandidate[] = []
     for (const [key, envCounts] of payeeIndex) {
       let total = 0
       for (const c of envCounts.values()) total += c
-      const displayName =
-        state.transactions.find((t) => t.payee.toLowerCase() === key)?.payee ?? key
+      const displayName = payeeDisplayNameByLowerKey.get(key) ?? key
       rows.push({ displayName, count: total })
     }
     for (const s of shortcuts) {
       rows.push({ displayName: s.payee, count: Math.max(1, s.usageCount) })
     }
     return mergePayeeCandidates(rows)
-  }, [payeeIndex, state.transactions, shortcuts])
+  }, [payeeIndex, payeeDisplayNameByLowerKey, shortcuts])
 
   useEffect(() => {
     if (!transactionDialogOpen) {

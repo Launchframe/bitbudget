@@ -344,7 +344,7 @@ model PayeeDisplayAlias {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, sourceNormalized])
-  @@index([userId])
+  @@index([userId, updatedAt])
 }
 
 model PushSubscription {

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
+  buildPayeeDisplayRowsFromTransactions,
   collapsePayeeSoftKey,
+  filterClusterIgnoredVariants,
   findSimilarPayeeClusters,
+  getPayeeMappingReviewClusters,
+  isClusterResolvedByAliases,
   matchLongestAlias,
   mergePayeeCandidates,
   normalizePayeeKey,
@@ -124,12 +128,31 @@ describe("resolveCanonicalPayee", () => {
     expect(r).toBeNull()
   })
 
-  it("returns null when alias canonical equals normalized extract", () => {
+  it("returns null when alias canonical is identical trimmed string to extract", () => {
     const aliases: PayeeAliasRule[] = [
       { sourceNormalized: "wm supercenter", canonicalPayee: "WM SUPERCENTER" },
     ]
     const r = resolveCanonicalPayee("WM SUPERCENTER", [], aliases)
     expect(r).toBeNull()
+  })
+
+  it("applies alias for preferred casing when normalized extract matches source", () => {
+    const aliases: PayeeAliasRule[] = [
+      { sourceNormalized: "walmart", canonicalPayee: "Walmart" },
+    ]
+    const r = resolveCanonicalPayee("WALMART", [], aliases)
+    expect(r).toMatchObject({
+      canonicalPayee: "Walmart",
+      reason: "alias",
+    })
+  })
+
+  it("soft-equal rewrites casing when raw extract differs from stored payee", () => {
+    const r = resolveCanonicalPayee("WALMART", [{ displayName: "Walmart", count: 5 }])
+    expect(r).toMatchObject({
+      canonicalPayee: "Walmart",
+      reason: "soft-equal",
+    })
   })
 })
 
@@ -149,6 +172,68 @@ describe("findSimilarPayeeClusters", () => {
       { displayName: "Walmart Liquor", count: 5 },
     ])
     expect(clusters).toHaveLength(0)
+  })
+})
+
+describe("isClusterResolvedByAliases", () => {
+  it("returns true when non-canonical variants map to canonical", () => {
+    const clusters = findSimilarPayeeClusters([
+      { displayName: "Walmart", count: 20 },
+      { displayName: "Wal-Mart", count: 3 },
+    ])
+    const c = clusters[0]!
+    const aliases: PayeeAliasRule[] = [
+      { sourceNormalized: normalizePayeeKey("Wal-Mart"), canonicalPayee: "Walmart" },
+    ]
+    expect(isClusterResolvedByAliases(c, aliases)).toBe(true)
+  })
+
+  it("returns false without aliases", () => {
+    const clusters = findSimilarPayeeClusters([
+      { displayName: "Walmart", count: 20 },
+      { displayName: "Wal-Mart", count: 3 },
+    ])
+    expect(isClusterResolvedByAliases(clusters[0]!, [])).toBe(false)
+  })
+})
+
+describe("filterClusterIgnoredVariants", () => {
+  it("returns null when only one variant remains", () => {
+    const clusters = findSimilarPayeeClusters([
+      { displayName: "Walmart", count: 20 },
+      { displayName: "Wal-Mart", count: 3 },
+    ])
+    const c = clusters[0]!
+    const ignored = new Set([normalizePayeeKey("Wal-Mart")])
+    expect(filterClusterIgnoredVariants(c, ignored)).toBeNull()
+  })
+})
+
+describe("getPayeeMappingReviewClusters", () => {
+  it("drops resolved and fully ignored clusters", () => {
+    const clusters = findSimilarPayeeClusters([
+      { displayName: "Walmart", count: 20 },
+      { displayName: "Wal-Mart", count: 3 },
+    ])
+    const aliases: PayeeAliasRule[] = [
+      { sourceNormalized: normalizePayeeKey("Wal-Mart"), canonicalPayee: "Walmart" },
+    ]
+    expect(getPayeeMappingReviewClusters(clusters, aliases, new Set())).toHaveLength(0)
+
+    const pending = getPayeeMappingReviewClusters(clusters, [], new Set())
+    expect(pending).toHaveLength(1)
+  })
+})
+
+describe("buildPayeeDisplayRowsFromTransactions", () => {
+  it("aggregates payees like settings", () => {
+    const rows = buildPayeeDisplayRowsFromTransactions([
+      { payee: "Walmart" },
+      { payee: "walmart" },
+      { payee: "Wal-Mart" },
+    ])
+    expect(rows.find((r) => r.displayName === "Walmart")?.count).toBe(2)
+    expect(rows.find((r) => r.displayName === "Wal-Mart")?.count).toBe(1)
   })
 })
 

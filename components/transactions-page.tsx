@@ -14,6 +14,7 @@ import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X, Plus, Download } from "lucide-react"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
+import { PayeeMappingReviewBanner } from "@/components/payee-mapping-review-banner"
 import {
   Select,
   SelectContent,
@@ -270,6 +271,8 @@ export function TransactionsPage() {
           </button>
         </div>
       </div>
+
+      <PayeeMappingReviewBanner />
 
       <div className="flex flex-col gap-3">
         {/* Search + mobile overflow trigger */}
