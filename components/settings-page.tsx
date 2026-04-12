@@ -7,12 +7,36 @@ import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-exp
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
-import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, TrendingUp, Crown, Building2, Smartphone, Mail, Tag, Copy, Check, Loader2, CheckCircle2, AlertCircle, Download } from "lucide-react"
+import {
+  Upload,
+  Shield,
+  DollarSign,
+  Trash2,
+  UserX,
+  Bitcoin,
+  TrendingUp,
+  Crown,
+  Building2,
+  Smartphone,
+  Mail,
+  Tag,
+  Copy,
+  Check,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Download,
+  Link2,
+  Settings2,
+  Plug,
+} from "lucide-react"
+import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
+import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 
 export function SettingsPage() {
-  type SettingsTab = "general" | "integrations" | "tags" | "data"
+  type SettingsTab = "general" | "integrations" | "tags" | "payees" | "data"
   const {
     state,
     activeTransactions,
@@ -36,6 +60,18 @@ export function SettingsPage() {
     : Math.max(state.transactions.length, memoTransactionCount ?? 0)
   const [editingIncome, setEditingIncome] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general")
+
+  useEffect(() => {
+    try {
+      const t = sessionStorage.getItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      if (t === "payees") {
+        setSettingsTab("payees")
+        sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [])
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importOpen, setImportOpen] = useState(false)
@@ -218,8 +254,11 @@ export function SettingsPage() {
     e.target.value = ""
   }
 
+  const tabIconClass = (tab: SettingsTab) =>
+    `h-3.5 w-3.5 shrink-0 ${settingsTab === tab ? "text-btc-orange" : "text-muted-foreground"}`
+
   const tabButtonClass = (tab: SettingsTab) =>
-    `flex items-center justify-between rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors ${
+    `flex items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors ${
       settingsTab === tab
         ? "bg-[#1A1A1A] text-[#F7931A] border border-[#F7931A]/20"
         : "text-muted-foreground hover:text-foreground hover:bg-[#111111]"
@@ -781,15 +820,23 @@ export function SettingsPage() {
           <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-2">
             <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
               <button type="button" onClick={() => setSettingsTab("general")} className={tabButtonClass("general")}>
+                <Settings2 className={tabIconClass("general")} aria-hidden />
                 <span>General</span>
               </button>
               <button type="button" onClick={() => setSettingsTab("integrations")} className={tabButtonClass("integrations")}>
+                <Plug className={tabIconClass("integrations")} aria-hidden />
                 <span>Integrations</span>
               </button>
               <button type="button" onClick={() => setSettingsTab("tags")} className={tabButtonClass("tags")}>
+                <Tag className={tabIconClass("tags")} aria-hidden />
                 <span>Tags</span>
               </button>
+              <button type="button" onClick={() => setSettingsTab("payees")} className={tabButtonClass("payees")}>
+                <Link2 className={tabIconClass("payees")} aria-hidden />
+                <span>Payee mappings</span>
+              </button>
               <button type="button" onClick={() => setSettingsTab("data")} className={tabButtonClass("data")}>
+                <Shield className={tabIconClass("data")} aria-hidden />
                 <span>Data & Security</span>
               </button>
             </div>
@@ -800,6 +847,7 @@ export function SettingsPage() {
           {settingsTab === "general" && generalSection}
           {settingsTab === "integrations" && integrationsSection}
           {settingsTab === "tags" && tagsSection}
+          {settingsTab === "payees" && <PayeeMappingsSettings />}
           {settingsTab === "data" && dataSection}
         </div>
       </div>
