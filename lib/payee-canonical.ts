@@ -255,22 +255,57 @@ export function getPayeeMappingReviewClusters(
   return out
 }
 
+/** Prefer higher-count spelling, then shorter label, then lexicographic (stable canonical display). */
+function compareRepresentativeCandidates(
+  a: { displayName: string; count: number },
+  b: { displayName: string; count: number },
+): number {
+  if (a.count !== b.count) return b.count - a.count
+  if (a.displayName.length !== b.displayName.length) {
+    return a.displayName.length - b.displayName.length
+  }
+  return a.displayName.localeCompare(b.displayName)
+}
+
 /** Merge duplicate display names by summing counts */
 export function mergePayeeCandidates(rows: PayeeCandidate[]): PayeeCandidate[] {
-  const map = new Map<string, number>()
+  type Agg = {
+    totalCount: number
+    representative: { displayName: string; count: number }
+  }
+  const map = new Map<string, Agg>()
+  const keyOrder: string[] = []
+
   for (const { displayName, count } of rows) {
     const key = normalizePayeeKey(displayName)
     if (!key) continue
-    const existing = map.get(key) ?? 0
-    map.set(key, existing + count)
+
+    const existing = map.get(key)
+    if (!existing) {
+      map.set(key, {
+        totalCount: count,
+        representative: { displayName, count },
+      })
+      keyOrder.push(key)
+      continue
+    }
+
+    existing.totalCount += count
+    if (
+      compareRepresentativeCandidates(
+        { displayName, count },
+        existing.representative,
+      ) < 0
+    ) {
+      existing.representative = { displayName, count }
+    }
   }
-  const out: PayeeCandidate[] = []
-  const seen = new Set<string>()
-  for (const { displayName, count } of rows) {
-    const key = normalizePayeeKey(displayName)
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push({ displayName, count: map.get(key) ?? count })
-  }
-  return out
+
+  return keyOrder.map((key) => {
+    const entry = map.get(key)!
+    return {
+      displayName: entry.representative.displayName,
+      count: entry.totalCount,
+    }
+  })
 }

@@ -227,9 +227,22 @@ export function NewTransactionDialog() {
       return
     }
 
-    if (!skipCanonicalForPrefillRef.current && payee === raw) {
+    if (!skipCanonicalForPrefillRef.current && prefillPayeeRawRef.current === raw) {
       const r = resolveCanonicalPayee(raw, payeeCanonicalCandidates, payeeAliasRules)
-      if (r) {
+      if (!r) return
+
+      const stillMatchesSoftEqualResolution =
+        payeeMatchHint?.reason === "soft-equal" &&
+        payee === payeeMatchHint.canonical
+
+      if (payee === raw || stillMatchesSoftEqualResolution) {
+        const resolutionUnchanged =
+          payee === r.canonicalPayee &&
+          payeeMatchHint?.reason === r.reason &&
+          payeeMatchHint?.original === r.originalExtracted &&
+          payeeMatchHint?.canonical === r.canonicalPayee
+        if (resolutionUnchanged) return
+
         applyResolved(r.canonicalPayee, {
           original: r.originalExtracted,
           canonical: r.canonicalPayee,
@@ -243,6 +256,7 @@ export function NewTransactionDialog() {
     payeeCanonicalCandidates,
     payeeAliasRules,
     payee,
+    payeeMatchHint,
     payeeIndex,
     activeEnvelopes,
   ])

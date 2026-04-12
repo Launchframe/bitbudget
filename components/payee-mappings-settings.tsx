@@ -88,6 +88,7 @@ export function PayeeMappingsSettings() {
 
   /** Map every variant in the cluster to the chosen canonical payee (skips identical names). */
   async function applyClusterMappings(cluster: PayeeNameCluster, canonicalDisplay: string) {
+    setFormError(null)
     const key = cluster.softKey
     setClusterBusyKey(key)
     try {

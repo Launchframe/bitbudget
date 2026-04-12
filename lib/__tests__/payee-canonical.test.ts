@@ -245,5 +245,16 @@ describe("mergePayeeCandidates", () => {
     ])
     expect(merged).toHaveLength(1)
     expect(merged[0].count).toBe(15)
+    expect(merged[0].displayName).toBe("Last War")
+  })
+
+  it("picks the higher-frequency spelling as representative", () => {
+    const merged = mergePayeeCandidates([
+      { displayName: "walmart", count: 2 },
+      { displayName: "Walmart", count: 10 },
+    ])
+    expect(merged).toHaveLength(1)
+    expect(merged[0].count).toBe(12)
+    expect(merged[0].displayName).toBe("Walmart")
   })
 })
