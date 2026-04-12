@@ -21,7 +21,15 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { X, Repeat, Tag, ChevronRight } from "lucide-react"
-import { ShortcutsPanel } from "@/components/shortcuts-panel"
+import { ShortcutsPanel, useTransactionShortcuts } from "@/components/shortcuts-panel"
+import {
+  mergePayeeCandidates,
+  normalizePayeeKey,
+  resolveCanonicalPayee,
+  type CanonicalMatchReason,
+  type PayeeAliasRule,
+  type PayeeCandidate,
+} from "@/lib/payee-canonical"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -33,8 +41,29 @@ const CADENCE_OPTIONS: { value: Cadence; label: string }[] = [
   { value: "annual", label: "Annual" },
 ]
 
+function bestEnvelopeIdForPayee(
+  payeeDisplay: string,
+  payeeIndex: Map<string, Map<string, number>>,
+  activeEnvelopes: { id: string }[],
+): string {
+  const key = payeeDisplay.toLowerCase()
+  const envCounts = payeeIndex.get(key)
+  if (!envCounts) return ""
+  let best = ""
+  let bestC = 0
+  for (const [id, c] of envCounts) {
+    if (c > bestC) {
+      bestC = c
+      best = id
+    }
+  }
+  if (best && activeEnvelopes.some((e) => e.id === best)) return best
+  return ""
+}
+
 export function NewTransactionDialog() {
   const { state, activeEnvelopes, transactionDialogOpen, transactionPrefill, setTransactionDialogOpen, addTransaction, addTag, refreshData, encryptForStorage } = useApp()
+  const shortcuts = useTransactionShortcuts(transactionDialogOpen)
 
   const [type, setType] = useState<TransactionType>("expense")
   const [payee, setPayee] = useState("")
@@ -51,6 +80,15 @@ export function NewTransactionDialog() {
   const [saveAsShortcut, setSaveAsShortcut] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+  const [payeeMatchHint, setPayeeMatchHint] = useState<{
+    original: string
+    canonical: string
+    reason: CanonicalMatchReason
+  } | null>(null)
+  const [payeeAliasRules, setPayeeAliasRules] = useState<PayeeAliasRule[]>([])
+  const [importSourcePayee, setImportSourcePayee] = useState<string | null>(null)
+  const [aliasSaveBusy, setAliasSaveBusy] = useState(false)
+  const [aliasSaveMessage, setAliasSaveMessage] = useState<string | null>(null)
 
   type ModalView = "main" | "recurring" | "tags"
   const [modalView, setModalView] = useState<ModalView>("main")
@@ -59,16 +97,9 @@ export function NewTransactionDialog() {
   const tagsSnapshotRef = useRef<string[]>([])
   /** Ignore first click on Recurring/Tags rows after dialog opens so FAB/menu taps are not retargeted into the dialog. */
   const ignoreNextDisclosureClickRef = useRef(false)
-
-  useEffect(() => {
-    if (transactionDialogOpen && transactionPrefill) {
-      if (transactionPrefill.payee) setPayee(transactionPrefill.payee)
-      if (transactionPrefill.amount) setAmount(transactionPrefill.amount)
-      if (transactionPrefill.date) setDate(transactionPrefill.date)
-      if (transactionPrefill.notes) setNotes(transactionPrefill.notes)
-      if (transactionPrefill.envelopeId) setEnvelopeId(transactionPrefill.envelopeId)
-    }
-  }, [transactionDialogOpen, transactionPrefill])
+  const appliedPrefillKeyRef = useRef<string | null>(null)
+  const prefillPayeeRawRef = useRef<string | null>(null)
+  const skipCanonicalForPrefillRef = useRef(false)
 
   useEffect(() => {
     if (!transactionDialogOpen) return
@@ -77,6 +108,21 @@ export function NewTransactionDialog() {
       ignoreNextDisclosureClickRef.current = false
     }, 350)
     return () => clearTimeout(t)
+  }, [transactionDialogOpen])
+
+  useEffect(() => {
+    if (!transactionDialogOpen) return
+    fetch("/api/payee-aliases")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: { sourceNormalized: string; canonicalPayee: string }[]) => {
+        setPayeeAliasRules(
+          rows.map((row) => ({
+            sourceNormalized: row.sourceNormalized,
+            canonicalPayee: row.canonicalPayee,
+          })),
+        )
+      })
+      .catch(() => setPayeeAliasRules([]))
   }, [transactionDialogOpen])
 
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -93,6 +139,153 @@ export function NewTransactionDialog() {
     }
     return index
   }, [state.transactions])
+
+  const payeeCanonicalCandidates = useMemo((): PayeeCandidate[] => {
+    const rows: PayeeCandidate[] = []
+    for (const [key, envCounts] of payeeIndex) {
+      let total = 0
+      for (const c of envCounts.values()) total += c
+      const displayName =
+        state.transactions.find((t) => t.payee.toLowerCase() === key)?.payee ?? key
+      rows.push({ displayName, count: total })
+    }
+    for (const s of shortcuts) {
+      rows.push({ displayName: s.payee, count: Math.max(1, s.usageCount) })
+    }
+    return mergePayeeCandidates(rows)
+  }, [payeeIndex, state.transactions, shortcuts])
+
+  useEffect(() => {
+    if (!transactionDialogOpen) {
+      appliedPrefillKeyRef.current = null
+      return
+    }
+    if (!transactionPrefill) {
+      appliedPrefillKeyRef.current = null
+      return
+    }
+    const key = JSON.stringify(transactionPrefill)
+    if (appliedPrefillKeyRef.current === key) return
+    appliedPrefillKeyRef.current = key
+
+    if (transactionPrefill.amount) setAmount(transactionPrefill.amount)
+    if (transactionPrefill.date) setDate(transactionPrefill.date)
+    if (transactionPrefill.notes) setNotes(transactionPrefill.notes)
+    if (transactionPrefill.envelopeId) setEnvelopeId(transactionPrefill.envelopeId)
+  }, [transactionDialogOpen, transactionPrefill])
+
+  useEffect(() => {
+    if (!transactionDialogOpen) {
+      prefillPayeeRawRef.current = null
+      skipCanonicalForPrefillRef.current = false
+      setPayeeMatchHint(null)
+      setImportSourcePayee(null)
+      setAliasSaveMessage(null)
+      return
+    }
+    const raw = transactionPrefill?.payee?.trim()
+    if (!raw) {
+      setImportSourcePayee(null)
+      return
+    }
+
+    const applyResolved = (
+      resolved: string,
+      hint: { original: string; canonical: string; reason: CanonicalMatchReason } | null,
+    ) => {
+      setPayee(resolved)
+      setPayeeMatchHint(hint)
+      if (!transactionPrefill?.envelopeId) {
+        const envId = bestEnvelopeIdForPayee(resolved, payeeIndex, activeEnvelopes)
+        if (envId) setEnvelopeId(envId)
+      }
+    }
+
+    if (prefillPayeeRawRef.current !== raw) {
+      prefillPayeeRawRef.current = raw
+      skipCanonicalForPrefillRef.current = false
+      setImportSourcePayee(raw)
+      setAliasSaveMessage(null)
+      const r = resolveCanonicalPayee(raw, payeeCanonicalCandidates, payeeAliasRules)
+      if (r) {
+        applyResolved(r.canonicalPayee, {
+          original: r.originalExtracted,
+          canonical: r.canonicalPayee,
+          reason: r.reason,
+        })
+      } else {
+        applyResolved(raw, null)
+      }
+      return
+    }
+
+    if (!skipCanonicalForPrefillRef.current && payee === raw) {
+      const r = resolveCanonicalPayee(raw, payeeCanonicalCandidates, payeeAliasRules)
+      if (r) {
+        applyResolved(r.canonicalPayee, {
+          original: r.originalExtracted,
+          canonical: r.canonicalPayee,
+          reason: r.reason,
+        })
+      }
+    }
+  }, [
+    transactionDialogOpen,
+    transactionPrefill,
+    payeeCanonicalCandidates,
+    payeeAliasRules,
+    payee,
+    payeeIndex,
+    activeEnvelopes,
+  ])
+
+  const payeeAliasAlreadyMatches = useMemo(() => {
+    if (!importSourcePayee || !payee.trim()) return false
+    const sn = normalizePayeeKey(importSourcePayee)
+    const cn = normalizePayeeKey(payee)
+    if (sn === cn) return true
+    const rule = payeeAliasRules.find((a) => a.sourceNormalized === sn)
+    return !!rule && normalizePayeeKey(rule.canonicalPayee) === cn
+  }, [importSourcePayee, payee, payeeAliasRules])
+
+  const showSavePayeeMapping =
+    !!importSourcePayee &&
+    payee.trim().length >= 2 &&
+    normalizePayeeKey(importSourcePayee) !== normalizePayeeKey(payee) &&
+    !payeeAliasAlreadyMatches
+
+  async function savePayeeMapping() {
+    if (!importSourcePayee || !payee.trim()) return
+    setAliasSaveBusy(true)
+    setAliasSaveMessage(null)
+    try {
+      const res = await fetch("/api/payee-aliases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceLabel: importSourcePayee,
+          canonicalPayee: payee.trim(),
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setAliasSaveMessage(typeof err.error === "string" ? err.error : "Could not save mapping")
+        return
+      }
+      const row = (await res.json()) as { sourceNormalized: string; canonicalPayee: string }
+      setPayeeAliasRules((prev) => {
+        const next = prev.filter((a) => a.sourceNormalized !== row.sourceNormalized)
+        next.push({
+          sourceNormalized: row.sourceNormalized,
+          canonicalPayee: row.canonicalPayee,
+        })
+        return next
+      })
+      setAliasSaveMessage("Saved for future imports.")
+    } finally {
+      setAliasSaveBusy(false)
+    }
+  }
 
   const payeeSuggestions = useMemo(() => {
     const q = payee.trim().toLowerCase()
@@ -115,6 +308,7 @@ export function NewTransactionDialog() {
 
   const selectPayeeSuggestion = useCallback((name: string, suggestedEnvelopeId: string) => {
     setPayee(name)
+    setPayeeMatchHint(null)
     if (suggestedEnvelopeId && activeEnvelopes.some(e => e.id === suggestedEnvelopeId)) {
       setEnvelopeId(suggestedEnvelopeId)
     }
@@ -147,6 +341,9 @@ export function NewTransactionDialog() {
     setSaveAsShortcut(false)
     setModalView("main")
     setValidationErrors({})
+    setPayeeMatchHint(null)
+    setImportSourcePayee(null)
+    setAliasSaveMessage(null)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -235,15 +432,16 @@ export function NewTransactionDialog() {
 
   return (
     <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen}>
-      <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-md">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[min(90dvh,900px)] min-h-0 flex-col gap-0 overflow-hidden border-[#1F1F1F] bg-[#0D0D0D] p-0 text-foreground sm:max-w-lg">
+        <DialogHeader className="shrink-0 px-6 pb-2 pr-14 pt-6">
           <DialogTitle className="text-lg font-bold text-foreground">New Transaction</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {modalView === "main" && (
-            <>
-              <ShortcutsPanel dialogOpen={transactionDialogOpen} />
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-4">
+              <ShortcutsPanel shortcuts={shortcuts} />
               {/* Type toggle */}
               <div className="flex flex-col gap-2">
                 <Label className="text-muted-foreground text-xs uppercase tracking-wider">Type</Label>
@@ -284,6 +482,8 @@ export function NewTransactionDialog() {
                   value={payee}
                   onChange={(e) => {
                     setPayee(e.target.value)
+                    setPayeeMatchHint(null)
+                    setAliasSaveMessage(null)
                     if (validationErrors.payee) setValidationErrors(prev => { const next = { ...prev }; delete next.payee; return next })
                     setShowSuggestions(true)
                   }}
@@ -321,6 +521,59 @@ export function NewTransactionDialog() {
                 )}
                 {validationErrors.payee && (
                   <p className="text-xs text-red-400 mt-1">{validationErrors.payee}</p>
+                )}
+                {payeeMatchHint && (
+                  <p className="text-xs text-muted-foreground">
+                    {payeeMatchHint.reason === "alias" && (
+                      <>
+                        Using your saved payee{" "}
+                        <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>{" "}
+                        for <span className="font-medium text-foreground">{payeeMatchHint.original}</span>.
+                      </>
+                    )}
+                    {payeeMatchHint.reason === "soft-equal" && (
+                      <>
+                        <span className="font-medium text-foreground">{payeeMatchHint.original}</span> was
+                        treated as the same merchant as{" "}
+                        <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>{" "}
+                        (hyphens / spacing only). Add a mapping in Settings if this is wrong.
+                      </>
+                    )}{" "}
+                    <button
+                      type="button"
+                      className="text-btc-orange underline decoration-btc-orange/50 hover:decoration-btc-orange"
+                      onClick={() => {
+                        setPayee(payeeMatchHint.original)
+                        setPayeeMatchHint(null)
+                        skipCanonicalForPrefillRef.current = true
+                      }}
+                    >
+                      Use original text
+                    </button>
+                  </p>
+                )}
+                {showSavePayeeMapping && (
+                  <div className="flex flex-col gap-1.5 rounded-lg border border-[#333] bg-[#1A1A1A] px-3 py-2">
+                    <p className="text-xs text-muted-foreground">
+                      Import showed{" "}
+                      <span className="font-medium text-foreground">{importSourcePayee}</span> — always use{" "}
+                      <span className="font-medium text-foreground">{payee.trim()}</span> for that text next
+                      time?
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={aliasSaveBusy}
+                        onClick={() => void savePayeeMapping()}
+                        className="rounded-md bg-[#333] px-3 py-1.5 text-xs font-medium text-foreground hover:bg-[#444] disabled:opacity-50"
+                      >
+                        {aliasSaveBusy ? "Saving…" : "Save payee mapping"}
+                      </button>
+                      {aliasSaveMessage && (
+                        <span className="text-xs text-muted-foreground">{aliasSaveMessage}</span>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -464,20 +717,23 @@ export function NewTransactionDialog() {
                 />
                 Save as shortcut
               </label>
+              </div>
 
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-lg font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors mt-2 disabled:opacity-50"
-              >
-                {submitting ? "Creating..." : isRecurring ? `Add Recurring ${type === "expense" ? "Expense" : "Credit"}` : type === "expense" ? "Add Expense" : "Add Credit"}
-              </button>
-            </>
+              <div className="shrink-0 border-t border-[#1F1F1F] bg-[#0D0D0D] px-6 py-4">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full rounded-lg bg-[#F7931A] py-3 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90 disabled:opacity-50"
+                >
+                  {submitting ? "Creating..." : isRecurring ? `Add Recurring ${type === "expense" ? "Expense" : "Credit"}` : type === "expense" ? "Add Expense" : "Add Credit"}
+                </button>
+              </div>
+            </div>
           )}
 
           {modalView === "recurring" && (
-            <div className="flex flex-col gap-5">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-4">
               <h3 className="text-sm font-semibold text-foreground">Recurring Settings</h3>
 
               <div className="flex items-center justify-between p-3 bg-[#1A1A1A] rounded-lg">
@@ -528,7 +784,8 @@ export function NewTransactionDialog() {
                 </>
               )}
 
-              <div className="flex gap-3 mt-2">
+            </div>
+              <div className="flex shrink-0 gap-3 border-t border-[#1F1F1F] bg-[#0D0D0D] px-6 py-4">
                 <button
                   type="button"
                   onClick={() => {
@@ -537,14 +794,14 @@ export function NewTransactionDialog() {
                     setEndDate(recurringSnapshotRef.current.endDate)
                     setModalView("main")
                   }}
-                  className="flex-1 py-2.5 bg-[#1A1A1A] text-foreground rounded-lg text-sm font-medium hover:bg-[#222] transition-colors border border-[#333]"
+                  className="flex-1 rounded-lg border border-[#333] bg-[#1A1A1A] py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-[#222]"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={() => setModalView("main")}
-                  className="flex-1 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors"
+                  className="flex-1 rounded-lg bg-[#F7931A] py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90"
                 >
                   Done
                 </button>
@@ -553,7 +810,8 @@ export function NewTransactionDialog() {
           )}
 
           {modalView === "tags" && (
-            <div className="flex flex-col gap-5">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-4">
               <h3 className="text-sm font-semibold text-foreground">Tags</h3>
 
               <div className="flex flex-wrap gap-2">
@@ -589,7 +847,8 @@ export function NewTransactionDialog() {
                 />
               </div>
 
-              <div className="flex gap-3 mt-2">
+            </div>
+              <div className="flex shrink-0 gap-3 border-t border-[#1F1F1F] bg-[#0D0D0D] px-6 py-4">
                 <button
                   type="button"
                   onClick={() => {
@@ -597,14 +856,14 @@ export function NewTransactionDialog() {
                     setNewTag("")
                     setModalView("main")
                   }}
-                  className="flex-1 py-2.5 bg-[#1A1A1A] text-foreground rounded-lg text-sm font-medium hover:bg-[#222] transition-colors border border-[#333]"
+                  className="flex-1 rounded-lg border border-[#333] bg-[#1A1A1A] py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-[#222]"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={() => { setNewTag(""); setModalView("main") }}
-                  className="flex-1 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-lg text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors"
+                  className="flex-1 rounded-lg bg-[#F7931A] py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90"
                 >
                   Done
                 </button>

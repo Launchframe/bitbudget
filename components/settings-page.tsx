@@ -7,12 +7,13 @@ import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-exp
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
-import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, TrendingUp, Crown, Building2, Smartphone, Mail, Tag, Copy, Check, Loader2, CheckCircle2, AlertCircle, Download } from "lucide-react"
+import { Upload, Shield, DollarSign, Trash2, UserX, Bitcoin, TrendingUp, Crown, Building2, Smartphone, Mail, Tag, Copy, Check, Loader2, CheckCircle2, AlertCircle, Download, Link2 } from "lucide-react"
+import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 
 export function SettingsPage() {
-  type SettingsTab = "general" | "integrations" | "tags" | "data"
+  type SettingsTab = "general" | "integrations" | "tags" | "payees" | "data"
   const {
     state,
     activeTransactions,
@@ -789,6 +790,12 @@ export function SettingsPage() {
               <button type="button" onClick={() => setSettingsTab("tags")} className={tabButtonClass("tags")}>
                 <span>Tags</span>
               </button>
+              <button type="button" onClick={() => setSettingsTab("payees")} className={tabButtonClass("payees")}>
+                <span className="flex items-center gap-2">
+                  <Link2 className="h-3.5 w-3.5 shrink-0 text-btc-orange" />
+                  Payee mappings
+                </span>
+              </button>
               <button type="button" onClick={() => setSettingsTab("data")} className={tabButtonClass("data")}>
                 <span>Data & Security</span>
               </button>
@@ -800,6 +807,7 @@ export function SettingsPage() {
           {settingsTab === "general" && generalSection}
           {settingsTab === "integrations" && integrationsSection}
           {settingsTab === "tags" && tagsSection}
+          {settingsTab === "payees" && <PayeeMappingsSettings />}
           {settingsTab === "data" && dataSection}
         </div>
       </div>

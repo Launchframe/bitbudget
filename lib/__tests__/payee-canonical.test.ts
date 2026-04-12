@@ -1,0 +1,164 @@
+import { describe, expect, it } from "vitest"
+import {
+  collapsePayeeSoftKey,
+  findSimilarPayeeClusters,
+  matchLongestAlias,
+  mergePayeeCandidates,
+  normalizePayeeKey,
+  resolveCanonicalPayee,
+  type PayeeAliasRule,
+  type PayeeCandidate,
+} from "@/lib/payee-canonical"
+
+describe("normalizePayeeKey", () => {
+  it("trims and lowercases", () => {
+    expect(normalizePayeeKey("  Last War  ")).toBe("last war")
+  })
+
+  it("strips trailing store numbers", () => {
+    expect(normalizePayeeKey("Target #1234")).toBe("target")
+  })
+})
+
+describe("collapsePayeeSoftKey", () => {
+  it("merges Wal-Mart and Walmart forms", () => {
+    expect(collapsePayeeSoftKey("Wal-Mart")).toBe("walmart")
+    expect(collapsePayeeSoftKey("Walmart")).toBe("walmart")
+    expect(collapsePayeeSoftKey("WAL MART")).toBe("walmart")
+  })
+
+  it("does not collapse Walmart Liquor into Walmart", () => {
+    expect(collapsePayeeSoftKey("Walmart")).toBe("walmart")
+    expect(collapsePayeeSoftKey("Walmart Liquor")).toBe("walmartliquor")
+  })
+})
+
+describe("matchLongestAlias", () => {
+  const aliases: PayeeAliasRule[] = [
+    { sourceNormalized: "wm", canonicalPayee: "Bad" },
+    { sourceNormalized: "wm supercenter", canonicalPayee: "Walmart" },
+  ]
+
+  it("returns longest matching alias prefix", () => {
+    const hit = matchLongestAlias("WM SUPERCENTER 1234", aliases)
+    expect(hit?.canonicalPayee).toBe("Walmart")
+  })
+
+  it("matches exact normalized source", () => {
+    const hit = matchLongestAlias("WM SUPERCENTER", [
+      { sourceNormalized: "wm supercenter", canonicalPayee: "Walmart" },
+    ])
+    expect(hit?.canonicalPayee).toBe("Walmart")
+  })
+})
+
+describe("resolveCanonicalPayee", () => {
+  const candidates: PayeeCandidate[] = [
+    { displayName: "Last War", count: 50 },
+    { displayName: "Amazon", count: 10 },
+    { displayName: "Walmart", count: 30 },
+    { displayName: "Walmart Liquor", count: 5 },
+  ]
+
+  it("does not auto-merge Last War Survival to Last War (use aliases)", () => {
+    expect(resolveCanonicalPayee("Last War Survival", candidates)).toBeNull()
+  })
+
+  it("does not merge Walmart Liquor into Walmart via prefix", () => {
+    expect(resolveCanonicalPayee("Walmart Liquor", candidates)).toBeNull()
+  })
+
+  it("maps Wal-Mart receipt to Walmart via soft-equal", () => {
+    const r = resolveCanonicalPayee("Wal-Mart", candidates)
+    expect(r).toMatchObject({
+      canonicalPayee: "Walmart",
+      reason: "soft-equal",
+    })
+  })
+
+  it("maps Wal-Mart store number to Walmart via soft-equal", () => {
+    const r = resolveCanonicalPayee("Wal-Mart #4021", candidates)
+    expect(r).toMatchObject({
+      canonicalPayee: "Walmart",
+      reason: "soft-equal",
+    })
+  })
+
+  it("prefers user alias for Last War Survival", () => {
+    const aliases: PayeeAliasRule[] = [
+      { sourceNormalized: "last war survival", canonicalPayee: "Last War" },
+    ]
+    const r = resolveCanonicalPayee("Last War Survival", candidates, aliases)
+    expect(r).toMatchObject({
+      canonicalPayee: "Last War",
+      reason: "alias",
+    })
+  })
+
+  it("prefers user alias over history for WM SUPERCENTER", () => {
+    const aliases: PayeeAliasRule[] = [
+      { sourceNormalized: "wm supercenter", canonicalPayee: "Walmart" },
+    ]
+    const r = resolveCanonicalPayee("WM SUPERCENTER", [{ displayName: "Other", count: 1 }], aliases)
+    expect(r).toMatchObject({
+      canonicalPayee: "Walmart",
+      reason: "alias",
+    })
+  })
+
+  it("returns null when extracted equals candidate", () => {
+    expect(resolveCanonicalPayee("Last War", candidates)).toBeNull()
+  })
+
+  it("returns null for no match", () => {
+    expect(resolveCanonicalPayee("Totally Different LLC", candidates)).toBeNull()
+  })
+
+  it("ignores candidates shorter than minimum length", () => {
+    const short: PayeeCandidate[] = [{ displayName: "AB", count: 99 }]
+    expect(resolveCanonicalPayee("AB Something", short)).toBeNull()
+  })
+
+  it("does not match interior substring", () => {
+    const r = resolveCanonicalPayee("Buy Amazon Now", [{ displayName: "Amazon", count: 10 }])
+    expect(r).toBeNull()
+  })
+
+  it("returns null when alias canonical equals normalized extract", () => {
+    const aliases: PayeeAliasRule[] = [
+      { sourceNormalized: "wm supercenter", canonicalPayee: "WM SUPERCENTER" },
+    ]
+    const r = resolveCanonicalPayee("WM SUPERCENTER", [], aliases)
+    expect(r).toBeNull()
+  })
+})
+
+describe("findSimilarPayeeClusters", () => {
+  it("groups Wal-Mart and Walmart", () => {
+    const clusters = findSimilarPayeeClusters([
+      { displayName: "Walmart", count: 20 },
+      { displayName: "Wal-Mart", count: 3 },
+    ])
+    expect(clusters).toHaveLength(1)
+    expect(clusters[0].variants.map((v) => v.displayName).sort()).toEqual(["Wal-Mart", "Walmart"])
+  })
+
+  it("does not group Walmart and Walmart Liquor", () => {
+    const clusters = findSimilarPayeeClusters([
+      { displayName: "Walmart", count: 20 },
+      { displayName: "Walmart Liquor", count: 5 },
+    ])
+    expect(clusters).toHaveLength(0)
+  })
+})
+
+describe("mergePayeeCandidates", () => {
+  it("sums counts for same payee different casing", () => {
+    const merged = mergePayeeCandidates([
+      { displayName: "Last War", count: 10 },
+      { displayName: "last war", count: 5 },
+    ])
+    expect(merged).toHaveLength(1)
+    expect(merged[0].count).toBe(15)
+  })
+})

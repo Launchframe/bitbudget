@@ -58,6 +58,7 @@ model User {
   plaidImportedTransactions  PlaidImportedTransaction[]
   connectedEmails     ConnectedEmailAccount[]
   payeeMappings       PayeeEnvelopeMapping[]
+  payeeDisplayAliases PayeeDisplayAlias[]
   pushSubscriptions   PushSubscription[]
 }
 
@@ -328,6 +329,21 @@ model PayeeEnvelopeMapping {
   envelope Envelope @relation(fields: [envelopeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, payeeHash])
+  @@index([userId])
+}
+
+// User-defined map from statement/OCR text (normalized) to preferred payee label (e.g. WM SUPERCENTER to Walmart).
+model PayeeDisplayAlias {
+  id               String   @id @default(cuid())
+  userId           String
+  sourceNormalized String
+  canonicalPayee   String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceNormalized])
   @@index([userId])
 }
 
