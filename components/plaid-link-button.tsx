@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useApp } from "@/lib/app-context"
 import { Building2, Loader2 } from "lucide-react"
 
 declare global {
@@ -19,6 +20,7 @@ declare global {
 }
 
 export function PlaidLinkButton() {
+  const { refreshData } = useApp()
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -54,7 +56,7 @@ export function PlaidLinkButton() {
           public_token: string,
           metadata: { institution?: { name: string } },
         ) => {
-          await fetch("/api/plaid/exchange-token", {
+          const ex = await fetch("/api/plaid/exchange-token", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -62,6 +64,20 @@ export function PlaidLinkButton() {
               institution: metadata.institution,
             }),
           })
+          if (ex.ok) {
+            try {
+              const body = (await ex.json()) as {
+                referralActivated?: boolean
+                referralTrialMonths?: number | null
+              }
+              if (body.referralActivated && body.referralTrialMonths != null) {
+                sessionStorage.setItem("bitbudget-trial-welcome", "1")
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          await refreshData()
           window.location.reload()
         },
         onExit: () => setLoading(false),
@@ -71,7 +87,7 @@ export function PlaidLinkButton() {
       console.error("Plaid Link error:", err)
       setLoading(false)
     }
-  }, [])
+  }, [refreshData])
 
   return (
     <button

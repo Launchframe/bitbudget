@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { referralStatsForUser } from "@/lib/referral"
-import { resolveEffectiveTier } from "@/lib/subscription"
+import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
 type UserSettingsPutBody = Partial<{
@@ -64,6 +64,16 @@ export async function GET() {
     premiumTrialUntil,
   })
 
+  const refereeReferralRow = await prisma.referral.findUnique({
+    where: { refereeId: session.user.id },
+    include: { referrer: { select: { subscriptionTier: true } } },
+  })
+  const isRefereePendingBankLink = refereeReferralRow?.status === "accepted"
+  const referralRefereeTrialMonths =
+    isRefereePendingBankLink && refereeReferralRow?.referrer
+      ? refereeTrialMonthsForReferrerSubscription(refereeReferralRow.referrer.subscriptionTier)
+      : null
+
   let referralPayload: Record<string, unknown> | null = null
   if (user.onboardingComplete) {
     const stats = await referralStatsForUser(session.user.id)
@@ -91,6 +101,8 @@ export async function GET() {
     premiumTrialUntil: premiumTrialUntil?.toISOString() ?? null,
     effectiveTier,
     transactionCount: _count.transactions,
+    referralRefereePendingBankLink: isRefereePendingBankLink,
+    referralRefereeTrialMonths,
     referral: referralPayload,
   })
 }

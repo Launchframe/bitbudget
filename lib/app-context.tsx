@@ -184,6 +184,10 @@ interface AppContextValue {
   effectiveTier: "free" | "premium-trial" | "premium"
   /** True when user has full or trial premium features (not effective free). */
   hasPremiumFeatures: boolean
+  /** Referred user who has not linked a bank yet — Plaid allowed; other premium features locked until activation. */
+  refereePendingBankLink: boolean
+  /** Trial length (months) for this referee while bank link is pending; from referrer billing tier. */
+  referralRefereeTrialMonths: 1 | 3 | null
   premiumTrialUntilIso: string | null
   premiumGratisUntilIso: string | null
   referralSummary: ReferralSummaryState | null
@@ -279,6 +283,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [premiumTrialUntilIso, setPremiumTrialUntilIso] = useState<string | null>(null)
   const [premiumGratisUntilIso, setPremiumGratisUntilIso] = useState<string | null>(null)
   const [referralSummary, setReferralSummary] = useState<ReferralSummaryState | null>(null)
+  const [refereePendingBankLink, setRefereePendingBankLink] = useState(false)
+  const [referralRefereeTrialMonths, setReferralRefereeTrialMonths] = useState<1 | 3 | null>(null)
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const mounted = useRef(false)
   const isPopstate = useRef(false)
@@ -472,6 +478,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setPremiumGratisUntilIso(
         typeof settings.premiumGratisUntil === "string" ? settings.premiumGratisUntil : null,
       )
+      setRefereePendingBankLink(
+        (settings as { referralRefereePendingBankLink?: unknown }).referralRefereePendingBankLink === true,
+      )
+      const trm = (settings as { referralRefereeTrialMonths?: unknown }).referralRefereeTrialMonths
+      setReferralRefereeTrialMonths(trm === 1 || trm === 3 ? trm : null)
       const ref = settings.referral
       if (ref && typeof ref === "object" && !Array.isArray(ref)) {
         setReferralSummary({
@@ -1143,6 +1154,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.removeItem("bitbudget-privacy-key")
       sessionStorage.removeItem("bitbudget-privacy-user")
       sessionStorage.removeItem("nostr-login")
+      sessionStorage.removeItem("bitbudget-survey-referrer")
+      sessionStorage.removeItem("bitbudget-survey-shown")
     } catch {
       /* ignore */
     }
@@ -1301,6 +1314,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         subscriptionTier,
         effectiveTier,
         hasPremiumFeatures: effectiveTier !== "free",
+        refereePendingBankLink,
+        referralRefereeTrialMonths,
         premiumTrialUntilIso,
         premiumGratisUntilIso,
         referralSummary,

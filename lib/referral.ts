@@ -1,6 +1,6 @@
 import { randomBytes } from "crypto"
 import { prisma } from "@/lib/db"
-import { resolveEffectiveTier } from "@/lib/subscription"
+import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
 
 export const REFERRAL_USER_CODE_LENGTH = 8
 export const USER_REFERRAL_CODE_TTL_DAYS = 7
@@ -189,7 +189,6 @@ export async function redeemReferralCode(args: {
     }
   }
 
-  const trialEnd = addMonthsUtc(now, 3)
   const codeId = validation.codeRow.id
 
   try {
@@ -220,7 +219,6 @@ export async function redeemReferralCode(args: {
       await tx.user.update({
         where: { id: args.refereeId },
         data: {
-          premiumTrialUntil: trialEnd,
           referredByCodeId: codeId,
         },
       })
@@ -240,11 +238,21 @@ export async function redeemReferralCode(args: {
   }
 }
 
+export type ActivateReferralResult = {
+  /** True if this call transitioned the referral from accepted → activated. */
+  didActivate: boolean
+  /** Referee trial length applied (months), if activation happened. */
+  refereeTrialMonths: 1 | 3 | null
+}
+
 /**
- * Call after a referred user's first successful Plaid sync. Idempotent per referral row
- * (only one activation wins under concurrency).
+ * Call after a referred user’s first bank link (Plaid item created) or first successful sync.
+ * Idempotent: only one activation wins; referee trial is set on first activation only.
  */
-export async function activateReferral(refereeUserId: string, now: Date = new Date()): Promise<void> {
+export async function activateReferral(
+  refereeUserId: string,
+  now: Date = new Date(),
+): Promise<ActivateReferralResult> {
   type NotifyArg = {
     referrerId: string
     refereeUserId: string
@@ -252,6 +260,7 @@ export async function activateReferral(refereeUserId: string, now: Date = new Da
     newGratisUntil: Date
   }
   let pendingNotify: NotifyArg | null = null
+  let result: ActivateReferralResult = { didActivate: false, refereeTrialMonths: null }
 
   await prisma.$transaction(async (tx) => {
     const referral = await tx.referral.findUnique({
@@ -260,11 +269,29 @@ export async function activateReferral(refereeUserId: string, now: Date = new Da
     })
     if (!referral || referral.status !== "accepted") return
 
+    const referrer = await tx.user.findUnique({
+      where: { id: referral.referrerId },
+      select: {
+        subscriptionTier: true,
+        premiumGratisUntil: true,
+      },
+    })
+    if (!referrer) return
+
+    const trialMonths = refereeTrialMonthsForReferrerSubscription(referrer.subscriptionTier)
+
     const activated = await tx.referral.updateMany({
       where: { id: referral.id, status: "accepted" },
       data: { status: "activated", activatedAt: now },
     })
     if (activated.count === 0) return
+
+    await tx.user.update({
+      where: { id: refereeUserId },
+      data: { premiumTrialUntil: addMonthsUtc(now, trialMonths) },
+    })
+
+    result = { didActivate: true, refereeTrialMonths: trialMonths }
 
     const code = referral.code
     if (code.type === "offer") return
@@ -277,15 +304,6 @@ export async function activateReferral(refereeUserId: string, now: Date = new Da
       where: { referrerId: referral.referrerId, status: "activated" },
     })
     const rewardMonths = totalActivated === 1 ? 3 : 1
-
-    const referrer = await tx.user.findUnique({
-      where: { id: referral.referrerId },
-      select: {
-        subscriptionTier: true,
-        premiumGratisUntil: true,
-      },
-    })
-    if (!referrer) return
 
     const base =
       referrer.premiumGratisUntil && referrer.premiumGratisUntil > now
@@ -314,6 +332,8 @@ export async function activateReferral(refereeUserId: string, now: Date = new Da
     const { notifyReferralActivated } = await import("@/lib/notify")
     await notifyReferralActivated(pendingNotify)
   }
+
+  return result
 }
 
 export async function referralStatsForUser(userId: string, now: Date = new Date()) {

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { plaidClient } from "@/lib/plaid"
-import { premiumForbiddenResponse, requirePremiumOrTrial } from "@/lib/subscription"
+import {
+  premiumForbiddenResponse,
+  requirePremiumOrTrialOrReferralBankLinkPending,
+} from "@/lib/subscription"
 import { CountryCode, Products } from "plaid"
 
 export async function POST() {
@@ -9,9 +12,9 @@ export async function POST() {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  if (!(await requirePremiumOrTrial(session.user.id))) {
+  if (!(await requirePremiumOrTrialOrReferralBankLinkPending(session.user.id))) {
     return premiumForbiddenResponse(
-      "Bank sync requires a premium subscription or an active premium trial",
+      "Bank sync requires premium, an active trial, or an accepted referral (link a bank to finish signup)",
     )
   }
   if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {

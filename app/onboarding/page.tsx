@@ -56,6 +56,11 @@ import {
   toMonthly,
   type AllocationCadence,
 } from "@/lib/allocation-cadence"
+import { parseBitbudgetRefCookie } from "@/lib/bitbudget-ref-cookie"
+import {
+  REFEREE_PREMIUM_CARROT_FALLBACK,
+  refereePremiumExperienceCarrot,
+} from "@/lib/subscription"
 
 type Step = "referral" | "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
 
@@ -231,7 +236,11 @@ export default function OnboardingPage() {
   const [pendingDeleteEnvelopeIdx, setPendingDeleteEnvelopeIdx] = useState<number | null>(null)
 
   /** Pending referral applied before security; redeemed after onboarding completes. */
-  const [pendingReferral, setPendingReferral] = useState<{ code: string; shareMethod: string } | null>(null)
+  const [pendingReferral, setPendingReferral] = useState<{
+    code: string
+    shareMethod: string
+    refereeTrialMonths?: 1 | 3
+  } | null>(null)
   const [refCodeInput, setRefCodeInput] = useState("")
   const [refValidating, setRefValidating] = useState(false)
   const [refError, setRefError] = useState<string | null>(null)
@@ -279,9 +288,11 @@ export default function OnboardingPage() {
           setRestoredSession(true)
         }
         if (saved.pendingReferral?.code) {
+          const rm = saved.pendingReferral.refereeTrialMonths
           setPendingReferral({
             code: saved.pendingReferral.code,
             shareMethod: typeof saved.pendingReferral.shareMethod === "string" ? saved.pendingReferral.shareMethod : "direct",
+            ...(rm === 1 || rm === 3 ? { refereeTrialMonths: rm } : {}),
           })
         }
         if (saved.income) setIncome(saved.income)
@@ -349,30 +360,51 @@ export default function OnboardingPage() {
     void refreshEnvelopeUsage()
   }, [step, refreshEnvelopeUsage])
 
-  useEffect(() => {
-    if (!hydrated || step !== "referral") return
+  const tryApplyReferralFromCookie = useCallback(async (parsed: { code: string; shareMethod: string }) => {
     try {
-      const m = document.cookie.match(/(?:^|; )bitbudget_ref=([^;]*)/)
-      if (!m?.[1]) return
-      const decoded = decodeURIComponent(m[1]!)
-      const col = decoded.indexOf(":")
-      const code = (col === -1 ? decoded : decoded.slice(0, col)).trim()
-      const shareMethod = col === -1 ? "link" : decoded.slice(col + 1).trim() || "direct"
-      if (!code) return
-      void (async () => {
-        try {
-          const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(code)}`)
-          if (!r.ok) return
-          const j = (await r.json()) as { valid?: boolean }
-          if (j.valid) setPendingReferral({ code, shareMethod })
-        } catch {
-          /* ignore */
-        }
-      })()
+      const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(parsed.code)}`)
+      if (!r.ok) return
+      const j = (await r.json()) as { valid?: boolean; refereeTrialMonths?: 1 | 3 }
+      if (j.valid) {
+        const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
+        setPendingReferral({ code: parsed.code, shareMethod: parsed.shareMethod, refereeTrialMonths })
+      }
     } catch {
       /* ignore */
     }
-  }, [hydrated, step])
+  }, [])
+
+  /** Apply `bitbudget_ref` on any step — session restore can skip the referral step before the old referral-only effect ran. */
+  useEffect(() => {
+    if (!hydrated || pendingReferral?.code) return
+    const parsed = parseBitbudgetRefCookie(typeof document !== "undefined" ? document.cookie : "")
+    if (!parsed?.code) return
+    void tryApplyReferralFromCookie(parsed)
+  }, [hydrated, pendingReferral?.code, tryApplyReferralFromCookie])
+
+  /** Backfill trial length for older sessionStorage blobs that only stored the code. */
+  useEffect(() => {
+    if (!hydrated || !pendingReferral?.code) return
+    if (pendingReferral.refereeTrialMonths === 1 || pendingReferral.refereeTrialMonths === 3) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(pendingReferral.code)}`)
+        if (!r.ok || cancelled) return
+        const j = (await r.json()) as { valid?: boolean; refereeTrialMonths?: 1 | 3 }
+        if (!j.valid || cancelled) return
+        const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
+        setPendingReferral(prev =>
+          prev && prev.code === pendingReferral.code ? { ...prev, refereeTrialMonths } : prev,
+        )
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [hydrated, pendingReferral?.code, pendingReferral?.refereeTrialMonths])
 
   const stepIndex = STEPS.indexOf(step)
   const progress = ((stepIndex + 1) / STEPS.length) * 100
@@ -507,19 +539,37 @@ export default function OnboardingPage() {
     }
   }, [hydrated])
 
-  async function redeemPendingReferralIfAny(): Promise<void> {
-    if (!pendingReferral?.code) return
+  function referralPayloadForRedeem(): { code: string; shareMethod: string } | null {
+    if (pendingReferral?.code) return pendingReferral
+    if (typeof document === "undefined") return null
+    return parseBitbudgetRefCookie(document.cookie)
+  }
+
+  function clearBitbudgetRefCookie() {
     try {
-      await fetch("/api/referral/redeem", {
+      document.cookie = "bitbudget_ref=; path=/; max-age=0"
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Redeem referral from state or `bitbudget_ref` cookie (covers skipped referral step). */
+  async function redeemPendingReferralIfAny(): Promise<boolean> {
+    const payload = referralPayloadForRedeem()
+    if (!payload?.code) return false
+    try {
+      const res = await fetch("/api/referral/redeem", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          code: pendingReferral.code,
-          shareMethod: pendingReferral.shareMethod,
+          code: payload.code,
+          shareMethod: payload.shareMethod,
         }),
       })
+      if (res.ok) clearBitbudgetRefCookie()
+      return res.ok
     } catch {
-      /* non-blocking */
+      return false
     }
   }
 
@@ -889,29 +939,10 @@ export default function OnboardingPage() {
         await signOut({ callbackUrl: "/auth" })
         return
       }
-      let trialOk = false
-      if (pendingReferral?.code) {
-        try {
-          const rr = await fetch("/api/referral/redeem", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              code: pendingReferral.code,
-              shareMethod: pendingReferral.shareMethod,
-            }),
-          })
-          trialOk = rr.ok
-        } catch {
-          /* ignore */
-        }
+      if (!res.ok) {
+        return
       }
-      if (trialOk) {
-        try {
-          sessionStorage.setItem("bitbudget-trial-welcome", "1")
-        } catch {
-          /* ignore */
-        }
-      }
+      await redeemPendingReferralIfAny()
       try {
         sessionStorage.removeItem(STORAGE_KEY)
         sessionStorage.removeItem("onboardingSource")
@@ -961,6 +992,10 @@ export default function OnboardingPage() {
     },
     [allocateMonthlyBudget],
   )
+
+  const refereeTrialExplainerOnComplete =
+    step === "complete" &&
+    !!(pendingReferral?.code || (typeof document !== "undefined" && parseBitbudgetRefCookie(document.cookie)?.code))
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center p-6">
@@ -1022,7 +1057,13 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Have a referral code?</h2>
-                  <p className="text-sm text-muted-foreground">Optional — unlock 3 months of premium trial</p>
+                  <p className="text-sm text-muted-foreground">
+                    {pendingReferral?.refereeTrialMonths === 3
+                      ? "Optional — connect your bank after signup for 3 months of premium. No payment details required."
+                      : pendingReferral?.refereeTrialMonths === 1
+                        ? "Optional — connect your bank after signup for 1 month of premium. No payment details required."
+                        : "Optional — connect your bank after signup for premium. No payment details required."}
+                  </p>
                 </div>
               </div>
               {pendingReferral ? (
@@ -1067,13 +1108,14 @@ export default function OnboardingPage() {
                             const r = await fetch(
                               `/api/referral/validate?code=${encodeURIComponent(refCodeInput.trim())}`,
                             )
-                            const j = (await r.json()) as { valid?: boolean }
+                            const j = (await r.json()) as { valid?: boolean; refereeTrialMonths?: 1 | 3 }
                             if (!j.valid) {
                               setRefError("It looks like that code is invalid, expired, or has already been used.")
                               return
                             }
                             const code = refCodeInput.trim()
-                            setPendingReferral({ code, shareMethod: "direct" })
+                            const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
+                            setPendingReferral({ code, shareMethod: "direct", refereeTrialMonths })
                             try {
                               document.cookie = `bitbudget_ref=${encodeURIComponent(`${code}:direct`)}; path=/; max-age=${86400 * 30}`
                             } catch {
@@ -2050,6 +2092,28 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground text-center">
                 Your envelopes are ready and your data is secured.
               </p>
+              {refereeTrialExplainerOnComplete ? (
+                <div className="w-full rounded-xl border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-4 py-3 text-left space-y-2">
+                  <p className="text-sm text-foreground font-medium">Your referral</p>
+                  <p className="text-sm text-muted-foreground">
+                    <strong className="text-foreground">
+                      {pendingReferral?.refereeTrialMonths === 1 || pendingReferral?.refereeTrialMonths === 3
+                        ? refereePremiumExperienceCarrot(pendingReferral.refereeTrialMonths)
+                        : REFEREE_PREMIUM_CARROT_FALLBACK}
+                    </strong>{" "}
+                    When you continue, we save your referral—then open <strong className="text-foreground">Settings</strong> and link your bank first.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Until you link a bank, Plan may show <strong className="text-foreground">Free</strong> — that&apos;s expected. Receipt inbox and SMS
+                    unlock after your trial starts.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center max-w-sm">
+                  Invited by a friend? Use <strong className="text-foreground">Back</strong> to the referral step or open their invite link in
+                  this browser before you continue so your trial can apply.
+                </p>
+              )}
               <button
                 type="submit"
                 disabled={loading}

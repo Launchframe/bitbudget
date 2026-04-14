@@ -60,6 +60,38 @@ export async function requirePremiumOrTrial(userId: string): Promise<boolean> {
   return t === "premium" || t === "premium-trial"
 }
 
+/** Months of referee premium trial after first bank link, by referrer’s paid billing tier (not gratis). */
+export function refereeTrialMonthsForReferrerSubscription(subscriptionTier: string): 1 | 3 {
+  return subscriptionTier === "premium" ? 3 : 1
+}
+
+/** Referee marketing line — duration matches referrer billing tier (see `refereeTrialMonthsForReferrerSubscription`). */
+export function refereePremiumExperienceCarrot(months: 1 | 3): string {
+  return months === 3
+    ? "Connect your bank account and enjoy 3 months of the premium BitBudget experience. No payment details required."
+    : "Connect your bank account and enjoy 1 month of the premium BitBudget experience. No payment details required."
+}
+
+export const REFEREE_PREMIUM_CARROT_FALLBACK =
+  "Connect your bank account to enjoy the premium BitBudget experience. No payment details required."
+
+/** True when this user redeemed a referral but has not linked a bank yet (Referral.status === accepted). */
+export async function referralRefereePendingBankLink(userId: string): Promise<boolean> {
+  const row = await prisma.referral.findUnique({
+    where: { refereeId: userId },
+    select: { status: true },
+  })
+  return row?.status === "accepted"
+}
+
+/**
+ * Plaid only: allow premium/trial, or a referred user who must link a bank before other premium features unlock.
+ */
+export async function requirePremiumOrTrialOrReferralBankLinkPending(userId: string): Promise<boolean> {
+  if (await requirePremiumOrTrial(userId)) return true
+  return referralRefereePendingBankLink(userId)
+}
+
 export async function countTrialReceiptSmsSubmissionsThisMonth(
   userId: string,
   now: Date = new Date(),

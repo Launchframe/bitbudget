@@ -20,11 +20,13 @@ export function ReferralTerms() {
           <p>
             <strong className="text-foreground">Referrer:</strong> Your first activated referral earns 3 months of
             premium; each additional activation adds 1 month. If you&apos;re on the free plan, bonus premium is capped
-            at 3 months total from now. Rewards apply when your friend connects their bank and completes a first sync.
+            at 3 months total from now. Rewards apply when your friend connects their bank (first successful link).
           </p>
           <p>
-            <strong className="text-foreground">Friend:</strong> 3 months of premium trial — Plaid sync, receipt inbox,
-            and SMS alerts (up to 100 receipt/SMS captures per month combined).
+            <strong className="text-foreground">Friend:</strong> Connect your bank account to start your trial:{" "}
+            <strong className="text-foreground">1 month</strong> of the premium BitBudget experience if your friend is on the free plan, or{" "}
+            <strong className="text-foreground">3 months</strong> if they pay for Premium. No payment details required. Receipt inbox, SMS, and
+            other premium features unlock after your first successful bank link (up to 100 receipt/SMS captures per month on trial).
           </p>
           <p>One referral per new account. You must finish onboarding before generating a code.</p>
         </div>

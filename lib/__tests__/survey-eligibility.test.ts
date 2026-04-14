@@ -61,7 +61,7 @@ describe("computeSurveyEligibility", () => {
     expect(r.triggerType).toBe("general")
   })
 
-  it("referrer session trigger wins", () => {
+  it("referrer session trigger not eligible without transactions", () => {
     const r = computeSurveyEligibility({
       onboardingComplete: true,
       createdAt: new Date(),
@@ -70,15 +70,39 @@ describe("computeSurveyEligibility", () => {
       survey: null,
       sessionReferrerTrigger: true,
     })
+    expect(r.eligible).toBe(false)
+  })
+
+  it("referrer session trigger when user has at least one transaction", () => {
+    const r = computeSurveyEligibility({
+      onboardingComplete: true,
+      createdAt: new Date(),
+      transactionCount: 1,
+      hasReferralReceived: false,
+      survey: null,
+      sessionReferrerTrigger: true,
+    })
     expect(r.eligible).toBe(true)
     expect(r.triggerType).toBe("referrer")
   })
 
-  it("referee trigger when referred and 7d", () => {
+  it("referee not eligible without transactions even after 7d", () => {
     const r = computeSurveyEligibility({
       onboardingComplete: true,
       createdAt: oldEnough,
       transactionCount: 0,
+      hasReferralReceived: true,
+      survey: null,
+      sessionReferrerTrigger: false,
+    })
+    expect(r.eligible).toBe(false)
+  })
+
+  it("referee trigger when referred, 7d, and has transaction", () => {
+    const r = computeSurveyEligibility({
+      onboardingComplete: true,
+      createdAt: oldEnough,
+      transactionCount: 1,
       hasReferralReceived: true,
       survey: null,
       sessionReferrerTrigger: false,

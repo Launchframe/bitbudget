@@ -52,6 +52,10 @@ export function computeSurveyEligibility(input: SurveyEligibilityInput): SurveyE
     return { eligible: false, triggerType: null, resumeStep: s?.currentStep ?? 1 }
   }
 
+  if (input.transactionCount < 1) {
+    return { eligible: false, triggerType: null, resumeStep: s?.currentStep ?? 1 }
+  }
+
   return {
     eligible: true,
     triggerType,

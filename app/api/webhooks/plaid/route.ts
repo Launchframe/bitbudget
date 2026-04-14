@@ -5,7 +5,7 @@ import { matchEnvelope } from "@/lib/envelope-matcher"
 import { routeTransaction } from "@/lib/confidence-router"
 import crypto from "crypto"
 import { activateReferral } from "@/lib/referral"
-import { requirePremiumOrTrial } from "@/lib/subscription"
+import { requirePremiumOrTrialOrReferralBankLinkPending } from "@/lib/subscription"
 import { Prisma } from "@prisma/client"
 
 export async function POST(req: NextRequest) {
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     if (!plaidItem) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 })
     }
-    if (!(await requirePremiumOrTrial(plaidItem.user.id))) {
+    if (!(await requirePremiumOrTrialOrReferralBankLinkPending(plaidItem.user.id))) {
       return NextResponse.json({
         acknowledged: true,
         skipped: "premium_required",

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { X } from "lucide-react"
 
-/** Shown once after onboarding when referral trial was redeemed (sessionStorage flag). */
+/** Shown once after first bank link activates referral trial (sessionStorage flag from Plaid exchange). */
 export function TrialWelcomeBanner() {
   const [visible, setVisible] = useState(false)
 
@@ -31,7 +31,9 @@ export function TrialWelcomeBanner() {
   return (
     <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 flex items-start gap-3">
       <p className="text-sm text-[#86EFAC] flex-1">
-        Welcome! You have premium trial features for 3 months — bank sync, receipt inbox, and SMS (100 captures/month).
+        You connected your bank—your premium BitBudget experience is now active, no payment details required. Receipt inbox, SMS, and the rest
+        (with trial limits) are unlocked; open <strong className="text-[#BBF7D0]">Settings</strong> to finish setup. Check <strong className="text-[#BBF7D0]">Plan</strong> for your
+        trial end date.
       </p>
       <button
         type="button"
