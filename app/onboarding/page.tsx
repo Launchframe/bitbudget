@@ -445,7 +445,7 @@ export default function OnboardingPage() {
           setIsNostr(true)
           // nsec-paste users still owe the PIN step to encrypt the nsec for localStorage.
           // If we ran NIP-04 here, server encryption would flip hasExistingEncryption on while
-          // we remain on "security" — the passphrase branch renders `null` and the card is blank.
+          // we remain on "security" — extension users should see the Nostr security info step, not a blank card.
           if (!hasEnc && enc.nostrPubkey && !hasPendingNsec) {
             try {
               const nostrExt = (window as unknown as {
@@ -474,8 +474,8 @@ export default function OnboardingPage() {
               }
             } catch {
               // NIP-04 encrypt was rejected or unavailable (e.g. keys.band authorized
-              // getPublicKey but not nip04, or user denied the prompt). Continue without
-              // auto-provisioning; the step routing below still advances past security.
+              // getPublicKey but not nip04, or user denied the prompt). User continues via the
+              // Nostr security info step or passphrase flow without auto-provisioned encryption.
             }
           }
           setHasExistingEncryption(hasEnc)
@@ -491,16 +491,8 @@ export default function OnboardingPage() {
           if (markNsecFallback) {
             setIsNsecFallback(true)
           }
-
-          // Security UI only renders when (!isNostr || isNsecFallback). Extension Nostr users who
-          // are not on the nsec-fallback path must never stay on "security" without that UI
-          // (e.g. NIP-04 missing or POST failed would otherwise leave a blank card). Nsec users
-          // with a pending key stay on Security for PIN; everyone else advances to Income.
-          setStep(prev => {
-            if (prev !== "security") return prev
-            if (hasPendingNsec) return "security"
-            return "income"
-          })
+          // Extension Nostr users see an informational security step (not auto-skipped) so step
+          // numbers stay consistent; nsec-fallback users use the passphrase UI on this step.
         }
       } catch {
         /* continue */
@@ -1077,7 +1069,7 @@ export default function OnboardingPage() {
                             )
                             const j = (await r.json()) as { valid?: boolean }
                             if (!j.valid) {
-                              setRefError("Invalid, expired, or already used code.")
+                              setRefError("It looks like that code is invalid, expired, or has already been used.")
                               return
                             }
                             const code = refCodeInput.trim()
@@ -1123,12 +1115,75 @@ export default function OnboardingPage() {
             </div>
           )}
 
+          {/* Security Step: Nostr extension — informational (no passphrase on this account) */}
+          {step === "security" && isNostr && !isNsecFallback && getPendingNsec() === null && (
+            !bootstrapped ? (
+              <div className="flex flex-col items-center justify-center gap-4 py-16">
+                <Spinner className="h-8 w-8 text-btc-orange" />
+                <p className="text-sm text-muted-foreground text-center">Checking your account…</p>
+                <button
+                  type="button"
+                  onClick={() => setStep("referral")}
+                  className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+                >
+                  <ChevronLeft className="h-4 w-4 shrink-0" aria-hidden />
+                  Back
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-btc-orange/10">
+                    <ShieldCheck className="h-6 w-6 text-btc-orange" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-foreground">Your data is secure</h2>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  BitBudget uses your Nostr identity to encrypt your data end-to-end. Your private key never leaves your Nostr extension.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setStep("referral")}
+                    className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
+                  >
+                    <ChevronLeft className="h-4 w-4" aria-hidden />
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep("income")}
+                    className="flex-1 py-3 bg-btc-orange text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-btc-orange/90 transition-colors flex items-center justify-center gap-2"
+                  >
+                    Continue
+                    <ChevronRight className="h-4 w-4" aria-hidden />
+                  </button>
+                </div>
+                <OnboardingSkipBar
+                  show={canSkipOnboarding}
+                  disabled={loading}
+                  onSkip={skipOnboardingToDashboard}
+                />
+              </div>
+            )
+          )}
+
           {/* Security Step: Web 2.0 users and nsec fallback users (Nostr without extension) */}
           {step === "security" && (!isNostr || isNsecFallback) && (
             !bootstrapped ? (
               <div className="flex flex-col items-center justify-center gap-4 py-16">
                 <Spinner className="h-8 w-8 text-[#F7931A]" />
                 <p className="text-sm text-muted-foreground text-center">Checking your account…</p>
+                <button
+                  type="button"
+                  onClick={() => setStep("referral")}
+                  className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+                >
+                  <ChevronLeft className="h-4 w-4 shrink-0" aria-hidden />
+                  Back
+                </button>
               </div>
             ) : !hasExistingEncryption || getPendingNsec() !== null ? (
               <form onSubmit={e => { e.preventDefault(); handleSecuritySetup() }} className="flex flex-col gap-6">
@@ -1172,14 +1227,25 @@ export default function OnboardingPage() {
                   {pinError && <p className="text-sm text-red-400">{pinError}</p>}
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={loading || !pin || !pinConfirm}
-                  className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {loading ? "Setting up..." : "Continue"}
-                  {!loading && <ChevronRight className="h-4 w-4" />}
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setStep("referral")}
+                    className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <ChevronLeft className="h-4 w-4" aria-hidden />
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading || !pin || !pinConfirm}
+                    className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {loading ? "Setting up..." : "Continue"}
+                    {!loading && <ChevronRight className="h-4 w-4" aria-hidden />}
+                  </button>
+                </div>
                 <OnboardingSkipBar
                   show={canSkipOnboarding}
                   disabled={loading}
@@ -1248,14 +1314,25 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={loading || !income}
-                className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {loading ? "Saving..." : "Continue"}
-                {!loading && <ChevronRight className="h-4 w-4" />}
-              </button>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => setStep("security")}
+                  className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <ChevronLeft className="h-4 w-4" aria-hidden />
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading || !income}
+                  className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {loading ? "Saving..." : "Continue"}
+                  {!loading && <ChevronRight className="h-4 w-4" aria-hidden />}
+                </button>
+              </div>
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}

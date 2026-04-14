@@ -741,7 +741,7 @@ export function CSVImportDialog({
                     Loading…
                   </>
                 ) : (
-                  "Update your budget"
+                  "Back to envelopes"
                 )}
               </button>
             </div>

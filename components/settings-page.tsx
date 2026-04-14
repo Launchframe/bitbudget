@@ -311,8 +311,6 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <SettingsReferralsCard />
-
       {/* Income */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
         <div className="flex items-center gap-3 mb-4">
@@ -355,6 +353,8 @@ export function SettingsPage() {
           </button>
         )}
       </div>
+
+      <SettingsReferralsCard />
 
       {/* Opportunity cost + BTC display: premium-only (free users keep landing/onboarding defaults) */}
       {subscriptionTier === "premium" && (

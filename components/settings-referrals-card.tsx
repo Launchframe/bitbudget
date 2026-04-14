@@ -103,7 +103,7 @@ export function SettingsReferralsCard() {
   const dLeft = daysUntil(expiresAt)
 
   return (
-    <div className="p-6 bg-[#0D0D0D] rounded-2xl space-y-4">
+    <div className="p-6 bg-[#0D0D0D] rounded-2xl space-y-4 w-full">
       <div className="flex items-center gap-3">
         <div className="p-2 rounded-lg bg-[#F7931A]/10">
           <Gift className="h-5 w-5 text-[#F7931A]" />

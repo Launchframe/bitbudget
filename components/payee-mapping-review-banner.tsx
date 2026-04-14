@@ -208,7 +208,7 @@ function ReviewClusterRow({
       <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1">
-            <Label className="text-xs text-muted-foreground">Canonical payee</Label>
+            <Label className="text-xs text-muted-foreground">These should appear in BitBudget as:</Label>
             <select
               value={canonicalPick}
               onChange={(e) => setCanonicalPick(e.target.value)}
@@ -233,7 +233,7 @@ function ReviewClusterRow({
                 Saving…
               </span>
             ) : (
-              "Map variants to canonical"
+              "Map to this payee"
             )}
           </button>
         </div>
