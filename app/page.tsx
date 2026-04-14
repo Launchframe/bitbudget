@@ -25,6 +25,7 @@ import { FaviconSwitcher } from "@/components/favicon-switcher"
 import { NotificationBanner } from "@/components/notification-banner"
 import { TransactionLoadingIndicator } from "@/components/transaction-loading-indicator"
 import { TrialWelcomeBanner } from "@/components/trial-welcome-banner"
+import { ReferralPlaidReminderBanner } from "@/components/referral-plaid-reminder-banner"
 import { SurveySheetHost } from "@/components/survey-sheet"
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
@@ -167,6 +168,7 @@ export default function Dashboard() {
                   <Sidebar />
                   <div className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
                     <NotificationBanner />
+                    <ReferralPlaidReminderBanner />
                     <TrialWelcomeBanner />
                     <TransactionLoadingIndicator />
                     <PageContent />

@@ -8,7 +8,7 @@ import { DocumentFavicon } from "@/components/document-favicon"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck, Gift } from "lucide-react"
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck, Gift, Building2 } from "lucide-react"
 import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
 import {
   filterSuggestions,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/envelope-icons"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
+import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
@@ -57,12 +58,21 @@ import {
   type AllocationCadence,
 } from "@/lib/allocation-cadence"
 import { parseBitbudgetRefCookie } from "@/lib/bitbudget-ref-cookie"
+import { ONBOARDING_SESSION_STORAGE_KEY } from "@/lib/onboarding-session"
 import {
   REFEREE_PREMIUM_CARROT_FALLBACK,
   refereePremiumExperienceCarrot,
 } from "@/lib/subscription"
 
-type Step = "referral" | "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
+type Step =
+  | "referral"
+  | "security"
+  | "income"
+  | "envelopes"
+  | "allocations"
+  | "import"
+  | "complete"
+  | "referral-bank"
 
 // Opportunity cost is set from entry point (/welcome or / → vanilla off; /landing → btc on), not a separate step.
 const STEPS: Step[] = ["referral", "security", "income", "envelopes", "allocations", "import", "complete"]
@@ -214,7 +224,6 @@ export default function OnboardingPage() {
   })
   const opportunityCostEnabled = onboardingSource === "btc"
 
-  const STORAGE_KEY = "bitbudget-onboarding"
   const [hydrated, setHydrated] = useState(false)
   const [restoredSession, setRestoredSession] = useState(false)
   /** After first encryption + settings fetch (avoids flashing Secure Your Data when keys already exist). */
@@ -278,12 +287,16 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem(STORAGE_KEY)
+      const raw = sessionStorage.getItem(ONBOARDING_SESSION_STORAGE_KEY)
       if (raw) {
         const saved = JSON.parse(raw)
         if (saved.step && saved.step !== "referral" && saved.step !== "security") {
           const restoredStep: Step =
-            saved.step === "opportunity-cost" ? "complete" : saved.step
+            saved.step === "opportunity-cost"
+              ? "complete"
+              : saved.step === "referral-bank"
+                ? "referral-bank"
+                : saved.step
           setStep(restoredStep)
           setRestoredSession(true)
         }
@@ -316,7 +329,7 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (!hydrated) return
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      sessionStorage.setItem(ONBOARDING_SESSION_STORAGE_KEY, JSON.stringify({
         step,
         income,
         cadence,
@@ -406,8 +419,13 @@ export default function OnboardingPage() {
     }
   }, [hydrated, pendingReferral?.code, pendingReferral?.refereeTrialMonths])
 
-  const stepIndex = STEPS.indexOf(step)
-  const progress = ((stepIndex + 1) / STEPS.length) * 100
+  /** Extra step count for referees (avoid `document`/cookie in render — prevents SSR/client mismatch). */
+  const referralBankQueued = !!pendingReferral?.code || step === "referral-bank"
+
+  const totalOnboardingSteps = referralBankQueued ? STEPS.length + 1 : STEPS.length
+  const stepIndex =
+    step === "referral-bank" ? STEPS.length : STEPS.indexOf(step)
+  const progress = ((stepIndex + 1) / totalOnboardingSteps) * 100
 
   useEffect(() => {
     if (!hydrated) return
@@ -573,6 +591,18 @@ export default function OnboardingPage() {
     }
   }
 
+  function finishOnboardingExit() {
+    try {
+      sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
+      sessionStorage.removeItem("onboardingSource")
+      sessionStorage.removeItem("nostr-login")
+    } catch {
+      /* ignore */
+    }
+    router.push("/")
+    router.refresh()
+  }
+
   async function skipOnboardingToDashboard() {
     setSkipOnboardingError(null)
     setLoading(true)
@@ -590,14 +620,13 @@ export default function OnboardingPage() {
         setSkipOnboardingError("Could not save settings. Try again or sign out and back in.")
         return
       }
-      await redeemPendingReferralIfAny()
-      try {
-        sessionStorage.removeItem(STORAGE_KEY)
-        sessionStorage.removeItem("onboardingSource")
-        sessionStorage.removeItem("nostr-login")
-      } catch { /* ignore */ }
-      router.push("/")
-      router.refresh()
+      const hadReferralCode = !!referralPayloadForRedeem()?.code
+      const redeemOk = await redeemPendingReferralIfAny()
+      if (hadReferralCode && redeemOk) {
+        setStep("referral-bank")
+        return
+      }
+      finishOnboardingExit()
     } finally {
       setLoading(false)
     }
@@ -942,14 +971,13 @@ export default function OnboardingPage() {
       if (!res.ok) {
         return
       }
-      await redeemPendingReferralIfAny()
-      try {
-        sessionStorage.removeItem(STORAGE_KEY)
-        sessionStorage.removeItem("onboardingSource")
-        sessionStorage.removeItem("nostr-login")
-      } catch {}
-      router.push("/")
-      router.refresh()
+      const hadReferralCode = !!referralPayloadForRedeem()?.code
+      const redeemOk = await redeemPendingReferralIfAny()
+      if (hadReferralCode && redeemOk) {
+        setStep("referral-bank")
+        return
+      }
+      finishOnboardingExit()
     } finally {
       setLoading(false)
     }
@@ -1004,7 +1032,7 @@ export default function OnboardingPage() {
         <div className="flex items-center justify-between">
           <BitbudgetLogo variant={opportunityCostEnabled ? "btc" : "vanilla"} />
           <span className="text-xs text-muted-foreground">
-            Step {stepIndex + 1} of {STEPS.length}
+            Step {stepIndex + 1} of {totalOnboardingSteps}
           </span>
         </div>
 
@@ -1017,7 +1045,7 @@ export default function OnboardingPage() {
         )}
 
         <div className="bg-[#0D0D0D] rounded-2xl p-8">
-          {restoredSession && !isNostr && step !== "referral" && step !== "security" && step !== "complete" && (
+          {restoredSession && !isNostr && step !== "referral" && step !== "security" && step !== "complete" && step !== "referral-bank" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
               <div className="flex flex-col gap-1.5 flex-1 min-w-0">
@@ -1322,7 +1350,7 @@ export default function OnboardingPage() {
                       placeholder="5,000"
                       className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7 text-lg"
                       min="0"
-                      step="100"
+                      step="any"
                     />
                   </div>
                 </div>
@@ -2101,11 +2129,12 @@ export default function OnboardingPage() {
                         ? refereePremiumExperienceCarrot(pendingReferral.refereeTrialMonths)
                         : REFEREE_PREMIUM_CARROT_FALLBACK}
                     </strong>{" "}
-                    When you continue, we save your referral—then open <strong className="text-foreground">Settings</strong> and link your bank first.
+                    Next, you&apos;ll connect your bank in a dedicated step. Your premium trial only starts after a successful link—take your time
+                    exploring BitBudget first if you like.
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Until you link a bank, Plan may show <strong className="text-foreground">Free</strong> — that&apos;s expected. Receipt inbox and SMS
-                    unlock after your trial starts.
+                    unlock when your trial starts.
                   </p>
                 </div>
               ) : (
@@ -2119,9 +2148,67 @@ export default function OnboardingPage() {
                 disabled={loading}
                 className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
               >
-                {loading ? "Finishing..." : "Go to Dashboard"}
+                {loading ? "Finishing..." : refereeTrialExplainerOnComplete ? "Continue" : "Go to Dashboard"}
               </button>
             </form>
+          )}
+
+          {step === "referral-bank" && (
+            <div className="flex flex-col gap-6 py-2">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-xl bg-[#F7931A]/10">
+                  <Building2 className="h-6 w-6 text-[#F7931A]" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Connect your bank</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Last step for your referral: link an account with Plaid. Skip if you&apos;re not ready—we&apos;ll remind you later on the
+                    dashboard.
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-4 py-3 space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  <strong className="text-foreground">
+                    {pendingReferral?.refereeTrialMonths === 1 || pendingReferral?.refereeTrialMonths === 3
+                      ? refereePremiumExperienceCarrot(pendingReferral.refereeTrialMonths)
+                      : REFEREE_PREMIUM_CARROT_FALLBACK}
+                  </strong>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Your premium trial clock starts only after your first successful bank link. You can also connect anytime under Settings →
+                  Integrations.
+                </p>
+              </div>
+              <div className="flex flex-col items-stretch gap-2">
+                <p className="text-xs text-muted-foreground text-center">Bank sync (Plaid)</p>
+                <div className="flex justify-center">
+                  <PlaidLinkButton />
+                </div>
+              </div>
+              <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setStep("complete")}
+                    className="py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
+                  >
+                    <ChevronLeft className="h-4 w-4 shrink-0" aria-hidden />
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => finishOnboardingExit()}
+                    className="py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333]"
+                  >
+                    Skip for now
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground text-center">
+                  If you skip, we&apos;ll show occasional reminders until you connect. Your trial won&apos;t start until then.
+                </p>
+              </div>
+            </div>
           )}
         </div>
 
@@ -2129,7 +2216,7 @@ export default function OnboardingPage() {
           type="button"
           onClick={() => {
             try {
-              sessionStorage.removeItem(STORAGE_KEY)
+              sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
               sessionStorage.removeItem("nostr-login")
             } catch {}
             signOut({ callbackUrl: "/auth" })

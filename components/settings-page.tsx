@@ -76,6 +76,9 @@ export function SettingsPage() {
       if (t === "payees") {
         setSettingsTab("payees")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      } else if (t === "integrations") {
+        setSettingsTab("integrations")
+        sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       }
     } catch {
       /* ignore */
@@ -463,14 +466,14 @@ export function SettingsPage() {
           <h3 className="text-lg font-semibold text-foreground">Receipt Inbox</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
-          Forward receipts to your dedicated address and they&apos;ll be saved for your review later. We recommend bookmarking this address.
+          Forward receipts to your dedicated address and they&apos;ll be saved for your review later. We recommend adding this address to your contacts.
         </p>
         {!hasPremiumFeatures ? (
           <div className="flex flex-col gap-4">
             <div className="rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-3">
               <p className="text-sm font-medium text-foreground mb-1">Premium feature</p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Upgrade to get a private forwarding address. Free plans use manual entry and CSV import.
+                Upgrade to get a private forwarding address.
               </p>
             </div>
             <button type="button" onClick={() => setUpgradeModalFeature("receipt_inbox")} className={upgradeCtaClass}>
