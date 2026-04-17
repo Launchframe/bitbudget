@@ -215,14 +215,13 @@ export default function OnboardingPage() {
     newEnvelopes: string[]
   } | null>(null)
 
-  // Opportunity cost: enabled only for users who entered from /landing (see landing vs welcome pages).
+  // Opportunity cost: /landing → btc; with a pending referral, inherit referrer (validate + redeem).
   const [onboardingSource] = useState<"btc" | "vanilla">(() => {
     try {
       const src = sessionStorage.getItem("onboardingSource")
       return src === "btc" ? "btc" : "vanilla"
     } catch { return "vanilla" }
   })
-  const opportunityCostEnabled = onboardingSource === "btc"
 
   const [hydrated, setHydrated] = useState(false)
   const [restoredSession, setRestoredSession] = useState(false)
@@ -249,7 +248,15 @@ export default function OnboardingPage() {
     code: string
     shareMethod: string
     refereeTrialMonths?: 1 | 3
+    referrerOpportunityCostEnabled?: boolean
   } | null>(null)
+
+  const opportunityCostEnabled =
+    pendingReferral?.code != null
+      ? typeof pendingReferral.referrerOpportunityCostEnabled === "boolean"
+        ? pendingReferral.referrerOpportunityCostEnabled
+        : false
+      : onboardingSource === "btc"
   const [refCodeInput, setRefCodeInput] = useState("")
   const [refValidating, setRefValidating] = useState(false)
   const [refError, setRefError] = useState<string | null>(null)
@@ -302,10 +309,12 @@ export default function OnboardingPage() {
         }
         if (saved.pendingReferral?.code) {
           const rm = saved.pendingReferral.refereeTrialMonths
+          const roe = saved.pendingReferral.referrerOpportunityCostEnabled
           setPendingReferral({
             code: saved.pendingReferral.code,
             shareMethod: typeof saved.pendingReferral.shareMethod === "string" ? saved.pendingReferral.shareMethod : "direct",
             ...(rm === 1 || rm === 3 ? { refereeTrialMonths: rm } : {}),
+            ...(typeof roe === "boolean" ? { referrerOpportunityCostEnabled: roe } : {}),
           })
         }
         if (saved.income) setIncome(saved.income)
@@ -377,10 +386,21 @@ export default function OnboardingPage() {
     try {
       const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(parsed.code)}`)
       if (!r.ok) return
-      const j = (await r.json()) as { valid?: boolean; refereeTrialMonths?: 1 | 3 }
+      const j = (await r.json()) as {
+        valid?: boolean
+        refereeTrialMonths?: 1 | 3
+        referrerOpportunityCostEnabled?: boolean
+      }
       if (j.valid) {
         const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
-        setPendingReferral({ code: parsed.code, shareMethod: parsed.shareMethod, refereeTrialMonths })
+        const referrerOpportunityCostEnabled =
+          typeof j.referrerOpportunityCostEnabled === "boolean" ? j.referrerOpportunityCostEnabled : false
+        setPendingReferral({
+          code: parsed.code,
+          shareMethod: parsed.shareMethod,
+          refereeTrialMonths,
+          referrerOpportunityCostEnabled,
+        })
       }
     } catch {
       /* ignore */
@@ -395,20 +415,30 @@ export default function OnboardingPage() {
     void tryApplyReferralFromCookie(parsed)
   }, [hydrated, pendingReferral?.code, tryApplyReferralFromCookie])
 
-  /** Backfill trial length for older sessionStorage blobs that only stored the code. */
+  /** Backfill trial length and referrer OC for older sessionStorage blobs that only stored the code. */
   useEffect(() => {
     if (!hydrated || !pendingReferral?.code) return
-    if (pendingReferral.refereeTrialMonths === 1 || pendingReferral.refereeTrialMonths === 3) return
+    const hasTrial = pendingReferral.refereeTrialMonths === 1 || pendingReferral.refereeTrialMonths === 3
+    const hasOc = typeof pendingReferral.referrerOpportunityCostEnabled === "boolean"
+    if (hasTrial && hasOc) return
     let cancelled = false
     void (async () => {
       try {
         const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(pendingReferral.code)}`)
         if (!r.ok || cancelled) return
-        const j = (await r.json()) as { valid?: boolean; refereeTrialMonths?: 1 | 3 }
+        const j = (await r.json()) as {
+          valid?: boolean
+          refereeTrialMonths?: 1 | 3
+          referrerOpportunityCostEnabled?: boolean
+        }
         if (!j.valid || cancelled) return
         const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
+        const referrerOpportunityCostEnabled =
+          typeof j.referrerOpportunityCostEnabled === "boolean" ? j.referrerOpportunityCostEnabled : false
         setPendingReferral(prev =>
-          prev && prev.code === pendingReferral.code ? { ...prev, refereeTrialMonths } : prev,
+          prev && prev.code === pendingReferral.code
+            ? { ...prev, refereeTrialMonths, referrerOpportunityCostEnabled }
+            : prev,
         )
       } catch {
         /* ignore */
@@ -417,7 +447,7 @@ export default function OnboardingPage() {
     return () => {
       cancelled = true
     }
-  }, [hydrated, pendingReferral?.code, pendingReferral?.refereeTrialMonths])
+  }, [hydrated, pendingReferral?.code, pendingReferral?.refereeTrialMonths, pendingReferral?.referrerOpportunityCostEnabled])
 
   /** Extra step count for referees (avoid `document`/cookie in render — prevents SSR/client mismatch). */
   const referralBankQueued = !!pendingReferral?.code || step === "referral-bank"
@@ -1136,14 +1166,27 @@ export default function OnboardingPage() {
                             const r = await fetch(
                               `/api/referral/validate?code=${encodeURIComponent(refCodeInput.trim())}`,
                             )
-                            const j = (await r.json()) as { valid?: boolean; refereeTrialMonths?: 1 | 3 }
+                            const j = (await r.json()) as {
+                              valid?: boolean
+                              refereeTrialMonths?: 1 | 3
+                              referrerOpportunityCostEnabled?: boolean
+                            }
                             if (!j.valid) {
                               setRefError("It looks like that code is invalid, expired, or has already been used.")
                               return
                             }
                             const code = refCodeInput.trim()
                             const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
-                            setPendingReferral({ code, shareMethod: "direct", refereeTrialMonths })
+                            const referrerOpportunityCostEnabled =
+                              typeof j.referrerOpportunityCostEnabled === "boolean"
+                                ? j.referrerOpportunityCostEnabled
+                                : false
+                            setPendingReferral({
+                              code,
+                              shareMethod: "direct",
+                              refereeTrialMonths,
+                              referrerOpportunityCostEnabled,
+                            })
                             try {
                               document.cookie = `bitbudget_ref=${encodeURIComponent(`${code}:direct`)}; path=/; max-age=${86400 * 30}`
                             } catch {

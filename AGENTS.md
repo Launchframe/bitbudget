@@ -128,7 +128,7 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 
 ## Feature Gating: Opportunity Cost
 
-Bitcoin/sats/opportunity-cost features are controlled by `User.opportunityCostEnabled` (default `false`). New users get it from **entry point**: `/welcome` or app shell `/` → off; `/landing` → on. **Premium** users can change it in Settings; free users do not see that control.
+Bitcoin/sats/opportunity-cost features are controlled by `User.opportunityCostEnabled` (default `false`). New users get it from **entry point**: `/welcome` or app shell `/` → off; `/landing` → on. **Referral referees** inherit the flag from the **referrer** (code owner) at redeem and during onboarding via validate. **Premium** users can change it in Settings; free users do not see that control.
 
 When this flag is off, the app is a **vanilla budgeting tool** — no Bitcoin mentions anywhere:
 

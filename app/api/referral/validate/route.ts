@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
   const referrer = await prisma.user.findUnique({
     where: { id: v.codeRow.ownerId },
-    select: { subscriptionTier: true },
+    select: { subscriptionTier: true, opportunityCostEnabled: true },
   })
   const refereeTrialMonths = referrer
     ? refereeTrialMonthsForReferrerSubscription(referrer.subscriptionTier)
@@ -28,5 +28,7 @@ export async function GET(req: NextRequest) {
     referrerName: v.type === "user" ? v.referrerName : undefined,
     label: v.type === "offer" ? (v.codeRow.label ?? undefined) : undefined,
     refereeTrialMonths,
+    /** Referees inherit this at redeem; onboarding uses it for UI and the final settings PUT. */
+    referrerOpportunityCostEnabled: referrer?.opportunityCostEnabled ?? false,
   })
 }

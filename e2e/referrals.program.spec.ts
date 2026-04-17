@@ -89,10 +89,12 @@ test.describe("Referral program (API + DB)", () => {
       valid: boolean
       type: string
       refereeTrialMonths?: number
+      referrerOpportunityCostEnabled?: boolean
     }
     expect(body.valid).toBe(true)
     expect(body.type).toBe("user")
     expect(body.refereeTrialMonths).toBe(3)
+    expect(body.referrerOpportunityCostEnabled).toBe(true)
   })
 
   test("GET /api/referral/validate — free referrer user code → 1 month carrot", async ({ request }) => {
@@ -100,18 +102,29 @@ test.describe("Referral program (API + DB)", () => {
       `/api/referral/validate?code=${encodeURIComponent(E2E_USER_CODE_FREE_REFERRER)}`,
     )
     expect(res.ok()).toBeTruthy()
-    const body = (await res.json()) as { valid: boolean; refereeTrialMonths?: number }
+    const body = (await res.json()) as {
+      valid: boolean
+      refereeTrialMonths?: number
+      referrerOpportunityCostEnabled?: boolean
+    }
     expect(body.valid).toBe(true)
     expect(body.refereeTrialMonths).toBe(1)
+    expect(body.referrerOpportunityCostEnabled).toBe(false)
   })
 
   test("GET /api/referral/validate — offer slug", async ({ request }) => {
     const res = await request.get(`/api/referral/validate?code=${encodeURIComponent(E2E_OFFER_SLUG)}`)
     expect(res.ok()).toBeTruthy()
-    const body = (await res.json()) as { valid: boolean; type: string; label?: string }
+    const body = (await res.json()) as {
+      valid: boolean
+      type: string
+      label?: string
+      referrerOpportunityCostEnabled?: boolean
+    }
     expect(body.valid).toBe(true)
     expect(body.type).toBe("offer")
     expect(body.label).toBe("E2E Offer")
+    expect(body.referrerOpportunityCostEnabled).toBe(true)
   })
 
   test("GET /api/referral/validate — exhausted code", async ({ request }) => {
@@ -142,10 +155,31 @@ test.describe("Referral program (API + DB)", () => {
       referralRefereePendingBankLink?: boolean
       effectiveTier?: string
       premiumTrialUntil?: string | null
+      opportunityCostEnabled?: boolean
     }
     expect(s.referralRefereePendingBankLink).toBe(true)
     expect(s.effectiveTier).toBe("free")
     expect(s.premiumTrialUntil == null || s.premiumTrialUntil === "").toBeTruthy()
+    expect(s.opportunityCostEnabled).toBe(true)
+  })
+
+  test("POST /api/referral/redeem — referee inherits vanilla when free-tier referrer", async ({
+    page,
+    baseURL,
+  }) => {
+    const email = `e2e-referee-oc-free-${Date.now()}@bitbudget.test`
+    await signInWithE2eEmail(page, baseURL!, email)
+
+    const redeem = await fetchJsonInPage(page, "/api/referral/redeem", {
+      method: "POST",
+      body: { code: E2E_USER_CODE_FREE_REFERRER, shareMethod: "e2e" },
+    })
+    expect(redeem.status).toBe(200)
+
+    const settings = await fetchJsonInPage(page, "/api/user/settings")
+    expect(settings.status).toBe(200)
+    const s = settings.json as { opportunityCostEnabled?: boolean }
+    expect(s.opportunityCostEnabled).toBe(false)
   })
 
   test("POST /api/referral/redeem — idempotent conflict on second redeem", async ({ page, baseURL }) => {

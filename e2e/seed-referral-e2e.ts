@@ -45,6 +45,7 @@ export async function seedReferralE2eData(): Promise<void> {
       name: "E2E Premium Referrer",
       subscriptionTier: "premium",
       onboardingComplete: true,
+      opportunityCostEnabled: true,
     },
   })
 
@@ -54,6 +55,7 @@ export async function seedReferralE2eData(): Promise<void> {
       name: "E2E Free Referrer",
       subscriptionTier: "free",
       onboardingComplete: true,
+      opportunityCostEnabled: false,
     },
   })
 
