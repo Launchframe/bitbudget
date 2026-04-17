@@ -38,3 +38,9 @@ prisma/dev.db-journal
 *.tsbuildinfo
 next-env.d.ts
 package-lock.json
+
+# Playwright
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/

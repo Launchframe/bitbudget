@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto"
 import { prisma } from "@/lib/db"
+import { notifyReferralActivated } from "@/lib/notify"
 import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
 
 export const REFERRAL_USER_CODE_LENGTH = 8
@@ -202,7 +203,8 @@ export async function redeemReferralCode(args: {
           AND "expiresAt" > ${now}
           AND "usedCount" < "maxUses"
       `
-      if (bumped !== 1) {
+      // Prisma may return bigint for row counts; `1n !== 1` must not trigger a false 410.
+      if (Number(bumped) !== 1) {
         throw Object.assign(new Error("gone"), { status: 410 })
       }
 
@@ -329,7 +331,6 @@ export async function activateReferral(
   })
 
   if (pendingNotify) {
-    const { notifyReferralActivated } = await import("@/lib/notify")
     await notifyReferralActivated(pendingNotify)
   }
 

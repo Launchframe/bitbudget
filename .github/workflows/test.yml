@@ -1,4 +1,4 @@
-# Required for merge: add "Test" (or the job name shown in PR checks) under
+# Required for merge: add "Test" / "E2E" (or job names shown in PR checks) under
 # Settings → Branches → Branch protection → Require status checks.
 name: Test
 
@@ -28,3 +28,45 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: bitbudget_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/bitbudget_e2e
+      DATABASE_URL_UNPOOLED: postgresql://postgres:postgres@127.0.0.1:5432/bitbudget_e2e
+      AUTH_SECRET: e2e-ci-auth-secret-at-least-32-characters-long-ok
+      AUTH_TRUST_HOST: "true"
+      AUTH_URL: http://127.0.0.1:3100
+      NEXTAUTH_URL: http://127.0.0.1:3100
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3100
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install chromium --with-deps
+      - run: pnpm test:e2e
