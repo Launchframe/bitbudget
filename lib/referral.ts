@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { notifyReferralActivated } from "@/lib/notify"
 import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
@@ -119,20 +120,25 @@ async function createUniqueUserReferralCode(ownerId: string, now: Date): Promise
     const exists = await prisma.referralCode.findUnique({ where: { code } })
     if (exists) continue
     const expiresAt = new Date(now.getTime() + USER_REFERRAL_CODE_TTL_DAYS * 86400000)
-    const row = await prisma.referralCode.create({
-      data: {
-        code,
-        type: "user",
-        ownerId,
-        maxUses: 1,
-        usedCount: 0,
-        expiresAt,
-        startsAt: now,
-        active: true,
-      },
-      select: { id: true, code: true, expiresAt: true },
-    })
-    return row
+    try {
+      const row = await prisma.referralCode.create({
+        data: {
+          code,
+          type: "user",
+          ownerId,
+          maxUses: 1,
+          usedCount: 0,
+          expiresAt,
+          startsAt: now,
+          active: true,
+        },
+        select: { id: true, code: true, expiresAt: true },
+      })
+      return row
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") continue
+      throw e
+    }
   }
   throw new Error("Could not allocate referral code")
 }
@@ -233,6 +239,14 @@ export async function redeemReferralCode(args: {
       })
     })
   } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return {
+        ok: false,
+        status: 409,
+        code: "already_redeemed",
+        message: "This account already used a referral",
+      }
+    }
     const err = e as { status?: number; message?: string }
     if (err.status === 410) {
       return { ok: false, status: 410, code: "expired", message: "Referral code expired or exhausted" }
@@ -288,6 +302,26 @@ export async function activateReferral(
     if (!referrer) return
 
     const trialMonths = refereeTrialMonthsForReferrerSubscription(referrer.subscriptionTier)
+    const code = referral.code
+
+    if (code.type === "offer") {
+      const activatedOffer = await tx.referral.updateMany({
+        where: { id: referral.id, status: "accepted" },
+        data: { status: "activated", activatedAt: now },
+      })
+      if (activatedOffer.count === 0) return
+      await tx.user.update({
+        where: { id: refereeUserId },
+        data: { premiumTrialUntil: addMonthsUtc(now, trialMonths) },
+      })
+      result = { didActivate: true, refereeTrialMonths: trialMonths }
+      return
+    }
+
+    if (code.type !== "user") return
+
+    // Lock referrer before flipping referral so concurrent activations get a deterministic first bonus.
+    await tx.$queryRaw`SELECT 1 FROM "User" WHERE "id" = ${referral.referrerId} FOR UPDATE`
 
     const activated = await tx.referral.updateMany({
       where: { id: referral.id, status: "accepted" },
@@ -301,13 +335,6 @@ export async function activateReferral(
     })
 
     result = { didActivate: true, refereeTrialMonths: trialMonths }
-
-    const code = referral.code
-    if (code.type === "offer") return
-    if (code.type !== "user") return
-
-    // Serialize gratis math per referrer so concurrent activations see correct "first" bonus.
-    await tx.$queryRaw`SELECT 1 FROM "User" WHERE "id" = ${referral.referrerId} FOR UPDATE`
 
     const totalActivated = await tx.referral.count({
       where: { referrerId: referral.referrerId, status: "activated" },

@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import { notifyAdminsDigest } from "@/lib/notify"
 
+const DIGEST_ROW_CAP = 500
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+}
+
 export async function GET(req: NextRequest) {
   if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -25,10 +36,14 @@ export async function GET(req: NextRequest) {
     }),
     prisma.referral.findMany({
       where: { acceptedAt: { gte: since } },
+      take: DIGEST_ROW_CAP,
+      orderBy: { acceptedAt: "desc" },
       include: { code: { select: { code: true, type: true, label: true } } },
     }),
     prisma.referral.findMany({
       where: { activatedAt: { gte: since } },
+      take: DIGEST_ROW_CAP,
+      orderBy: { activatedAt: "desc" },
       include: { referrer: { select: { name: true, email: true } } },
     }),
     prisma.referralCode.findMany({
@@ -60,6 +75,12 @@ export async function GET(req: NextRequest) {
     liabilityMonths += Math.max(0, ms / (30.44 * 86400000))
   }
 
+  const acceptedCodes = accepted.map((a) => escapeHtml(a.code.code)).join(", ") || "—"
+  const activationLabels = activated
+    .map((a) => escapeHtml((a.referrer.name ?? a.referrer.email ?? "?").trim() || "?"))
+    .join(", ") || "—"
+  const newOfferCodes = newOffers.map((o) => escapeHtml(o.code)).join(", ")
+
   const lines = [
     `<p><strong>Last 24h</strong></p>`,
     `<ul>`,
@@ -68,13 +89,13 @@ export async function GET(req: NextRequest) {
     `<li>Referrals activated: ${activated.length}</li>`,
     `<li>Survey completions: ${surveyDone}</li>`,
     `</ul>`,
-    `<p><strong>Accepted codes</strong>: ${accepted.map((a) => a.code.code).join(", ") || "—"}</p>`,
-    `<p><strong>Activations</strong>: ${activated.map((a) => a.referrer.name ?? a.referrer.email ?? "?").join(", ") || "—"}</p>`,
+    `<p><strong>Accepted codes</strong>: ${acceptedCodes}</p>`,
+    `<p><strong>Activations</strong>: ${activationLabels}</p>`,
     `<p>Expiring trials (7d): ${expiringTrials} | Expiring gratis (7d): ${expiringGratis}</p>`,
     `<p>Approx. outstanding gratis months (liability): ${liabilityMonths.toFixed(1)}</p>`,
   ]
   if (newOffers.length) {
-    lines.push(`<p>New offers: ${newOffers.map((o) => o.code).join(", ")}</p>`)
+    lines.push(`<p>New offers: ${newOfferCodes}</p>`)
   }
 
   const offerRedemptions = accepted.filter((a) => a.code.type === "offer")
@@ -84,7 +105,7 @@ export async function GET(req: NextRequest) {
       const k = a.code.code
       bySlug.set(k, (bySlug.get(k) ?? 0) + 1)
     }
-    const parts = [...bySlug.entries()].map(([code, n]) => `${code} (${n})`)
+    const parts = [...bySlug.entries()].map(([code, n]) => `${escapeHtml(code)} (${n})`)
     lines.push(`<p><strong>Offer signups (24h)</strong>: ${parts.join(", ")}</p>`)
   }
 

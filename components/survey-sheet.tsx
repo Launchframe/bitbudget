@@ -30,6 +30,8 @@ export function SurveySheetHost() {
   const [textDraft, setTextDraft] = useState("")
   const [loading, setLoading] = useState(false)
   const skipDismissRef = useRef(false)
+  /** PUT /api/user/survey must send the same header as GET when eligibility used the referrer trigger. */
+  const surveyPutUseReferrerHeaderRef = useRef(false)
 
   const loadAndMaybeOpen = useCallback(async () => {
     try {
@@ -53,11 +55,15 @@ export function SurveySheetHost() {
       }
       if (data.survey?.completedAt || data.survey?.dismissType === "never") return
       if (!data.eligibility.eligible) return
+      const tt = data.eligibility.triggerType ?? "general"
+      if (refTrig || tt === "referrer") {
+        surveyPutUseReferrerHeaderRef.current = true
+      }
       if (typeof sessionStorage !== "undefined") {
         sessionStorage.setItem(SESSION_SHOWN_KEY, "1")
         sessionStorage.removeItem(REFERRER_TRIGGER_KEY)
       }
-      setTriggerType(data.eligibility.triggerType ?? "general")
+      setTriggerType(tt)
       const resume =
         data.survey && !data.survey.completedAt && data.survey.currentStep >= 1
           ? data.survey.currentStep
@@ -118,9 +124,13 @@ export function SurveySheetHost() {
   const submitStep = async (opts: { skip?: boolean; value?: unknown }) => {
     setLoading(true)
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" }
+      if (surveyPutUseReferrerHeaderRef.current || triggerType === "referrer") {
+        headers["x-bitbudget-survey-referrer"] = "1"
+      }
       const res = await fetch("/api/user/survey", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           step,
           skip: opts.skip === true,

@@ -47,6 +47,8 @@ export async function sendNostrDm(recipientPubkeyHex: string, message: string): 
     return false
   }
 
+  const pool = new SimplePool()
+  const relays = relayList()
   try {
     const content = encrypt(sk, pk, message)
     const event = finalizeEvent(
@@ -58,15 +60,14 @@ export async function sendNostrDm(recipientPubkeyHex: string, message: string): 
       },
       sk,
     )
-    const pool = new SimplePool()
-    const relays = relayList()
     const pubs = pool.publish(relays, event)
     await Promise.any(pubs)
-    pool.close(relays)
     return true
   } catch (e) {
     console.error("[nostr-dm] publish failed:", e)
     return false
+  } finally {
+    pool.close(relays)
   }
 }
 

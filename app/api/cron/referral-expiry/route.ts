@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
     }),
     prisma.user.findMany({
       where: {
+        subscriptionTier: { not: "premium" },
         premiumGratisUntil: { gte: yStart, lt: yEnd },
       },
       select: { id: true },

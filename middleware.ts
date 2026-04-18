@@ -9,6 +9,7 @@ const RESERVED_ROOT_SEGMENTS = new Set([
   "admin",
   "whitepapers",
   "ref",
+  "offer",
 ])
 
 export default auth((req) => {
@@ -24,12 +25,13 @@ export default auth((req) => {
     pathname.startsWith("/ref")
   const isPublicOfferSlug =
     firstSegment.length > 0 && !RESERVED_ROOT_SEGMENTS.has(firstSegment) && pathSegments.length === 1
+  const isPublicOfferNested = pathname.startsWith("/offer/")
   const isApiRoute = pathname.startsWith("/api")
   const isPublicAsset = pathname.startsWith("/_next") || pathname.includes(".")
 
   if (isApiRoute || isPublicAsset) return NextResponse.next()
 
-  if (isPublicLanding || isPublicOfferSlug) {
+  if (isPublicLanding || isPublicOfferSlug || isPublicOfferNested) {
     // Logged-in users may still open /welcome or /landing (e.g. re-read marketing copy).
     // Single-segment paths not in reserved set may be offer codes (validated in app/[slug]).
     return NextResponse.next()

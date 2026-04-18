@@ -1,9 +1,9 @@
-import { cookies } from "next/headers"
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { incrementReferralVisit, validateReferralCodeRow } from "@/lib/referral"
+import { validateReferralCodeRow } from "@/lib/referral"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
 
+/** Cookie is set in `app/[slug]/route.ts` (Route Handler); this page is the post-redirect UI only. */
 export default async function OfferLandingPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
   const v = await validateReferralCodeRow(slug)
@@ -11,15 +11,6 @@ export default async function OfferLandingPage({ params }: { params: Promise<{ s
   if (!v.valid || v.type !== "offer") {
     notFound()
   }
-
-  void incrementReferralVisit(v.codeRow.id)
-  const jar = await cookies()
-  jar.set("bitbudget_ref", `${v.codeRow.code}:link`, {
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-    sameSite: "lax",
-    httpOnly: false,
-  })
 
   const headline = v.codeRow.label?.trim() || "You have an exclusive offer"
 
