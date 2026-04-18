@@ -55,3 +55,13 @@ export function requestSettingsPayeeMappingsTab(): void {
     /* ignore */
   }
 }
+
+/** Open Settings on the Integrations tab (read once on Settings mount). */
+export function requestSettingsIntegrationsTab(): void {
+  if (typeof window === "undefined") return
+  try {
+    sessionStorage.setItem(SETTINGS_INITIAL_TAB_STORAGE_KEY, "integrations")
+  } catch {
+    /* ignore */
+  }
+}

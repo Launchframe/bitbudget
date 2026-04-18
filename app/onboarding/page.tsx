@@ -8,7 +8,7 @@ import { DocumentFavicon } from "@/components/document-favicon"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck } from "lucide-react"
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck, Gift, Building2 } from "lucide-react"
 import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
 import {
   filterSuggestions,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/envelope-icons"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
+import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
@@ -56,11 +57,25 @@ import {
   toMonthly,
   type AllocationCadence,
 } from "@/lib/allocation-cadence"
+import { parseBitbudgetRefCookie } from "@/lib/bitbudget-ref-cookie"
+import { ONBOARDING_SESSION_STORAGE_KEY } from "@/lib/onboarding-session"
+import {
+  REFEREE_PREMIUM_CARROT_FALLBACK,
+  refereePremiumExperienceCarrot,
+} from "@/lib/subscription"
 
-type Step = "security" | "income" | "envelopes" | "allocations" | "import" | "complete"
+type Step =
+  | "referral"
+  | "security"
+  | "income"
+  | "envelopes"
+  | "allocations"
+  | "import"
+  | "complete"
+  | "referral-bank"
 
 // Opportunity cost is set from entry point (/welcome or / → vanilla off; /landing → btc on), not a separate step.
-const STEPS: Step[] = ["security", "income", "envelopes", "allocations", "import", "complete"]
+const STEPS: Step[] = ["referral", "security", "income", "envelopes", "allocations", "import", "complete"]
 const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#EAB308", "#EC4899", "#06B6D4"]
 
 /** Stacked allocation bar: smooth width when envelope totals change ($50 bucket steps). */
@@ -106,7 +121,7 @@ function OnboardingSkipBar({
 
 export default function OnboardingPage() {
   const router = useRouter()
-  const [step, setStep] = useState<Step>("security")
+  const [step, setStep] = useState<Step>("referral")
   const [loading, setLoading] = useState(false)
   const [isNostr, setIsNostr] = useState(false)
   const [isNsecFallback, setIsNsecFallback] = useState(false)
@@ -200,16 +215,14 @@ export default function OnboardingPage() {
     newEnvelopes: string[]
   } | null>(null)
 
-  // Opportunity cost: enabled only for users who entered from /landing (see landing vs welcome pages).
+  // Opportunity cost: /landing → btc; with a pending referral, inherit referrer (validate + redeem).
   const [onboardingSource] = useState<"btc" | "vanilla">(() => {
     try {
       const src = sessionStorage.getItem("onboardingSource")
       return src === "btc" ? "btc" : "vanilla"
     } catch { return "vanilla" }
   })
-  const opportunityCostEnabled = onboardingSource === "btc"
 
-  const STORAGE_KEY = "bitbudget-onboarding"
   const [hydrated, setHydrated] = useState(false)
   const [restoredSession, setRestoredSession] = useState(false)
   /** After first encryption + settings fetch (avoids flashing Secure Your Data when keys already exist). */
@@ -229,6 +242,24 @@ export default function OnboardingPage() {
   const [envelopeUsageHydrated, setEnvelopeUsageHydrated] = useState(false)
   const [deletingEnvelopeIdx, setDeletingEnvelopeIdx] = useState<number | null>(null)
   const [pendingDeleteEnvelopeIdx, setPendingDeleteEnvelopeIdx] = useState<number | null>(null)
+
+  /** Pending referral applied before security; redeemed after onboarding completes. */
+  const [pendingReferral, setPendingReferral] = useState<{
+    code: string
+    shareMethod: string
+    refereeTrialMonths?: 1 | 3
+    referrerOpportunityCostEnabled?: boolean
+  } | null>(null)
+
+  const opportunityCostEnabled =
+    pendingReferral?.code != null
+      ? typeof pendingReferral.referrerOpportunityCostEnabled === "boolean"
+        ? pendingReferral.referrerOpportunityCostEnabled
+        : false
+      : onboardingSource === "btc"
+  const [refCodeInput, setRefCodeInput] = useState("")
+  const [refValidating, setRefValidating] = useState(false)
+  const [refError, setRefError] = useState<string | null>(null)
 
   const refreshEnvelopeUsage = useCallback(async () => {
     setEnvelopeUsageLoading(true)
@@ -263,14 +294,28 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem(STORAGE_KEY)
+      const raw = sessionStorage.getItem(ONBOARDING_SESSION_STORAGE_KEY)
       if (raw) {
         const saved = JSON.parse(raw)
-        if (saved.step && saved.step !== "security") {
+        if (saved.step && saved.step !== "referral" && saved.step !== "security") {
           const restoredStep: Step =
-            saved.step === "opportunity-cost" ? "complete" : saved.step
+            saved.step === "opportunity-cost"
+              ? "complete"
+              : saved.step === "referral-bank"
+                ? "referral-bank"
+                : saved.step
           setStep(restoredStep)
           setRestoredSession(true)
+        }
+        if (saved.pendingReferral?.code) {
+          const rm = saved.pendingReferral.refereeTrialMonths
+          const roe = saved.pendingReferral.referrerOpportunityCostEnabled
+          setPendingReferral({
+            code: saved.pendingReferral.code,
+            shareMethod: typeof saved.pendingReferral.shareMethod === "string" ? saved.pendingReferral.shareMethod : "direct",
+            ...(rm === 1 || rm === 3 ? { refereeTrialMonths: rm } : {}),
+            ...(typeof roe === "boolean" ? { referrerOpportunityCostEnabled: roe } : {}),
+          })
         }
         if (saved.income) setIncome(saved.income)
         if (saved.cadence) setCadence(saved.cadence)
@@ -293,14 +338,15 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (!hydrated) return
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      sessionStorage.setItem(ONBOARDING_SESSION_STORAGE_KEY, JSON.stringify({
         step,
         income,
         cadence,
         envelopes,
+        pendingReferral,
       }))
     } catch { /* storage full or unavailable */ }
-  }, [hydrated, step, income, cadence, envelopes])
+  }, [hydrated, step, income, cadence, envelopes, pendingReferral])
 
   /** Clear chosen file + native input when navigating onto the import step (avoids stale File after back/forward or re-import). */
   useEffect(() => {
@@ -336,8 +382,80 @@ export default function OnboardingPage() {
     void refreshEnvelopeUsage()
   }, [step, refreshEnvelopeUsage])
 
-  const stepIndex = STEPS.indexOf(step)
-  const progress = ((stepIndex + 1) / STEPS.length) * 100
+  const tryApplyReferralFromCookie = useCallback(async (parsed: { code: string; shareMethod: string }) => {
+    try {
+      const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(parsed.code)}`)
+      if (!r.ok) return
+      const j = (await r.json()) as {
+        valid?: boolean
+        refereeTrialMonths?: 1 | 3
+        referrerOpportunityCostEnabled?: boolean
+      }
+      if (j.valid) {
+        const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
+        const referrerOpportunityCostEnabled =
+          typeof j.referrerOpportunityCostEnabled === "boolean" ? j.referrerOpportunityCostEnabled : false
+        setPendingReferral({
+          code: parsed.code,
+          shareMethod: parsed.shareMethod,
+          refereeTrialMonths,
+          referrerOpportunityCostEnabled,
+        })
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  /** Apply `bitbudget_ref` on any step — session restore can skip the referral step before the old referral-only effect ran. */
+  useEffect(() => {
+    if (!hydrated || pendingReferral?.code) return
+    const parsed = parseBitbudgetRefCookie(typeof document !== "undefined" ? document.cookie : "")
+    if (!parsed?.code) return
+    void tryApplyReferralFromCookie(parsed)
+  }, [hydrated, pendingReferral?.code, tryApplyReferralFromCookie])
+
+  /** Backfill trial length and referrer OC for older sessionStorage blobs that only stored the code. */
+  useEffect(() => {
+    if (!hydrated || !pendingReferral?.code) return
+    const hasTrial = pendingReferral.refereeTrialMonths === 1 || pendingReferral.refereeTrialMonths === 3
+    const hasOc = typeof pendingReferral.referrerOpportunityCostEnabled === "boolean"
+    if (hasTrial && hasOc) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(pendingReferral.code)}`)
+        if (!r.ok || cancelled) return
+        const j = (await r.json()) as {
+          valid?: boolean
+          refereeTrialMonths?: 1 | 3
+          referrerOpportunityCostEnabled?: boolean
+        }
+        if (!j.valid || cancelled) return
+        const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
+        const referrerOpportunityCostEnabled =
+          typeof j.referrerOpportunityCostEnabled === "boolean" ? j.referrerOpportunityCostEnabled : false
+        setPendingReferral(prev =>
+          prev && prev.code === pendingReferral.code
+            ? { ...prev, refereeTrialMonths, referrerOpportunityCostEnabled }
+            : prev,
+        )
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [hydrated, pendingReferral?.code, pendingReferral?.refereeTrialMonths, pendingReferral?.referrerOpportunityCostEnabled])
+
+  /** Extra step count for referees (avoid `document`/cookie in render — prevents SSR/client mismatch). */
+  const referralBankQueued = !!pendingReferral?.code || step === "referral-bank"
+
+  const totalOnboardingSteps = referralBankQueued ? STEPS.length + 1 : STEPS.length
+  const stepIndex =
+    step === "referral-bank" ? STEPS.length : STEPS.indexOf(step)
+  const progress = ((stepIndex + 1) / totalOnboardingSteps) * 100
 
   useEffect(() => {
     if (!hydrated) return
@@ -407,7 +525,7 @@ export default function OnboardingPage() {
           setIsNostr(true)
           // nsec-paste users still owe the PIN step to encrypt the nsec for localStorage.
           // If we ran NIP-04 here, server encryption would flip hasExistingEncryption on while
-          // we remain on "security" — the passphrase branch renders `null` and the card is blank.
+          // we remain on "security" — extension users should see the Nostr security info step, not a blank card.
           if (!hasEnc && enc.nostrPubkey && !hasPendingNsec) {
             try {
               const nostrExt = (window as unknown as {
@@ -436,8 +554,8 @@ export default function OnboardingPage() {
               }
             } catch {
               // NIP-04 encrypt was rejected or unavailable (e.g. keys.band authorized
-              // getPublicKey but not nip04, or user denied the prompt). Continue without
-              // auto-provisioning; the step routing below still advances past security.
+              // getPublicKey but not nip04, or user denied the prompt). User continues via the
+              // Nostr security info step or passphrase flow without auto-provisioned encryption.
             }
           }
           setHasExistingEncryption(hasEnc)
@@ -453,16 +571,8 @@ export default function OnboardingPage() {
           if (markNsecFallback) {
             setIsNsecFallback(true)
           }
-
-          // Security UI only renders when (!isNostr || isNsecFallback). Extension Nostr users who
-          // are not on the nsec-fallback path must never stay on "security" without that UI
-          // (e.g. NIP-04 missing or POST failed would otherwise leave a blank card). Nsec users
-          // with a pending key stay on Security for PIN; everyone else advances to Income.
-          setStep(prev => {
-            if (prev !== "security") return prev
-            if (hasPendingNsec) return "security"
-            return "income"
-          })
+          // Extension Nostr users see an informational security step (not auto-skipped) so step
+          // numbers stay consistent; nsec-fallback users use the passphrase UI on this step.
         }
       } catch {
         /* continue */
@@ -476,6 +586,52 @@ export default function OnboardingPage() {
       cancelled = true
     }
   }, [hydrated])
+
+  function referralPayloadForRedeem(): { code: string; shareMethod: string } | null {
+    if (pendingReferral?.code) return pendingReferral
+    if (typeof document === "undefined") return null
+    return parseBitbudgetRefCookie(document.cookie)
+  }
+
+  function clearBitbudgetRefCookie() {
+    try {
+      document.cookie = "bitbudget_ref=; path=/; max-age=0"
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Redeem referral from state or `bitbudget_ref` cookie (covers skipped referral step). */
+  async function redeemPendingReferralIfAny(): Promise<boolean> {
+    const payload = referralPayloadForRedeem()
+    if (!payload?.code) return false
+    try {
+      const res = await fetch("/api/referral/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: payload.code,
+          shareMethod: payload.shareMethod,
+        }),
+      })
+      if (res.ok) clearBitbudgetRefCookie()
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  function finishOnboardingExit() {
+    try {
+      sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
+      sessionStorage.removeItem("onboardingSource")
+      sessionStorage.removeItem("nostr-login")
+    } catch {
+      /* ignore */
+    }
+    router.push("/")
+    router.refresh()
+  }
 
   async function skipOnboardingToDashboard() {
     setSkipOnboardingError(null)
@@ -494,13 +650,13 @@ export default function OnboardingPage() {
         setSkipOnboardingError("Could not save settings. Try again or sign out and back in.")
         return
       }
-      try {
-        sessionStorage.removeItem(STORAGE_KEY)
-        sessionStorage.removeItem("onboardingSource")
-        sessionStorage.removeItem("nostr-login")
-      } catch { /* ignore */ }
-      router.push("/")
-      router.refresh()
+      const hadReferralCode = !!referralPayloadForRedeem()?.code
+      const redeemOk = await redeemPendingReferralIfAny()
+      if (hadReferralCode && redeemOk) {
+        setStep("referral-bank")
+        return
+      }
+      finishOnboardingExit()
     } finally {
       setLoading(false)
     }
@@ -833,18 +989,25 @@ export default function OnboardingPage() {
   async function handleComplete() {
     setLoading(true)
     try {
-      await fetch("/api/user/settings", {
+      const res = await fetch("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ onboardingComplete: true, opportunityCostEnabled }),
       })
-      try {
-        sessionStorage.removeItem(STORAGE_KEY)
-        sessionStorage.removeItem("onboardingSource")
-        sessionStorage.removeItem("nostr-login")
-      } catch {}
-      router.push("/")
-      router.refresh()
+      if (res.status === 401 || res.status === 403) {
+        await signOut({ callbackUrl: "/auth" })
+        return
+      }
+      if (!res.ok) {
+        return
+      }
+      const hadReferralCode = !!referralPayloadForRedeem()?.code
+      const redeemOk = await redeemPendingReferralIfAny()
+      if (hadReferralCode && redeemOk) {
+        setStep("referral-bank")
+        return
+      }
+      finishOnboardingExit()
     } finally {
       setLoading(false)
     }
@@ -888,6 +1051,10 @@ export default function OnboardingPage() {
     [allocateMonthlyBudget],
   )
 
+  const refereeTrialExplainerOnComplete =
+    step === "complete" &&
+    !!(pendingReferral?.code || (typeof document !== "undefined" && parseBitbudgetRefCookie(document.cookie)?.code))
+
   return (
     <div className="min-h-screen bg-background flex flex-col items-center p-6">
       <DocumentFavicon href={opportunityCostEnabled ? "/icon.svg" : "/icon-vanilla.svg"} />
@@ -895,7 +1062,7 @@ export default function OnboardingPage() {
         <div className="flex items-center justify-between">
           <BitbudgetLogo variant={opportunityCostEnabled ? "btc" : "vanilla"} />
           <span className="text-xs text-muted-foreground">
-            Step {stepIndex + 1} of {STEPS.length}
+            Step {stepIndex + 1} of {totalOnboardingSteps}
           </span>
         </div>
 
@@ -908,7 +1075,7 @@ export default function OnboardingPage() {
         )}
 
         <div className="bg-[#0D0D0D] rounded-2xl p-8">
-          {restoredSession && !isNostr && step !== "security" && step !== "complete" && (
+          {restoredSession && !isNostr && step !== "referral" && step !== "security" && step !== "complete" && step !== "referral-bank" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
               <div className="flex flex-col gap-1.5 flex-1 min-w-0">
@@ -939,12 +1106,197 @@ export default function OnboardingPage() {
             </div>
           )}
 
+          {/* Referral / offer code (optional) */}
+          {step === "referral" && (
+            <div className="flex flex-col gap-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-xl bg-[#F7931A]/10">
+                  <Gift className="h-6 w-6 text-[#F7931A]" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Have a referral code?</h2>
+                  <p className="text-sm text-muted-foreground">
+                    {pendingReferral?.refereeTrialMonths === 3
+                      ? "Optional — connect your bank after signup for 3 months of premium. No payment details required."
+                      : pendingReferral?.refereeTrialMonths === 1
+                        ? "Optional — connect your bank after signup for 1 month of premium. No payment details required."
+                        : "Optional — connect your bank after signup for premium. No payment details required."}
+                  </p>
+                </div>
+              </div>
+              {pendingReferral ? (
+                <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 text-sm text-[#86EFAC]">
+                  Referral code applied: <span className="font-mono font-semibold">{pendingReferral.code}</span>
+                  <button
+                    type="button"
+                    className="ml-2 text-xs underline text-[#BBF7D0]"
+                    onClick={() => {
+                      setPendingReferral(null)
+                      setRefCodeInput("")
+                      try {
+                        document.cookie = "bitbudget_ref=; path=/; max-age=0"
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Code</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={refCodeInput}
+                      onChange={e => setRefCodeInput(e.target.value)}
+                      placeholder="Enter code"
+                      className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={refValidating || !refCodeInput.trim()}
+                      className="shrink-0 border-[#333] bg-[#1A1A1A]"
+                      onClick={() => {
+                        void (async () => {
+                          setRefError(null)
+                          setRefValidating(true)
+                          try {
+                            const r = await fetch(
+                              `/api/referral/validate?code=${encodeURIComponent(refCodeInput.trim())}`,
+                            )
+                            const j = (await r.json()) as {
+                              valid?: boolean
+                              refereeTrialMonths?: 1 | 3
+                              referrerOpportunityCostEnabled?: boolean
+                            }
+                            if (!j.valid) {
+                              setRefError("It looks like that code is invalid, expired, or has already been used.")
+                              return
+                            }
+                            const code = refCodeInput.trim()
+                            const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
+                            const referrerOpportunityCostEnabled =
+                              typeof j.referrerOpportunityCostEnabled === "boolean"
+                                ? j.referrerOpportunityCostEnabled
+                                : false
+                            setPendingReferral({
+                              code,
+                              shareMethod: "direct",
+                              refereeTrialMonths,
+                              referrerOpportunityCostEnabled,
+                            })
+                            try {
+                              document.cookie = `bitbudget_ref=${encodeURIComponent(`${code}:direct`)}; path=/; max-age=${86400 * 30}`
+                            } catch {
+                              /* ignore */
+                            }
+                          } finally {
+                            setRefValidating(false)
+                          }
+                        })()
+                      }}
+                    >
+                      {refValidating ? "…" : "Apply"}
+                    </Button>
+                  </div>
+                  {refError && <p className="text-sm text-red-400">{refError}</p>}
+                </div>
+              )}
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => setStep("security")}
+                  className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors flex items-center justify-center gap-2"
+                >
+                  Continue
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingReferral(null)
+                    setRefCodeInput("")
+                    setStep("security")
+                  }}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors text-center"
+                >
+                  Skip
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Security Step: Nostr extension — informational (no passphrase on this account) */}
+          {step === "security" && isNostr && !isNsecFallback && getPendingNsec() === null && (
+            !bootstrapped ? (
+              <div className="flex flex-col items-center justify-center gap-4 py-16">
+                <Spinner className="h-8 w-8 text-btc-orange" />
+                <p className="text-sm text-muted-foreground text-center">Checking your account…</p>
+                <button
+                  type="button"
+                  onClick={() => setStep("referral")}
+                  className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+                >
+                  <ChevronLeft className="h-4 w-4 shrink-0" aria-hidden />
+                  Back
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-btc-orange/10">
+                    <ShieldCheck className="h-6 w-6 text-btc-orange" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-foreground">Your data is secure</h2>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  BitBudget uses your Nostr identity to encrypt your data end-to-end. Your private key never leaves your Nostr extension.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setStep("referral")}
+                    className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
+                  >
+                    <ChevronLeft className="h-4 w-4" aria-hidden />
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep("income")}
+                    className="flex-1 py-3 bg-btc-orange text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-btc-orange/90 transition-colors flex items-center justify-center gap-2"
+                  >
+                    Continue
+                    <ChevronRight className="h-4 w-4" aria-hidden />
+                  </button>
+                </div>
+                <OnboardingSkipBar
+                  show={canSkipOnboarding}
+                  disabled={loading}
+                  onSkip={skipOnboardingToDashboard}
+                />
+              </div>
+            )
+          )}
+
           {/* Security Step: Web 2.0 users and nsec fallback users (Nostr without extension) */}
           {step === "security" && (!isNostr || isNsecFallback) && (
             !bootstrapped ? (
               <div className="flex flex-col items-center justify-center gap-4 py-16">
                 <Spinner className="h-8 w-8 text-[#F7931A]" />
                 <p className="text-sm text-muted-foreground text-center">Checking your account…</p>
+                <button
+                  type="button"
+                  onClick={() => setStep("referral")}
+                  className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+                >
+                  <ChevronLeft className="h-4 w-4 shrink-0" aria-hidden />
+                  Back
+                </button>
               </div>
             ) : !hasExistingEncryption || getPendingNsec() !== null ? (
               <form onSubmit={e => { e.preventDefault(); handleSecuritySetup() }} className="flex flex-col gap-6">
@@ -988,14 +1340,25 @@ export default function OnboardingPage() {
                   {pinError && <p className="text-sm text-red-400">{pinError}</p>}
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={loading || !pin || !pinConfirm}
-                  className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {loading ? "Setting up..." : "Continue"}
-                  {!loading && <ChevronRight className="h-4 w-4" />}
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setStep("referral")}
+                    className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <ChevronLeft className="h-4 w-4" aria-hidden />
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading || !pin || !pinConfirm}
+                    className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {loading ? "Setting up..." : "Continue"}
+                    {!loading && <ChevronRight className="h-4 w-4" aria-hidden />}
+                  </button>
+                </div>
                 <OnboardingSkipBar
                   show={canSkipOnboarding}
                   disabled={loading}
@@ -1030,7 +1393,7 @@ export default function OnboardingPage() {
                       placeholder="5,000"
                       className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7 text-lg"
                       min="0"
-                      step="100"
+                      step="any"
                     />
                   </div>
                 </div>
@@ -1064,14 +1427,25 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={loading || !income}
-                className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {loading ? "Saving..." : "Continue"}
-                {!loading && <ChevronRight className="h-4 w-4" />}
-              </button>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => setStep("security")}
+                  className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <ChevronLeft className="h-4 w-4" aria-hidden />
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading || !income}
+                  className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {loading ? "Saving..." : "Continue"}
+                  {!loading && <ChevronRight className="h-4 w-4" aria-hidden />}
+                </button>
+              </div>
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}
@@ -1789,14 +2163,95 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground text-center">
                 Your envelopes are ready and your data is secured.
               </p>
+              {refereeTrialExplainerOnComplete ? (
+                <div className="w-full rounded-xl border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-4 py-3 text-left space-y-2">
+                  <p className="text-sm text-foreground font-medium">Your referral</p>
+                  <p className="text-sm text-muted-foreground">
+                    <strong className="text-foreground">
+                      {pendingReferral?.refereeTrialMonths === 1 || pendingReferral?.refereeTrialMonths === 3
+                        ? refereePremiumExperienceCarrot(pendingReferral.refereeTrialMonths)
+                        : REFEREE_PREMIUM_CARROT_FALLBACK}
+                    </strong>{" "}
+                    Next, you&apos;ll connect your bank in a dedicated step. Your premium trial only starts after a successful link—take your time
+                    exploring BitBudget first if you like.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Until you link a bank, Plan may show <strong className="text-foreground">Free</strong> — that&apos;s expected. Receipt inbox and SMS
+                    unlock when your trial starts.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center max-w-sm">
+                  Invited by a friend? Use <strong className="text-foreground">Back</strong> to the referral step or open their invite link in
+                  this browser before you continue so your trial can apply.
+                </p>
+              )}
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
               >
-                {loading ? "Finishing..." : "Go to Dashboard"}
+                {loading ? "Finishing..." : refereeTrialExplainerOnComplete ? "Continue" : "Go to Dashboard"}
               </button>
             </form>
+          )}
+
+          {step === "referral-bank" && (
+            <div className="flex flex-col gap-6 py-2">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-xl bg-[#F7931A]/10">
+                  <Building2 className="h-6 w-6 text-[#F7931A]" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Connect your bank</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Last step for your referral: link an account with Plaid. Skip if you&apos;re not ready—we&apos;ll remind you later on the
+                    dashboard.
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-4 py-3 space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  <strong className="text-foreground">
+                    {pendingReferral?.refereeTrialMonths === 1 || pendingReferral?.refereeTrialMonths === 3
+                      ? refereePremiumExperienceCarrot(pendingReferral.refereeTrialMonths)
+                      : REFEREE_PREMIUM_CARROT_FALLBACK}
+                  </strong>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Your premium trial clock starts only after your first successful bank link. You can also connect anytime under Settings →
+                  Integrations.
+                </p>
+              </div>
+              <div className="flex flex-col items-stretch gap-2">
+                <p className="text-xs text-muted-foreground text-center">Bank sync (Plaid)</p>
+                <div className="flex justify-center">
+                  <PlaidLinkButton />
+                </div>
+              </div>
+              <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setStep("complete")}
+                    className="py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
+                  >
+                    <ChevronLeft className="h-4 w-4 shrink-0" aria-hidden />
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => finishOnboardingExit()}
+                    className="py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333]"
+                  >
+                    Skip for now
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground text-center">
+                  If you skip, we&apos;ll show occasional reminders until you connect. Your trial won&apos;t start until then.
+                </p>
+              </div>
+            </div>
           )}
         </div>
 
@@ -1804,7 +2259,7 @@ export default function OnboardingPage() {
           type="button"
           onClick={() => {
             try {
-              sessionStorage.removeItem(STORAGE_KEY)
+              sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
               sessionStorage.removeItem("nostr-login")
             } catch {}
             signOut({ callbackUrl: "/auth" })

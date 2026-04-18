@@ -39,11 +39,11 @@ styles/                  Tailwind globals
 - **Framework:** Next.js (App Router), React, TypeScript
 - **Styling:** Tailwind CSS + shadcn/ui components
 - **Auth:** Auth.js v5 (NextAuth) — Credentials, Google, GitHub, Nostr, Email OTP
-- **ORM:** Prisma (PostgreSQL in prod via Neon/Vercel, SQLite locally)
+- **ORM:** Prisma (PostgreSQL in prod and for local dev / e2e)
 - **Package manager:** pnpm
 - **Runtime:** Node.js ≥ 20
 - **Testing:** Vitest (unit), Playwright (e2e)
-- **CI:** GitHub Actions — lint + test on PRs and pushes to main
+- **CI:** GitHub Actions — lint, Vitest, and Playwright e2e on PRs and pushes to main
 
 ## Testing
 
@@ -55,6 +55,14 @@ styles/                  Tailwind globals
 - **Quality:** Prefer small, focused cases; mock network/DB where appropriate; keep crypto and time-dependent tests deterministic.
 
 Skipping unit tests for non-trivial changes should be the exception and called out explicitly in the PR if unavoidable.
+
+### End-to-end (Playwright)
+
+- **Layout:** Specs live under `e2e/` (see `playwright.config.ts`). Referral-program coverage is in `e2e/referrals.program.spec.ts` (validate/redeem flows, settings flags, `activateReferral` / trial months, referral-code API, auth via email OTP).
+- **Commands:** `pnpm exec playwright install` once per machine (CI installs Chromium automatically). Run `pnpm test:e2e` (or `pnpm test:e2e:ui`). Playwright starts the app with `next build` + `next start` on port **3100** by default (see `playwright.config.ts`) so it does not fight `next dev`’s `.next/dev/lock` — **avoid running `pnpm test:e2e` while `pnpm dev` is building/watching the same tree**, or override `PW_WEBSERVER_COMMAND` (e.g. `PW_WEBSERVER_COMMAND="pnpm dev"` on port `PW_SERVER_PORT` after stopping the other dev). The server runs with `E2E_TEST=true` so `/api/auth/send-code` accepts fixed OTPs for addresses ending in `@bitbudget.test` (see `app/api/auth/send-code/route.ts`), and `lib/notify.ts` skips all outbound email/Nostr DMs so referral and cron-style notifications do not hit real inboxes. **Never set `E2E_TEST` in production.**
+- **Database:** E2E requires PostgreSQL (`DATABASE_URL` and `DATABASE_URL_UNPOOLED`; `AUTH_SECRET` ≥ 32 chars). Global setup runs `prisma migrate deploy` and reseeds referral fixtures (`e2e/seed-referral-e2e.ts`).
+- **Maintenance:** When you change referral rules, Plaid activation, onboarding gates, or auth email flow, **update or extend the Playwright specs and seed constants** so CI keeps enforcing the product contract. Treat failing e2e the same as failing unit tests.
+- **Pull requests:** **`pnpm lint`, `pnpm test`, and `pnpm test:e2e` should all pass** before a change is considered ready to merge (unless a PR explicitly documents an exception and follow-up).
 
 ## Code Conventions
 
@@ -120,7 +128,7 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 
 ## Feature Gating: Opportunity Cost
 
-Bitcoin/sats/opportunity-cost features are controlled by `User.opportunityCostEnabled` (default `false`). New users get it from **entry point**: `/welcome` or app shell `/` → off; `/landing` → on. **Premium** users can change it in Settings; free users do not see that control.
+Bitcoin/sats/opportunity-cost features are controlled by `User.opportunityCostEnabled` (default `false`). New users get it from **entry point**: `/welcome` or app shell `/` → off; `/landing` → on. **Referral referees** inherit the flag from the **referrer** (code owner) at redeem and during onboarding via validate. **Premium** users can change it in Settings; free users do not see that control.
 
 When this flag is off, the app is a **vanilla budgeting tool** — no Bitcoin mentions anywhere:
 
@@ -189,7 +197,7 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 
 - **Commit often.** Each logical unit of work (a bug fix, a feature slice, a refactor) gets its own commit. Don't batch unrelated changes.
 - **Commit messages** should be concise and describe the "what" and "why": `fix(receipts): validate file type from magic bytes, not Content-Type` or `feat: add vanilla "Your Expenses" chart for non-OC users`.
-- **Run `pnpm lint` and `pnpm test` before pushing.** CI enforces both on PRs.
+- **Run `pnpm lint`, `pnpm test`, and `pnpm test:e2e` before pushing** (e2e needs Postgres + env; CI runs all three).
 - **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don’t rely on manual checks alone for production-critical behavior.
 - **PR descriptions** should have a Summary (bullet points of what changed) and a Test Plan (checkboxes).
 - **Never force-push to main.**

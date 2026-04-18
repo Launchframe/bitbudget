@@ -110,6 +110,21 @@ export interface TransactionPrefill {
   envelopeId?: string
 }
 
+export interface ReferralSummaryState {
+  code: string | null
+  codeExpiresAt: string | null
+  lastCode: {
+    code: string
+    expiresAt: string
+    usedCount: number
+    active: boolean
+  } | null
+  referralCount: number
+  activatedCount: number
+  premiumGratisUntil: string | null
+  premiumTrialUntil: string | null
+}
+
 interface AppContextValue {
   state: AppState
   activeEnvelopes: Envelope[]
@@ -163,7 +178,19 @@ interface AppContextValue {
   encryptForStorage: (plaintext: string) => Promise<string>
   logout: () => void
   isAdmin: boolean
+  /** Stored billing tier (Stripe). */
   subscriptionTier: "free" | "premium"
+  /** Resolved tier including trial + referral gratis windows. */
+  effectiveTier: "free" | "premium-trial" | "premium"
+  /** True when user has full or trial premium features (not effective free). */
+  hasPremiumFeatures: boolean
+  /** Referred user who has not linked a bank yet — Plaid allowed; other premium features locked until activation. */
+  refereePendingBankLink: boolean
+  /** Trial length (months) for this referee while bank link is pending; from referrer billing tier. */
+  referralRefereeTrialMonths: 1 | 3 | null
+  premiumTrialUntilIso: string | null
+  premiumGratisUntilIso: string | null
+  referralSummary: ReferralSummaryState | null
 
   pendingTransactions: PendingTransaction[]
   pendingCount: number
@@ -252,6 +279,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [memoTransactionCount, setMemoTransactionCount] = useState<number | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
   const [subscriptionTier, setSubscriptionTier] = useState<"free" | "premium">("free")
+  const [effectiveTier, setEffectiveTier] = useState<"free" | "premium-trial" | "premium">("free")
+  const [premiumTrialUntilIso, setPremiumTrialUntilIso] = useState<string | null>(null)
+  const [premiumGratisUntilIso, setPremiumGratisUntilIso] = useState<string | null>(null)
+  const [referralSummary, setReferralSummary] = useState<ReferralSummaryState | null>(null)
+  const [refereePendingBankLink, setRefereePendingBankLink] = useState(false)
+  const [referralRefereeTrialMonths, setReferralRefereeTrialMonths] = useState<1 | 3 | null>(null)
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const mounted = useRef(false)
   const isPopstate = useRef(false)
@@ -418,6 +451,71 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSubscriptionTier(
         settings.subscriptionTier === "premium" ? "premium" : "free",
       )
+      const etRaw = (settings as { effectiveTier?: string }).effectiveTier
+      const nowMs = Date.now()
+      const trialMs =
+        typeof settings.premiumTrialUntil === "string"
+          ? Date.parse(settings.premiumTrialUntil)
+          : NaN
+      const gratisMs =
+        typeof settings.premiumGratisUntil === "string"
+          ? Date.parse(settings.premiumGratisUntil)
+          : NaN
+      const et =
+        etRaw === "premium" || etRaw === "premium-trial"
+          ? etRaw
+          : settings.subscriptionTier === "premium"
+            ? "premium"
+            : Number.isFinite(gratisMs) && gratisMs > nowMs
+              ? "premium"
+              : Number.isFinite(trialMs) && trialMs > nowMs
+                ? "premium-trial"
+                : "free"
+      setEffectiveTier(et)
+      setPremiumTrialUntilIso(
+        typeof settings.premiumTrialUntil === "string" ? settings.premiumTrialUntil : null,
+      )
+      setPremiumGratisUntilIso(
+        typeof settings.premiumGratisUntil === "string" ? settings.premiumGratisUntil : null,
+      )
+      setRefereePendingBankLink(
+        (settings as { referralRefereePendingBankLink?: unknown }).referralRefereePendingBankLink === true,
+      )
+      const trm = (settings as { referralRefereeTrialMonths?: unknown }).referralRefereeTrialMonths
+      setReferralRefereeTrialMonths(trm === 1 || trm === 3 ? trm : null)
+      const ref = settings.referral
+      if (ref && typeof ref === "object" && !Array.isArray(ref)) {
+        setReferralSummary({
+          code: typeof ref.code === "string" || ref.code === null ? ref.code : null,
+          codeExpiresAt:
+            typeof ref.codeExpiresAt === "string" || ref.codeExpiresAt === null
+              ? ref.codeExpiresAt
+              : null,
+          lastCode:
+            ref.lastCode &&
+            typeof ref.lastCode === "object" &&
+            typeof ref.lastCode.code === "string"
+              ? {
+                  code: ref.lastCode.code,
+                  expiresAt: String(ref.lastCode.expiresAt ?? ""),
+                  usedCount: Number(ref.lastCode.usedCount ?? 0),
+                  active: Boolean(ref.lastCode.active),
+                }
+              : null,
+          referralCount: Number(ref.referralCount ?? 0),
+          activatedCount: Number(ref.activatedCount ?? 0),
+          premiumGratisUntil:
+            typeof ref.premiumGratisUntil === "string" || ref.premiumGratisUntil === null
+              ? ref.premiumGratisUntil
+              : null,
+          premiumTrialUntil:
+            typeof ref.premiumTrialUntil === "string" || ref.premiumTrialUntil === null
+              ? ref.premiumTrialUntil
+              : null,
+        })
+      } else {
+        setReferralSummary(null)
+      }
       setState(prev => ({
         ...prev,
         envelopes,
@@ -1056,6 +1154,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.removeItem("bitbudget-privacy-key")
       sessionStorage.removeItem("bitbudget-privacy-user")
       sessionStorage.removeItem("nostr-login")
+      sessionStorage.removeItem("bitbudget-survey-referrer")
+      sessionStorage.removeItem("bitbudget-survey-shown")
     } catch {
       /* ignore */
     }
@@ -1212,6 +1312,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         logout,
         isAdmin: userRole === "admin",
         subscriptionTier,
+        effectiveTier,
+        hasPremiumFeatures: effectiveTier !== "free",
+        refereePendingBankLink,
+        referralRefereeTrialMonths,
+        premiumTrialUntilIso,
+        premiumGratisUntilIso,
+        referralSummary,
         pendingTransactions,
         pendingCount: pendingTransactions.length,
         confirmPending,

@@ -19,6 +19,30 @@ export async function POST(req: NextRequest) {
 
     const normalizedEmail = email.toLowerCase().trim()
 
+    /**
+     * Playwright / CI: skip outbound email and use a fixed OTP from env.
+     * Only applies when E2E_TEST is set and the address is under @bitbudget.test
+     * (see e2e/). Never enable E2E_TEST in production deployments.
+     */
+    if (process.env.E2E_TEST === "true" && normalizedEmail.endsWith("@bitbudget.test")) {
+      const e2eCode = process.env.E2E_EMAIL_CODE?.trim() ?? ""
+      if (!/^[0-9]{6}$/.test(e2eCode)) {
+        return NextResponse.json(
+          { error: "E2E email login is misconfigured (need E2E_EMAIL_CODE=6 digits)" },
+          { status: 500 },
+        )
+      }
+      await prisma.emailCode.deleteMany({ where: { email: normalizedEmail } })
+      await prisma.emailCode.create({
+        data: {
+          email: normalizedEmail,
+          code: e2eCode,
+          expiresAt: new Date(Date.now() + CODE_TTL_MS),
+        },
+      })
+      return NextResponse.json({ sent: true })
+    }
+
     const recent = await prisma.emailCode.findFirst({
       where: {
         email: normalizedEmail,

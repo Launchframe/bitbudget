@@ -40,6 +40,9 @@ model User {
   subscriptionTier String @default("free")
   // Set when a free user taps Upgrade to Premium (checkout not yet available).
   premiumInterestAt DateTime?
+  premiumGratisUntil  DateTime?
+  premiumTrialUntil   DateTime?
+  referredByCodeId    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -60,6 +63,72 @@ model User {
   payeeMappings       PayeeEnvelopeMapping[]
   payeeDisplayAliases PayeeDisplayAlias[]
   pushSubscriptions   PushSubscription[]
+  codesCreated        ReferralCode[] @relation("CodesCreated")
+  referralsMade       Referral[]     @relation("ReferralsMade")
+  referralReceived    Referral?      @relation("ReferralReceived")
+  survey              Survey?
+  referredByCode      ReferralCode?  @relation("ReferredByCode", fields: [referredByCodeId], references: [id], onDelete: SetNull)
+}
+
+model ReferralCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  type        String
+  ownerId     String
+  label       String?
+  maxUses     Int       @default(1)
+  usedCount   Int       @default(0)
+  visitCount  Int       @default(0)
+  startsAt    DateTime  @default(now())
+  expiresAt   DateTime
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  owner       User       @relation("CodesCreated", fields: [ownerId], references: [id], onDelete: Cascade)
+  referrals   Referral[]
+  referredUsers User[]   @relation("ReferredByCode")
+
+  @@index([ownerId])
+  @@index([type])
+}
+
+model Referral {
+  id          String    @id @default(cuid())
+  codeId      String
+  referrerId  String
+  refereeId   String    @unique
+  status      String    @default("accepted")
+  shareMethod String?
+  acceptedAt  DateTime  @default(now())
+  activatedAt DateTime?
+
+  code     ReferralCode @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  referrer User         @relation("ReferralsMade", fields: [referrerId], references: [id], onDelete: Cascade)
+  referee  User         @relation("ReferralReceived", fields: [refereeId], references: [id], onDelete: Cascade)
+
+  @@index([referrerId])
+  @@index([codeId])
+}
+
+model Survey {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  triggerType     String
+  rating          String?
+  favoriteFeature String?
+  leastFavorite   String?
+  comments        String?
+  canContact      Boolean?
+  currentStep     Int       @default(1)
+  completedAt     DateTime?
+  dismissedAt     DateTime?
+  dismissType     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([completedAt])
 }
 
 model Account {

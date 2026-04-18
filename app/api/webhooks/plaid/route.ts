@@ -4,7 +4,8 @@ import { plaidClient } from "@/lib/plaid"
 import { matchEnvelope } from "@/lib/envelope-matcher"
 import { routeTransaction } from "@/lib/confidence-router"
 import crypto from "crypto"
-import { requirePremium } from "@/lib/subscription"
+import { activateReferral } from "@/lib/referral"
+import { requirePremiumOrTrialOrReferralBankLinkPending } from "@/lib/subscription"
 import { Prisma } from "@prisma/client"
 
 export async function POST(req: NextRequest) {
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
     if (!plaidItem) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 })
     }
-    if (!(await requirePremium(plaidItem.user.id))) {
+    if (!(await requirePremiumOrTrialOrReferralBankLinkPending(plaidItem.user.id))) {
       return NextResponse.json({
         acknowledged: true,
         skipped: "premium_required",
@@ -137,6 +138,10 @@ export async function POST(req: NextRequest) {
         })
 
         if (!has_more) break
+      }
+
+      if (processed > 0) {
+        await activateReferral(plaidItem.user.id)
       }
 
       return NextResponse.json({ processed })

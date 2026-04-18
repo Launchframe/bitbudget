@@ -2,10 +2,13 @@
 
 import { usePathname } from "next/navigation"
 import Link from "next/link"
-import { Users, Mail, InboxIcon, ScrollText, ArrowLeft } from "lucide-react"
+import { Users, Mail, InboxIcon, ScrollText, ArrowLeft, Users2, Gift, MessageSquare } from "lucide-react"
 
 const adminNavItems = [
   { href: "/admin/users", label: "Users", icon: Users },
+  { href: "/admin/referrals", label: "Referrals", icon: Users2 },
+  { href: "/admin/offers", label: "Offer Codes", icon: Gift },
+  { href: "/admin/surveys", label: "Surveys", icon: MessageSquare },
   { href: "/admin/senders", label: "Receipt Senders", icon: Mail },
   { href: "/admin/sender-review", label: "Sender Review", icon: InboxIcon },
   { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText },

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto"
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { premiumForbiddenResponse, requirePremium } from "@/lib/subscription"
+import { premiumForbiddenResponse, requirePremiumOrTrial } from "@/lib/subscription"
 
 function generateToken() {
   return randomBytes(16).toString("hex")
@@ -13,8 +13,10 @@ export async function GET() {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  if (!(await requirePremium(session.user.id))) {
-    return premiumForbiddenResponse("Receipt inbox requires a premium subscription")
+  if (!(await requirePremiumOrTrial(session.user.id))) {
+    return premiumForbiddenResponse(
+      "Receipt inbox requires a premium subscription or an active premium trial",
+    )
   }
 
   const user = await prisma.user.findUnique({

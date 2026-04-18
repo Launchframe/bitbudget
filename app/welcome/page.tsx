@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { ArrowRight, Shield, BarChart3, Wallet, PieChart } from "lucide-react"
@@ -128,12 +129,12 @@ export default function WelcomePage() {
           <p className="text-xs text-muted-foreground">
             Open-source budgeting app. Your data is encrypted end-to-end.
           </p>
-          <a
+          <Link
             href="/landing"
             className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
           >
             Looking for the Bitcoin opportunity cost experience? →
-          </a>
+          </Link>
         </div>
       </footer>
     </div>
