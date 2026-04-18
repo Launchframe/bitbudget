@@ -20,6 +20,11 @@ import {
   sendTrialEndingDm,
 } from "@/lib/nostr-dm"
 
+/** Playwright / CI: avoid real email/DM sends (e.g. seeded `*@bitbudget.test` referrers bounce). */
+function skipOutboundUserNotifications(): boolean {
+  return process.env.E2E_TEST === "true"
+}
+
 export function userContactLabel(u: {
   name?: string | null
   email?: string | null
@@ -52,6 +57,7 @@ export async function notifyReferralAccepted(args: {
   referrerId: string
   refereeName: string
 }): Promise<void> {
+  if (skipOutboundUserNotifications()) return
   const referrer = await prisma.user.findUnique({
     where: { id: args.referrerId },
     select: { email: true, nostrPubkey: true },
@@ -70,6 +76,7 @@ export async function notifyReferralActivated(args: {
   rewardMonths: number
   newGratisUntil: Date
 }): Promise<void> {
+  if (skipOutboundUserNotifications()) return
   const [referrer, referee] = await Promise.all([
     prisma.user.findUnique({
       where: { id: args.referrerId },
@@ -103,6 +110,7 @@ export async function notifyReferralActivated(args: {
 }
 
 export async function notifyAdminsSurveyCompleted(payload: SurveyCompletedEmailPayload): Promise<void> {
+  if (skipOutboundUserNotifications()) return
   const admins = await prisma.user.findMany({
     where: { role: "admin" },
     select: { email: true, nostrPubkey: true },
@@ -128,6 +136,7 @@ export async function notifyAdminsSurveyCompleted(payload: SurveyCompletedEmailP
 }
 
 export async function notifyAdminsDigest(bodyHtml: string, plainFallback: string): Promise<void> {
+  if (skipOutboundUserNotifications()) return
   const admins = await prisma.user.findMany({
     where: { role: "admin" },
     select: { email: true, nostrPubkey: true },
@@ -143,6 +152,7 @@ export async function notifyAdminsDigest(bodyHtml: string, plainFallback: string
 
 /** Cron: users whose gratis premium ends in ~7 days */
 export async function notifyGratisNearingExpiry(userId: string, expiry: Date, days: number): Promise<void> {
+  if (skipOutboundUserNotifications()) return
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { email: true, nostrPubkey: true },
@@ -157,6 +167,7 @@ export async function notifyGratisNearingExpiry(userId: string, expiry: Date, da
 }
 
 export async function notifyGratisExpiredUser(userId: string): Promise<void> {
+  if (skipOutboundUserNotifications()) return
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { email: true, nostrPubkey: true },
@@ -170,6 +181,7 @@ export async function notifyGratisExpiredUser(userId: string): Promise<void> {
 }
 
 export async function notifyTrialNearingExpiry(userId: string, expiry: Date, days: number): Promise<void> {
+  if (skipOutboundUserNotifications()) return
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { email: true, nostrPubkey: true },
@@ -184,6 +196,7 @@ export async function notifyTrialNearingExpiry(userId: string, expiry: Date, day
 }
 
 export async function notifyTrialExpiredUser(userId: string): Promise<void> {
+  if (skipOutboundUserNotifications()) return
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { email: true, nostrPubkey: true },
