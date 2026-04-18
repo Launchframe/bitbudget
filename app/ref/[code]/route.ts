@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { bitbudgetRefCookieOptions } from "@/lib/referral-cookie"
 import { incrementReferralVisit, validateReferralCodeRow } from "@/lib/referral"
 
 /**
@@ -28,12 +29,7 @@ export async function GET(
   if (v.valid && v.type === "user") {
     void incrementReferralVisit(v.codeRow.id)
     const res = NextResponse.redirect(new URL("/auth", request.url))
-    res.cookies.set("bitbudget_ref", `${v.codeRow.code}:${method}`, {
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-      sameSite: "lax",
-      httpOnly: false,
-    })
+    res.cookies.set("bitbudget_ref", `${v.codeRow.code}:${method}`, bitbudgetRefCookieOptions(request))
     return res
   }
 

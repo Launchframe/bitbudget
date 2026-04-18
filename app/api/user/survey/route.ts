@@ -197,8 +197,7 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  const nextStep = step === 6 ? 6 : step + 1
-  patch.currentStep = nextStep
+  let nextStep = step === 6 ? 6 : step + 1
 
   if (step === 6) {
     const merged = {
@@ -210,8 +209,13 @@ export async function PUT(req: NextRequest) {
     }
     if (surveyHasAnyResponse(merged)) {
       patch.completedAt = new Date()
+    } else {
+      // All skips on step 6: avoid leaving currentStep=6 with no completion (dead-end on next open).
+      nextStep = 1
     }
   }
+
+  patch.currentStep = nextStep
 
   const row = await prisma.survey.upsert({
     where: { userId: session.user.id },

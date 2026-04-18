@@ -63,7 +63,7 @@ export async function validateReferralCodeRow(
   const userNorm = normalizeReferralCodeInput(trimmed)
   const offerNorm = normalizeOfferSlug(trimmed)
 
-  const includeOwner = { owner: { select: { name: true, email: true } } }
+  const includeOwner = { owner: { select: { name: true } } }
   // Prefer user-normalized key first, then offer slug — avoids arbitrary `findFirst` when both exist.
   let row = await prisma.referralCode.findUnique({ where: { code: userNorm }, include: includeOwner })
   if (!row && userNorm !== offerNorm) {
@@ -75,7 +75,9 @@ export async function validateReferralCodeRow(
   if (row.expiresAt <= now) return { valid: false, reason: "expired" }
   if (row.usedCount >= row.maxUses) return { valid: false, reason: "exhausted" }
 
-  const referrerName = row.owner.name ?? row.owner.email ?? null
+  /** Public validate must not leak referrer email — name only (see GET /api/referral/validate). */
+  const nameTrimmed = row.owner.name?.trim() ?? ""
+  const referrerName = nameTrimmed.length > 0 ? nameTrimmed : null
 
   return {
     valid: true,

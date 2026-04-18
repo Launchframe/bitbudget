@@ -3,12 +3,17 @@
 import { useState } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
+const PANEL_ID = "referral-terms-panel"
+
 export function ReferralTerms() {
   const [open, setOpen] = useState(false)
   return (
     <div className="rounded-xl border border-[#333] bg-[#1A1A1A]/50 overflow-hidden">
       <button
         type="button"
+        id="referral-terms-toggle"
+        aria-expanded={open}
+        aria-controls={PANEL_ID}
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:bg-[#222] transition-colors"
       >
@@ -16,7 +21,7 @@ export function ReferralTerms() {
         {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
       </button>
       {open && (
-        <div className="px-4 pb-4 text-xs text-muted-foreground space-y-2 border-t border-[#333] pt-3">
+        <div id={PANEL_ID} role="region" aria-labelledby="referral-terms-toggle" className="px-4 pb-4 text-xs text-muted-foreground space-y-2 border-t border-[#333] pt-3">
           <p>
             <strong className="text-foreground">Referrer:</strong> Your first activated referral earns 3 months of
             premium; each additional activation adds 1 month. If you&apos;re on the free plan, bonus premium is capped
