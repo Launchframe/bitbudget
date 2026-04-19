@@ -90,23 +90,40 @@ export function PlaidLinkButton() {
               institution: metadata.institution,
             }),
           })
-          if (ex.ok) {
+          const raw = await ex.text()
+          let exchangeBody: {
+            referralActivated?: boolean
+            referralTrialMonths?: number | null
+            error?: string
+            message?: string
+          } = {}
+          try {
+            exchangeBody = raw ? (JSON.parse(raw) as typeof exchangeBody) : {}
+          } catch {
+            /* ignore */
+          }
+          if (!ex.ok) {
+            let msg = "Bank link didn’t finish saving. Try again."
+            if (typeof exchangeBody.message === "string" && exchangeBody.message.trim()) {
+              msg = exchangeBody.message.trim()
+            } else if (typeof exchangeBody.error === "string" && exchangeBody.error.trim()) {
+              msg = exchangeBody.error.trim()
+            }
+            setConnectError(msg)
+            setLoading(false)
+            return
+          }
+          if (exchangeBody.referralActivated && exchangeBody.referralTrialMonths != null) {
             try {
-              const body = (await ex.json()) as {
-                referralActivated?: boolean
-                referralTrialMonths?: number | null
-              }
-              if (body.referralActivated && body.referralTrialMonths != null) {
-                sessionStorage.setItem("bitbudget-trial-welcome", "1")
-              }
+              sessionStorage.setItem("bitbudget-trial-welcome", "1")
             } catch {
               /* ignore */
             }
-            try {
-              sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
-            } catch {
-              /* ignore */
-            }
+          }
+          try {
+            sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
+          } catch {
+            /* ignore */
           }
           await refreshData()
           window.location.reload()

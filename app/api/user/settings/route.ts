@@ -76,7 +76,11 @@ export async function GET() {
 
   let referralPayload: Record<string, unknown> | null = null
   if (user.onboardingComplete) {
-    const stats = await referralStatsForUser(session.user.id)
+    const stats = await referralStatsForUser(session.user.id, new Date(), {
+      premiumGratisUntil: user.premiumGratisUntil,
+      premiumTrialUntil: user.premiumTrialUntil,
+      subscriptionTier: user.subscriptionTier,
+    })
     referralPayload = {
       code: stats.activeCode?.code ?? null,
       codeExpiresAt: stats.activeCode?.expiresAt.toISOString() ?? null,

@@ -373,19 +373,29 @@ export async function activateReferral(
   return result
 }
 
-export async function referralStatsForUser(userId: string, now: Date = new Date()) {
+export async function referralStatsForUser(
+  userId: string,
+  now: Date = new Date(),
+  /** When the caller already loaded premium fields, skip a duplicate `User` read. */
+  userPremium?: { premiumGratisUntil: Date | null; premiumTrialUntil: Date | null; subscriptionTier: string },
+) {
+  const userRowPromise =
+    userPremium !== undefined
+      ? Promise.resolve(userPremium)
+      : prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            premiumGratisUntil: true,
+            premiumTrialUntil: true,
+            subscriptionTier: true,
+          },
+        })
+
   const [referralCount, activatedCount, activeCode, userRow] = await Promise.all([
     prisma.referral.count({ where: { referrerId: userId } }),
     prisma.referral.count({ where: { referrerId: userId, status: "activated" } }),
     getActiveUnusedUserCode(userId, now),
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        premiumGratisUntil: true,
-        premiumTrialUntil: true,
-        subscriptionTier: true,
-      },
-    }),
+    userRowPromise,
   ])
 
   const lastCode = await prisma.referralCode.findFirst({

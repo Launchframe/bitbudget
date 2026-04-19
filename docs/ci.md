@@ -5,7 +5,7 @@ Workflows:
 | Workflow | What it runs |
 |----------|----------------|
 | [Lint](../.github/workflows/lint.yml) | `pnpm lint` (ESLint, zero warnings) |
-| [Test](../.github/workflows/test.yml) | `pnpm test` (Vitest) |
+| [Test](../.github/workflows/test.yml) | `pnpm test` (Vitest) in job **vitest**, and `pnpm test:e2e` (Playwright) in job **e2e** |
 
 Both run on **pull requests** and **pushes to `main`**.
 
@@ -19,6 +19,7 @@ GitHub does not block merges from YAML alone. In the repo:
 
    - **eslint** (job under workflow *Lint*)
    - **vitest** (job under workflow *Test*)
+   - **e2e** (job under workflow *Test* — Playwright against Postgres)
 
 If the UI shows a different name (e.g. `Lint / eslint`), use exactly that string.
 
