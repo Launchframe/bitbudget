@@ -27,19 +27,21 @@ export function advanceDate(date: Date, cadence: Cadence): Date {
 
 /**
  * Process all due recurring transactions for a user.
- * Creates Transaction records for each occurrence that is due (nextDueDate <= today).
+ * Creates Transaction records for each occurrence that is due (nextDueDate <= end of asOf-day).
  * Advances nextDueDate and deactivates if past endDate.
  * Returns the number of transactions created.
+ *
+ * @param asOf - End of this calendar day (local) is the cutoff for “due”. Defaults to now. Used by tests for determinism.
  */
-export async function processRecurringTransactions(userId: string): Promise<number> {
-  const today = new Date()
-  today.setHours(23, 59, 59, 999)
+export async function processRecurringTransactions(userId: string, asOf?: Date): Promise<number> {
+  const endOfDay = new Date(asOf ?? new Date())
+  endOfDay.setHours(23, 59, 59, 999)
 
   const dueRecurrings = await prisma.recurringTransaction.findMany({
     where: {
       userId,
       active: true,
-      nextDueDate: { lte: today },
+      nextDueDate: { lte: endOfDay },
     },
   })
 
@@ -48,7 +50,7 @@ export async function processRecurringTransactions(userId: string): Promise<numb
   for (const rec of dueRecurrings) {
     let dueDate = new Date(rec.nextDueDate)
 
-    while (dueDate <= today) {
+    while (dueDate <= endOfDay) {
       const dateStr = dueDate.toISOString().split("T")[0]
       const btcPrice = await getBtcPriceForDate(dateStr)
 
