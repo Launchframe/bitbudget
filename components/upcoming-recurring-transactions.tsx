@@ -61,7 +61,7 @@ interface EditRecurringDialogProps {
 }
 
 function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
-  const { activeEnvelopes, state, editRecurringTransaction, deleteRecurringTransaction, encryptForStorage } = useApp()
+  const { activeEnvelopes, state, editRecurringTransaction, deleteRecurringTransaction } = useApp()
 
   const [payee, setPayee] = useState(
     rule.isDecrypted === false ? "" : rule.payee === ENCRYPTED_DISPLAY ? "" : rule.payee,
