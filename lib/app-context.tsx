@@ -14,6 +14,11 @@ import {
 } from "@/lib/crypto"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import {
+  clearPrivacyKeyCache,
+  getValidCachedPrivacyKeyHex,
+  setCachedPrivacyKeyHex,
+} from "@/lib/privacy-key-storage"
+import {
   type ApiTransactionRow,
   type CachedTransaction,
   cachedToClientTransaction,
@@ -331,9 +336,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      const cachedKey = sessionStorage.getItem("bitbudget-privacy-key")
-      const cachedUser = sessionStorage.getItem("bitbudget-privacy-user")
-      if (cachedKey && cachedUser === data.userId) {
+      const cachedKey = getValidCachedPrivacyKeyHex(data.userId)
+      if (cachedKey) {
         const pk = hexToUint8(cachedKey)
         privacyKeyRef.current = pk
         applyPrivacyKey(pk, publicKeyRef)
@@ -341,11 +345,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         pendingLockedRef.current = false
         setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
         return
-      }
-
-      if (cachedUser !== data.userId) {
-        sessionStorage.removeItem("bitbudget-privacy-key")
-        sessionStorage.removeItem("bitbudget-privacy-user")
       }
 
       // Nsec fallback users have privacyKeySalt (PIN-based); skip NIP-04 and use PIN unlock path.
@@ -362,8 +361,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             privacyKeyRef.current = pk
             applyPrivacyKey(pk, publicKeyRef)
             void syncUserPublicKey(pk)
-            sessionStorage.setItem("bitbudget-privacy-key", hexKey)
-            sessionStorage.setItem("bitbudget-privacy-user", data.userId)
+            setCachedPrivacyKeyHex(data.userId, hexKey)
             pendingLockedRef.current = false
             setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
             return
@@ -381,8 +379,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             privacyKeyRef.current = pk
             applyPrivacyKey(pk, publicKeyRef)
             void syncUserPublicKey(pk)
-            sessionStorage.setItem("bitbudget-privacy-key", hexKey)
-            sessionStorage.setItem("bitbudget-privacy-user", data.userId)
+            setCachedPrivacyKeyHex(data.userId, hexKey)
             pendingLockedRef.current = false
             setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
             return
@@ -708,8 +705,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pendingLockedRef.current = false
     if (currentUserIdRef.current) {
       try {
-        sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(key))
-        sessionStorage.setItem("bitbudget-privacy-user", currentUserIdRef.current)
+        setCachedPrivacyKeyHex(currentUserIdRef.current, uint8ToHex(key))
       } catch {
         /* private mode / quota */
       }
@@ -1151,8 +1147,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     try {
-      sessionStorage.removeItem("bitbudget-privacy-key")
-      sessionStorage.removeItem("bitbudget-privacy-user")
+      clearPrivacyKeyCache()
       sessionStorage.removeItem("nostr-login")
       sessionStorage.removeItem("bitbudget-survey-referrer")
       sessionStorage.removeItem("bitbudget-survey-shown")

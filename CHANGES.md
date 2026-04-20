@@ -4,6 +4,13 @@ All assumptions, changes, and decisions made while building the fully functional
 
 ---
 
+## Privacy key cache — 7-day unlock (2026)
+
+- **Client:** `lib/privacy-key-storage.ts` — after passphrase or Nostr unlock, the privacy key hex is stored in **localStorage with a 7-day TTL** (rolling window on each successful unlock). Replaces session-only persistence so users (e.g. Google sign-in) are not prompted on every new browser session; passphrase is required again after expiry or logout.
+- **Wiring:** `lib/app-context.tsx`, `components/pin-unlock-dialog.tsx`, `app/onboarding/page.tsx`, `lib/resolve-import-encrypt-fn.ts`.
+
+---
+
 ## Architecture Overview
 
 The app was transformed from a **client-only SPA** (localStorage, mock data, no auth) into a **full-stack Next.js app** with:

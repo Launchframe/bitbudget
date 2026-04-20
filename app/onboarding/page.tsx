@@ -39,6 +39,7 @@ import {
   encryptPrivacyKey,
   uint8ToHex,
 } from "@/lib/crypto"
+import { setCachedPrivacyKeyHex } from "@/lib/privacy-key-storage"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import {
   getPendingNsec,
@@ -546,8 +547,7 @@ export default function OnboardingPage() {
                 if (res.status === 409) {
                   hasEnc = true
                 } else if (res.ok) {
-                  sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
-                  if (enc.userId) sessionStorage.setItem("bitbudget-privacy-user", enc.userId)
+                  if (enc.userId) setCachedPrivacyKeyHex(enc.userId, uint8ToHex(privacyKey))
                   await syncUserPublicKey(privacyKey)
                   hasEnc = true
                 }
@@ -705,8 +705,7 @@ export default function OnboardingPage() {
 
       if (typeof window !== "undefined") {
         try {
-          sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
-          if (userId) sessionStorage.setItem("bitbudget-privacy-user", userId)
+          if (userId) setCachedPrivacyKeyHex(userId, uint8ToHex(privacyKey))
         } catch {
           /* continue; server encryption is already saved */
         }

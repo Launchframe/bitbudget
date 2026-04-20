@@ -25,7 +25,7 @@ test.beforeAll(async () => {
   try {
     const res = await ctx.post("/api/e2e/reset-referral-seed", {
       headers: { "Content-Type": "application/json" },
-      body: "{}",
+      data: "{}",
     })
     const j = (await res.json()) as { ok?: boolean; dbHost?: string | null }
     expect(res.ok(), JSON.stringify(j)).toBeTruthy()

@@ -176,7 +176,7 @@ Implementation: `app/api/user/encryption/route.ts`.
 
 ### Session vs server
 
-- Client caches the raw privacy key hex in `sessionStorage` (`bitbudget-privacy-key`) when appropriate; import and other flows may re-hydrate via NIP-04 decrypt using the extension (`lib/resolve-import-encrypt-fn.ts`, `lib/app-context.tsx`). Stale keys: clear when `userId` mismatches.
+- Client caches the raw privacy key hex in **`localStorage` with a 7-day rolling expiry** (`bitbudget-privacy-key`, `bitbudget-privacy-user`, `bitbudget-privacy-unlock-expires`) via `lib/privacy-key-storage.ts`; legacy `sessionStorage`-only entries migrate on read. Falls back to `sessionStorage` if `localStorage` is unavailable. Import and other flows may re-hydrate via NIP-04 decrypt using the extension (`lib/resolve-import-encrypt-fn.ts`, `lib/app-context.tsx`). Keys are cleared on `userId` mismatch, expiry, or logout. **Security:** readable by any script on the origin—raw key here widens XSS blast radius versus session-only cache; rely on a strict CSP, no unsafe-inline, and dependency hygiene. `resolveEncryptFnForImport` skips `getSession()` when no cached key material exists so import avoids an extra `/api/auth/session` round-trip.
 - Losing session storage does **not** mean losing the account if the wrapped key on the server is valid and the user can still decrypt (passphrase / NIP-04).
 
 ### Recovery (product direction — not fully built)
