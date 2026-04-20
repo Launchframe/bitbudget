@@ -10,7 +10,6 @@ import {
   deriveKeyFromPin,
   decryptPrivacyKey,
   hexToUint8,
-  uint8ToHex,
 } from "@/lib/crypto"
 
 interface PinUnlockDialogProps {
@@ -37,7 +36,6 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
       const derivedKey = await deriveKeyFromPin(pin, salt)
       const encryptedData = JSON.parse(encryptedPrivacyKey) as { iv: string; ciphertext: string }
       const privacyKey = await decryptPrivacyKey(encryptedData, derivedKey)
-      sessionStorage.setItem("bitbudget-privacy-key", uint8ToHex(privacyKey))
       onUnlock(privacyKey)
     } catch {
       setError("Incorrect passphrase. Please try again.")
@@ -58,7 +56,8 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
             </div>
             <h2 className="text-xl font-bold text-foreground">Unlock Your Data</h2>
             <p className="text-sm text-muted-foreground text-center">
-              Enter your passphrase to decrypt your transaction data.
+              Enter your passphrase to decrypt your transaction data. For your security, you&apos;ll be asked again
+              after about a week on this device.
             </p>
           </div>
 

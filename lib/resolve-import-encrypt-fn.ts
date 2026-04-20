@@ -6,6 +6,11 @@ import {
   generateKeyPairFromSeed,
   hexToUint8,
 } from "@/lib/crypto"
+import {
+  clearPrivacyKeyCache,
+  getValidCachedPrivacyKeyHex,
+  setCachedPrivacyKeyHex,
+} from "@/lib/privacy-key-storage"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { getPendingNsec } from "@/lib/nostr-local-signer"
 
@@ -24,62 +29,27 @@ type EncApiPayload = {
   nostrPubkey: string | null
 }
 
-function sessionGet(key: string): string | null {
-  try {
-    return sessionStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-
-function sessionSet(key: string, value: string): void {
-  try {
-    sessionStorage.setItem(key, value)
-  } catch {
-    /* private mode / quota / blocked storage */
-  }
-}
-
-function sessionRemove(key: string): void {
-  try {
-    sessionStorage.removeItem(key)
-  } catch {
-    /* ignore */
-  }
-}
-
 /**
  * Resolves the encrypt function used before POST /api/import.
  *
- * - Fast path: valid cached key + `getSession()` user id match avoids `/api/user/encryption`.
+ * - Fast path: valid cached key (localStorage TTL + legacy session migration) + session user id match.
  * - Otherwise fetches encryption metadata; for Nostr extension accounts may run
- *   NIP-04 decrypt (same as AppProvider initEncryption). This fixes onboarding import
- *   when sessionStorage was cleared or the key was never written, as long as the
- *   server-stored ciphertext is valid for the current pubkey.
+ *   NIP-04 decrypt. This fixes onboarding import when storage was cleared or the key was
+ *   never written, as long as the server-stored ciphertext is valid for the current pubkey.
  */
 export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | null> {
   if (typeof window === "undefined") return null
 
-  let hex = sessionGet("bitbudget-privacy-key")
-  let cachedUser = sessionGet("bitbudget-privacy-user")
-
-  if (hex && cachedUser) {
-    const session = await getSession()
-    const sid = session?.user?.id
-    if (sid && sid === cachedUser) {
+  const session = await getSession()
+  const sid = session?.user?.id
+  if (sid) {
+    const hex = getValidCachedPrivacyKeyHex(sid)
+    if (hex) {
       try {
         return encryptFnFromHexKey(hex)
       } catch {
-        sessionRemove("bitbudget-privacy-key")
-        sessionRemove("bitbudget-privacy-user")
-        hex = null
-        cachedUser = null
+        clearPrivacyKeyCache()
       }
-    } else if (sid && sid !== cachedUser) {
-      sessionRemove("bitbudget-privacy-key")
-      sessionRemove("bitbudget-privacy-user")
-      hex = null
-      cachedUser = null
     }
   }
 
@@ -88,19 +58,13 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
 
   const data = (await res.json()) as EncApiPayload
 
-  hex = sessionGet("bitbudget-privacy-key")
-  cachedUser = sessionGet("bitbudget-privacy-user")
-
-  if (hex && cachedUser === data.userId) {
+  const hexAfterFetch = getValidCachedPrivacyKeyHex(data.userId)
+  if (hexAfterFetch) {
     try {
-      return encryptFnFromHexKey(hex)
+      return encryptFnFromHexKey(hexAfterFetch)
     } catch {
-      sessionRemove("bitbudget-privacy-key")
-      sessionRemove("bitbudget-privacy-user")
+      clearPrivacyKeyCache()
     }
-  } else if (cachedUser && cachedUser !== data.userId) {
-    sessionRemove("bitbudget-privacy-key")
-    sessionRemove("bitbudget-privacy-user")
   }
 
   if (!data.encryptedPrivacyKey) return null
@@ -116,8 +80,7 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
         const hexKey = await nip04.decrypt(data.nostrPubkey, data.encryptedPrivacyKey)
         const pk = hexToUint8(hexKey)
         generateKeyPairFromSeed(pk)
-        sessionSet("bitbudget-privacy-key", hexKey)
-        sessionSet("bitbudget-privacy-user", data.userId)
+        setCachedPrivacyKeyHex(data.userId, hexKey)
         void syncUserPublicKey(pk)
         return encryptFnFromHexKey(hexKey)
       } catch {
@@ -132,8 +95,7 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
         const hexKey = nip04Decrypt(pendingNsec, data.nostrPubkey, data.encryptedPrivacyKey)
         const pk = hexToUint8(hexKey)
         generateKeyPairFromSeed(pk)
-        sessionSet("bitbudget-privacy-key", hexKey)
-        sessionSet("bitbudget-privacy-user", data.userId)
+        setCachedPrivacyKeyHex(data.userId, hexKey)
         void syncUserPublicKey(pk)
         return encryptFnFromHexKey(hexKey)
       } catch {
