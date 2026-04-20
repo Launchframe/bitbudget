@@ -9,6 +9,7 @@ import {
 import {
   clearPrivacyKeyCache,
   getValidCachedPrivacyKeyHex,
+  hasPotentialPrivacyKeyCache,
   setCachedPrivacyKeyHex,
 } from "@/lib/privacy-key-storage"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
@@ -40,15 +41,17 @@ type EncApiPayload = {
 export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | null> {
   if (typeof window === "undefined") return null
 
-  const session = await getSession()
-  const sid = session?.user?.id
-  if (sid) {
-    const hex = getValidCachedPrivacyKeyHex(sid)
-    if (hex) {
-      try {
-        return encryptFnFromHexKey(hex)
-      } catch {
-        clearPrivacyKeyCache()
+  if (hasPotentialPrivacyKeyCache()) {
+    const session = await getSession()
+    const sid = session?.user?.id
+    if (sid) {
+      const hex = getValidCachedPrivacyKeyHex(sid)
+      if (hex) {
+        try {
+          return encryptFnFromHexKey(hex)
+        } catch {
+          clearPrivacyKeyCache()
+        }
       }
     }
   }

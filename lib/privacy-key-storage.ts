@@ -3,6 +3,11 @@
  * Uses localStorage with a TTL so users are not prompted every new browser session,
  * but must re-enter passphrase periodically (default 7 days).
  * Falls back to sessionStorage if localStorage is unavailable (quota / private mode).
+ *
+ * **Security:** any script on the origin can read `localStorage`. Storing the raw key
+ * increases impact of XSS compared to session-only storage; mitigate with a strict CSP,
+ * no unsafe-inline scripts, and careful dependency audit. Alternatives (device-bound CryptoKey
+ * wrapping the cached material) add complexity and are not used here.
  */
 
 /** How long the cached key remains valid after each successful unlock. */
@@ -27,6 +32,25 @@ function storageClear(storage: Storage): void {
   storage.removeItem(K_KEY)
   storage.removeItem(K_USER)
   storage.removeItem(K_EXPIRES)
+}
+
+/**
+ * True when either storage has key+user rows (may still be expired or for another user).
+ * Used to skip `getSession()` when no cache exists and the import resolver can go
+ * straight to `GET /api/user/encryption`.
+ */
+export function hasPotentialPrivacyKeyCache(): boolean {
+  if (typeof window === "undefined") return false
+  const hasPair = (storage: Storage): boolean => {
+    try {
+      const hex = storage.getItem(K_KEY)
+      const user = storage.getItem(K_USER)
+      return Boolean(hex && user)
+    } catch {
+      return false
+    }
+  }
+  return hasPair(localStorage) || hasPair(sessionStorage)
 }
 
 /**

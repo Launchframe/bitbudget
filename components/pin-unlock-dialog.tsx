@@ -56,8 +56,8 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
             </div>
             <h2 className="text-xl font-bold text-foreground">Unlock Your Data</h2>
             <p className="text-sm text-muted-foreground text-center">
-              Enter your passphrase to decrypt your transaction data. For your security, you&apos;ll be asked again
-              after about a week on this device.
+              Enter your passphrase to decrypt your transaction data. For your security, you may be asked to enter it
+              again later on this device.
             </p>
           </div>
 
