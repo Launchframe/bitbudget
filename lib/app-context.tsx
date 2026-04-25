@@ -1375,10 +1375,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   )
 
   const deleteRecurringTransaction = useCallback(async (id: string) => {
-    const res = await fetch(`/api/recurring?id=${id}`, { method: "DELETE" })
-    if (res.ok) {
-      setRecurringTransactions((prev) => prev.filter((r) => r.id !== id))
+    const res = await fetch(`/api/recurring?id=${encodeURIComponent(id)}`, { method: "DELETE" })
+    if (!res.ok) {
+      const errorText = await res.text()
+      let message = errorText.trim()
+      try {
+        const j = JSON.parse(errorText) as { error?: string }
+        if (j?.error && typeof j.error === "string") message = j.error
+      } catch {
+        /* use body as-is */
+      }
+      throw new Error(message || `Failed to delete recurring transaction: ${res.status}`)
     }
+    setRecurringTransactions((prev) => prev.filter((r) => r.id !== id))
   }, [])
 
   const activeEnvelopes = useMemo(

@@ -10,6 +10,7 @@ import {
   type PayeeNameCluster,
   type PayeeNameVariant,
 } from "@/lib/payee-canonical"
+import { loadIgnoredPayeeMappingSuggestions } from "@/lib/payee-mapping-dismissals"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Trash2, Link2, Loader2 } from "lucide-react"
@@ -17,8 +18,9 @@ import { Trash2, Link2, Loader2 } from "lucide-react"
 type AliasRow = { id: string; sourceNormalized: string; canonicalPayee: string }
 
 export function PayeeMappingsSettings() {
-  const { activeTransactions } = useApp()
+  const { activeTransactions, currentUserId } = useApp()
   const [aliases, setAliases] = useState<AliasRow[]>([])
+  const [ignored, setIgnored] = useState<Set<string>>(() => new Set())
   const [loading, setLoading] = useState(true)
   const [newSource, setNewSource] = useState("")
   const [newCanonical, setNewCanonical] = useState("")
@@ -40,8 +42,8 @@ export function PayeeMappingsSettings() {
 
   const clusters = useMemo(() => findSimilarPayeeClusters(payeeRows), [payeeRows])
   const pendingClusters = useMemo(
-    () => getPayeeMappingReviewClusters(clusters, aliases, new Set()),
-    [clusters, aliases],
+    () => getPayeeMappingReviewClusters(clusters, aliases, ignored),
+    [clusters, aliases, ignored],
   )
 
   const loadAliases = useCallback(() => {
@@ -56,6 +58,10 @@ export function PayeeMappingsSettings() {
   useEffect(() => {
     loadAliases()
   }, [loadAliases])
+
+  useEffect(() => {
+    setIgnored(loadIgnoredPayeeMappingSuggestions(currentUserId))
+  }, [currentUserId])
 
   useEffect(() => {
     return () => {

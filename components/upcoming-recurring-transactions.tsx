@@ -42,11 +42,18 @@ const CADENCE_OPTIONS: { value: Cadence; label: string }[] = [
 ]
 
 function formatDueDate(iso: string): string {
-  const date = new Date(iso + "T00:00:00")
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const diffDays = Math.round((date.getTime() - today.getTime()) / 86400000)
-  const formatted = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+  const [year, month, day] = iso.split("-").map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  const now = new Date()
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  const dueUtc = Date.UTC(year, month - 1, day)
+  const diffDays = Math.round((dueUtc - todayUtc) / 86400000)
+  const formatted = date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  })
   if (diffDays === 0) return `Today · ${formatted}`
   if (diffDays === 1) return `Tomorrow · ${formatted}`
   if (diffDays > 0 && diffDays <= 7) return `In ${diffDays} days · ${formatted}`
@@ -87,8 +94,9 @@ function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
 
   async function handleSave() {
     const errs: Record<string, string> = {}
+    const parsedAmount = Number(amount)
     if (!payee.trim()) errs.payee = "Payee is required"
-    if (!amount || parseFloat(amount) <= 0) errs.amount = "Amount must be positive"
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) errs.amount = "Amount must be positive"
     if (!envelopeId) errs.envelope = "Envelope is required"
     if (Object.keys(errs).length > 0) {
       setErrors(errs)
@@ -97,16 +105,19 @@ function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
     setErrors({})
     setSubmitting(true)
     try {
-      await editRecurringTransaction(rule.id, {
+      const updates: Parameters<typeof editRecurringTransaction>[1] = {
         payee: payee.trim(),
-        amount: parseFloat(amount),
+        amount: parsedAmount,
         type,
         envelopeId,
         cadence,
         endDate: endDate || null,
         tags: selectedTags,
-        notes: notes.trim() || null,
-      })
+      }
+      if (rule.isDecrypted !== false && rule.notes !== ENCRYPTED_DISPLAY) {
+        updates.notes = notes.trim() || null
+      }
+      await editRecurringTransaction(rule.id, updates)
       onClose()
     } catch (e) {
       setErrors((prev) => ({
@@ -123,6 +134,11 @@ function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
     try {
       await deleteRecurringTransaction(rule.id)
       onClose()
+    } catch (e) {
+      setErrors((prev) => ({
+        ...prev,
+        form: e instanceof Error ? e.message : "Could not delete rule. Please try again.",
+      }))
     } finally {
       setSubmitting(false)
     }

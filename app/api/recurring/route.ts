@@ -58,46 +58,73 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
   }
 
+  if (typeof payee !== "string" || payee.trim() === "") {
+    return NextResponse.json({ error: "Invalid payee" }, { status: 400 })
+  }
+  if (!isPositiveFiniteAmount(amount)) {
+    return NextResponse.json({ error: "Invalid amount" }, { status: 400 })
+  }
+  if (!RECURRING_TXN_TYPES.has(type)) {
+    return NextResponse.json({ error: "type must be expense or credit" }, { status: 400 })
+  }
+  if (typeof envelopeId !== "string" || envelopeId.trim() === "") {
+    return NextResponse.json({ error: "Invalid envelopeId" }, { status: 400 })
+  }
   if (!VALID_CADENCES.includes(cadence)) {
     return NextResponse.json({ error: "Invalid cadence" }, { status: 400 })
   }
+  const firstDate = parseCalendarDateString(startDate)
+  if (!firstDate) {
+    return NextResponse.json({ error: "Invalid startDate" }, { status: 400 })
+  }
+  const parsedEndDate = endDate ? parseCalendarDateString(endDate) : null
+  if (endDate && !parsedEndDate) {
+    return NextResponse.json({ error: "Invalid endDate" }, { status: 400 })
+  }
+  if (tags !== undefined && tags !== null && !assertTagStringArray(tags)) {
+    return NextResponse.json({ error: "tags must be an array of strings" }, { status: 400 })
+  }
+  if (notes !== undefined && notes !== null && typeof notes !== "string") {
+    return NextResponse.json({ error: "Invalid notes" }, { status: 400 })
+  }
 
   const envelope = await prisma.envelope.findFirst({
-    where: { id: envelopeId, userId: session.user.id },
+    where: { id: envelopeId.trim(), userId: session.user.id },
   })
   if (!envelope) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
   }
 
   const userId = session.user.id
-  const absAmount = Math.abs(amount)
-  const firstDate = new Date(startDate)
+  const absAmount = Math.abs(typeof amount === "number" ? amount : Number(amount))
   const nextDue = advanceDate(firstDate, cadence as Cadence)
   const dateStr = firstDate.toISOString().split("T")[0]
   const btcPrice = await getBtcPriceForDate(dateStr)
+  const normalizedPayee = payee.trim()
+  const normalizedEnvelopeId = envelopeId.trim()
 
   const [recurring, transaction] = await prisma.$transaction(async (tx) => {
     const rec = await tx.recurringTransaction.create({
       data: {
         userId,
-        envelopeId,
-        payee,
+        envelopeId: normalizedEnvelopeId,
+        payee: normalizedPayee,
         amount: absAmount,
         type,
         tags: JSON.stringify(tags || []),
         notes: notes || null,
         cadence,
         nextDueDate: nextDue,
-        endDate: endDate ? new Date(endDate) : null,
+        endDate: parsedEndDate,
       },
     })
 
     const txn = await tx.transaction.create({
       data: {
         userId,
-        envelopeId,
+        envelopeId: normalizedEnvelopeId,
         date: firstDate,
-        payee,
+        payee: normalizedPayee,
         amount: absAmount,
         type,
         tags: JSON.stringify(tags || []),
@@ -174,7 +201,7 @@ export async function PUT(req: NextRequest) {
   if (type !== undefined && !RECURRING_TXN_TYPES.has(type)) {
     return NextResponse.json({ error: "type must be expense or credit" }, { status: 400 })
   }
-  if (payee !== undefined && typeof payee !== "string") {
+  if (payee !== undefined && (typeof payee !== "string" || payee.trim() === "")) {
     return NextResponse.json({ error: "Invalid payee" }, { status: 400 })
   }
   if (endDate !== undefined && endDate !== null) {
@@ -201,7 +228,7 @@ export async function PUT(req: NextRequest) {
   const updated = await prisma.recurringTransaction.update({
     where: { id: normalizedId },
     data: {
-      ...(payee !== undefined && { payee }),
+      ...(payee !== undefined && { payee: payee.trim() }),
       ...(resolvedAmount !== undefined && { amount: resolvedAmount }),
       ...(type !== undefined && { type }),
       ...(normalizedEnvelopeId !== undefined && { envelopeId: normalizedEnvelopeId }),

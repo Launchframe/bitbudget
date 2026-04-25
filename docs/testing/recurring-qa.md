@@ -5,7 +5,7 @@ Use this on **staging** or **local dev** only. Do **not** run ad hoc SQL against
 ## Why you do not need to wait a week
 
 - The app triggers `POST /api/recurring/process` during a full data refresh (same logic as the daily cron).
-- Posting depends on `RecurringTransaction.nextDueDate` being **on or before** the end of “today” (server local day). The bottleneck is calendar time until the next due date—not the cron schedule.
+- Posting depends on `RecurringTransaction.nextDueDate` being **on or before** the end of “today” in UTC. The bottleneck is calendar time until the next due date—not the cron schedule.
 - Shortest product cadence is **weekly**, so for faster validation you **move the due date in the database** or use the helper script below.
 
 ## Tier 1 — Manual checklist (no deploy)
