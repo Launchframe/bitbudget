@@ -3,10 +3,10 @@
  *
  * - **Saved aliases** (Settings or “Save payee mapping”): map any import string → your canonical payee.
  * - **Soft-equal only** (automatic): same letters ignoring spaces/hyphens/apostrophes (Wal-Mart ↔ Walmart).
- *   Does **not** merge “Walmart” vs “Walmart Liquor” (different collapsed keys).
+ *   Does **not** merge “Walmart” vs “Walmart Pharmacy” (different collapsed keys).
  *
  * We intentionally do **not** auto-merge by prefix (e.g. “Last War…” → “Last War”): that would
- * incorrectly collapse distinct payees like “Walmart” vs “Walmart Liquor”. Use aliases for those.
+ * incorrectly collapse distinct payees like “Walmart” vs “Walmart Pharmacy”. Use aliases for those.
  */
 
 export function normalizePayeeKey(payee: string): string {
@@ -138,7 +138,7 @@ export function resolveCanonicalPayee(
 
 /**
  * Groups stored payees that differ only by spacing/punctuation (same `collapsePayeeSoftKey`).
- * Does **not** group “Walmart” with “Walmart Liquor” (different collapsed keys).
+ * Does **not** group “Walmart” with “Walmart Pharmacy” (different collapsed keys).
  * Use this in Settings to surface names that may need explicit aliases to a single canonical.
  */
 export function findSimilarPayeeClusters(

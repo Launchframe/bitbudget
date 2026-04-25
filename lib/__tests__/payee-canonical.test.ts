@@ -31,9 +31,9 @@ describe("collapsePayeeSoftKey", () => {
     expect(collapsePayeeSoftKey("WAL MART")).toBe("walmart")
   })
 
-  it("does not collapse Walmart Liquor into Walmart", () => {
+  it("does not collapse Walmart Pharmacy into Walmart", () => {
     expect(collapsePayeeSoftKey("Walmart")).toBe("walmart")
-    expect(collapsePayeeSoftKey("Walmart Liquor")).toBe("walmartliquor")
+    expect(collapsePayeeSoftKey("Walmart Pharmacy")).toBe("walmartpharmacy")
   })
 })
 
@@ -61,15 +61,15 @@ describe("resolveCanonicalPayee", () => {
     { displayName: "Last War", count: 50 },
     { displayName: "Amazon", count: 10 },
     { displayName: "Walmart", count: 30 },
-    { displayName: "Walmart Liquor", count: 5 },
+    { displayName: "Walmart Pharmacy", count: 5 },
   ]
 
   it("does not auto-merge Last War Survival to Last War (use aliases)", () => {
     expect(resolveCanonicalPayee("Last War Survival", candidates)).toBeNull()
   })
 
-  it("does not merge Walmart Liquor into Walmart via prefix", () => {
-    expect(resolveCanonicalPayee("Walmart Liquor", candidates)).toBeNull()
+  it("does not merge Walmart Pharmacy into Walmart via prefix", () => {
+    expect(resolveCanonicalPayee("Walmart Pharmacy", candidates)).toBeNull()
   })
 
   it("maps Wal-Mart receipt to Walmart via soft-equal", () => {
@@ -166,10 +166,10 @@ describe("findSimilarPayeeClusters", () => {
     expect(clusters[0].variants.map((v) => v.displayName).sort()).toEqual(["Wal-Mart", "Walmart"])
   })
 
-  it("does not group Walmart and Walmart Liquor", () => {
+  it("does not group Walmart and Walmart Pharmacy", () => {
     const clusters = findSimilarPayeeClusters([
       { displayName: "Walmart", count: 20 },
-      { displayName: "Walmart Liquor", count: 5 },
+      { displayName: "Walmart Pharmacy", count: 5 },
     ])
     expect(clusters).toHaveLength(0)
   })
