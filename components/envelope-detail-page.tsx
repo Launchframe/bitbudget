@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import {
+  compareTransactionsDesc,
   getEnvelopeBalance,
   getCurrentMonthKey,
   formatUsd,
@@ -68,7 +69,7 @@ export function EnvelopeDetailPage() {
       result = result.filter((t) => t.date <= endDate)
     }
 
-    return result.sort((a, b) => b.date.localeCompare(a.date))
+    return result.sort(compareTransactionsDesc)
   }, [envelopeTransactions, searchQuery, typeFilter, startDate, endDate])
 
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))

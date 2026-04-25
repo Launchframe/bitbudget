@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
-import { formatUsd } from "@/lib/data"
+import { compareTransactionsDesc, formatUsd } from "@/lib/data"
 import type { Transaction } from "@/lib/data"
 import { Badge } from "@/components/ui/badge"
 import { ChevronLeft, ChevronRight, Repeat, Trash2 } from "lucide-react"
@@ -26,7 +26,7 @@ export function RecentTransactions() {
   }, [state.envelopes])
 
   const sorted = useMemo(
-    () => [...activeTransactions].sort((a, b) => b.date.localeCompare(a.date)),
+    () => [...activeTransactions].sort(compareTransactionsDesc),
     [activeTransactions],
   )
 

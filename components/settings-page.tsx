@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
-import { formatUsd, formatUsdPrecise } from "@/lib/data"
+import { compareTransactionsDesc, formatUsd, formatUsdPrecise } from "@/lib/data"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -120,7 +120,7 @@ export function SettingsPage() {
     const now = new Date()
     const stampDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
     const filename = buildExportFilename({ stampDate })
-    const sorted = [...activeTransactions].sort((a, b) => b.date.localeCompare(a.date))
+    const sorted = [...activeTransactions].sort(compareTransactionsDesc)
     const rows = sorted.map(t => {
       const amount = t.type === "expense" ? -Math.abs(t.amount) : Math.abs(t.amount)
       return {

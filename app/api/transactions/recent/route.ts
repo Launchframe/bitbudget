@@ -37,6 +37,9 @@ export async function GET() {
     notes: t.notes ?? null,
     satsAmount: t.satsAmount ?? null,
     recurringId: t.recurringId ?? null,
+    source: t.source,
+    createdAt: t.createdAt.toISOString(),
+    updatedAt: t.updatedAt.toISOString(),
   }))
 
   return NextResponse.json(formatted)

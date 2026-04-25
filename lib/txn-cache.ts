@@ -6,7 +6,7 @@
 import { openDB, type IDBPDatabase } from "idb"
 import { decryptFieldAsymmetric, looksLikeAsymmetricCiphertext } from "@/lib/crypto"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
-import type { Transaction, TransactionSource } from "@/lib/data"
+import { compareTransactionsDesc, type Transaction, type TransactionSource } from "@/lib/data"
 
 export { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 
@@ -43,6 +43,7 @@ export type CachedTransaction = Transaction & {
   isDecrypted: boolean
   serverPayee: string
   serverNotes: string | null
+  createdAt?: string
   updatedAt: string
 }
 
@@ -59,6 +60,7 @@ export type ApiTransactionRow = {
   satsAmount: number | null
   recurringId: string | null
   source?: TransactionSource
+  createdAt?: string
   /** Present after API migration; callers may synthesize for older payloads. */
   updatedAt?: string
 }
@@ -168,7 +170,7 @@ export async function getRecentCached(
     let result: CachedTransaction[]
     if (!store.indexNames.contains("date")) {
       const all = await store.getAll()
-      result = all.filter((r) => r.date >= cutoff).sort((a, b) => b.date.localeCompare(a.date))
+      result = all.filter((r) => r.date >= cutoff).sort(compareTransactionsDesc)
     } else {
       const out: CachedTransaction[] = []
       let cursor = await store.index("date").openCursor(null, "prev")
@@ -178,7 +180,7 @@ export async function getRecentCached(
         out.push(row)
         cursor = await cursor.continue()
       }
-      result = out
+      result = out.sort(compareTransactionsDesc)
     }
     await tx.done
     return result
@@ -207,7 +209,7 @@ export async function getRemainingCached(
     if (!store.indexNames.contains("date")) {
       const all = await store.getAll()
       const filtered = all.filter((r) => r.date < beforeDate)
-      result = filtered.sort((a, b) => b.date.localeCompare(a.date))
+      result = filtered.sort(compareTransactionsDesc)
     } else {
       const dateIndex = store.index("date")
       const range = IDBKeyRange.upperBound(beforeDate, true)
@@ -217,7 +219,7 @@ export async function getRemainingCached(
         out.push(cursor.value as CachedTransaction)
         cursor = await cursor.continue()
       }
-      result = out
+      result = out.sort(compareTransactionsDesc)
     }
     await tx.done
     return result
@@ -368,6 +370,10 @@ function rowUpdatedAt(row: ApiTransactionRow): string {
   return row.updatedAt ?? `${row.date}T12:00:00.000Z`
 }
 
+function rowCreatedAt(row: ApiTransactionRow): string {
+  return row.createdAt ?? row.updatedAt ?? `${row.date}T12:00:00.000Z`
+}
+
 export function apiRowToCachedLocked(row: ApiTransactionRow): CachedTransaction {
   return {
     id: row.id,
@@ -381,6 +387,7 @@ export function apiRowToCachedLocked(row: ApiTransactionRow): CachedTransaction 
     satsAmount: row.satsAmount,
     recurringId: row.recurringId,
     source: row.source,
+    createdAt: rowCreatedAt(row),
     updatedAt: rowUpdatedAt(row),
     isDecrypted: false,
     serverPayee: row.payee,
@@ -401,6 +408,7 @@ export function apiRowToCachedPlaintext(row: ApiTransactionRow): CachedTransacti
     satsAmount: row.satsAmount,
     recurringId: row.recurringId,
     source: row.source,
+    createdAt: rowCreatedAt(row),
     updatedAt: rowUpdatedAt(row),
     isDecrypted: true,
     serverPayee: row.payee,
@@ -458,6 +466,7 @@ export function decryptSingleCachedRow(row: ApiTransactionRow, secretKey: Uint8A
     satsAmount: row.satsAmount,
     recurringId: row.recurringId,
     source: row.source,
+    createdAt: rowCreatedAt(row),
     updatedAt: rowUpdatedAt(row),
     isDecrypted,
     serverPayee: row.payee,
@@ -496,7 +505,7 @@ export function cachedToClientTransaction(c: CachedTransaction): Transaction {
 
 function isSortedDescByDate(txns: Transaction[]): boolean {
   for (let i = 1; i < txns.length; i++) {
-    if (txns[i - 1]!.date < txns[i]!.date) return false
+    if (compareTransactionsDesc(txns[i - 1]!, txns[i]!) > 0) return false
   }
   return true
 }
@@ -526,14 +535,14 @@ export function mergeTransactionBatch(
 
   let isPrevSortedDesc = true
   for (let i = 1; i < prev.length; i++) {
-    if (prev[i - 1]!.date < prev[i]!.date) {
+    if (compareTransactionsDesc(prev[i - 1]!, prev[i]!) > 0) {
       isPrevSortedDesc = false
       break
     }
   }
 
   if (!isPrevSortedDesc || dateChanged) {
-    return merged.sort((a, b) => b.date.localeCompare(a.date))
+    return merged.sort(compareTransactionsDesc)
   }
 
   if (newInBatchOrder.length === 0) {
@@ -541,7 +550,7 @@ export function mergeTransactionBatch(
   }
 
   if (prev.length === 0) {
-    return merged.sort((a, b) => b.date.localeCompare(a.date))
+    return merged.sort(compareTransactionsDesc)
   }
 
   const tailDate = prev[prev.length - 1]!.date
@@ -550,7 +559,7 @@ export function mergeTransactionBatch(
     return merged
   }
 
-  return merged.sort((a, b) => b.date.localeCompare(a.date))
+  return merged.sort(compareTransactionsDesc)
 }
 
 export function maxUpdatedAtIso(rows: CachedTransaction[]): string | null {

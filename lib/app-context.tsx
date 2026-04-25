@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { signOut } from "next-auth/react"
 import type { Transaction, Envelope, AppState, BtcDisplayUnit, PendingTransaction, Tag, RecurringTransaction } from "@/lib/data"
-import { generateId, getDefaultState } from "@/lib/data"
+import { compareTransactionsDesc, generateId, getDefaultState } from "@/lib/data"
 import {
   encryptFieldAsymmetric,
   decryptFieldAsymmetric,
@@ -723,9 +723,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               for (const c of cachedTxns) {
                 byId.set(c.id, cachedToClientTransaction(c))
               }
-              nextTxns = Array.from(byId.values()).sort((a, b) =>
-                b.date.localeCompare(a.date),
-              )
+              nextTxns = Array.from(byId.values()).sort(compareTransactionsDesc)
             } else {
               nextTxns = mergeTransactionBatch(prev.transactions, cachedTxns)
             }
@@ -734,9 +732,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             for (const c of cachedTxns) {
               byId.set(c.id, cachedToClientTransaction(c))
             }
-            nextTxns = Array.from(byId.values()).sort((a, b) =>
-              b.date.localeCompare(a.date),
-            )
+            nextTxns = Array.from(byId.values()).sort(compareTransactionsDesc)
           } else {
             nextTxns = []
           }
@@ -781,7 +777,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const all = await getAllCached(uid)
         const forState = all.length > 0 ? all : decrypted
         if (forState.length > 0) {
-          const sortedForState = [...forState].sort((a, b) => b.date.localeCompare(a.date))
+          const sortedForState = [...forState].sort(compareTransactionsDesc)
           fullIdbHydratedRef.current = true
           setState(prev => ({
             ...prev,

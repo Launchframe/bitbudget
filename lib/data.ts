@@ -16,6 +16,8 @@ export interface Transaction {
   satsAmount?: number | null
   recurringId?: string | null
   source?: TransactionSource
+  /** Server creation timestamp for ordering same-day transactions. */
+  createdAt?: string
   /** Server row version for delta sync (ISO 8601). */
   updatedAt?: string
   /** Client: false when payee/notes are not shown in cleartext (locked or pending decrypt). */
@@ -80,6 +82,18 @@ export interface AppState {
   monthlyIncome: number
   btcDisplayUnit: BtcDisplayUnit
   opportunityCostEnabled: boolean
+}
+
+export function compareTransactionsDesc(a: Transaction, b: Transaction): number {
+  const dateCmp = b.date.localeCompare(a.date)
+  if (dateCmp !== 0) return dateCmp
+
+  const aCreated = a.createdAt ?? a.updatedAt ?? ""
+  const bCreated = b.createdAt ?? b.updatedAt ?? ""
+  const createdCmp = bCreated.localeCompare(aCreated)
+  if (createdCmp !== 0) return createdCmp
+
+  return b.id.localeCompare(a.id)
 }
 
 // ─── Mock BTC Price Data (client-side fallback) ─────────────────────

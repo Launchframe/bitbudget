@@ -26,6 +26,14 @@ import { Pencil, Trash2, Repeat, X, Bitcoin } from "lucide-react"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { cn } from "@/lib/utils"
 
+const CADENCE_LABELS = {
+  weekly: "Weekly",
+  biweekly: "Biweekly",
+  monthly: "Monthly",
+  quarterly: "Quarterly",
+  annual: "Annual",
+} as const
+
 interface TransactionDetailDialogProps {
   transaction: Transaction | null
   open: boolean
@@ -317,7 +325,10 @@ function ViewMode({
   onEdit: () => void
   canEdit: boolean
 }) {
-  const { state } = useApp()
+  const { state, recurringTransactions } = useApp()
+  const recurringRule = transaction.recurringId
+    ? recurringTransactions.find((rule) => rule.id === transaction.recurringId)
+    : null
   const multiplier = transaction.amount > 0 && btcValueToday > 0 ? btcValueToday / transaction.amount : 0
   const gained = multiplier >= 1
   const showBtc = transaction.type === "expense" && btcPrice > 0
@@ -362,6 +373,17 @@ function ViewMode({
             </Badge>
           }
         />
+        {recurringRule && (
+          <DetailRow
+            label="Recurs"
+            value={
+              <span className="inline-flex items-center gap-1.5">
+                <Repeat className="h-3.5 w-3.5 text-muted-foreground" />
+                {CADENCE_LABELS[recurringRule.cadence]}
+              </span>
+            }
+          />
+        )}
         <DetailRow
           label="Amount"
           value={<span className="font-semibold">{formatUsd(transaction.amount, 2)}</span>}

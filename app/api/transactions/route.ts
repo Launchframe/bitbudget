@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
 
   const transactions = await prisma.transaction.findMany({
     where,
-    orderBy: { date: "desc" },
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
   })
 
   const formatted = transactions.map(t => ({
@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
     notes: t.notes ?? null,
     satsAmount: t.satsAmount ?? null,
     recurringId: t.recurringId ?? null,
+    createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
   }))
 
@@ -149,6 +150,7 @@ export async function POST(req: NextRequest) {
     notes: transaction.notes ?? null,
     satsAmount: transaction.satsAmount ?? null,
     recurringId: transaction.recurringId ?? null,
+    createdAt: transaction.createdAt.toISOString(),
     updatedAt: transaction.updatedAt.toISOString(),
   }, { status: 201 })
 }
@@ -249,6 +251,7 @@ export async function PUT(req: NextRequest) {
     notes: updated.notes ?? null,
     satsAmount: updated.satsAmount ?? null,
     recurringId: updated.recurringId ?? null,
+    createdAt: updated.createdAt.toISOString(),
     updatedAt: updated.updatedAt.toISOString(),
   })
 }
