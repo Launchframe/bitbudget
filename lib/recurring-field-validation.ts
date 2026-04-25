@@ -2,7 +2,7 @@
 
 export const RECURRING_TXN_TYPES = new Set(["expense", "credit"])
 
-export function isPositiveFiniteAmount(raw: unknown): raw is number {
+export function isPositiveFiniteAmount(raw: unknown): boolean {
   const n = typeof raw === "number" ? raw : Number(raw)
   return Number.isFinite(n) && n > 0
 }
@@ -13,6 +13,17 @@ export function assertTagStringArray(tags: unknown): tags is string[] {
 
 export function parseCalendarDateString(dateStr: unknown): Date | null {
   if (typeof dateStr !== "string") return null
-  const d = new Date(dateStr)
-  return Number.isNaN(d.getTime()) ? null : d
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr)
+  if (!match) return null
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const d = new Date(Date.UTC(year, month - 1, day))
+
+  return d.getUTCFullYear() === year &&
+    d.getUTCMonth() === month - 1 &&
+    d.getUTCDate() === day
+    ? d
+    : null
 }

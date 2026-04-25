@@ -296,15 +296,17 @@ function decryptRecurringRules(
     try {
       payee = decryptFieldAsymmetric(r.payee, secretKey)
     } catch {
-      payee = looksLikeAsymmetricCiphertext(r.payee) ? ENCRYPTED_DISPLAY : r.payee
-      isDecrypted = false
+      const payeeLooksEncrypted = looksLikeAsymmetricCiphertext(r.payee)
+      payee = payeeLooksEncrypted ? ENCRYPTED_DISPLAY : r.payee
+      if (payeeLooksEncrypted) isDecrypted = false
     }
     if (notes) {
       try {
         notes = decryptFieldAsymmetric(notes, secretKey)
       } catch {
-        notes = looksLikeAsymmetricCiphertext(notes) ? ENCRYPTED_DISPLAY : notes
-        isDecrypted = false
+        const notesLooksEncrypted = looksLikeAsymmetricCiphertext(notes)
+        notes = notesLooksEncrypted ? ENCRYPTED_DISPLAY : notes
+        if (notesLooksEncrypted) isDecrypted = false
       }
     }
     return { ...r, payee, notes, isDecrypted }

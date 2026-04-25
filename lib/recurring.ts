@@ -31,11 +31,11 @@ export function advanceDate(date: Date, cadence: Cadence): Date {
  * Advances nextDueDate and deactivates if past endDate.
  * Returns the number of transactions created.
  *
- * @param asOf - End of this calendar day (local) is the cutoff for “due”. Defaults to now. Used by tests for determinism.
+ * @param asOf - End of this UTC calendar day is the cutoff for "due". Defaults to now. Used by tests for determinism.
  */
 export async function processRecurringTransactions(userId: string, asOf?: Date): Promise<number> {
   const endOfDay = new Date(asOf ?? new Date())
-  endOfDay.setHours(23, 59, 59, 999)
+  endOfDay.setUTCHours(23, 59, 59, 999)
 
   const dueRecurrings = await prisma.recurringTransaction.findMany({
     where: {

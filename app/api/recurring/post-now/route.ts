@@ -32,8 +32,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
   }
 
+  if (typeof recurringId !== "string" || recurringId.trim() === "") {
+    return NextResponse.json({ error: "Invalid recurringId" }, { status: 400 })
+  }
+  const normalizedRecurringId = recurringId.trim()
+  if (typeof envelopeId !== "string" || envelopeId.trim() === "") {
+    return NextResponse.json({ error: "Invalid envelopeId" }, { status: 400 })
+  }
+  const normalizedEnvelopeId = envelopeId.trim()
   if (typeof payee !== "string") {
     return NextResponse.json({ error: "Invalid payee" }, { status: 400 })
+  }
+  if (notes !== undefined && notes !== null && typeof notes !== "string") {
+    return NextResponse.json({ error: "Invalid notes" }, { status: 400 })
   }
   if (!RECURRING_TXN_TYPES.has(type)) {
     return NextResponse.json({ error: "type must be expense or credit" }, { status: 400 })
@@ -52,14 +63,14 @@ export async function POST(req: NextRequest) {
   }
 
   const envelope = await prisma.envelope.findFirst({
-    where: { id: envelopeId, userId },
+    where: { id: normalizedEnvelopeId, userId },
   })
   if (!envelope) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
   }
 
   const rec = await prisma.recurringTransaction.findFirst({
-    where: { id: recurringId, userId, active: true },
+    where: { id: normalizedRecurringId, userId, active: true },
   })
   if (!rec) {
     return NextResponse.json({ error: "Recurring rule not found" }, { status: 404 })
@@ -77,21 +88,21 @@ export async function POST(req: NextRequest) {
     const txn = await tx.transaction.create({
       data: {
         userId,
-        envelopeId,
+        envelopeId: normalizedEnvelopeId,
         date: txnDate,
         payee,
         amount: absAmount,
         type,
         tags: JSON.stringify(tags ?? []),
         notes: notes ?? null,
-        recurringId,
+        recurringId: normalizedRecurringId,
         satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
         source: "manual",
       },
     })
 
     await tx.recurringTransaction.update({
-      where: { id: recurringId },
+      where: { id: normalizedRecurringId },
       data: { nextDueDate: nextDue },
     })
 

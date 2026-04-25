@@ -29,9 +29,12 @@ describe("recurring field validation", () => {
     expect(assertTagStringArray(["a", 1])).toBe(false)
   })
 
-  it("parseCalendarDateString validates parseable dates", () => {
-    expect(parseCalendarDateString("2026-04-20")?.getFullYear()).toBe(2026)
+  it("parseCalendarDateString validates real YYYY-MM-DD calendar dates", () => {
+    expect(parseCalendarDateString("2026-04-20")?.getUTCFullYear()).toBe(2026)
     expect(parseCalendarDateString("")).toBeNull()
     expect(parseCalendarDateString("not-a-date")).toBeNull()
+    expect(parseCalendarDateString("2026-02-30")).toBeNull()
+    expect(parseCalendarDateString("04/20/2026")).toBeNull()
+    expect(parseCalendarDateString("2026-4-20")).toBeNull()
   })
 })

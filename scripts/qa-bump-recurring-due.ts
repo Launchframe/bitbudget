@@ -31,16 +31,15 @@ function parseArgs(): { userId: string; recurringId?: string; days: number } {
     console.error("Missing required --userId <cuid>")
     process.exit(1)
   }
-  if (days == null || !Number.isFinite(days) || days <= 0) {
+  if (days == null || !Number.isFinite(days) || !Number.isInteger(days) || days <= 0) {
     console.error("Missing or invalid --days <positive integer>")
     process.exit(1)
   }
-  return { userId: userId.trim(), recurringId: recurringId?.trim() || undefined, days: Math.floor(days) }
+  return { userId: userId.trim(), recurringId: recurringId?.trim() || undefined, days }
 }
 
 async function main() {
   const { userId, recurringId, days } = parseArgs()
-  const ms = days * 86400000
 
   const where = recurringId
     ? { id: recurringId, userId, active: true }
@@ -53,7 +52,8 @@ async function main() {
   }
 
   for (const row of rows) {
-    const next = new Date(row.nextDueDate.getTime() - ms)
+    const next = new Date(row.nextDueDate)
+    next.setDate(next.getDate() - days)
     await prisma.recurringTransaction.update({
       where: { id: row.id },
       data: { nextDueDate: next },
