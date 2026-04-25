@@ -403,9 +403,11 @@ export function NewTransactionDialog() {
             date,
           }),
         })
-        if (res.ok) {
-          await refreshData()
+        if (!res.ok) {
+          alert("Failed to post recurring transaction. Please try again.")
+          return
         }
+        await refreshData()
       } finally {
         setSubmitting(false)
       }
@@ -429,9 +431,11 @@ export function NewTransactionDialog() {
             notes: encNotes,
           }),
         })
-        if (res.ok) {
-          await refreshData()
+        if (!res.ok) {
+          alert("Failed to create recurring transaction. Please try again.")
+          return
         }
+        await refreshData()
       } finally {
         setSubmitting(false)
       }

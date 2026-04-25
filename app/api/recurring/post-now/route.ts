@@ -4,6 +4,12 @@ import { prisma } from "@/lib/db"
 import { advanceDate } from "@/lib/recurring"
 import type { Cadence } from "@/lib/recurring"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import {
+  assertTagStringArray,
+  isPositiveFiniteAmount,
+  parseCalendarDateString,
+  RECURRING_TXN_TYPES,
+} from "@/lib/recurring-field-validation"
 
 /**
  * POST /api/recurring/post-now
@@ -26,6 +32,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
   }
 
+  if (typeof payee !== "string") {
+    return NextResponse.json({ error: "Invalid payee" }, { status: 400 })
+  }
+  if (!RECURRING_TXN_TYPES.has(type)) {
+    return NextResponse.json({ error: "type must be expense or credit" }, { status: 400 })
+  }
+  if (!isPositiveFiniteAmount(amount)) {
+    return NextResponse.json({ error: "Invalid amount" }, { status: 400 })
+  }
+  const amountNum = typeof amount === "number" ? amount : Number(amount)
+  if (tags !== undefined && tags !== null && !assertTagStringArray(tags)) {
+    return NextResponse.json({ error: "tags must be an array of strings" }, { status: 400 })
+  }
+
+  const txnDate = parseCalendarDateString(typeof date === "string" ? date : String(date))
+  if (!txnDate) {
+    return NextResponse.json({ error: "Invalid date" }, { status: 400 })
+  }
+
+  const envelope = await prisma.envelope.findFirst({
+    where: { id: envelopeId, userId },
+  })
+  if (!envelope) {
+    return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
+  }
+
   const rec = await prisma.recurringTransaction.findFirst({
     where: { id: recurringId, userId, active: true },
   })
@@ -33,10 +65,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Recurring rule not found" }, { status: 404 })
   }
 
-  const txnDate = new Date(date)
   const dateStr = txnDate.toISOString().split("T")[0]
   const btcPrice = await getBtcPriceForDate(dateStr)
-  const absAmount = Math.abs(amount)
+  const absAmount = Math.abs(amountNum)
 
   // Advance nextDueDate from its current scheduled value (not from today),
   // so the skip lands on the correct future occurrence.

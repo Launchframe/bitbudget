@@ -1351,14 +1351,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       })
-      if (res.ok) {
-        const updated = await res.json() as RecurringTransaction
-        const locked = pendingLockedRef.current && !privacyKeyRef.current
-        const decrypted = decryptRecurringRules([updated], privacyKeyRef.current, locked)[0]
-        setRecurringTransactions((prev) =>
-          prev.map((r) => (r.id === id ? decrypted : r)),
+      if (!res.ok) {
+        const errorText = await res.text()
+        let message = errorText.trim()
+        try {
+          const j = JSON.parse(errorText) as { error?: string }
+          if (j?.error && typeof j.error === "string") message = j.error
+        } catch {
+          /* use body as-is */
+        }
+        throw new Error(
+          message || `Failed to edit recurring transaction: ${res.status} ${res.statusText}`,
         )
       }
+      const updated = await res.json() as RecurringTransaction
+      const locked = pendingLockedRef.current && !privacyKeyRef.current
+      const decrypted = decryptRecurringRules([updated], privacyKeyRef.current, locked)[0]
+      setRecurringTransactions((prev) =>
+        prev.map((r) => (r.id === id ? decrypted : r)),
+      )
     },
     [],
   )

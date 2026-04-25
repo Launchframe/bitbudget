@@ -4,6 +4,11 @@ import { prisma } from "@/lib/db"
 import { advanceDate } from "@/lib/recurring"
 import type { Cadence } from "@/lib/recurring"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import {
+  assertTagStringArray,
+  isPositiveFiniteAmount,
+  RECURRING_TXN_TYPES,
+} from "@/lib/recurring-field-validation"
 
 const VALID_CADENCES = ["weekly", "biweekly", "monthly", "quarterly", "annual"]
 
@@ -158,15 +163,40 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  if (amount !== undefined && !isPositiveFiniteAmount(amount)) {
+    return NextResponse.json({ error: "Invalid amount" }, { status: 400 })
+  }
+  if (type !== undefined && !RECURRING_TXN_TYPES.has(type)) {
+    return NextResponse.json({ error: "type must be expense or credit" }, { status: 400 })
+  }
+  if (payee !== undefined && typeof payee !== "string") {
+    return NextResponse.json({ error: "Invalid payee" }, { status: 400 })
+  }
+  if (endDate !== undefined && endDate !== null) {
+    if (typeof endDate !== "string") {
+      return NextResponse.json({ error: "Invalid endDate" }, { status: 400 })
+    }
+    const end = new Date(endDate)
+    if (Number.isNaN(end.getTime())) {
+      return NextResponse.json({ error: "Invalid endDate" }, { status: 400 })
+    }
+  }
+  if (tags !== undefined && !assertTagStringArray(tags)) {
+    return NextResponse.json({ error: "tags must be an array of strings" }, { status: 400 })
+  }
+
+  const resolvedAmount =
+    amount !== undefined ? Math.abs(typeof amount === "number" ? amount : Number(amount)) : undefined
+
   const updated = await prisma.recurringTransaction.update({
     where: { id },
     data: {
       ...(payee !== undefined && { payee }),
-      ...(amount !== undefined && { amount: Math.abs(amount) }),
+      ...(resolvedAmount !== undefined && { amount: resolvedAmount }),
       ...(type !== undefined && { type }),
       ...(envelopeId !== undefined && { envelopeId }),
       ...(cadence !== undefined && { cadence }),
-      ...(endDate !== undefined && { endDate: endDate ? new Date(endDate) : null }),
+      ...(endDate !== undefined && { endDate: endDate ? new Date(endDate as string) : null }),
       ...(tags !== undefined && { tags: JSON.stringify(tags) }),
       ...(notes !== undefined && { notes: notes ?? null }),
     },

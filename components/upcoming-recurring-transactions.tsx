@@ -108,6 +108,11 @@ function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
         notes: notes.trim() || null,
       })
       onClose()
+    } catch (e) {
+      setErrors((prev) => ({
+        ...prev,
+        form: e instanceof Error ? e.message : "Could not save changes. Please try again.",
+      }))
     } finally {
       setSubmitting(false)
     }
@@ -132,6 +137,12 @@ function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
             Edit Recurring Rule
           </DialogTitle>
         </DialogHeader>
+
+        {errors.form && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+            {errors.form}
+          </div>
+        )}
 
         <div className="flex flex-col gap-5">
           {/* Type toggle */}
@@ -294,16 +305,18 @@ function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
                 {state.tags.map((tag) => (
                   <Badge
                     key={tag.id}
+                    asChild
                     variant={selectedTags.includes(tag.name) ? "default" : "outline"}
                     className={`cursor-pointer transition-colors ${
                       selectedTags.includes(tag.name)
                         ? "bg-btc-orange text-[#0D0D0D] hover:bg-btc-orange/80 border-transparent"
                         : "border-[#333] text-muted-foreground hover:border-btc-orange/50 hover:text-foreground"
                     }`}
-                    onClick={() => toggleTag(tag.name)}
                   >
-                    {tag.name}
-                    {selectedTags.includes(tag.name) && <X className="ml-1 h-3 w-3" />}
+                    <button type="button" onClick={() => toggleTag(tag.name)} className="inline-flex items-center gap-1">
+                      {tag.name}
+                      {selectedTags.includes(tag.name) && <X className="h-3 w-3 shrink-0" aria-hidden />}
+                    </button>
                   </Badge>
                 ))}
               </div>
