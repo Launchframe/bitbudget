@@ -258,7 +258,7 @@ export function PayeeMappingsSettings() {
               id="payee-map-source"
               value={newSource}
               onChange={(e) => setNewSource(e.target.value)}
-              placeholder="As it appears on receipts, CSV, or bank text"
+              placeholder="As it appears on receipts or imports"
               className="border-[#333] bg-[#1A1A1A] text-foreground"
               autoComplete="off"
             />
@@ -269,7 +269,7 @@ export function PayeeMappingsSettings() {
               id="payee-map-canonical"
               value={newCanonical}
               onChange={(e) => setNewCanonical(e.target.value)}
-              placeholder="How you want it in BitBudget"
+              placeholder="How you want it to appear in BitBudget"
               className="border-[#333] bg-[#1A1A1A] text-foreground"
               list="payee-canonical-options"
               autoComplete="off"
