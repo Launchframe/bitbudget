@@ -48,6 +48,12 @@ interface SankeyNodeProps {
   payload?: SankeyNode
 }
 
+interface HeatmapLayout {
+  gapClass: string
+  squareClass: string
+  labelClass: string
+}
+
 const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
   { key: "mtd", label: "MTD" },
   { key: "1m", label: "1M" },
@@ -137,6 +143,16 @@ function getHeatmapIntensityClass(value: number, max: number): string {
   if (value <= 0 || max <= 0) return HEATMAP_INTENSITY_CLASSES[0]
   const bucket = Math.max(1, Math.ceil((value / max) * 4))
   return HEATMAP_INTENSITY_CLASSES[bucket]
+}
+
+function getHeatmapLayout(dayCount: number): HeatmapLayout {
+  if (dayCount <= 14) {
+    return { gapClass: "gap-1.5", squareClass: "h-5 w-5", labelClass: "h-5 leading-5" }
+  }
+  if (dayCount <= 42) {
+    return { gapClass: "gap-1.5", squareClass: "h-4 w-4", labelClass: "h-4 leading-4" }
+  }
+  return { gapClass: "gap-1", squareClass: "h-3 w-3", labelClass: "h-3 leading-3" }
 }
 
 function buildHeatmapDays(transactions: Transaction[], startDate: string, endDate: string): HeatmapDay[] {
@@ -343,6 +359,11 @@ export function AnalyticsPage() {
     [heatmapDays, heatmapMode],
   )
 
+  const heatmapLayout = useMemo(
+    () => getHeatmapLayout(heatmapDays.length),
+    [heatmapDays.length],
+  )
+
   const incomeFlow = useMemo(
     () => buildIncomeFlowData(filtered, activeEnvelopes),
     [filtered, activeEnvelopes],
@@ -445,15 +466,15 @@ export function AnalyticsPage() {
         ) : heatmapDays.length > 0 ? (
           <>
             <div className="overflow-x-auto pb-2">
-              <div className="grid grid-cols-[auto_1fr] gap-2 min-w-max">
-                <div className="grid grid-rows-7 gap-1 text-[10px] text-muted-foreground">
+              <div className="grid grid-cols-[auto_auto] gap-2 w-fit min-w-max">
+                <div className={`grid grid-rows-7 ${heatmapLayout.gapClass} text-[10px] text-muted-foreground`}>
                   {WEEKDAY_LABELS.map((label, index) => (
-                    <span key={`${label}-${index}`} className="h-3 leading-3">
+                    <span key={`${label}-${index}`} className={heatmapLayout.labelClass}>
                       {label}
                     </span>
                   ))}
                 </div>
-                <div className="grid grid-flow-col grid-rows-7 gap-1">
+                <div className={`grid grid-flow-col grid-rows-7 ${heatmapLayout.gapClass}`}>
                   {heatmapDays.map((day) => {
                     const value = heatmapMode === "count" ? day.count : day.spent
                     const title = `${formatHeatmapDate(day.date)}: ${day.count} transaction${day.count === 1 ? "" : "s"}, ${formatUsd(day.spent)} spent`
@@ -462,7 +483,7 @@ export function AnalyticsPage() {
                         key={day.date}
                         title={title}
                         aria-label={title}
-                        className={`h-3 w-3 rounded-[3px] border border-[#252525] ${getHeatmapIntensityClass(value, heatmapMax)} ${
+                        className={`${heatmapLayout.squareClass} rounded-[3px] border border-[#252525] ${getHeatmapIntensityClass(value, heatmapMax)} ${
                           day.inRange ? "opacity-100" : "opacity-25"
                         }`}
                       />
