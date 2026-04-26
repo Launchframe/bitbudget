@@ -13,8 +13,8 @@ export async function resetRecurringE2eData(): Promise<void> {
 
 export async function seedRecurringE2eData(): Promise<void> {
   const yesterday = new Date()
-  yesterday.setDate(yesterday.getDate() - 1)
-  yesterday.setHours(12, 0, 0, 0)
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1)
+  yesterday.setUTCHours(12, 0, 0, 0)
 
   const user = await prisma.user.create({
     data: {
