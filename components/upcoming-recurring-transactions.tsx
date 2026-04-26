@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
 import type { RecurringTransaction } from "@/lib/data"
@@ -410,6 +410,7 @@ export function UpcomingRecurringTransactions() {
   const { recurringTransactions, activeEnvelopes, openNewTransaction } = useApp()
   const [collapsed, setCollapsed] = useState(false)
   const [editingRule, setEditingRule] = useState<RecurringTransaction | null>(null)
+  const listId = useId()
 
   const active = recurringTransactions.filter((r) => r.active)
   if (active.length === 0) return null
@@ -439,6 +440,8 @@ export function UpcomingRecurringTransactions() {
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
+          aria-expanded={!collapsed}
+          aria-controls={listId}
           className="w-full flex items-center justify-between mb-2 group"
         >
           <div className="flex items-center gap-2">
@@ -455,9 +458,8 @@ export function UpcomingRecurringTransactions() {
           )}
         </button>
 
-        {!collapsed && (
-          <div className="flex flex-col gap-1.5">
-            {active.map((rule) => {
+        <div id={listId} hidden={collapsed} className="flex flex-col gap-1.5">
+          {active.map((rule) => {
               const env = activeEnvelopes.find((e) => e.id === rule.envelopeId)
               const isExpense = rule.type === "expense"
               const payeeLabel =
@@ -528,9 +530,8 @@ export function UpcomingRecurringTransactions() {
                   </div>
                 </div>
               )
-            })}
-          </div>
-        )}
+          })}
+        </div>
       </div>
     </>
   )

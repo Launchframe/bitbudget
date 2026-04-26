@@ -53,7 +53,7 @@ async function main() {
 
   for (const row of rows) {
     const next = new Date(row.nextDueDate)
-    next.setDate(next.getDate() - days)
+    next.setUTCDate(next.getUTCDate() - days)
     await prisma.recurringTransaction.update({
       where: { id: row.id },
       data: { nextDueDate: next },
