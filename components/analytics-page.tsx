@@ -74,22 +74,22 @@ const HEATMAP_INTENSITY_CLASSES = [
 const WEEKDAY_LABELS = ["", "Mon", "", "Wed", "", "Fri", ""]
 
 function toIsoDate(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`
 }
 
 function todayIso(): string {
-  return toIsoDate(new Date())
+  return new Date().toISOString().split("T")[0]
 }
 
 function parseIsoDate(date: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
-  const parsed = new Date(`${date}T12:00:00`)
+  const parsed = new Date(`${date}T12:00:00.000Z`)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
 function addDays(date: Date, days: number): Date {
   const next = new Date(date)
-  next.setDate(next.getDate() + days)
+  next.setUTCDate(next.getUTCDate() + days)
   return next
 }
 
@@ -97,18 +97,18 @@ function getStartDateForRange(key: RangeKey, earliestTransactionDate?: string): 
   const d = new Date()
   switch (key) {
     case "mtd":
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01`
     case "1m":
-      d.setMonth(d.getMonth() - 1)
+      d.setUTCMonth(d.getUTCMonth() - 1)
       break
     case "3m":
-      d.setMonth(d.getMonth() - 3)
+      d.setUTCMonth(d.getUTCMonth() - 3)
       break
     case "12m":
-      d.setFullYear(d.getFullYear() - 1)
+      d.setUTCFullYear(d.getUTCFullYear() - 1)
       break
     case "ytd":
-      return `${d.getFullYear()}-01-01`
+      return `${d.getUTCFullYear()}-01-01`
     case "all":
       return earliestTransactionDate || todayIso()
     case "custom":
@@ -292,9 +292,9 @@ export function AnalyticsPage() {
   )
 
   const rangeExceeds30Days = useMemo(() => {
-    if (!startDateParsed || !endDateParsed) return false
+    if (invalidRange || !startDateParsed || !endDateParsed) return false
     return Math.abs(endDateParsed.getTime() - startDateParsed.getTime()) > 30 * 86400000
-  }, [startDateParsed, endDateParsed])
+  }, [invalidRange, startDateParsed, endDateParsed])
 
   const cashFlowData = useMemo(() => {
     const months: Record<string, { income: number; expenses: number }> = {}
