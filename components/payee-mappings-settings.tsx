@@ -1,14 +1,16 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import {
   buildPayeeDisplayRowsFromTransactions,
   findSimilarPayeeClusters,
+  getPayeeMappingReviewClusters,
   normalizePayeeKey,
   type PayeeNameCluster,
   type PayeeNameVariant,
 } from "@/lib/payee-canonical"
+import { loadIgnoredPayeeMappingSuggestions } from "@/lib/payee-mapping-dismissals"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Trash2, Link2, Loader2 } from "lucide-react"
@@ -16,14 +18,17 @@ import { Trash2, Link2, Loader2 } from "lucide-react"
 type AliasRow = { id: string; sourceNormalized: string; canonicalPayee: string }
 
 export function PayeeMappingsSettings() {
-  const { activeTransactions } = useApp()
+  const { activeTransactions, currentUserId } = useApp()
   const [aliases, setAliases] = useState<AliasRow[]>([])
+  const [ignored, setIgnored] = useState<Set<string>>(() => new Set())
   const [loading, setLoading] = useState(true)
   const [newSource, setNewSource] = useState("")
   const [newCanonical, setNewCanonical] = useState("")
   const [formBusy, setFormBusy] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [clusterBusyKey, setClusterBusyKey] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const payeeRows = useMemo(
     () => buildPayeeDisplayRowsFromTransactions(activeTransactions),
@@ -36,6 +41,10 @@ export function PayeeMappingsSettings() {
   }, [payeeRows])
 
   const clusters = useMemo(() => findSimilarPayeeClusters(payeeRows), [payeeRows])
+  const pendingClusters = useMemo(
+    () => getPayeeMappingReviewClusters(clusters, aliases, ignored),
+    [clusters, aliases, ignored],
+  )
 
   const loadAliases = useCallback(() => {
     setLoading(true)
@@ -50,13 +59,29 @@ export function PayeeMappingsSettings() {
     loadAliases()
   }, [loadAliases])
 
+  useEffect(() => {
+    setIgnored(loadIgnoredPayeeMappingSuggestions(currentUserId))
+  }, [currentUserId])
+
+  useEffect(() => {
+    return () => {
+      if (successTimer.current) clearTimeout(successTimer.current)
+    }
+  }, [])
+
+  function showSuccess(message: string) {
+    if (successTimer.current) clearTimeout(successTimer.current)
+    setSuccessMessage(message)
+    successTimer.current = setTimeout(() => setSuccessMessage(null), 4000)
+  }
+
   async function handleAddMapping(e: React.FormEvent) {
     e.preventDefault()
     setFormError(null)
     const src = newSource.trim()
     const canon = newCanonical.trim()
     if (!src || !canon) {
-      setFormError("Enter both the import text and the canonical payee name.")
+      setFormError("Enter both the source payee and destination payee.")
       return
     }
     setFormBusy(true)
@@ -89,9 +114,11 @@ export function PayeeMappingsSettings() {
   /** Map every variant in the cluster to the chosen canonical payee (skips identical names). */
   async function applyClusterMappings(cluster: PayeeNameCluster, canonicalDisplay: string) {
     setFormError(null)
+    setSuccessMessage(null)
     const key = cluster.softKey
     setClusterBusyKey(key)
     try {
+      let savedCount = 0
       for (const v of cluster.variants) {
         if (normalizePayeeKey(v.displayName) === normalizePayeeKey(canonicalDisplay)) continue
         const res = await fetch("/api/payee-aliases", {
@@ -105,10 +132,16 @@ export function PayeeMappingsSettings() {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
           setFormError(typeof err.error === "string" ? err.error : "Some mappings failed")
-          break
+          return
         }
+        savedCount += 1
       }
       loadAliases()
+      showSuccess(
+        savedCount > 0
+          ? `Mapped ${savedCount} source ${savedCount === 1 ? "payee" : "payees"} to ${canonicalDisplay}.`
+          : `Mappings to ${canonicalDisplay} are already saved.`,
+      )
     } finally {
       setClusterBusyKey(null)
     }
@@ -120,16 +153,26 @@ export function PayeeMappingsSettings() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="relative flex flex-col gap-8">
+      {successMessage && (
+        <div
+          role="status"
+          className="fixed bottom-6 right-6 z-50 max-w-sm rounded-xl border border-btc-orange/35 bg-[#0D0D0D] px-4 py-3 text-sm text-foreground shadow-lg shadow-black/40"
+        >
+          {successMessage}
+        </div>
+      )}
+
       <div>
         <h3 className="text-lg font-semibold text-foreground">Payee name mappings</h3>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Imports (receipt scan, CSV, bank text) may spell the same merchant differently than your manual
-          entries. <span className="text-foreground">Your canonical payee</span> is the name stored on
-          transactions after a match—reports and lists group by that string. You decide every mapping:
+          entries. The <span className="text-foreground">source payee</span> is the text BitBudget sees
+          from an import or scan; the <span className="text-foreground">destination payee</span> is the
+          name BitBudget should use instead. You decide every mapping:
           similar spellings are only merged automatically when they differ by spaces or punctuation (e.g.
           Wal-Mart vs Walmart). Names like <span className="text-foreground">Walmart</span> and{" "}
-          <span className="text-foreground">Walmart Liquor</span> stay separate unless you add a mapping.
+          <span className="text-foreground">Walmart Pharmacy</span> stay separate unless you add a mapping.
         </p>
       </div>
 
@@ -141,14 +184,19 @@ export function PayeeMappingsSettings() {
           </h4>
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
-          These groups share the same letters (ignoring spaces and hyphens). Pick one canonical name to map
+          These groups share the same letters (ignoring spaces and hyphens). Pick one destination payee to map
           the others to, or leave them separate if they are different businesses for you.
         </p>
-        {clusters.length === 0 ? (
+        {loading ? (
+          <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading suggestions…
+          </div>
+        ) : pendingClusters.length === 0 ? (
           <p className="mt-4 text-sm text-muted-foreground">No spelling-only duplicates found.</p>
         ) : (
           <ul className="mt-4 flex flex-col gap-4">
-            {clusters.map((cluster) => (
+            {pendingClusters.map((cluster) => (
               <ClusterRow
                 key={cluster.softKey}
                 cluster={cluster}
@@ -206,28 +254,28 @@ export function PayeeMappingsSettings() {
       >
         <h4 className="text-sm font-semibold text-foreground">Add mapping</h4>
         <p className="mt-1 text-sm text-muted-foreground">
-          e.g. import text <span className="text-foreground">WM SUPERCENTER</span> → canonical{" "}
+          e.g. source payee <span className="text-foreground">WM SUPERCENTER</span> → destination payee{" "}
           <span className="text-foreground">Walmart</span>
         </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="payee-map-source">Import / statement text</Label>
+            <Label htmlFor="payee-map-source">Source payee</Label>
             <Input
               id="payee-map-source"
               value={newSource}
               onChange={(e) => setNewSource(e.target.value)}
-              placeholder="As it appears on receipts or CSV"
+              placeholder="As it appears on receipts or imports"
               className="border-[#333] bg-[#1A1A1A] text-foreground"
               autoComplete="off"
             />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="payee-map-canonical">Canonical payee name</Label>
+            <Label htmlFor="payee-map-canonical">Destination payee</Label>
             <Input
               id="payee-map-canonical"
               value={newCanonical}
               onChange={(e) => setNewCanonical(e.target.value)}
-              placeholder="How you want it in BitBudget"
+              placeholder="How you want it to appear in BitBudget"
               className="border-[#333] bg-[#1A1A1A] text-foreground"
               list="payee-canonical-options"
               autoComplete="off"
@@ -278,7 +326,7 @@ function ClusterRow({
       </ul>
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1">
-          <Label className="text-xs text-muted-foreground">Canonical payee for this group</Label>
+          <Label className="text-xs text-muted-foreground">Destination payee for this group</Label>
           <select
             value={canonicalPick}
             onChange={(e) => setCanonicalPick(e.target.value)}
@@ -303,7 +351,7 @@ function ClusterRow({
               Saving…
             </span>
           ) : (
-            "Map variants to canonical"
+            "Map variants to destination"
           )}
         </button>
       </div>

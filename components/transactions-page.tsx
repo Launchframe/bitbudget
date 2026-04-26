@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { formatUsd, formatUsdPrecise, type BtcDisplayUnit, type TransactionType } from "@/lib/data"
+import { compareTransactionsDesc, formatUsd, formatUsdPrecise, type BtcDisplayUnit, type TransactionType } from "@/lib/data"
 import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
@@ -15,6 +15,7 @@ import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { PayeeMappingReviewBanner } from "@/components/payee-mapping-review-banner"
+import { UpcomingRecurringTransactions } from "@/components/upcoming-recurring-transactions"
 import {
   Select,
   SelectContent,
@@ -121,7 +122,7 @@ export function TransactionsPage() {
       result = result.filter((t) => t.date <= endDate)
     }
 
-    return result.sort((a, b) => b.date.localeCompare(a.date))
+    return result.sort(compareTransactionsDesc)
   }, [activeTransactions, searchQuery, typeFilter, envelopeFilters, tagFilters, startDate, endDate])
 
   useEffect(() => {
@@ -467,6 +468,8 @@ export function TransactionsPage() {
           )}
         </div>
       )}
+
+      <UpcomingRecurringTransactions />
 
       <div className="bg-[#0D0D0D] rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">

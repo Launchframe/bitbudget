@@ -8,6 +8,13 @@ All assumptions, changes, and decisions made while building the fully functional
 
 - **Client:** `lib/privacy-key-storage.ts` — after passphrase or Nostr unlock, the privacy key hex is stored in **localStorage with a 7-day TTL** (rolling window on each successful unlock). Replaces session-only persistence so users (e.g. Google sign-in) are not prompted on every new browser session; passphrase is required again after expiry or logout.
 - **Wiring:** `lib/app-context.tsx`, `components/pin-unlock-dialog.tsx`, `app/onboarding/page.tsx`, `lib/resolve-import-encrypt-fn.ts`.
+## Recurring transactions — QA validation (2026)
+
+- **Docs:** [docs/testing/recurring-qa.md](docs/testing/recurring-qa.md) — manual checklist for staging (move `nextDueDate`, refresh/process, post now, edit/delete). [AGENTS.md](AGENTS.md) Testing section links here.
+- **Script:** `pnpm qa:recurring:bump -- --userId <cuid> [--recurringId <cuid>] --days <n>` — subtracts days from `nextDueDate` via Prisma ([scripts/qa-bump-recurring-due.ts](scripts/qa-bump-recurring-due.ts)).
+- **Core:** [lib/recurring.ts](lib/recurring.ts) — `processRecurringTransactions(userId, asOf?)` optional “as of” date for deterministic tests; production callers omit the second argument.
+- **Automated:** [lib/__tests__/recurring.test.ts](lib/__tests__/recurring.test.ts) (Vitest: `advanceDate` + mocked process). Playwright [e2e/recurring.lifecycle.spec.ts](e2e/recurring.lifecycle.spec.ts) with seed [e2e/seed-recurring-e2e.ts](e2e/seed-recurring-e2e.ts) (fixture user `e2e-recurring@bitbudget.test`, due rule); global setup runs after referral seed.
+- **Playwright typings:** [e2e/referrals.program.spec.ts](e2e/referrals.program.spec.ts) — `APIRequestContext.post` uses `data` instead of `body` for JSON.
 
 ---
 

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
-import { formatUsd, formatUsdPrecise } from "@/lib/data"
+import { compareTransactionsDesc, formatUsd, formatUsdPrecise } from "@/lib/data"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -40,8 +40,34 @@ import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { SettingsReferralsCard } from "@/components/settings-referrals-card"
 
+type SettingsTab = "general" | "integrations" | "tags" | "payees" | "data"
+
+const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
+  general: "general",
+  integrations: "integrations",
+  tags: "tags",
+  payees: "payee-mappings",
+  data: "data-security",
+}
+
+const SETTINGS_TAB_FROM_SLUG: Record<string, SettingsTab> = {
+  general: "general",
+  integrations: "integrations",
+  tags: "tags",
+  payees: "payees",
+  "payee-mappings": "payees",
+  data: "data",
+  "data-security": "data",
+}
+
+function settingsTabFromLocationHash(): SettingsTab | null {
+  if (typeof window === "undefined") return null
+  const path = window.location.hash.replace(/^#\/?/, "")
+  const slug = path.startsWith("settings/") ? path.slice("settings/".length) : null
+  return slug ? SETTINGS_TAB_FROM_SLUG[slug] ?? null : null
+}
+
 export function SettingsPage() {
-  type SettingsTab = "general" | "integrations" | "tags" | "payees" | "data"
   const {
     state,
     activeTransactions,
@@ -68,20 +94,43 @@ export function SettingsPage() {
     ? state.transactions.length
     : Math.max(state.transactions.length, memoTransactionCount ?? 0)
   const [editingIncome, setEditingIncome] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general")
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>(() => settingsTabFromLocationHash() ?? "general")
+
+  const selectSettingsTab = useCallback((tab: SettingsTab, mode: "push" | "replace" = "push") => {
+    setSettingsTab(tab)
+    if (typeof window === "undefined") return
+    const hash = `#/settings/${SETTINGS_TAB_SLUGS[tab]}`
+    if (window.location.hash !== hash) {
+      if (mode === "replace") window.history.replaceState({ page: "settings", settingsTab: tab }, "", hash)
+      else window.history.pushState({ page: "settings", settingsTab: tab }, "", hash)
+    }
+  }, [])
 
   useEffect(() => {
     try {
       const t = sessionStorage.getItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       if (t === "payees") {
-        setSettingsTab("payees")
+        selectSettingsTab("payees", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       } else if (t === "integrations") {
-        setSettingsTab("integrations")
+        selectSettingsTab("integrations", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       }
     } catch {
       /* ignore */
+    }
+  }, [selectSettingsTab])
+
+  useEffect(() => {
+    function syncFromHash() {
+      const next = settingsTabFromLocationHash()
+      if (next) setSettingsTab(next)
+    }
+    window.addEventListener("popstate", syncFromHash)
+    window.addEventListener("hashchange", syncFromHash)
+    return () => {
+      window.removeEventListener("popstate", syncFromHash)
+      window.removeEventListener("hashchange", syncFromHash)
     }
   }, [])
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
@@ -120,7 +169,7 @@ export function SettingsPage() {
     const now = new Date()
     const stampDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
     const filename = buildExportFilename({ stampDate })
-    const sorted = [...activeTransactions].sort((a, b) => b.date.localeCompare(a.date))
+    const sorted = [...activeTransactions].sort(compareTransactionsDesc)
     const rows = sorted.map(t => {
       const amount = t.type === "expense" ? -Math.abs(t.amount) : Math.abs(t.amount)
       return {
@@ -848,23 +897,23 @@ export function SettingsPage() {
         <aside className="lg:sticky lg:top-6 self-start">
           <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-2">
             <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
-              <button type="button" onClick={() => setSettingsTab("general")} className={tabButtonClass("general")}>
+              <button type="button" onClick={() => selectSettingsTab("general")} className={tabButtonClass("general")}>
                 <Settings2 className={tabIconClass("general")} aria-hidden />
                 <span>General</span>
               </button>
-              <button type="button" onClick={() => setSettingsTab("integrations")} className={tabButtonClass("integrations")}>
+              <button type="button" onClick={() => selectSettingsTab("integrations")} className={tabButtonClass("integrations")}>
                 <Plug className={tabIconClass("integrations")} aria-hidden />
                 <span>Integrations</span>
               </button>
-              <button type="button" onClick={() => setSettingsTab("tags")} className={tabButtonClass("tags")}>
+              <button type="button" onClick={() => selectSettingsTab("tags")} className={tabButtonClass("tags")}>
                 <Tag className={tabIconClass("tags")} aria-hidden />
                 <span>Tags</span>
               </button>
-              <button type="button" onClick={() => setSettingsTab("payees")} className={tabButtonClass("payees")}>
+              <button type="button" onClick={() => selectSettingsTab("payees")} className={tabButtonClass("payees")}>
                 <Link2 className={tabIconClass("payees")} aria-hidden />
                 <span>Payee mappings</span>
               </button>
-              <button type="button" onClick={() => setSettingsTab("data")} className={tabButtonClass("data")}>
+              <button type="button" onClick={() => selectSettingsTab("data")} className={tabButtonClass("data")}>
                 <Shield className={tabIconClass("data")} aria-hidden />
                 <span>Data & Security</span>
               </button>

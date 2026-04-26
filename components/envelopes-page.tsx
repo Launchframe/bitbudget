@@ -69,6 +69,15 @@ export function EnvelopesPage() {
 
   const currentMonth = getCurrentMonthKey()
 
+  // Marker position: 100% on day 1 (full month ahead), 0% on last day.
+  // formula: (1 − (dayOfMonth − 1) / (daysInMonth − 1)) × 100
+  // Compute each render so the marker stays correct across day/month boundaries while the page is open.
+  const today = new Date()
+  const dayOfMonth = today.getDate()
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+  const monthMarkerPct =
+    daysInMonth > 1 ? (1 - (dayOfMonth - 1) / (daysInMonth - 1)) * 100 : 100
+
   const totalAllocated = useMemo(
     () => activeEnvelopes.reduce((sum, e) => sum + e.monthlyAllotment, 0),
     [activeEnvelopes]
@@ -266,6 +275,7 @@ export function EnvelopesPage() {
                   </div>
                   <Progress
                     value={Math.min(100, percentage)}
+                    markerPct={monthMarkerPct}
                     className="h-2"
                     style={{
                       // @ts-expect-error - CSS custom properties

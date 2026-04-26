@@ -117,8 +117,8 @@ export function PayeeMappingReviewBanner() {
             <h3 className="text-sm font-semibold text-foreground">Payee mappings to review</h3>
             <p className="mt-1 text-sm text-muted-foreground">
               {pendingClusters.length === 1
-                ? "One group of similar spellings could use a single canonical payee for imports."
-                : `${pendingClusters.length} groups of similar spellings could use a single canonical payee for imports.`}{" "}
+                ? "One group of similar spellings could use a single destination payee for imports."
+                : `${pendingClusters.length} groups of similar spellings could use a single destination payee for imports.`}{" "}
               Map variants below, ignore a spelling you want to keep separate, or manage everything in Settings.
             </p>
           </div>

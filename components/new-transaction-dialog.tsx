@@ -180,6 +180,8 @@ export function NewTransactionDialog() {
     if (transactionPrefill.date) setDate(transactionPrefill.date)
     if (transactionPrefill.notes) setNotes(transactionPrefill.notes)
     if (transactionPrefill.envelopeId) setEnvelopeId(transactionPrefill.envelopeId)
+    if (transactionPrefill.type) setType(transactionPrefill.type)
+    if (transactionPrefill.tags) setSelectedTags(transactionPrefill.tags)
   }, [transactionDialogOpen, transactionPrefill])
 
   useEffect(() => {
@@ -193,7 +195,12 @@ export function NewTransactionDialog() {
     }
     const raw = transactionPrefill?.payee?.trim()
     if (!raw) {
+      prefillPayeeRawRef.current = null
+      skipCanonicalForPrefillRef.current = false
+      setPayee("")
+      setPayeeMatchHint(null)
       setImportSourcePayee(null)
+      setAliasSaveMessage(null)
       return
     }
 
@@ -381,7 +388,35 @@ export function NewTransactionDialog() {
     }
     setValidationErrors({})
 
-    if (isRecurring) {
+    const recurringId = transactionPrefill?.recurringId
+    if (recurringId) {
+      setSubmitting(true)
+      try {
+        const encPayee = await encryptForStorage(payee.trim())
+        const encNotes = notes.trim() ? await encryptForStorage(notes.trim()) : null
+        const res = await fetch("/api/recurring/post-now", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recurringId,
+            payee: encPayee,
+            amount: Math.abs(parseFloat(amount)),
+            type,
+            envelopeId,
+            tags: selectedTags,
+            notes: encNotes,
+            date,
+          }),
+        })
+        if (!res.ok) {
+          alert("Failed to post recurring transaction. Please try again.")
+          return
+        }
+        await refreshData()
+      } finally {
+        setSubmitting(false)
+      }
+    } else if (isRecurring) {
       setSubmitting(true)
       try {
         const encPayee = await encryptForStorage(payee.trim())
@@ -401,9 +436,11 @@ export function NewTransactionDialog() {
             notes: encNotes,
           }),
         })
-        if (res.ok) {
-          await refreshData()
+        if (!res.ok) {
+          alert("Failed to create recurring transaction. Please try again.")
+          return
         }
+        await refreshData()
       } finally {
         setSubmitting(false)
       }
@@ -456,7 +493,9 @@ export function NewTransactionDialog() {
     <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen}>
       <DialogContent className="flex max-h-[min(90dvh,900px)] min-h-0 flex-col gap-0 overflow-hidden border-[#1F1F1F] bg-[#0D0D0D] p-0 text-foreground sm:max-w-lg">
         <DialogHeader className="shrink-0 px-6 pb-2 pr-14 pt-6">
-          <DialogTitle className="text-lg font-bold text-foreground">New Transaction</DialogTitle>
+          <DialogTitle className="text-lg font-bold text-foreground">
+            {transactionPrefill?.recurringId ? "Post Recurring Transaction" : "New Transaction"}
+          </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -684,29 +723,31 @@ export function NewTransactionDialog() {
                 />
               </div>
 
-              {/* Recurring disclosure row */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (ignoreNextDisclosureClickRef.current) return
-                  recurringSnapshotRef.current = { isRecurring, cadence, endDate }
-                  setModalView("recurring")
-                }}
-                className="flex items-center justify-between p-3 bg-[#1A1A1A] rounded-lg hover:bg-[#222] transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <Repeat className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-foreground">Recurring</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-muted-foreground">
-                    {isRecurring
-                      ? `${CADENCE_OPTIONS.find(o => o.value === cadence)?.label ?? cadence}${endDate ? `, ends ${endDate}` : ""}`
-                      : "Off"}
-                  </span>
-                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                </div>
-              </button>
+              {/* Recurring disclosure row — hidden in post-now mode */}
+              {!transactionPrefill?.recurringId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (ignoreNextDisclosureClickRef.current) return
+                    recurringSnapshotRef.current = { isRecurring, cadence, endDate }
+                    setModalView("recurring")
+                  }}
+                  className="flex items-center justify-between p-3 bg-[#1A1A1A] rounded-lg hover:bg-[#222] transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Repeat className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-foreground">Recurring</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">
+                      {isRecurring
+                        ? `${CADENCE_OPTIONS.find(o => o.value === cadence)?.label ?? cadence}${endDate ? `, ends ${endDate}` : ""}`
+                        : "Off"}
+                    </span>
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
+                </button>
+              )}
 
               {/* Tags disclosure row */}
               <button
@@ -747,7 +788,17 @@ export function NewTransactionDialog() {
                   disabled={submitting}
                   className="w-full rounded-lg bg-[#F7931A] py-3 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90 disabled:opacity-50"
                 >
-                  {submitting ? "Creating..." : isRecurring ? `Add Recurring ${type === "expense" ? "Expense" : "Credit"}` : type === "expense" ? "Add Expense" : "Add Credit"}
+                  {submitting
+                    ? transactionPrefill?.recurringId
+                      ? "Posting..."
+                      : "Creating..."
+                    : transactionPrefill?.recurringId
+                      ? `Post ${type === "expense" ? "Expense" : "Credit"} Now`
+                      : isRecurring
+                        ? `Add Recurring ${type === "expense" ? "Expense" : "Credit"}`
+                        : type === "expense"
+                          ? "Add Expense"
+                          : "Add Credit"}
                 </button>
               </div>
             </div>
