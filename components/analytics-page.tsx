@@ -104,7 +104,7 @@ function getStartDateForRange(key: RangeKey, earliestTransactionDate?: string): 
     case "ytd":
       return `${d.getFullYear()}-01-01`
     case "all":
-      return earliestTransactionDate || "2009-01-03"
+      return earliestTransactionDate || todayIso()
     case "custom":
       return todayIso()
   }
@@ -140,6 +140,8 @@ function getHeatmapIntensityClass(value: number, max: number): string {
 }
 
 function buildHeatmapDays(transactions: Transaction[], startDate: string, endDate: string): HeatmapDay[] {
+  if (transactions.length === 0) return []
+
   const rangeDays = getDaysBetween(startDate, endDate)
   if (rangeDays.length === 0) return []
 
@@ -205,13 +207,13 @@ function buildIncomeFlowData(transactions: Transaction[], activeEnvelopes: Envel
 
   for (const env of spendNodes) {
     nodes.push({ name: env.name, color: env.color })
-    links.push({ source: 0, target: nodes.length - 1, value: Math.round(env.value) })
+    links.push({ source: 0, target: nodes.length - 1, value: env.value })
   }
 
   const unspent = Math.max(totalIncome - totalExpenses, 0)
   if (unspent > 0) {
     nodes.push({ name: "Unspent", color: "#3B82F6" })
-    links.push({ source: 0, target: nodes.length - 1, value: Math.round(unspent) })
+    links.push({ source: 0, target: nodes.length - 1, value: unspent })
   }
 
   return {
@@ -421,7 +423,7 @@ export function AnalyticsPage() {
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Count
+              Transactions
             </button>
             <button
               type="button"
@@ -432,7 +434,7 @@ export function AnalyticsPage() {
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Spent
+              $ Volume
             </button>
           </div>
         </div>
