@@ -198,6 +198,10 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 
 - **Commit often.** Each logical unit of work (a bug fix, a feature slice, a refactor) gets its own commit. Don't batch unrelated changes.
 - **Commit messages** should be concise and describe the "what" and "why": `fix(receipts): validate file type from magic bytes, not Content-Type` or `feat: add vanilla "Your Expenses" chart for non-OC users`.
+- **When Andrew says a code change "looks good" or otherwise approves the work, push the committed changes to the upstream branch.**
+- **Do not continue work directly on non-feature branches.** If the current branch is not a feature branch (for example `main`, a release branch, or another shared integration branch), create a feature branch from the tip of `main` before committing/pushing.
+- **After pushing a feature branch, ensure a PR exists.** If there is no open PR for the branch, open one against `main`.
+- **Keep PR descriptions current.** If newly pushed changes are not described in the PR body, update the PR description to explain what changed and how it fits the broader purpose of the branch.
 - **Run `pnpm lint`, `pnpm test`, and `pnpm test:e2e` before pushing** (e2e needs Postgres + env; CI runs all three).
 - **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don’t rely on manual checks alone for production-critical behavior.
 - **PR descriptions** should have a Summary (bullet points of what changed) and a Test Plan (checkboxes).
