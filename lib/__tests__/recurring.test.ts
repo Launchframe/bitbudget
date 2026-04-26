@@ -23,26 +23,26 @@ import { advanceDate, processRecurringTransactions } from "@/lib/recurring"
 
 describe("advanceDate", () => {
   it("adds 7 days for weekly", () => {
-    const start = new Date(2026, 3, 10, 12, 0, 0)
+    const start = new Date(Date.UTC(2026, 3, 10, 12, 0, 0))
     const out = advanceDate(start, "weekly")
-    expect(out.getFullYear()).toBe(2026)
-    expect(out.getMonth()).toBe(3)
-    expect(out.getDate()).toBe(17)
+    expect(out.getUTCFullYear()).toBe(2026)
+    expect(out.getUTCMonth()).toBe(3)
+    expect(out.getUTCDate()).toBe(17)
   })
 
   it("advances month for monthly", () => {
-    const start = new Date(2026, 0, 15, 12, 0, 0)
+    const start = new Date(Date.UTC(2026, 0, 15, 12, 0, 0))
     const out = advanceDate(start, "monthly")
-    expect(out.getFullYear()).toBe(2026)
-    expect(out.getMonth()).toBe(1)
-    expect(out.getDate()).toBe(15)
+    expect(out.getUTCFullYear()).toBe(2026)
+    expect(out.getUTCMonth()).toBe(1)
+    expect(out.getUTCDate()).toBe(15)
   })
 
   it("advances year for annual", () => {
-    const start = new Date(2025, 5, 1)
+    const start = new Date(Date.UTC(2025, 5, 1))
     const out = advanceDate(start, "annual")
-    expect(out.getFullYear()).toBe(2026)
-    expect(out.getMonth()).toBe(5)
+    expect(out.getUTCFullYear()).toBe(2026)
+    expect(out.getUTCMonth()).toBe(5)
   })
 })
 
@@ -60,7 +60,7 @@ describe("processRecurringTransactions", () => {
   })
 
   it("creates one transaction and advances nextDueDate when one weekly occurrence is due", async () => {
-    const nextDue = new Date(2026, 3, 10, 0, 0, 0)
+    const nextDue = new Date(Date.UTC(2026, 3, 10, 0, 0, 0))
     vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([
       {
         id: recId,
@@ -77,7 +77,7 @@ describe("processRecurringTransactions", () => {
       },
     ] as never)
 
-    const asOf = new Date(2026, 3, 15, 10, 0, 0)
+    const asOf = new Date(Date.UTC(2026, 3, 15, 10, 0, 0))
     const created = await processRecurringTransactions(userId, asOf)
 
     expect(created).toBe(1)
@@ -92,7 +92,7 @@ describe("processRecurringTransactions", () => {
 
   it("returns 0 when nothing is due", async () => {
     vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([])
-    const created = await processRecurringTransactions(userId, new Date(2026, 3, 15))
+    const created = await processRecurringTransactions(userId, new Date(Date.UTC(2026, 3, 15)))
     expect(created).toBe(0)
     expect(prisma.transaction.create).not.toHaveBeenCalled()
   })

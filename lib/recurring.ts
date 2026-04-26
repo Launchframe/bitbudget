@@ -7,19 +7,19 @@ export function advanceDate(date: Date, cadence: Cadence): Date {
   const next = new Date(date)
   switch (cadence) {
     case "weekly":
-      next.setDate(next.getDate() + 7)
+      next.setUTCDate(next.getUTCDate() + 7)
       break
     case "biweekly":
-      next.setDate(next.getDate() + 14)
+      next.setUTCDate(next.getUTCDate() + 14)
       break
     case "monthly":
-      next.setMonth(next.getMonth() + 1)
+      next.setUTCMonth(next.getUTCMonth() + 1)
       break
     case "quarterly":
-      next.setMonth(next.getMonth() + 3)
+      next.setUTCMonth(next.getUTCMonth() + 3)
       break
     case "annual":
-      next.setFullYear(next.getFullYear() + 1)
+      next.setUTCFullYear(next.getUTCFullYear() + 1)
       break
   }
   return next

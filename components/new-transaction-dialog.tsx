@@ -195,7 +195,12 @@ export function NewTransactionDialog() {
     }
     const raw = transactionPrefill?.payee?.trim()
     if (!raw) {
+      prefillPayeeRawRef.current = null
+      skipCanonicalForPrefillRef.current = false
+      setPayee("")
+      setPayeeMatchHint(null)
       setImportSourcePayee(null)
+      setAliasSaveMessage(null)
       return
     }
 

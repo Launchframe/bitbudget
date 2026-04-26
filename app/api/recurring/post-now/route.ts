@@ -104,7 +104,10 @@ export async function POST(req: NextRequest) {
 
     await tx.recurringTransaction.update({
       where: { id: normalizedRecurringId },
-      data: { nextDueDate: nextDue },
+      data: {
+        nextDueDate: nextDue,
+        ...(rec.endDate && nextDue > rec.endDate ? { active: false } : {}),
+      },
     })
 
     return [txn]
