@@ -165,8 +165,8 @@ function buildHeatmapDays(transactions: Transaction[], startDate: string, endDat
   const lastDate = parseIsoDate(rangeDays[rangeDays.length - 1])
   if (!firstDate || !lastDate) return []
 
-  const paddedStart = addDays(firstDate, -firstDate.getDay())
-  const paddedEnd = addDays(lastDate, 6 - lastDate.getDay())
+  const paddedStart = addDays(firstDate, -firstDate.getUTCDay())
+  const paddedEnd = addDays(lastDate, 6 - lastDate.getUTCDay())
   const byDay = new Map<string, { count: number; spent: number }>()
 
   for (const txn of transactions) {
@@ -538,7 +538,7 @@ export function AnalyticsPage() {
           <div className="flex items-center justify-center h-[260px] text-muted-foreground text-sm">
             Choose a valid date range to see income flow.
           </div>
-        ) : incomeFlow.totalIncome > 0 && incomeFlow.data.links.length > 0 ? (
+        ) : incomeFlow.data.links.length > 0 ? (
           <div className="h-[260px] md:h-[340px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <Sankey
@@ -567,7 +567,7 @@ export function AnalyticsPage() {
           </div>
         ) : (
           <div className="flex items-center justify-center h-[260px] text-muted-foreground text-sm text-center">
-            Add income and expense transactions in this range to see a flow graph.
+            Add income or expense transactions in this range to see a flow graph.
           </div>
         )}
       </div>
