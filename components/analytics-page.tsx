@@ -220,10 +220,22 @@ function buildIncomeFlowData(transactions: Transaction[], activeEnvelopes: Envel
 
   const nodes: SankeyNode[] = [{ name: "Income", color: "#22C55E" }]
   const links: SankeyLink[] = []
+  const overspent = Math.max(totalExpenses - totalIncome, 0)
+  const overspentSourceIndex = overspent > 0 ? nodes.push({ name: "Over income", color: "#F59E0B" }) - 1 : null
+  const incomeCoverage = totalExpenses > 0 ? Math.min(totalIncome, totalExpenses) / totalExpenses : 0
 
   for (const env of spendNodes) {
     nodes.push({ name: env.name, color: env.color })
-    links.push({ source: 0, target: nodes.length - 1, value: env.value })
+    const target = nodes.length - 1
+    const incomeFunded = env.value * incomeCoverage
+    const overIncomeFunded = env.value - incomeFunded
+
+    if (incomeFunded > 0) {
+      links.push({ source: 0, target, value: incomeFunded })
+    }
+    if (overspentSourceIndex !== null && overIncomeFunded > 0) {
+      links.push({ source: overspentSourceIndex, target, value: overIncomeFunded })
+    }
   }
 
   const unspent = Math.max(totalIncome - totalExpenses, 0)
@@ -237,7 +249,7 @@ function buildIncomeFlowData(transactions: Transaction[], activeEnvelopes: Envel
     totalIncome,
     totalExpenses,
     unspent,
-    overspent: Math.max(totalExpenses - totalIncome, 0),
+    overspent,
   }
 }
 
@@ -391,6 +403,7 @@ export function AnalyticsPage() {
               <button
                 key={key}
                 type="button"
+                aria-pressed={activeRange === key}
                 onClick={() => selectRange(key)}
                 className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                   activeRange === key
@@ -437,6 +450,7 @@ export function AnalyticsPage() {
           <div className="flex items-center gap-1 bg-[#1A1A1A] rounded-lg p-1 w-fit">
             <button
               type="button"
+              aria-pressed={heatmapMode === "count"}
               onClick={() => setHeatmapMode("count")}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                 heatmapMode === "count"
@@ -448,6 +462,7 @@ export function AnalyticsPage() {
             </button>
             <button
               type="button"
+              aria-pressed={heatmapMode === "spent"}
               onClick={() => setHeatmapMode("spent")}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                 heatmapMode === "spent"
