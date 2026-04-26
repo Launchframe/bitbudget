@@ -40,9 +40,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid envelopeId" }, { status: 400 })
   }
   const normalizedEnvelopeId = envelopeId.trim()
-  if (typeof payee !== "string") {
+  if (typeof payee !== "string" || payee.trim().length === 0) {
     return NextResponse.json({ error: "Invalid payee" }, { status: 400 })
   }
+  const normalizedPayee = payee.trim()
   if (notes !== undefined && notes !== null && typeof notes !== "string") {
     return NextResponse.json({ error: "Invalid notes" }, { status: 400 })
   }
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
         userId,
         envelopeId: normalizedEnvelopeId,
         date: txnDate,
-        payee,
+        payee: normalizedPayee,
         amount: absAmount,
         type,
         tags: JSON.stringify(tags ?? []),

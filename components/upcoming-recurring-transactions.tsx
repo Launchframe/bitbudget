@@ -69,9 +69,11 @@ interface EditRecurringDialogProps {
 
 function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
   const { activeEnvelopes, state, editRecurringTransaction, deleteRecurringTransaction } = useApp()
+  const payeeIsMasked = rule.payee === ENCRYPTED_DISPLAY
+  const notesAreMasked = rule.notes === ENCRYPTED_DISPLAY
 
   const [payee, setPayee] = useState(
-    rule.isDecrypted === false ? "" : rule.payee === ENCRYPTED_DISPLAY ? "" : rule.payee,
+    payeeIsMasked ? "" : rule.payee,
   )
   const [amount, setAmount] = useState(String(rule.amount))
   const [type, setType] = useState<"expense" | "credit">(rule.type as "expense" | "credit")
@@ -80,7 +82,7 @@ function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
   const [endDate, setEndDate] = useState(rule.endDate ?? "")
   const [selectedTags, setSelectedTags] = useState<string[]>(rule.tags)
   const [notes, setNotes] = useState(
-    rule.notes && rule.notes !== ENCRYPTED_DISPLAY ? rule.notes : "",
+    notesAreMasked || !rule.notes ? "" : rule.notes,
   )
   const [submitting, setSubmitting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -95,7 +97,7 @@ function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
   async function handleSave() {
     const errs: Record<string, string> = {}
     const parsedAmount = Number(amount)
-    if (!payee.trim()) errs.payee = "Payee is required"
+    if (!payeeIsMasked && !payee.trim()) errs.payee = "Payee is required"
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) errs.amount = "Amount must be positive"
     if (!envelopeId) errs.envelope = "Envelope is required"
     if (Object.keys(errs).length > 0) {
@@ -106,7 +108,6 @@ function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
     setSubmitting(true)
     try {
       const updates: Parameters<typeof editRecurringTransaction>[1] = {
-        payee: payee.trim(),
         amount: parsedAmount,
         type,
         envelopeId,
@@ -114,7 +115,10 @@ function EditRecurringDialog({ rule, onClose }: EditRecurringDialogProps) {
         endDate: endDate || null,
         tags: selectedTags,
       }
-      if (rule.isDecrypted !== false && rule.notes !== ENCRYPTED_DISPLAY) {
+      if (!payeeIsMasked || payee.trim()) {
+        updates.payee = payee.trim()
+      }
+      if (!notesAreMasked || notes.trim()) {
         updates.notes = notes.trim() || null
       }
       await editRecurringTransaction(rule.id, updates)

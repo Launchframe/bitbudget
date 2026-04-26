@@ -592,6 +592,7 @@ function cachedUndecryptedToApiRow(c: CachedTransaction): ApiTransactionRow {
     satsAmount: c.satsAmount ?? null,
     recurringId: c.recurringId ?? null,
     source: c.source,
+    createdAt: c.createdAt,
     updatedAt: c.updatedAt,
   }
 }
