@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import {
+  type CommunicationPreferences,
+  EMAIL_PREFERENCE_KEYS,
+  emailPreferencesFromUser,
+  emailPreferenceUpdateData,
+} from "@/lib/communication-preferences"
 import { referralStatsForUser } from "@/lib/referral"
 import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
 
@@ -13,6 +19,12 @@ type UserSettingsPutBody = Partial<{
   opportunityCostEnabled: boolean
   receiptInboxToken: string | null
   name: string | null
+  communicationPreferences: Partial<CommunicationPreferences>
+  emailFeatureUpdates: boolean
+  emailFeedbackRequests: boolean
+  emailRecurringReminders: boolean
+  emailRenewalReminders: boolean
+  emailImportAlerts: boolean
 }>
 
 const ALLOWED_SETTINGS_PUT_FIELDS = [
@@ -23,6 +35,7 @@ const ALLOWED_SETTINGS_PUT_FIELDS = [
   "opportunityCostEnabled",
   "receiptInboxToken",
   "name",
+  ...EMAIL_PREFERENCE_KEYS,
 ] as const satisfies readonly (keyof UserSettingsPutBody)[]
 
 export async function GET() {
@@ -45,6 +58,11 @@ export async function GET() {
       receiptInboxToken: true,
       name: true,
       email: true,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
       subscriptionTier: true,
       role: true,
       premiumGratisUntil: true,
@@ -101,6 +119,7 @@ export async function GET() {
 
   return NextResponse.json({
     ...rest,
+    emailPreferences: emailPreferencesFromUser(rest),
     premiumGratisUntil: premiumGratisUntil?.toISOString() ?? null,
     premiumTrialUntil: premiumTrialUntil?.toISOString() ?? null,
     effectiveTier,
@@ -127,6 +146,17 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 })
   }
   const body = raw as UserSettingsPutBody
+  if (
+    body.communicationPreferences !== undefined &&
+    (typeof body.communicationPreferences !== "object" ||
+      body.communicationPreferences === null ||
+      Array.isArray(body.communicationPreferences))
+  ) {
+    return NextResponse.json(
+      { error: "communicationPreferences must be an object" },
+      { status: 400 },
+    )
+  }
 
   // Never allow encryptedPrivacyKey / privacyKeySalt via this route — use POST /api/user/encryption
   // (guarded) so existing keys cannot be clobbered by mistake or a buggy client.
@@ -135,6 +165,26 @@ export async function PUT(req: NextRequest) {
     if (body[field] !== undefined) {
       data[field] = body[field]
     }
+  }
+
+  for (const field of EMAIL_PREFERENCE_KEYS) {
+    if (data[field] !== undefined && typeof data[field] !== "boolean") {
+      return NextResponse.json(
+        { error: `${field} must be a boolean` },
+        { status: 400 },
+      )
+    }
+  }
+  if (body.communicationPreferences) {
+    for (const [key, value] of Object.entries(body.communicationPreferences)) {
+      if (value !== undefined && typeof value !== "boolean") {
+        return NextResponse.json(
+          { error: `communicationPreferences.${key} must be a boolean` },
+          { status: 400 },
+        )
+      }
+    }
+    Object.assign(data, emailPreferenceUpdateData(body.communicationPreferences))
   }
 
   if (Object.keys(data).length === 0) {
@@ -154,8 +204,16 @@ export async function PUT(req: NextRequest) {
       btcDisplayUnit: true,
       receiptInboxToken: true,
       name: true,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
     },
   })
 
-  return NextResponse.json(updated)
+  return NextResponse.json({
+    ...updated,
+    emailPreferences: emailPreferencesFromUser(updated),
+  })
 }

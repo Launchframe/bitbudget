@@ -19,6 +19,11 @@ import {
   sendTrialExpiredDm,
   sendTrialEndingDm,
 } from "@/lib/nostr-dm"
+import {
+  type CommunicationEmailCategory,
+  communicationPreferenceForCategory,
+  userAllowsCommunicationEmail,
+} from "@/lib/communication-preferences"
 
 /** Playwright / CI: avoid real email/DM sends (e.g. seeded `*@bitbudget.test` referrers bounce). */
 function skipOutboundUserNotifications(): boolean {
@@ -53,6 +58,39 @@ async function dispatchToUser(
   }
 }
 
+type PreferenceAwareUser = {
+  email: string | null
+  nostrPubkey: string | null
+  emailUnsubscribeToken: string | null
+} & Partial<Record<ReturnType<typeof communicationPreferenceForCategory>["field"], boolean | null>>
+
+const COMMUNICATION_EMAIL_SELECT = {
+  email: true,
+  nostrPubkey: true,
+  emailFeatureUpdates: true,
+  emailFeedbackRequests: true,
+  emailRecurringReminders: true,
+  emailRenewalReminders: true,
+  emailImportAlerts: true,
+  emailUnsubscribeToken: true,
+} as const
+
+async function dispatchPreferenceEmailToUser(
+  user: PreferenceAwareUser,
+  category: CommunicationEmailCategory,
+  emailFn: (options: { category: CommunicationEmailCategory; unsubscribeToken: string | null }) => Promise<void>,
+  dmFn: () => Promise<void>,
+): Promise<void> {
+  if (user.email?.trim()) {
+    if (!userAllowsCommunicationEmail(user, category)) return
+    await emailFn({ category, unsubscribeToken: user.emailUnsubscribeToken })
+    return
+  }
+  if (user.nostrPubkey?.trim()) {
+    await dmFn()
+  }
+}
+
 export async function notifyReferralAccepted(args: {
   referrerId: string
   refereeName: string
@@ -60,12 +98,13 @@ export async function notifyReferralAccepted(args: {
   if (skipOutboundUserNotifications()) return
   const referrer = await prisma.user.findUnique({
     where: { id: args.referrerId },
-    select: { email: true, nostrPubkey: true },
+    select: COMMUNICATION_EMAIL_SELECT,
   })
   if (!referrer) return
-  await dispatchToUser(
+  await dispatchPreferenceEmailToUser(
     referrer,
-    () => sendReferralAcceptedEmail(referrer.email!, args.refereeName),
+    "feature_updates",
+    (options) => sendReferralAcceptedEmail(referrer.email!, args.refereeName, options),
     () => sendReferralAcceptedDm(referrer.nostrPubkey!, args.refereeName),
   )
 }
@@ -80,7 +119,7 @@ export async function notifyReferralActivated(args: {
   const [referrer, referee] = await Promise.all([
     prisma.user.findUnique({
       where: { id: args.referrerId },
-      select: { email: true, nostrPubkey: true },
+      select: COMMUNICATION_EMAIL_SELECT,
     }),
     prisma.user.findUnique({
       where: { id: args.refereeUserId },
@@ -90,14 +129,16 @@ export async function notifyReferralActivated(args: {
   if (!referrer) return
   const refereeName = userContactLabel(referee ?? {})
   const dateStr = args.newGratisUntil.toISOString().slice(0, 10)
-  await dispatchToUser(
+  await dispatchPreferenceEmailToUser(
     referrer,
-    () =>
+    "feature_updates",
+    (options) =>
       sendReferralActivatedEmail(
         referrer.email!,
         refereeName,
         args.rewardMonths,
         dateStr,
+        options,
       ),
     () =>
       sendReferralActivatedDm(
@@ -155,13 +196,14 @@ export async function notifyGratisNearingExpiry(userId: string, expiry: Date, da
   if (skipOutboundUserNotifications()) return
   const u = await prisma.user.findUnique({
     where: { id: userId },
-    select: { email: true, nostrPubkey: true },
+    select: COMMUNICATION_EMAIL_SELECT,
   })
   if (!u) return
   const d = expiry.toISOString().slice(0, 10)
-  await dispatchToUser(
+  await dispatchPreferenceEmailToUser(
     u,
-    () => sendGratisExpiringEmail(u.email!, d, days),
+    "renewal_reminders",
+    (options) => sendGratisExpiringEmail(u.email!, d, days, options),
     () => sendGratisExpiringDm(u.nostrPubkey!, d, days),
   )
 }
@@ -184,13 +226,14 @@ export async function notifyTrialNearingExpiry(userId: string, expiry: Date, day
   if (skipOutboundUserNotifications()) return
   const u = await prisma.user.findUnique({
     where: { id: userId },
-    select: { email: true, nostrPubkey: true },
+    select: COMMUNICATION_EMAIL_SELECT,
   })
   if (!u) return
   const d = expiry.toISOString().slice(0, 10)
-  await dispatchToUser(
+  await dispatchPreferenceEmailToUser(
     u,
-    () => sendTrialEndingEmail(u.email!, d, days),
+    "renewal_reminders",
+    (options) => sendTrialEndingEmail(u.email!, d, days, options),
     () => sendTrialEndingDm(u.nostrPubkey!, d, days),
   )
 }

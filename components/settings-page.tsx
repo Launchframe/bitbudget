@@ -2,6 +2,10 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
+import {
+  COMMUNICATION_PREFERENCE_DETAILS,
+  type CommunicationPreferenceKey,
+} from "@/lib/communication-preferences"
 import { compareTransactionsDesc, formatUsd, formatUsdPrecise } from "@/lib/data"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
 import { Input } from "@/components/ui/input"
@@ -29,7 +33,9 @@ import {
   Link2,
   Settings2,
   Plug,
+  MessageSquare,
 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import {
   REFEREE_PREMIUM_CARROT_FALLBACK,
   refereePremiumExperienceCarrot,
@@ -40,10 +46,11 @@ import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { SettingsReferralsCard } from "@/components/settings-referrals-card"
 
-type SettingsTab = "general" | "integrations" | "tags" | "payees" | "data"
+type SettingsTab = "general" | "communications" | "integrations" | "tags" | "payees" | "data"
 
 const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
   general: "general",
+  communications: "communications",
   integrations: "integrations",
   tags: "tags",
   payees: "payee-mappings",
@@ -52,6 +59,7 @@ const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
 
 const SETTINGS_TAB_FROM_SLUG: Record<string, SettingsTab> = {
   general: "general",
+  communications: "communications",
   integrations: "integrations",
   tags: "tags",
   payees: "payees",
@@ -74,6 +82,7 @@ export function SettingsPage() {
     setMonthlyIncome,
     setBtcDisplayUnit,
     setOpportunityCostEnabled,
+    setCommunicationPreference,
     addTag,
     deleteTag,
     refreshData,
@@ -324,6 +333,52 @@ export function SettingsPage() {
         ? "bg-[#1A1A1A] text-[#F7931A] border border-[#F7931A]/20"
         : "text-muted-foreground hover:text-foreground hover:bg-[#111111]"
     }`
+
+  const toggleCommunicationPreference = useCallback(
+    (key: CommunicationPreferenceKey, enabled: boolean) => {
+      void setCommunicationPreference(key, enabled)
+    },
+    [setCommunicationPreference],
+  )
+
+  const communicationsSection = (
+    <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="p-2 rounded-lg bg-[#3B82F6]/10">
+          <MessageSquare className="h-5 w-5 text-[#3B82F6]" />
+        </div>
+        <div>
+          <h3 className="text-lg font-semibold text-foreground">Communication Preferences</h3>
+          <p className="text-sm text-muted-foreground">
+            Choose which non-transactional emails BitBudget may send you.
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-col divide-y divide-[#1F1F1F] rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]">
+        {COMMUNICATION_PREFERENCE_DETAILS.map((preference) => {
+          const checked = state.communicationPreferences[preference.key]
+          return (
+            <div key={preference.key} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="pr-2">
+                <p className="font-medium text-foreground">{preference.label}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{preference.description}</p>
+              </div>
+              <Switch
+                checked={checked}
+                onCheckedChange={(enabled) => toggleCommunicationPreference(preference.key, enabled)}
+                aria-label={`${checked ? "Disable" : "Enable"} ${preference.label}`}
+                className="mt-0.5 data-[state=checked]:bg-[#F7931A]"
+              />
+            </div>
+          )
+        })}
+      </div>
+      <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+        Account security notices, including new-device access alerts and login codes, are always sent when needed.
+        Unsubscribe buttons in emails update these same preferences.
+      </p>
+    </div>
+  )
 
   const generalSection = (
     <>
@@ -901,7 +956,19 @@ export function SettingsPage() {
                 <Settings2 className={tabIconClass("general")} aria-hidden />
                 <span>General</span>
               </button>
-              <button type="button" onClick={() => selectSettingsTab("integrations")} className={tabButtonClass("integrations")}>
+              <button
+                type="button"
+                onClick={() => selectSettingsTab("communications")}
+                className={tabButtonClass("communications")}
+              >
+                <MessageSquare className={tabIconClass("communications")} aria-hidden />
+                <span>Communications</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => selectSettingsTab("integrations")}
+                className={tabButtonClass("integrations")}
+              >
                 <Plug className={tabIconClass("integrations")} aria-hidden />
                 <span>Integrations</span>
               </button>
@@ -923,6 +990,7 @@ export function SettingsPage() {
 
         <div className="flex flex-col gap-6">
           {settingsTab === "general" && generalSection}
+          {settingsTab === "communications" && communicationsSection}
           {settingsTab === "integrations" && integrationsSection}
           {settingsTab === "tags" && tagsSection}
           {settingsTab === "payees" && <PayeeMappingsSettings />}

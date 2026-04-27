@@ -61,3 +61,58 @@ describe("notify — E2E_TEST skips outbound", () => {
     expect(sendReferralActivatedEmail).not.toHaveBeenCalled()
   })
 })
+
+describe("notify — communication preferences", () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    delete process.env.E2E_TEST
+  })
+
+  afterEach(() => {
+    delete process.env.E2E_TEST
+    vi.clearAllMocks()
+  })
+
+  it("does not send feature update email when disabled", async () => {
+    const { prisma } = await import("@/lib/db")
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: "user@example.com",
+      nostrPubkey: null,
+      emailFeatureUpdates: false,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyReferralAccepted } = await import("../notify")
+    await notifyReferralAccepted({ referrerId: "r1", refereeName: "Ref" })
+
+    expect(sendReferralAcceptedEmail).not.toHaveBeenCalled()
+  })
+
+  it("passes unsubscribe metadata when preference email is enabled", async () => {
+    const { prisma } = await import("@/lib/db")
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: "user@example.com",
+      nostrPubkey: null,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyReferralAccepted } = await import("../notify")
+    await notifyReferralAccepted({ referrerId: "r1", refereeName: "Ref" })
+
+    expect(sendReferralAcceptedEmail).toHaveBeenCalledWith(
+      "user@example.com",
+      "Ref",
+      { category: "feature_updates", unsubscribeToken: "tok" },
+    )
+  })
+})

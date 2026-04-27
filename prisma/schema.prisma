@@ -37,6 +37,12 @@ model User {
   lastVisitedAt DateTime?
   remindersEnabled Boolean @default(false)
   reminderTime    String?  @default("20:00")
+  emailFeatureUpdates       Boolean @default(true)
+  emailFeedbackRequests     Boolean @default(true)
+  emailRecurringReminders   Boolean @default(true)
+  emailRenewalReminders     Boolean @default(true)
+  emailImportAlerts         Boolean @default(true)
+  emailUnsubscribeToken     String?  @unique @default(cuid())
   subscriptionTier String @default("free")
   // Set when a free user taps Upgrade to Premium (checkout not yet available).
   premiumInterestAt DateTime?
