@@ -149,8 +149,7 @@ export function communicationPreferenceForKey(
 ): CommunicationPreferenceDescriptor {
   const preference = COMMUNICATION_PREFERENCES.find((p) => p.key === key)
   if (!preference) {
-    const exhaustive: never = key
-    throw new Error(`Unhandled communication preference: ${exhaustive}`)
+    throw new Error(`Unhandled communication preference: ${key}`)
   }
   return preference
 }
