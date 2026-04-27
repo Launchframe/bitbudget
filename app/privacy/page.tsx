@@ -167,7 +167,7 @@ function SummaryCard({
   return (
     <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-6">
       <div className="mb-4 w-fit rounded-xl bg-[#1A1A1A] p-3">{icon}</div>
-      <h2 className="mb-2 text-lg font-semibold">{title}</h2>
+      <h3 className="mb-2 text-lg font-semibold">{title}</h3>
       <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
     </div>
   )
