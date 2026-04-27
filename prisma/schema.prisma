@@ -38,6 +38,16 @@ model User {
   lastVisitedAt DateTime?
   remindersEnabled Boolean @default(false)
   reminderTime    String?  @default("20:00")
+  emailFeatureUpdates       Boolean @default(true)
+  emailFeedbackRequests     Boolean @default(true)
+  emailRecurringReminders   Boolean @default(true)
+  emailRenewalReminders     Boolean @default(true)
+  emailImportAlerts         Boolean @default(true)
+  emailUnsubscribeToken     String?  @unique @default(cuid())
+  // Notifications-only email (verified); separate from login email for Nostr-only users.
+  notificationEmail         String?
+  notificationEmailVerified DateTime?
+  nostrDmEnabled            Boolean  @default(false)
   subscriptionTier String @default("free")
   // Set when a free user taps Upgrade to Premium (checkout not yet available).
   premiumInterestAt DateTime?

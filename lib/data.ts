@@ -54,6 +54,21 @@ export interface Tag {
 
 export type BtcDisplayUnit = "sats" | "btc"
 
+export type CommunicationPreferenceKey =
+  | "featureUpdates"
+  | "feedbackRequests"
+  | "recurringReminders"
+  | "renewalReminders"
+  | "importAlerts"
+
+export interface CommunicationPreferences {
+  featureUpdates: boolean
+  feedbackRequests: boolean
+  recurringReminders: boolean
+  renewalReminders: boolean
+  importAlerts: boolean
+}
+
 export type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
 export interface RecurringTransaction {
@@ -82,6 +97,7 @@ export interface AppState {
   monthlyIncome: number
   btcDisplayUnit: BtcDisplayUnit
   opportunityCostEnabled: boolean
+  communicationPreferences: CommunicationPreferences
 }
 
 export function compareTransactionsDesc(a: Transaction, b: Transaction): number {
@@ -255,6 +271,13 @@ export function getDefaultState(): AppState {
     monthlyIncome: 0,
     btcDisplayUnit: "sats",
     opportunityCostEnabled: false,
+    communicationPreferences: {
+      featureUpdates: true,
+      feedbackRequests: true,
+      recurringReminders: true,
+      renewalReminders: true,
+      importAlerts: true,
+    },
   }
 }
 
