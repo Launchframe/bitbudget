@@ -585,6 +585,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         envelopes,
         tags,
         monthlyIncome: settings.monthlyIncome || 0,
+        payCadence: settings.payCadence === "bimonthly" ? "bimonthly" : "monthly",
         btcDisplayUnit: settings.btcDisplayUnit || "sats",
         opportunityCostEnabled: settings.opportunityCostEnabled ?? false,
       }))

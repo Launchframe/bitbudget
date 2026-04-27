@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef } from "react"
 import { useApp } from "@/lib/app-context"
-import { getEnvelopeBalance, getCurrentMonthKey, formatUsd } from "@/lib/data"
+import { getEnvelopeBalance, getCurrentMonthKey, getFundedAllotmentForDate, formatUsd } from "@/lib/data"
 import { Progress } from "@/components/ui/progress"
 import { Pencil, Trash2, Plus, SlidersHorizontal, Merge, X, Archive, RotateCcw, ChevronDown } from "lucide-react"
 import {
@@ -239,8 +239,11 @@ export function EnvelopesPage() {
       {/* Envelope cards grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {activeEnvelopes.map((env) => {
-          const balance = getEnvelopeBalance(state.transactions, env.id, currentMonth, env.monthlyAllotment)
-          const percentage = env.monthlyAllotment > 0 ? Math.max(0, (balance / env.monthlyAllotment) * 100) : 0
+          const balance = getEnvelopeBalance(state.transactions, env.id, currentMonth, env.monthlyAllotment, {
+            payCadence: state.payCadence,
+          })
+          const fundedAllotment = getFundedAllotmentForDate(env.monthlyAllotment, state.payCadence)
+          const percentage = fundedAllotment > 0 ? Math.max(0, (balance / fundedAllotment) * 100) : 0
           const healthColor = percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
           return (
             <div

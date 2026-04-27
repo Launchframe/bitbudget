@@ -7,6 +7,7 @@ import {
   compareTransactionsDesc,
   getEnvelopeBalance,
   getCurrentMonthKey,
+  getFundedAllotmentForDate,
   formatUsd,
   type TransactionType,
 } from "@/lib/data"
@@ -106,8 +107,11 @@ export function EnvelopeDetailPage() {
     )
   }
 
-  const balance = getEnvelopeBalance(state.transactions, envelope.id, currentMonth, envelope.monthlyAllotment)
-  const percentage = envelope.monthlyAllotment > 0 ? Math.max(0, (balance / envelope.monthlyAllotment) * 100) : 0
+  const balance = getEnvelopeBalance(state.transactions, envelope.id, currentMonth, envelope.monthlyAllotment, {
+    payCadence: state.payCadence,
+  })
+  const currentAllotment = getFundedAllotmentForDate(envelope.monthlyAllotment, state.payCadence)
+  const percentage = currentAllotment > 0 ? Math.max(0, (balance / currentAllotment) * 100) : 0
   const healthColor = percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
 
   return (

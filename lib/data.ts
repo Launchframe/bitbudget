@@ -1,6 +1,7 @@
 // ─── Types ───────────────────────────────────────────────────────────
 
 export type TransactionType = "expense" | "credit"
+export type PayCadence = "monthly" | "bimonthly"
 
 export type TransactionSource = "manual" | "voice" | "receipt_scan" | "sms" | "email_forward" | "email_scan" | "plaid"
 
@@ -80,6 +81,7 @@ export interface AppState {
   envelopes: Envelope[]
   tags: Tag[]
   monthlyIncome: number
+  payCadence: PayCadence
   btcDisplayUnit: BtcDisplayUnit
   opportunityCostEnabled: boolean
 }
@@ -253,6 +255,7 @@ export function getDefaultState(): AppState {
     envelopes: [],
     tags: [],
     monthlyIncome: 0,
+    payCadence: "monthly",
     btcDisplayUnit: "sats",
     opportunityCostEnabled: false,
   }
@@ -273,6 +276,21 @@ export function getCurrentMonthKey(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
 }
 
+export function getEnvelopeRefillBase(monthlyAllotment: number, payCadence: PayCadence, asOf: Date): number {
+  if (payCadence === "bimonthly" && asOf.getDate() < 15) {
+    return monthlyAllotment / 2
+  }
+  return monthlyAllotment
+}
+
+export function getFundedAllotmentForDate(
+  monthlyAllotment: number,
+  payCadence: PayCadence,
+  asOf: Date = new Date(),
+): number {
+  return getEnvelopeRefillBase(monthlyAllotment, payCadence, asOf)
+}
+
 export function getTransactionsForEnvelope(
   transactions: Transaction[],
   envelopeId: string,
@@ -290,9 +308,11 @@ export function getEnvelopeBalance(
   envelopeId: string,
   monthKey: string,
   allotment: number,
+  options?: { payCadence?: PayCadence; asOf?: Date },
 ): number {
   const monthTxns = getTransactionsForEnvelope(transactions, envelopeId, monthKey)
   const expenses = monthTxns.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0)
   const credits = monthTxns.filter(t => t.type === "credit").reduce((sum, t) => sum + t.amount, 0)
-  return allotment - expenses + credits
+  const base = getEnvelopeRefillBase(allotment, options?.payCadence ?? "monthly", options?.asOf ?? new Date())
+  return base - expenses + credits
 }

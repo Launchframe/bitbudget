@@ -163,8 +163,9 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label className="text-muted-foreground text-xs uppercase tracking-wider">Payee</Label>
+              <Label htmlFor="edit-transaction-payee" className="text-muted-foreground text-xs uppercase tracking-wider">Payee</Label>
               <Input
+                id="edit-transaction-payee"
                 value={payee}
                 onChange={(e) => setPayee(e.target.value)}
                 className="bg-[#1A1A1A] border-[#333] text-foreground"
@@ -172,10 +173,11 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label className="text-muted-foreground text-xs uppercase tracking-wider">Amount (USD)</Label>
+              <Label htmlFor="edit-transaction-amount" className="text-muted-foreground text-xs uppercase tracking-wider">Amount (USD)</Label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
                 <Input
+                  id="edit-transaction-amount"
                   type="number"
                   min="0.01"
                   step="0.01"
@@ -206,8 +208,9 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label className="text-muted-foreground text-xs uppercase tracking-wider">Date</Label>
+              <Label htmlFor="edit-transaction-date" className="text-muted-foreground text-xs uppercase tracking-wider">Date</Label>
               <Input
+                id="edit-transaction-date"
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
@@ -248,8 +251,9 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label className="text-muted-foreground text-xs uppercase tracking-wider">Notes</Label>
+              <Label htmlFor="edit-transaction-notes" className="text-muted-foreground text-xs uppercase tracking-wider">Notes</Label>
               <textarea
+                id="edit-transaction-notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Add any notes..."

@@ -2,6 +2,7 @@ import "./load-env"
 import { execSync } from "node:child_process"
 import { seedRecurringE2e } from "./seed-recurring-e2e"
 import { seedReferralE2e } from "./seed-referral-e2e"
+import { seedTransactionCrudE2e } from "./seed-transaction-crud-e2e"
 
 async function globalSetup(): Promise<void> {
   if (!process.env.DATABASE_URL) {
@@ -13,6 +14,7 @@ async function globalSetup(): Promise<void> {
   })
   await seedReferralE2e()
   await seedRecurringE2e()
+  await seedTransactionCrudE2e()
 }
 
 export default globalSetup
