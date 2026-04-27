@@ -5,6 +5,7 @@ const RESERVED_ROOT_SEGMENTS = new Set([
   "auth",
   "welcome",
   "landing",
+  "privacy",
   "onboarding",
   "admin",
   "whitepapers",
@@ -22,7 +23,9 @@ export default auth((req) => {
   const isPublicLanding =
     pathname.startsWith("/landing") ||
     pathname.startsWith("/welcome") ||
-    pathname.startsWith("/ref")
+    pathname.startsWith("/privacy") ||
+    pathname === "/ref" ||
+    pathname.startsWith("/ref/")
   const isPublicOfferSlug =
     firstSegment.length > 0 && !RESERVED_ROOT_SEGMENTS.has(firstSegment) && pathSegments.length === 1
   const isPublicOfferNested = pathname.startsWith("/offer/")

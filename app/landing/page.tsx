@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
 import { ArrowRight, Shield, TrendingUp, Wallet, Zap } from "lucide-react"
@@ -128,6 +129,12 @@ export default function LandingPage() {
           <p className="text-xs text-muted-foreground">
             Open-source Bitcoin opportunity cost tracker. Your data is encrypted end-to-end.
           </p>
+          <Link
+            href="/privacy"
+            className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          >
+            Privacy Policy
+          </Link>
         </div>
       </footer>
     </div>
