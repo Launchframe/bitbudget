@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db"
 import {
   type CommunicationPreferenceKey,
   COMMUNICATION_PREFERENCE_KEYS,
-  communicationPreferenceForCategory,
+  communicationPreferenceForKey,
   isCommunicationPreferenceKey,
 } from "@/lib/communication-preferences"
 
@@ -34,9 +34,9 @@ export async function GET(req: NextRequest) {
   const preferences =
     preference === "all"
       ? Object.fromEntries(
-          COMMUNICATION_PREFERENCE_KEYS.map((key) => [communicationPreferenceForCategory(key).field, false]),
+          COMMUNICATION_PREFERENCE_KEYS.map((key) => [communicationPreferenceForKey(key).field, false]),
         )
-      : { [communicationPreferenceForCategory(preference).field]: false }
+      : { [communicationPreferenceForKey(preference).field]: false }
 
   await prisma.user.update({
     where: { id: user.id },
