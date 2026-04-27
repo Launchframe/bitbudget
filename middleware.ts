@@ -24,7 +24,8 @@ export default auth((req) => {
     pathname.startsWith("/landing") ||
     pathname.startsWith("/welcome") ||
     pathname.startsWith("/privacy") ||
-    pathname.startsWith("/ref")
+    pathname === "/ref" ||
+    pathname.startsWith("/ref/")
   const isPublicOfferSlug =
     firstSegment.length > 0 && !RESERVED_ROOT_SEGMENTS.has(firstSegment) && pathSegments.length === 1
   const isPublicOfferNested = pathname.startsWith("/offer/")
