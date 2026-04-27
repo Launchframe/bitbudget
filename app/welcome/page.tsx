@@ -129,12 +129,20 @@ export default function WelcomePage() {
           <p className="text-xs text-muted-foreground">
             Open-source budgeting app. Your data is encrypted end-to-end.
           </p>
-          <Link
-            href="/landing"
-            className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-          >
-            Looking for the Bitcoin opportunity cost experience? →
-          </Link>
+          <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-4">
+            <Link
+              href="/privacy"
+              className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            >
+              Privacy Policy
+            </Link>
+            <Link
+              href="/landing"
+              className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            >
+              Looking for the Bitcoin opportunity cost experience? →
+            </Link>
+          </div>
         </div>
       </footer>
     </div>
