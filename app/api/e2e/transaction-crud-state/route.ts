@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import { getEnvelopeBalance } from "@/lib/data"
+import type { Transaction, TransactionType } from "@/lib/data"
 import { processRecurringTransactions } from "@/lib/recurring"
 
 function parseTags(raw: string): string[] {
@@ -10,6 +11,10 @@ function parseTags(raw: string): string[] {
   } catch {
     return []
   }
+}
+
+function transactionType(raw: string): TransactionType {
+  return raw === "credit" ? "credit" : "expense"
 }
 
 export async function GET(req: NextRequest) {
@@ -49,7 +54,6 @@ export async function GET(req: NextRequest) {
           tags: true,
           notes: true,
           recurringId: true,
-          source: true,
         },
       },
       recurringTransactions: {
@@ -89,8 +93,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "not found" }, { status: 404 })
   }
 
-  const transactions = user.transactions.map((transaction) => ({
+  const transactions: Transaction[] = user.transactions.map((transaction) => ({
     ...transaction,
+    type: transactionType(transaction.type),
     date: transaction.date.toISOString().split("T")[0],
     tags: parseTags(transaction.tags),
   }))
