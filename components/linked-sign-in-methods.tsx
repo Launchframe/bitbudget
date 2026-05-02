@@ -5,6 +5,14 @@ import { signIn } from "next-auth/react"
 import { AlertCircle, CheckCircle2, Github, Loader2, Mail, Shield, Zap } from "lucide-react"
 import { buildAuthEventTemplate, fetchNostrProfile } from "@/lib/nostr-local-signer"
 import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 type OAuthProvider = "google" | "github"
 
@@ -53,8 +61,10 @@ export function LinkedSignInMethods() {
   const [email, setEmail] = useState("")
   const [code, setCode] = useState("")
   const [emailCodeSent, setEmailCodeSent] = useState(false)
+  const [pendingPrivacyLink, setPendingPrivacyLink] = useState<"email" | OAuthProvider | null>(null)
 
   const linkedOAuth = useMemo(() => new Set(methods.oauthProviders), [methods.oauthProviders])
+  const isNostrOnly = methods.nostrLinked && !methods.emailLinked && methods.oauthProviders.length === 0
 
   const loadMethods = useCallback(async () => {
     setLoading(true)
@@ -78,8 +88,7 @@ export function LinkedSignInMethods() {
     return () => window.removeEventListener("pageshow", loadMethods)
   }, [loadMethods])
 
-  async function sendEmailCode(e: React.FormEvent) {
-    e.preventDefault()
+  async function executeSendEmailCode() {
     setAction("email-code")
     setError(null)
     setSuccess(null)
@@ -97,6 +106,15 @@ export function LinkedSignInMethods() {
     } finally {
       setAction(null)
     }
+  }
+
+  async function sendEmailCode(e: React.FormEvent) {
+    e.preventDefault()
+    if (isNostrOnly) {
+      setPendingPrivacyLink("email")
+      return
+    }
+    await executeSendEmailCode()
   }
 
   async function linkEmail(e: React.FormEvent) {
@@ -161,10 +179,29 @@ export function LinkedSignInMethods() {
   }
 
   async function linkOAuth(provider: OAuthProvider) {
+    if (isNostrOnly) {
+      setPendingPrivacyLink(provider)
+      return
+    }
+    await executeOAuthLink(provider)
+  }
+
+  async function executeOAuthLink(provider: OAuthProvider) {
     setAction(provider)
     setError(null)
     setSuccess(null)
     await signIn(provider, { callbackUrl: "/#settings/data-security" })
+  }
+
+  async function continuePendingPrivacyLink() {
+    const pending = pendingPrivacyLink
+    setPendingPrivacyLink(null)
+    if (!pending) return
+    if (pending === "email") {
+      await executeSendEmailCode()
+      return
+    }
+    await executeOAuthLink(pending)
   }
 
   function methodRow({
@@ -211,6 +248,40 @@ export function LinkedSignInMethods() {
 
   return (
     <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+      <Dialog open={pendingPrivacyLink !== null} onOpenChange={(open) => {
+        if (!open) setPendingPrivacyLink(null)
+      }}>
+        <DialogContent className="border-[#333] bg-[#0D0D0D] text-foreground">
+          <DialogHeader>
+            <DialogTitle>Linking another sign-in method changes your privacy model</DialogTitle>
+            <DialogDescription>
+              This account currently uses only your Nostr public key. If you link email, Google, or GitHub,
+              BitBudget will store that account identifier alongside your npub so you can recover access later.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
+            That recovery path can be useful, but it naturally weakens the privacy of a Nostr-only account:
+            your BitBudget account will no longer be represented only by an npub in our system.
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setPendingPrivacyLink(null)}
+              className="rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-[#222]"
+            >
+              Reconsider
+            </button>
+            <button
+              type="button"
+              onClick={continuePendingPrivacyLink}
+              className="rounded-xl bg-btc-orange px-4 py-2 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90"
+            >
+              I understand, continue
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-center gap-3 mb-4">
         <div className="p-2 rounded-lg bg-[#3B82F6]/10">
           <Shield className="h-5 w-5 text-[#3B82F6]" />

@@ -9,6 +9,7 @@ BitBudget is a **privacy-first, user-sovereign budgeting app**. Every change mus
 - **Web 2.0 users derive keys from a PIN/password.** The derived key wraps a random privacy key via PBKDF2 + AES-GCM. The encrypted privacy key is stored server-side; only the client can unwrap it.
 - **Backend-created transactions** (Plaid, email forwarding, SMS) encrypt sensitive fields with the user's public key (X25519 + XSalsa20-Poly1305). Only the client holding the private key can decrypt.
 - **No ad-tech or cross-site tracking.** We use privacy-preserving, aggregate Vercel Analytics for basic usage and performance telemetry; no budgeting data or user identifiers are logged.
+- **Warn before privacy is weakened.** Any flow that trades privacy/anonymity for convenience, recovery, integrations, or support must clearly explain the trade-off before the user proceeds. For example, a Nostr-only account is represented server-side by an npub; linking email, Google, GitHub, Plaid, SMS, receipt inbox, or other identifying/recovery methods stores additional identifiers and weakens anonymity. Users must see an explicit, plain-language warning and have a chance to cancel before taking that step.
 
 If a change would cause sensitive data to be logged, stored in plaintext, or readable by the server, **stop and redesign**.
 
