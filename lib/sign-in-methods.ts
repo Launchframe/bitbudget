@@ -79,7 +79,8 @@ function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigin?: str
   if (
     candidate.kind !== NOSTR_AUTH_EVENT_KIND ||
     candidate.content !== NOSTR_AUTH_EVENT_CONTENT ||
-    candidate.pubkey !== pubkey ||
+    typeof candidate.pubkey !== "string" ||
+    candidate.pubkey.toLowerCase() !== pubkey ||
     typeof candidate.created_at !== "number" ||
     !Array.isArray(candidate.tags)
   ) {
@@ -127,9 +128,13 @@ export async function getSignInMethods(userId: string): Promise<SignInMethods> {
     throw new SignInMethodError("UNAUTHORIZED", "Unauthorized", 401)
   }
 
-  const oauthProviders = user.accounts
-    .map(account => account.provider)
-    .filter((provider): provider is LinkProvider => provider === "google" || provider === "github")
+  const oauthProviders = Array.from(
+    new Set(
+      user.accounts
+        .map(account => account.provider)
+        .filter((provider): provider is LinkProvider => provider === "google" || provider === "github"),
+    ),
+  )
 
   return {
     email: user.email,
@@ -201,7 +206,7 @@ export async function linkNostrSignInMethod({
   profileName,
   profileImage,
 }: LinkNostrInput) {
-  const trimmedPubkey = pubkey.trim()
+  const trimmedPubkey = pubkey.trim().toLowerCase()
   if (!/^[0-9a-f]{64}$/i.test(trimmedPubkey)) {
     throw new SignInMethodError("INVALID_NOSTR_PUBKEY", "Invalid Nostr public key")
   }

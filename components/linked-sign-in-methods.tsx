@@ -43,7 +43,7 @@ function GoogleIcon() {
   )
 }
 
-function shortNpub(pubkey: string | null) {
+function shortPubkey(pubkey: string | null) {
   return pubkey ? `${pubkey.slice(0, 10)}...${pubkey.slice(-6)}` : null
 }
 
@@ -333,6 +333,7 @@ export function LinkedSignInMethods() {
                   onChange={e => setEmail(e.target.value)}
                   placeholder="you@example.com"
                   aria-label="Email address to link"
+                  disabled={emailCodeSent}
                   required
                 />
                 {emailCodeSent && (
@@ -362,7 +363,7 @@ export function LinkedSignInMethods() {
           {methodRow({
             icon: <Zap className="h-4 w-4" />,
             title: "Nostr",
-            description: methods.nostrLinked ? `Linked key ${shortNpub(methods.nostrPubkey)}` : "Link a Nostr key using your browser extension.",
+            description: methods.nostrLinked ? `Linked key ${shortPubkey(methods.nostrPubkey)}` : "Link a Nostr key using your browser extension.",
             connected: methods.nostrLinked,
             children: !methods.nostrLinked && (
               <button type="button" onClick={linkNostr} disabled={action === "nostr"} className={oauthButtonClass}>

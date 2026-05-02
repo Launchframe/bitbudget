@@ -53,6 +53,7 @@ describe("getSignInMethods", () => {
       nostrPubkey: "f".repeat(64),
       accounts: [
         { provider: "google" },
+        { provider: "google" },
         { provider: "github" },
         { provider: "other" },
       ],
@@ -180,6 +181,31 @@ describe("linkNostrSignInMethod", () => {
         name: "Alice",
         image: "https://example.com/a.png",
       },
+      select: { nostrPubkey: true },
+    })
+  })
+
+  it("normalizes Nostr pubkeys before checking ownership and storing", async () => {
+    mockVerifyEvent.mockReturnValue(true)
+    userFindUnique.mockResolvedValue(null)
+    userUpdate.mockResolvedValue({ nostrPubkey: pubkey } as never)
+
+    await expect(
+      linkNostrSignInMethod({
+        userId: "user-1",
+        pubkey: pubkey.toUpperCase(),
+        event,
+        expectedOrigin: "https://app.example.com",
+      }),
+    ).resolves.toEqual({ nostrPubkey: pubkey, nostrLinked: true })
+
+    expect(userFindUnique).toHaveBeenCalledWith({
+      where: { nostrPubkey: pubkey },
+      select: { id: true },
+    })
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      data: { nostrPubkey: pubkey },
       select: { nostrPubkey: true },
     })
   })
