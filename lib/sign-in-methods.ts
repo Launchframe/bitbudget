@@ -213,7 +213,10 @@ export async function linkNostrSignInMethod({
     if (!verifyEvent(parsedEvent)) {
       throw new SignInMethodError("INVALID_NOSTR_EVENT", "Nostr signature could not be verified")
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof SignInMethodError) {
+      throw error
+    }
     throw new SignInMethodError("INVALID_NOSTR_EVENT", "Nostr signature could not be verified")
   }
 

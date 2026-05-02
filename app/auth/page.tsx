@@ -16,30 +16,18 @@ import {
   setPendingNsec,
   setNsecOnboardingIntent,
 } from "@/lib/nostr-local-signer"
+import { authErrorMessage } from "@/lib/auth-errors"
 import { usePlatform, type PlatformOS } from "@/lib/platform-context"
 
 type AuthMethod = "email" | "nostr" | "nsec" | null
 
 type SignerEntry = { name: string; href: string; img?: string; recommended?: boolean; note?: string }
 
-const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  OAuthAccountNotLinked:
-    "That email is already tied to a BitBudget account, but not to this sign-in provider. Sign in with your original method, or use email sign-in for this address.",
-  AccessDenied: "Sign-in was denied. Please try again.",
-  Configuration: "Sign-in is temporarily unavailable. Please contact support if this continues.",
-}
-
-function AuthErrorBanner({ error }: { error: string }) {
+function AuthErrorBanner({ message }: { message: string }) {
   return (
     <div className="flex items-start gap-2 p-3 mb-6 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
       <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-      {error === "keys.band-setup" ? (
-        <div className="flex flex-col gap-1.5 flex-1">
-          <span>keys.band needs an active account. Open the keys.band extension, select an account, and then try logging in again.</span>
-        </div>
-      ) : (
-        <span>{error}</span>
-      )}
+      <span>{message}</span>
     </div>
   )
 }
@@ -49,7 +37,7 @@ function AuthSearchParamError() {
   const authError = searchParams.get("error")
   if (!authError) return null
 
-  return <AuthErrorBanner error={AUTH_ERROR_MESSAGES[authError] ?? "Sign-in failed. Please try again."} />
+  return <AuthErrorBanner message={authErrorMessage(authError)} />
 }
 
 function clearNostrLoginSessionFlag() {

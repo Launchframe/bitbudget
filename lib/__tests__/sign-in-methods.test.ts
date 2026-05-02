@@ -260,7 +260,10 @@ describe("linkNostrSignInMethod", () => {
         event: authEvent({ created_at: Math.floor(Date.now() / 1000) - 3600 }),
         expectedOrigin: "https://app.example.com",
       }),
-    ).rejects.toMatchObject({ code: "INVALID_NOSTR_EVENT" })
+    ).rejects.toMatchObject({
+      code: "INVALID_NOSTR_EVENT",
+      message: "Nostr sign-in request expired",
+    })
 
     expect(mockVerifyEvent).not.toHaveBeenCalled()
     expect(userFindUnique).not.toHaveBeenCalled()

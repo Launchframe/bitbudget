@@ -1,18 +1,10 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { authErrorMessage } from "@/lib/auth-errors"
 
 export const metadata: Metadata = {
   title: "Sign-in error | BitBudget",
   description: "There was a problem signing in to BitBudget.",
-}
-
-const AUTH_ERROR_MESSAGES: Record<string, string> = {
-  Configuration:
-    "There is a problem with the sign-in configuration. Please try signing in again, or use another sign-in method while we sort it out.",
-  OAuthAccountNotLinked:
-    "That email is already tied to a BitBudget account, but not to this sign-in provider. Sign in with your original method, or use email sign-in for this address.",
-  AccessDenied: "Sign-in was denied. Please try again.",
-  Verification: "That sign-in link is invalid or has expired. Please request a new code.",
 }
 
 export default async function AuthErrorPage({
@@ -22,7 +14,7 @@ export default async function AuthErrorPage({
 }) {
   const sp = await searchParams
   const errorCode = sp.error ?? "Default"
-  const message = AUTH_ERROR_MESSAGES[errorCode] ?? "Something went wrong while signing you in. Please try again."
+  const message = authErrorMessage(errorCode)
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center bg-[#0D0D0D] px-6 py-16 text-center">
