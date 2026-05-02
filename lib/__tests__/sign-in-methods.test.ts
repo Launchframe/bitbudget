@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { Prisma } from "@prisma/client"
 
 const mockVerifyEvent = vi.hoisted(() => vi.fn())
 
@@ -32,6 +33,14 @@ const userFindUnique = vi.mocked(prisma.user.findUnique)
 const userUpdate = vi.mocked(prisma.user.update)
 const emailCodeFindFirst = vi.mocked(prisma.emailCode.findFirst)
 const emailCodeDeleteMany = vi.mocked(prisma.emailCode.deleteMany)
+
+function uniqueConstraint(field: string) {
+  return new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+    code: "P2002",
+    clientVersion: "test",
+    meta: { target: [field] },
+  })
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -110,11 +119,43 @@ describe("linkEmailSignInMethod", () => {
       }),
     ).rejects.toMatchObject({ code: "INVALID_CODE" })
   })
+
+  it("maps a raced unique email constraint to a 409", async () => {
+    userFindUnique.mockResolvedValue(null)
+    emailCodeFindFirst.mockResolvedValue({ id: "code-1" } as never)
+    userUpdate.mockRejectedValue(uniqueConstraint("email") as never)
+
+    await expect(
+      linkEmailSignInMethod({
+        userId: "user-1",
+        email: "new@example.com",
+        code: "123456",
+      }),
+    ).rejects.toMatchObject({
+      code: "EMAIL_ALREADY_LINKED",
+      status: 409,
+    } satisfies Partial<SignInMethodError>)
+
+    expect(emailCodeDeleteMany).not.toHaveBeenCalled()
+  })
 })
 
 describe("linkNostrSignInMethod", () => {
   const pubkey = "a".repeat(64)
-  const event = JSON.stringify({ pubkey })
+  const authEvent = (overrides: Record<string, unknown> = {}) => JSON.stringify({
+    kind: 27235,
+    content: "BitBudget Login",
+    created_at: Math.floor(Date.now() / 1000),
+    pubkey,
+    tags: [
+      ["u", "https://app.example.com"],
+      ["method", "login"],
+    ],
+    id: "event-id",
+    sig: "event-sig",
+    ...overrides,
+  })
+  const event = authEvent()
 
   it("links an unused Nostr key after signature verification", async () => {
     mockVerifyEvent.mockReturnValue(true)
@@ -126,6 +167,7 @@ describe("linkNostrSignInMethod", () => {
         userId: "user-1",
         pubkey,
         event,
+        expectedOrigin: "https://app.example.com",
         profileName: "Alice",
         profileImage: "https://example.com/a.png",
       }),
@@ -151,6 +193,7 @@ describe("linkNostrSignInMethod", () => {
         userId: "user-1",
         pubkey,
         event,
+        expectedOrigin: "https://app.example.com",
       }),
     ).rejects.toMatchObject({
       code: "NOSTR_ALREADY_LINKED",
@@ -166,9 +209,92 @@ describe("linkNostrSignInMethod", () => {
         userId: "user-1",
         pubkey,
         event,
+        expectedOrigin: "https://app.example.com",
       }),
     ).rejects.toMatchObject({ code: "INVALID_NOSTR_EVENT" })
 
     expect(userUpdate).not.toHaveBeenCalled()
+  })
+
+  it("maps verifier exceptions to an invalid Nostr event", async () => {
+    mockVerifyEvent.mockImplementation(() => {
+      throw new Error("malformed event")
+    })
+
+    await expect(
+      linkNostrSignInMethod({
+        userId: "user-1",
+        pubkey,
+        event,
+        expectedOrigin: "https://app.example.com",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_NOSTR_EVENT" })
+
+    expect(userUpdate).not.toHaveBeenCalled()
+  })
+
+  it("rejects non-auth Nostr events before linking", async () => {
+    mockVerifyEvent.mockReturnValue(true)
+
+    await expect(
+      linkNostrSignInMethod({
+        userId: "user-1",
+        pubkey,
+        event: authEvent({ kind: 1, content: "public note" }),
+        expectedOrigin: "https://app.example.com",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_NOSTR_EVENT" })
+
+    expect(mockVerifyEvent).not.toHaveBeenCalled()
+    expect(userFindUnique).not.toHaveBeenCalled()
+    expect(userUpdate).not.toHaveBeenCalled()
+  })
+
+  it("rejects stale Nostr auth events before linking", async () => {
+    mockVerifyEvent.mockReturnValue(true)
+
+    await expect(
+      linkNostrSignInMethod({
+        userId: "user-1",
+        pubkey,
+        event: authEvent({ created_at: Math.floor(Date.now() / 1000) - 3600 }),
+        expectedOrigin: "https://app.example.com",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_NOSTR_EVENT" })
+
+    expect(mockVerifyEvent).not.toHaveBeenCalled()
+    expect(userFindUnique).not.toHaveBeenCalled()
+    expect(userUpdate).not.toHaveBeenCalled()
+  })
+
+  it("rejects auth events for a different origin", async () => {
+    mockVerifyEvent.mockReturnValue(true)
+
+    await expect(
+      linkNostrSignInMethod({
+        userId: "user-1",
+        pubkey,
+        event,
+        expectedOrigin: "https://evil.example.com",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_NOSTR_EVENT" })
+  })
+
+  it("maps a raced unique Nostr constraint to a 409", async () => {
+    mockVerifyEvent.mockReturnValue(true)
+    userFindUnique.mockResolvedValue(null)
+    userUpdate.mockRejectedValue(uniqueConstraint("nostrPubkey") as never)
+
+    await expect(
+      linkNostrSignInMethod({
+        userId: "user-1",
+        pubkey,
+        event,
+        expectedOrigin: "https://app.example.com",
+      }),
+    ).rejects.toMatchObject({
+      code: "NOSTR_ALREADY_LINKED",
+      status: 409,
+    } satisfies Partial<SignInMethodError>)
   })
 })

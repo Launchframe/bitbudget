@@ -784,8 +784,6 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <LinkedSignInMethods />
-
       {/* Data */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
         <h3 className="text-lg font-semibold text-foreground mb-3">Data Summary</h3>
@@ -803,6 +801,8 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+
+      <LinkedSignInMethods />
 
       {/* Export — same CSV format as Transactions page (all active transactions) */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">

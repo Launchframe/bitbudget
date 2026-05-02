@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
           userId: session.user.id,
           pubkey: data.pubkey,
           event: data.event,
+          expectedOrigin: req.nextUrl.origin,
           profileName: typeof data.profileName === "string" ? data.profileName : undefined,
           profileImage: typeof data.profileImage === "string" ? data.profileImage : undefined,
         }),

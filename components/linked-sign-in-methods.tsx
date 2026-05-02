@@ -131,7 +131,7 @@ export function LinkedSignInMethods() {
       if (!res.ok) throw new Error(await readJsonError(res, "Failed to link email"))
       setCode("")
       setEmailCodeSent(false)
-      setSuccess("Email sign-in is now linked.")
+      setSuccess("Success! You can now log in with email.")
       await loadMethods()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to link email")
@@ -169,7 +169,7 @@ export function LinkedSignInMethods() {
         }),
       })
       if (!res.ok) throw new Error(await readJsonError(res, "Failed to link Nostr"))
-      setSuccess("Nostr sign-in is now linked.")
+      setSuccess("Success! You can now log in with Nostr.")
       await loadMethods()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to link Nostr")
@@ -190,7 +190,13 @@ export function LinkedSignInMethods() {
     setAction(provider)
     setError(null)
     setSuccess(null)
-    await signIn(provider, { callbackUrl: "/#settings/data-security" })
+    try {
+      await signIn(provider, { callbackUrl: "/#settings/data-security" })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to link ${provider}`)
+    } finally {
+      setAction(null)
+    }
   }
 
   async function continuePendingPrivacyLink() {
@@ -253,15 +259,15 @@ export function LinkedSignInMethods() {
       }}>
         <DialogContent className="border-[#333] bg-[#0D0D0D] text-foreground">
           <DialogHeader>
-            <DialogTitle>Linking another sign-in method changes your privacy model</DialogTitle>
+            <DialogTitle>Linking another sign-in method will weaken your privacy</DialogTitle>
             <DialogDescription>
-              This account currently uses only your Nostr public key. If you link email, Google, or GitHub,
-              BitBudget will store that account identifier alongside your npub so you can recover access later.
+              Right now, BitBudget knows you only by your Nostr public key. If you link your email, or an email-based provider like Google or GitHub,
+              BitBudget will store that account identifier alongside your npub so you can log in with either one.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
-            That recovery path can be useful, but it naturally weakens the privacy of a Nostr-only account:
-            your BitBudget account will no longer be represented only by an npub in our system.
+            Proceeding will naturally weaken the privacy of your account by linking additional identifiers to it.
+            Please consider these trade-offs before continuing.
           </div>
           <DialogFooter>
             <button
@@ -269,7 +275,7 @@ export function LinkedSignInMethods() {
               onClick={() => setPendingPrivacyLink(null)}
               className="rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-[#222]"
             >
-              Reconsider
+              Nevermind
             </button>
             <button
               type="button"
@@ -289,7 +295,7 @@ export function LinkedSignInMethods() {
         <div>
           <h3 className="text-lg font-semibold text-foreground">Linked sign-in methods</h3>
           <p className="text-sm text-muted-foreground">
-            Add another way to access this account if you lose access to your current sign-in method.
+            Add another way to access this account.
           </p>
         </div>
       </div>
