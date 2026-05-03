@@ -39,6 +39,7 @@ import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { SettingsReferralsCard } from "@/components/settings-referrals-card"
+import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
 
 type SettingsTab = "general" | "integrations" | "tags" | "payees" | "data"
 
@@ -800,6 +801,8 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+
+      <LinkedSignInMethods />
 
       {/* Export — same CSV format as Transactions page (all active transactions) */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">

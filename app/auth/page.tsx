@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { Suspense, useState, useEffect, useRef, useCallback } from "react"
 import { signIn } from "next-auth/react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { BitbudgetLogo, type BitbudgetLogoVariant } from "@/components/bitbudget-logo"
 import { DocumentFavicon } from "@/components/document-favicon"
 import { Input } from "@/components/ui/input"
@@ -16,11 +16,29 @@ import {
   setPendingNsec,
   setNsecOnboardingIntent,
 } from "@/lib/nostr-local-signer"
+import { authErrorMessage } from "@/lib/auth-errors"
 import { usePlatform, type PlatformOS } from "@/lib/platform-context"
 
 type AuthMethod = "email" | "nostr" | "nsec" | null
 
 type SignerEntry = { name: string; href: string; img?: string; recommended?: boolean; note?: string }
+
+function AuthErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="flex items-start gap-2 p-3 mb-6 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+      <span>{message}</span>
+    </div>
+  )
+}
+
+function AuthSearchParamError() {
+  const searchParams = useSearchParams()
+  const authError = searchParams.get("error")
+  if (!authError) return null
+
+  return <AuthErrorBanner message={authErrorMessage(authError)} />
+}
 
 function clearNostrLoginSessionFlag() {
   try {
@@ -375,6 +393,11 @@ export default function AuthPage() {
                 <span>{error}</span>
               )}
             </div>
+          )}
+          {!error && (
+            <Suspense fallback={null}>
+              <AuthSearchParamError />
+            </Suspense>
           )}
 
           {/* Method picker */}

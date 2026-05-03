@@ -6,10 +6,11 @@
 import { decode } from "nostr-tools/nip19"
 import { getPublicKey, finalizeEvent } from "nostr-tools"
 import type { VerifiedEvent } from "nostr-tools"
-
-const AUTH_EVENT_KIND = 27235
-
-const AUTH_EVENT_CONTENT = "BitBudget Login"
+import {
+  NOSTR_AUTH_EVENT_CONTENT,
+  NOSTR_AUTH_EVENT_KIND,
+  NOSTR_AUTH_EVENT_METHOD,
+} from "@/lib/nostr-auth-event"
 
 /** Unsigned auth event template (kind 27235) for extension or local signing. */
 export interface AuthEventTemplate {
@@ -27,13 +28,13 @@ export interface AuthEventTemplate {
  */
 export function buildAuthEventTemplate(origin: string): AuthEventTemplate {
   return {
-    kind: AUTH_EVENT_KIND,
+    kind: NOSTR_AUTH_EVENT_KIND,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ["u", origin],
-      ["method", "login"],
+      ["method", NOSTR_AUTH_EVENT_METHOD],
     ],
-    content: AUTH_EVENT_CONTENT,
+    content: NOSTR_AUTH_EVENT_CONTENT,
   }
 }
 
