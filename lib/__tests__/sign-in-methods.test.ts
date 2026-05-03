@@ -28,6 +28,11 @@ import {
   linkNostrSignInMethod,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
+import {
+  NOSTR_AUTH_EVENT_CONTENT,
+  NOSTR_AUTH_EVENT_KIND,
+  NOSTR_AUTH_EVENT_METHOD,
+} from "@/lib/nostr-auth-event"
 
 const userFindUnique = vi.mocked(prisma.user.findUnique)
 const userUpdate = vi.mocked(prisma.user.update)
@@ -144,13 +149,13 @@ describe("linkEmailSignInMethod", () => {
 describe("linkNostrSignInMethod", () => {
   const pubkey = "a".repeat(64)
   const authEvent = (overrides: Record<string, unknown> = {}) => JSON.stringify({
-    kind: 27235,
-    content: "BitBudget Login",
+    kind: NOSTR_AUTH_EVENT_KIND,
+    content: NOSTR_AUTH_EVENT_CONTENT,
     created_at: Math.floor(Date.now() / 1000),
     pubkey,
     tags: [
       ["u", "https://app.example.com"],
-      ["method", "login"],
+      ["method", NOSTR_AUTH_EVENT_METHOD],
     ],
     id: "event-id",
     sig: "event-sig",
@@ -206,6 +211,30 @@ describe("linkNostrSignInMethod", () => {
     expect(userUpdate).toHaveBeenCalledWith({
       where: { id: "user-1" },
       data: { nostrPubkey: pubkey },
+      select: { nostrPubkey: true },
+    })
+  })
+
+  it("sanitizes client-provided Nostr profile metadata before storing", async () => {
+    mockVerifyEvent.mockReturnValue(true)
+    userFindUnique.mockResolvedValue(null)
+    userUpdate.mockResolvedValue({ nostrPubkey: pubkey } as never)
+
+    await linkNostrSignInMethod({
+      userId: "user-1",
+      pubkey,
+      event,
+      expectedOrigin: "https://app.example.com",
+      profileName: ` ${"A".repeat(90)} `,
+      profileImage: "javascript:alert(1)",
+    })
+
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      data: {
+        nostrPubkey: pubkey,
+        name: "A".repeat(80),
+      },
       select: { nostrPubkey: true },
     })
   })

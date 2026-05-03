@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { signIn } from "next-auth/react"
 import { AlertCircle, CheckCircle2, Github, Loader2, Mail, Shield, Zap } from "lucide-react"
 import { buildAuthEventTemplate, fetchNostrProfile } from "@/lib/nostr-local-signer"
+import type { LinkProvider, SignInMethods } from "@/lib/sign-in-methods"
 import { Input } from "@/components/ui/input"
 import {
   Dialog,
@@ -13,16 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-
-type OAuthProvider = "google" | "github"
-
-interface SignInMethods {
-  email: string | null
-  emailLinked: boolean
-  nostrPubkey: string | null
-  nostrLinked: boolean
-  oauthProviders: OAuthProvider[]
-}
 
 const EMPTY_METHODS: SignInMethods = {
   email: null,
@@ -61,7 +52,7 @@ export function LinkedSignInMethods() {
   const [email, setEmail] = useState("")
   const [code, setCode] = useState("")
   const [emailCodeSent, setEmailCodeSent] = useState(false)
-  const [pendingPrivacyLink, setPendingPrivacyLink] = useState<"email" | OAuthProvider | null>(null)
+  const [pendingPrivacyLink, setPendingPrivacyLink] = useState<"email" | LinkProvider | null>(null)
 
   const linkedOAuth = useMemo(() => new Set(methods.oauthProviders), [methods.oauthProviders])
   const isNostrOnly = methods.nostrLinked && !methods.emailLinked && methods.oauthProviders.length === 0
@@ -178,7 +169,7 @@ export function LinkedSignInMethods() {
     }
   }
 
-  async function linkOAuth(provider: OAuthProvider) {
+  async function linkOAuth(provider: LinkProvider) {
     if (isNostrOnly) {
       setPendingPrivacyLink(provider)
       return
@@ -186,7 +177,7 @@ export function LinkedSignInMethods() {
     await executeOAuthLink(provider)
   }
 
-  async function executeOAuthLink(provider: OAuthProvider) {
+  async function executeOAuthLink(provider: LinkProvider) {
     setAction(provider)
     setError(null)
     setSuccess(null)
