@@ -1,15 +1,23 @@
 import type { Transaction, TransactionType } from "@/lib/data"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 
-/** Normalize USD amounts so 10 and 10.00 collide consistently. */
-export function normalizeDedupAmount(amount: number): number {
+/**
+ * Integer cents from absolute USD for stable collision keys (avoids float artifacts like
+ * `Math.round(1.005 * 100) === 100` in IEEE doubles).
+ */
+export function normalizeDedupCents(amount: number): number {
   const n = Number(amount)
   if (!Number.isFinite(n)) return 0
-  return Math.round(Math.abs(n) * 100) / 100
+  return Math.round(Number(`${Math.abs(n)}e2`))
+}
+
+/** Normalize USD amounts so 10 and 10.00 collide consistently. */
+export function normalizeDedupAmount(amount: number): number {
+  return normalizeDedupCents(amount) / 100
 }
 
 /**
- * Same calendar date + type + payee (trimmed, case-insensitive) + normalized absolute amount.
+ * Same calendar date + type + payee (trimmed, case-insensitive) + normalized absolute amount (as cents integer).
  */
 export function transactionCollisionKey(candidate: {
   date: string
@@ -18,8 +26,8 @@ export function transactionCollisionKey(candidate: {
   type: TransactionType
 }): string {
   const payeeNorm = candidate.payee.toLowerCase().trim()
-  const amt = normalizeDedupAmount(candidate.amount)
-  return `${candidate.date}|${candidate.type}|${payeeNorm}|${amt}`
+  const cents = normalizeDedupCents(candidate.amount)
+  return `${candidate.date}|${candidate.type}|${payeeNorm}|${cents}`
 }
 
 export function findCollidingTransaction(

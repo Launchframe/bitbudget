@@ -114,18 +114,15 @@ export function NewTransactionDialog() {
   const appliedPrefillKeyRef = useRef<string | null>(null)
   const prefillPayeeRawRef = useRef<string | null>(null)
   const skipCanonicalForPrefillRef = useRef(false)
-  const skipDuplicateOnceRef = useRef(false)
 
   useEffect(() => {
     if (!transactionDialogOpen) {
       setDuplicateExisting(null)
-      skipDuplicateOnceRef.current = false
     }
   }, [transactionDialogOpen])
 
   useEffect(() => {
     setDuplicateExisting(null)
-    skipDuplicateOnceRef.current = false
   }, [date, payee, amount, type])
 
   useEffect(() => {
@@ -410,15 +407,19 @@ export function NewTransactionDialog() {
     setImportSourcePayee(null)
     setAliasSaveMessage(null)
     setDuplicateExisting(null)
-    skipDuplicateOnceRef.current = false
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  async function submitTransaction(options: { bypassDuplicateCheck?: boolean } = {}) {
     if (modalView !== "main") return
+
     const errors: Record<string, string> = {}
     if (!payee.trim()) errors.payee = "Please enter a payee"
-    if (!amount || parseFloat(amount) <= 0) errors.amount = "Please enter an amount"
+
+    const parsedAmount = Number.parseFloat(amount)
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      errors.amount = "Please enter an amount"
+    }
+
     if (!envelopeId) errors.envelope = "Please select an envelope"
     if (Object.keys(errors).length > 0) {
       setValidationErrors(errors)
@@ -426,11 +427,12 @@ export function NewTransactionDialog() {
     }
     setValidationErrors({})
 
-    const amt = Math.abs(parseFloat(amount))
+    const amt = Math.abs(parsedAmount)
     const dupCandidate = { date, payee: payee.trim(), amount: amt, type }
 
+    const recurringId = transactionPrefill?.recurringId
     const shouldCheckDuplicate = Boolean(recurringId) || !isRecurring
-    const bypassDup = skipDuplicateOnceRef.current
+    const bypassDup = options.bypassDuplicateCheck === true
     if (!bypassDup && shouldCheckDuplicate) {
       const hit = findCollidingTransaction(activeTransactions, dupCandidate)
       if (hit) {
@@ -438,10 +440,9 @@ export function NewTransactionDialog() {
         return
       }
     }
-    skipDuplicateOnceRef.current = false
+
     setDuplicateExisting(null)
 
-    const recurringId = transactionPrefill?.recurringId
     if (recurringId) {
       setSubmitting(true)
       try {
@@ -453,7 +454,7 @@ export function NewTransactionDialog() {
           body: JSON.stringify({
             recurringId,
             payee: encPayee,
-            amount: Math.abs(parseFloat(amount)),
+            amount: amt,
             type,
             envelopeId,
             tags: selectedTags,
@@ -479,7 +480,7 @@ export function NewTransactionDialog() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             payee: encPayee,
-            amount: Math.abs(parseFloat(amount)),
+            amount: amt,
             type,
             envelopeId,
             cadence,
@@ -501,7 +502,7 @@ export function NewTransactionDialog() {
       addTransaction({
         date,
         payee: payee.trim(),
-        amount: Math.abs(parseFloat(amount)),
+        amount: amt,
         type,
         envelopeId,
         tags: selectedTags,
@@ -515,7 +516,7 @@ export function NewTransactionDialog() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           payee: payee.trim(),
-          defaultAmount: parseFloat(amount) > 0 ? parseFloat(amount) : null,
+          defaultAmount: Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : null,
           envelopeId,
         }),
       })
@@ -523,6 +524,11 @@ export function NewTransactionDialog() {
 
     resetForm()
     setTransactionDialogOpen(false)
+  }
+
+  function handleFormSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    void submitTransaction()
   }
 
   function toggleTag(tag: string) {
@@ -551,7 +557,7 @@ export function NewTransactionDialog() {
           </DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <form onSubmit={handleFormSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {modalView === "main" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-4">
@@ -872,10 +878,7 @@ export function NewTransactionDialog() {
                         type="button"
                         className="rounded-lg bg-btc-orange px-3 py-2 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90"
                         onClick={() => {
-                          skipDuplicateOnceRef.current = true
-                          void handleSubmit({
-                            preventDefault() {},
-                          } as unknown as React.FormEvent<HTMLFormElement>)
+                          void submitTransaction({ bypassDuplicateCheck: true })
                         }}
                       >
                         Save anyway

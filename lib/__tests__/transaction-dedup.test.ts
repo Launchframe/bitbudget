@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   findCollidingTransaction,
   normalizeDedupAmount,
+  normalizeDedupCents,
   transactionCollisionKey,
 } from "@/lib/transaction-dedup"
 import type { Transaction } from "@/lib/data"
@@ -22,6 +23,15 @@ describe("normalizeDedupAmount", () => {
     expect(normalizeDedupAmount(10)).toBe(10)
     expect(normalizeDedupAmount(10.001)).toBe(10)
     expect(normalizeDedupAmount(10.009)).toBe(10.01)
+    expect(normalizeDedupAmount(1.005)).toBe(1.01)
+  })
+})
+
+describe("normalizeDedupCents", () => {
+  it("matches dollar normalization", () => {
+    expect(normalizeDedupCents(12.5)).toBe(1250)
+    expect(normalizeDedupCents(-12.5)).toBe(1250)
+    expect(normalizeDedupCents(Number.NaN)).toBe(0)
   })
 })
 
