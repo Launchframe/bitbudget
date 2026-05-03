@@ -8,7 +8,15 @@ import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 export function normalizeDedupCents(amount: number): number {
   const n = Number(amount)
   if (!Number.isFinite(n)) return 0
-  return Math.round(Number(`${Math.abs(n)}e2`))
+  const abs = Math.abs(n)
+  if (abs === 0) return 0
+  // Huge/tiny doubles stringify as `1e+21`, which must not become `1e+21e2` (invalid concatenation).
+  const asStr = String(abs)
+  if (!/[eE]/.test(asStr)) {
+    const scaled = Number(`${abs}e2`)
+    if (Number.isFinite(scaled)) return Math.round(scaled)
+  }
+  return Math.round(abs * 100)
 }
 
 /** Normalize USD amounts so 10 and 10.00 collide consistently. */

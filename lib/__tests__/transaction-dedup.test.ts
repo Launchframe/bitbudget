@@ -6,6 +6,7 @@ import {
   transactionCollisionKey,
 } from "@/lib/transaction-dedup"
 import type { Transaction } from "@/lib/data"
+import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 
 const baseTxn = (over: Partial<Transaction>): Transaction => ({
   id: "x",
@@ -32,6 +33,14 @@ describe("normalizeDedupCents", () => {
     expect(normalizeDedupCents(12.5)).toBe(1250)
     expect(normalizeDedupCents(-12.5)).toBe(1250)
     expect(normalizeDedupCents(Number.NaN)).toBe(0)
+  })
+
+  it("falls back when double stringifies as scientific notation", () => {
+    const sci = 1e25 // String(1e25) is `1e+25`
+    expect(Number.isFinite(Number(`${sci}e2`))).toBe(false)
+    const cents = normalizeDedupCents(sci)
+    expect(Number.isInteger(cents)).toBe(true)
+    expect(normalizeDedupCents(sci)).toBe(Math.round(sci * 100))
   })
 })
 
@@ -89,6 +98,32 @@ describe("findCollidingTransaction", () => {
       findCollidingTransaction(rows, {
         date: "2026-04-26",
         payee: "Tea Shop",
+        amount: 12.5,
+        type: "expense",
+      }),
+    ).toBeUndefined()
+  })
+
+  it("ignores ciphertext placeholder rows (cannot compare decrypted payees)", () => {
+    const rows = [
+      baseTxn({ id: "locked", payee: ENCRYPTED_DISPLAY }),
+      baseTxn({ id: "open", payee: "Coffee Shop" }),
+    ]
+    const hit = findCollidingTransaction(rows, {
+      date: "2026-04-26",
+      payee: "coffee shop",
+      amount: 12.5,
+      type: "expense",
+    })
+    expect(hit?.id).toBe("open")
+  })
+
+  it("never matches only ciphertext rows even if collision key aligns", () => {
+    const rows = [baseTxn({ id: "locked", payee: ENCRYPTED_DISPLAY })]
+    expect(
+      findCollidingTransaction(rows, {
+        date: "2026-04-26",
+        payee: ENCRYPTED_DISPLAY,
         amount: 12.5,
         type: "expense",
       }),
