@@ -410,6 +410,7 @@ export function NewTransactionDialog() {
   }
 
   async function submitTransaction(options: { bypassDuplicateCheck?: boolean } = {}) {
+    if (submitting) return
     if (modalView !== "main") return
 
     const errors: Record<string, string> = {}
