@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { useApp } from "@/lib/app-context"
-import type { TransactionType } from "@/lib/data"
+import type { TransactionType, Transaction } from "@/lib/data"
+import { formatUsdPrecise } from "@/lib/data"
 import {
   Dialog,
   DialogContent,
@@ -30,6 +31,7 @@ import {
   type PayeeAliasRule,
   type PayeeCandidate,
 } from "@/lib/payee-canonical"
+import { findCollidingTransaction } from "@/lib/transaction-dedup"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -62,7 +64,18 @@ function bestEnvelopeIdForPayee(
 }
 
 export function NewTransactionDialog() {
-  const { state, activeEnvelopes, transactionDialogOpen, transactionPrefill, setTransactionDialogOpen, addTransaction, addTag, refreshData, encryptForStorage } = useApp()
+  const {
+    state,
+    activeEnvelopes,
+    activeTransactions,
+    transactionDialogOpen,
+    transactionPrefill,
+    setTransactionDialogOpen,
+    addTransaction,
+    addTag,
+    refreshData,
+    encryptForStorage,
+  } = useApp()
   const shortcuts = useTransactionShortcuts(transactionDialogOpen)
 
   const [type, setType] = useState<TransactionType>("expense")
@@ -80,6 +93,7 @@ export function NewTransactionDialog() {
   const [saveAsShortcut, setSaveAsShortcut] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+  const [duplicateExisting, setDuplicateExisting] = useState<Transaction | null>(null)
   const [payeeMatchHint, setPayeeMatchHint] = useState<{
     original: string
     canonical: string
@@ -100,6 +114,16 @@ export function NewTransactionDialog() {
   const appliedPrefillKeyRef = useRef<string | null>(null)
   const prefillPayeeRawRef = useRef<string | null>(null)
   const skipCanonicalForPrefillRef = useRef(false)
+
+  useEffect(() => {
+    if (!transactionDialogOpen) {
+      setDuplicateExisting(null)
+    }
+  }, [transactionDialogOpen])
+
+  useEffect(() => {
+    setDuplicateExisting(null)
+  }, [date, payee, amount, type])
 
   useEffect(() => {
     if (!transactionDialogOpen) return
@@ -283,6 +307,15 @@ export function NewTransactionDialog() {
     normalizePayeeKey(importSourcePayee) !== normalizePayeeKey(payee) &&
     !payeeAliasAlreadyMatches
 
+  const duplicateEnvelopeName = useMemo(() => {
+    if (!duplicateExisting) return null
+    return (
+      activeEnvelopes.find((e) => e.id === duplicateExisting.envelopeId)?.name ??
+      state.envelopes.find((e) => e.id === duplicateExisting.envelopeId)?.name ??
+      null
+    )
+  }, [duplicateExisting, activeEnvelopes, state.envelopes])
+
   async function savePayeeMapping() {
     if (!importSourcePayee || !payee.trim()) return
     setAliasSaveBusy(true)
@@ -373,14 +406,21 @@ export function NewTransactionDialog() {
     setPayeeMatchHint(null)
     setImportSourcePayee(null)
     setAliasSaveMessage(null)
+    setDuplicateExisting(null)
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  async function submitTransaction(options: { bypassDuplicateCheck?: boolean } = {}) {
+    if (submitting) return
     if (modalView !== "main") return
+
     const errors: Record<string, string> = {}
     if (!payee.trim()) errors.payee = "Please enter a payee"
-    if (!amount || parseFloat(amount) <= 0) errors.amount = "Please enter an amount"
+
+    const parsedAmount = Number.parseFloat(amount)
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      errors.amount = "Please enter an amount"
+    }
+
     if (!envelopeId) errors.envelope = "Please select an envelope"
     if (Object.keys(errors).length > 0) {
       setValidationErrors(errors)
@@ -388,7 +428,22 @@ export function NewTransactionDialog() {
     }
     setValidationErrors({})
 
+    const amt = Math.abs(parsedAmount)
+    const dupCandidate = { date, payee: payee.trim(), amount: amt, type }
+
     const recurringId = transactionPrefill?.recurringId
+    const shouldCheckDuplicate = Boolean(recurringId) || !isRecurring
+    const bypassDup = options.bypassDuplicateCheck === true
+    if (!bypassDup && shouldCheckDuplicate) {
+      const hit = findCollidingTransaction(activeTransactions, dupCandidate)
+      if (hit) {
+        setDuplicateExisting(hit)
+        return
+      }
+    }
+
+    setDuplicateExisting(null)
+
     if (recurringId) {
       setSubmitting(true)
       try {
@@ -400,7 +455,7 @@ export function NewTransactionDialog() {
           body: JSON.stringify({
             recurringId,
             payee: encPayee,
-            amount: Math.abs(parseFloat(amount)),
+            amount: amt,
             type,
             envelopeId,
             tags: selectedTags,
@@ -426,7 +481,7 @@ export function NewTransactionDialog() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             payee: encPayee,
-            amount: Math.abs(parseFloat(amount)),
+            amount: amt,
             type,
             envelopeId,
             cadence,
@@ -448,7 +503,7 @@ export function NewTransactionDialog() {
       addTransaction({
         date,
         payee: payee.trim(),
-        amount: Math.abs(parseFloat(amount)),
+        amount: amt,
         type,
         envelopeId,
         tags: selectedTags,
@@ -462,7 +517,7 @@ export function NewTransactionDialog() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           payee: payee.trim(),
-          defaultAmount: parseFloat(amount) > 0 ? parseFloat(amount) : null,
+          defaultAmount: Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : null,
           envelopeId,
         }),
       })
@@ -470,6 +525,11 @@ export function NewTransactionDialog() {
 
     resetForm()
     setTransactionDialogOpen(false)
+  }
+
+  function handleFormSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    void submitTransaction()
   }
 
   function toggleTag(tag: string) {
@@ -498,7 +558,7 @@ export function NewTransactionDialog() {
           </DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <form onSubmit={handleFormSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {modalView === "main" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-4">
@@ -782,7 +842,53 @@ export function NewTransactionDialog() {
               </label>
               </div>
 
-              <div className="shrink-0 border-t border-[#1F1F1F] bg-[#0D0D0D] px-6 py-4">
+              <div className="shrink-0 border-t border-[#1F1F1F] bg-[#0D0D0D] px-6 py-4 space-y-3">
+                {duplicateExisting && (
+                  <div
+                    role="alert"
+                    aria-live="polite"
+                    className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-3 text-sm"
+                  >
+                    <p className="font-medium text-foreground">Possible duplicate transaction</p>
+                    <p className="mt-1 text-muted-foreground">
+                      You already logged this{" "}
+                      {duplicateExisting.type === "expense" ? "expense" : "credit"} on{" "}
+                      <span className="text-foreground">{duplicateExisting.date}</span>
+                      {": "}
+                      <span className="text-foreground">{duplicateExisting.payee}</span>,{" "}
+                      <span className="font-ibm-plex-mono text-foreground">
+                        {formatUsdPrecise(duplicateExisting.amount)}
+                      </span>
+                      {duplicateEnvelopeName ? (
+                        <>
+                          {" "}
+                          (<span className="text-foreground">{duplicateEnvelopeName}</span>)
+                        </>
+                      ) : null}
+                      .
+                    </p>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-[#333] bg-[#1A1A1A] px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-[#222]"
+                        onClick={() => setDuplicateExisting(null)}
+                      >
+                        Edit details
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        className="rounded-lg bg-btc-orange px-3 py-2 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90 disabled:pointer-events-none disabled:opacity-50"
+                        onClick={() => {
+                          if (submitting) return
+                          void submitTransaction({ bypassDuplicateCheck: true })
+                        }}
+                      >
+                        Save anyway
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <button
                   type="submit"
                   disabled={submitting}
