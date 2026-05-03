@@ -34,6 +34,7 @@ import { parseCSVFile } from "@/lib/csv"
 import type { CsvParseResult, ParsedTransaction } from "@/lib/csv"
 import type { Transaction } from "@/lib/data"
 import { resolveEncryptFnForImport } from "@/lib/resolve-import-encrypt-fn"
+import { transactionCollisionKey } from "@/lib/transaction-dedup"
 
 interface SampleTxn {
   date: string
@@ -65,14 +66,15 @@ const CSV_PREFIX = "__csv__:"
 
 export type EncryptFn = (plaintext: string) => Promise<string>
 
-function collisionKey(date: string, payee: string, amount: number): string {
-  return `${date}|${payee.toLowerCase().trim()}|${amount}`
-}
-
 function buildExistingByKey(transactions: Transaction[]): Map<string, Transaction> {
   const map = new Map<string, Transaction>()
   for (const t of transactions) {
-    const k = collisionKey(t.date, t.payee, t.amount)
+    const k = transactionCollisionKey({
+      date: t.date,
+      payee: t.payee,
+      amount: t.amount,
+      type: t.type,
+    })
     if (!map.has(k)) map.set(k, t)
   }
   return map
@@ -208,7 +210,12 @@ export function CSVImportDialog({
           const txn = parsed.transactions[i]
           if (skipEnv.has(txn.envelopeName.toLowerCase())) continue
           eligibleIndices.push(i)
-          const k = collisionKey(txn.date, txn.payee, txn.amount)
+          const k = transactionCollisionKey({
+            date: txn.date,
+            payee: txn.payee,
+            amount: txn.amount,
+            type: txn.type,
+          })
           const existing = existingByKey.get(k)
           if (existing) dupRows.push({ index: i, incoming: txn, existing })
         }
@@ -373,7 +380,12 @@ export function CSVImportDialog({
         const txn = parseResult.transactions[i]
         if (skipEnv.has(txn.envelopeName.toLowerCase())) continue
         eligibleIndices.push(i)
-        const k = collisionKey(txn.date, txn.payee, txn.amount)
+        const k = transactionCollisionKey({
+          date: txn.date,
+          payee: txn.payee,
+          amount: txn.amount,
+          type: txn.type,
+        })
         const existing = existingByKey.get(k)
         if (existing) {
           dupRows.push({ index: i, incoming: txn, existing })
