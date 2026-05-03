@@ -877,8 +877,10 @@ export function NewTransactionDialog() {
                       </button>
                       <button
                         type="button"
-                        className="rounded-lg bg-btc-orange px-3 py-2 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90"
+                        disabled={submitting}
+                        className="rounded-lg bg-btc-orange px-3 py-2 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90 disabled:pointer-events-none disabled:opacity-50"
                         onClick={() => {
+                          if (submitting) return
                           void submitTransaction({ bypassDuplicateCheck: true })
                         }}
                       >
