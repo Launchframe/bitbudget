@@ -127,7 +127,7 @@ export function TransactionsPage() {
       result = result.filter((t) => t.date <= endDate)
     }
 
-    return result.sort(compareTransactionsDesc)
+    return [...result].sort(compareTransactionsDesc)
   }, [visibleTransactions, searchQuery, typeFilter, envelopeFilters, tagFilters, startDate, endDate])
 
   useEffect(() => {

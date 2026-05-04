@@ -35,10 +35,25 @@ async function savingsEnvelopeForUser(userId: string): Promise<{ id: string } | 
   return row
 }
 
-/** Ensure system Savings envelope exists (idempotent). */
+/** Ensure system Savings envelope exists (idempotent). Un-archives a legacy Savings-named row if needed. */
 export async function ensureSystemSavingsEnvelope(userId: string): Promise<{ id: string }> {
   const existing = await savingsEnvelopeForUser(userId)
   if (existing) return existing
+
+  const legacyNamed = await prisma.envelope.findFirst({
+    where: { userId, name: RESERVED_SAVINGS_ENVELOPE_NAME },
+    select: { id: true },
+  })
+  if (legacyNamed) {
+    return prisma.envelope.update({
+      where: { id: legacyNamed.id },
+      data: {
+        archived: false,
+        systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
+      },
+      select: { id: true },
+    })
+  }
 
   return prisma.envelope.create({
     data: {

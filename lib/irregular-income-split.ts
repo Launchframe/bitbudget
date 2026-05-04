@@ -14,7 +14,7 @@ export interface IrregularSplitResult {
 
 /**
  * Split gross amount `X` across envelopes proportional to allotments vs `monthlyIncome`.
- * Uses integer cents + greedy largest-remainder steps so Σ allocations equals gross when possible.
+ * Uses integer cents + Hamilton largest-remainder distribution when spare ≤ row count (single sorted pass).
  */
 export function computeIrregularIncomeSplits(params: {
   grossUsd: number
@@ -71,6 +71,21 @@ export function computeIrregularIncomeSplits(params: {
   if (spare < 0) {
     // Over-allocated floors (extreme float) — zero out
     return { envelopeIdToCents: new Map() }
+  }
+
+  const remainderOrder = [...rows].sort((a, b) => {
+    const fa = a.ideal - a.floor
+    const fb = b.ideal - b.floor
+    if (fb !== fa) return fb - fa
+    return a.id.localeCompare(b.id)
+  })
+
+  if (spare <= remainderOrder.length) {
+    for (let i = 0; i < spare; i++) {
+      const r = remainderOrder[i]!
+      envelopeIdToCents.set(r.id, (envelopeIdToCents.get(r.id) ?? 0) + 1)
+    }
+    return { envelopeIdToCents }
   }
 
   while (spare > 0) {

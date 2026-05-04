@@ -1,7 +1,22 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Inbox, Mic, Camera, MessageSquare, Mail, Building2, Check, X, CheckCheck, Copy } from "lucide-react"
+import {
+  Inbox,
+  Mic,
+  Camera,
+  MessageSquare,
+  Mail,
+  Building2,
+  Wallet,
+  TrendingUp,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Check,
+  X,
+  CheckCheck,
+  Copy,
+} from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import type { TransactionSource } from "@/lib/data"
 import { Label } from "@/components/ui/label"
@@ -21,6 +36,10 @@ const sourceIcons: Record<TransactionSource, React.ElementType> = {
   email_forward: Mail,
   email_scan: Mail,
   plaid: Building2,
+  paycheck: Wallet,
+  irregular_income: TrendingUp,
+  envelope_funding_out: ArrowUpFromLine,
+  envelope_funding_in: ArrowDownToLine,
 }
 
 const sourceLabels: Record<TransactionSource, string> = {
@@ -31,6 +50,10 @@ const sourceLabels: Record<TransactionSource, string> = {
   email_forward: "Email",
   email_scan: "Email Scan",
   plaid: "Bank",
+  paycheck: "Paycheck",
+  irregular_income: "Irregular income",
+  envelope_funding_out: "Funding (Savings)",
+  envelope_funding_in: "Funding (envelope)",
 }
 
 export function ReviewInbox() {

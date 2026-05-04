@@ -376,6 +376,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [referralRefereeTrialMonths, setReferralRefereeTrialMonths] = useState<1 | 3 | null>(null)
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const [recurringTransactions, setRecurringTransactions] = useState<RecurringTransaction[]>([])
+  /** Latest envelopes for synchronous guards before optimistic updates (avoid mutable flags inside setState updaters). */
+  const envelopesRef = useRef(state.envelopes)
+  envelopesRef.current = state.envelopes
+
   const mounted = useRef(false)
   const isPopstate = useRef(false)
 
@@ -1070,19 +1074,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const archiveEnvelope = useCallback(async (id: string) => {
-    let blocked = false
-    setState(prev => {
-      const env = prev.envelopes.find(e => e.id === id)
-      if (env?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
-        blocked = true
-        return prev
-      }
-      return {
-        ...prev,
-        envelopes: prev.envelopes.map(e => e.id === id ? { ...e, archived: true } : e),
-      }
-    })
-    if (blocked) return
+    const env = envelopesRef.current.find(e => e.id === id)
+    if (env?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) return
+
+    setState(prev => ({
+      ...prev,
+      envelopes: prev.envelopes.map(e => e.id === id ? { ...e, archived: true } : e),
+    }))
 
     try {
       await fetch("/api/envelopes", {
@@ -1113,20 +1111,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const deleteEnvelope = useCallback(async (id: string) => {
-    let blocked = false
-    setState(prev => {
-      const env = prev.envelopes.find(e => e.id === id)
-      if (env?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
-        blocked = true
-        return prev
-      }
-      return {
-        ...prev,
-        envelopes: prev.envelopes.filter(e => e.id !== id),
-        transactions: prev.transactions.filter(t => t.envelopeId !== id),
-      }
-    })
-    if (blocked) return
+    const env = envelopesRef.current.find(e => e.id === id)
+    if (env?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) return
+
+    setState(prev => ({
+      ...prev,
+      envelopes: prev.envelopes.filter(e => e.id !== id),
+      transactions: prev.transactions.filter(t => t.envelopeId !== id),
+    }))
 
     try {
       const res = await fetch(`/api/envelopes?id=${id}`, { method: "DELETE" })
@@ -1141,22 +1133,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const mergeEnvelope = useCallback(async (sourceId: string, targetId: string) => {
-    let blocked = false
-    setState(prev => {
-      const src = prev.envelopes.find(e => e.id === sourceId)
-      if (src?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
-        blocked = true
-        return prev
-      }
-      return {
-        ...prev,
-        envelopes: prev.envelopes.filter(e => e.id !== sourceId),
-        transactions: prev.transactions.map(t =>
-          t.envelopeId === sourceId ? { ...t, envelopeId: targetId } : t,
-        ),
-      }
-    })
-    if (blocked) return
+    const src = envelopesRef.current.find(e => e.id === sourceId)
+    if (src?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) return
+
+    setState(prev => ({
+      ...prev,
+      envelopes: prev.envelopes.filter(e => e.id !== sourceId),
+      transactions: prev.transactions.map(t =>
+        t.envelopeId === sourceId ? { ...t, envelopeId: targetId } : t,
+      ),
+    }))
 
     try {
       await fetch("/api/envelopes/merge", {

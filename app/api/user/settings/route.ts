@@ -18,6 +18,8 @@ type UserSettingsPutBody = Partial<{
   name: string | null
 }>
 
+const ALLOWED_PAY_CADENCES = new Set(["monthly", "bimonthly", "daily"])
+
 const ALLOWED_SETTINGS_PUT_FIELDS = [
   "monthlyIncome",
   "payCadence",
@@ -160,6 +162,9 @@ export async function PUT(req: NextRequest) {
   if (body.payCadence !== undefined) {
     if (typeof body.payCadence !== "string") {
       return NextResponse.json({ error: "Invalid pay cadence" }, { status: 400 })
+    }
+    if (!ALLOWED_PAY_CADENCES.has(body.payCadence)) {
+      return NextResponse.json({ error: "Unsupported pay cadence" }, { status: 400 })
     }
     try {
       assertPayCadencePersistable(body.payCadence)

@@ -73,7 +73,12 @@ export async function POST(req: NextRequest) {
   if (!name) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 })
   }
-  if (isReservedSavingsEnvelopeName(name)) {
+
+  const userLedger = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { ledgerFundingEnabled: true },
+  })
+  if (userLedger?.ledgerFundingEnabled && isReservedSavingsEnvelopeName(name)) {
     return NextResponse.json(
       { error: `"${name.trim()}" is reserved for ledger Savings.` },
       { status: 400 },
@@ -131,12 +136,6 @@ export async function PUT(req: NextRequest) {
   }
 
   if (existing.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
-    if (name !== undefined && name.trim() !== existing.name) {
-      return NextResponse.json(
-        { error: "The system Savings envelope cannot be renamed." },
-        { status: 403 },
-      )
-    }
     if (archived === true) {
       return NextResponse.json(
         { error: "The system Savings envelope cannot be archived." },
@@ -150,7 +149,7 @@ export async function PUT(req: NextRequest) {
     updated = await prisma.envelope.update({
       where: { id },
       data: {
-        ...(name !== undefined ? { name } : {}),
+        ...(existing.systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS && name !== undefined ? { name } : {}),
         ...(monthlyAllotment !== undefined ? { monthlyAllotment } : {}),
         ...(color !== undefined ? { color } : {}),
         ...(icon !== undefined ? { icon } : {}),

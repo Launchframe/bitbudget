@@ -39,7 +39,4 @@ EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
 
-UPDATE "Envelope"
-SET "systemRole" = 'savings'
-WHERE name = 'Savings'
-  AND ("systemRole" IS NULL OR "systemRole" = '');
+-- Do not bulk-assign systemRole here: enabling ledger funding promotes/creates Savings via ensureSystemSavingsEnvelope().

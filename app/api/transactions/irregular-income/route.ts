@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { createIrregularIncomeBatch } from "@/lib/envelope-funding"
+import { parseTransactionQueryCalendarDate } from "@/lib/transaction-query-dates"
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -20,9 +21,14 @@ export async function POST(req: NextRequest) {
   }
   const { amount, date, payee, notes } = body as Record<string, unknown>
 
-  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  if (typeof date !== "string") {
     return NextResponse.json({ error: "Invalid date (YYYY-MM-DD)" }, { status: 400 })
   }
+  const parsedCalendar = parseTransactionQueryCalendarDate(date)
+  if (!parsedCalendar) {
+    return NextResponse.json({ error: "Invalid calendar date (YYYY-MM-DD)" }, { status: 400 })
+  }
+  const dateIso = parsedCalendar.toISOString().slice(0, 10)
   if (typeof payee !== "string" || payee.trim().length === 0) {
     return NextResponse.json({ error: "Payee required" }, { status: 400 })
   }
@@ -69,7 +75,7 @@ export async function POST(req: NextRequest) {
     userId: session.user.id,
     publicKey: user.publicKey,
     grossUsd: amountNum,
-    dateIso: date,
+    dateIso,
     displayPayee: payee.trim(),
     notesPlain: notesStr,
   })
