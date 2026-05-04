@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { compareTransactionsDesc, formatUsd, formatUsdPrecise, type BtcDisplayUnit, type TransactionType } from "@/lib/data"
+import { compareTransactionsDesc, formatUsd, formatUsdPrecise, transactionsVisibleInMainHistory, type BtcDisplayUnit, type TransactionType } from "@/lib/data"
 import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
@@ -87,16 +87,21 @@ export function TransactionsPage() {
     return map
   }, [state.envelopes])
 
+  const visibleTransactions = useMemo(
+    () => transactionsVisibleInMainHistory(activeTransactions),
+    [activeTransactions],
+  )
+
   const availableTags = useMemo(() => {
     const tags = new Set<string>()
-    for (const txn of activeTransactions) {
+    for (const txn of visibleTransactions) {
       for (const tag of txn.tags ?? []) tags.add(tag)
     }
     return Array.from(tags).sort((a, b) => a.localeCompare(b))
-  }, [activeTransactions])
+  }, [visibleTransactions])
 
   const filteredTransactions = useMemo(() => {
-    let result = activeTransactions
+    let result = visibleTransactions
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
@@ -123,7 +128,7 @@ export function TransactionsPage() {
     }
 
     return result.sort(compareTransactionsDesc)
-  }, [activeTransactions, searchQuery, typeFilter, envelopeFilters, tagFilters, startDate, endDate])
+  }, [visibleTransactions, searchQuery, typeFilter, envelopeFilters, tagFilters, startDate, endDate])
 
   useEffect(() => {
     if (!highlightTransactionId) return

@@ -2,7 +2,18 @@
 
 export type TransactionType = "expense" | "credit"
 
-export type TransactionSource = "manual" | "voice" | "receipt_scan" | "sms" | "email_forward" | "email_scan" | "plaid"
+export type TransactionSource =
+  | "manual"
+  | "voice"
+  | "receipt_scan"
+  | "sms"
+  | "email_forward"
+  | "email_scan"
+  | "plaid"
+  | "paycheck"
+  | "irregular_income"
+  | "envelope_funding_out"
+  | "envelope_funding_in"
 
 export interface Transaction {
   id: string
@@ -16,6 +27,9 @@ export interface Transaction {
   satsAmount?: number | null
   recurringId?: string | null
   source?: TransactionSource
+  /** Funding allocation legs hidden from global transaction lists */
+  excludeFromMainHistory?: boolean
+  fundingBatchId?: string | null
   /** Server creation timestamp for ordering same-day transactions. */
   createdAt?: string
   /** Server row version for delta sync (ISO 8601). */
@@ -45,6 +59,8 @@ export interface Envelope {
   color: string
   icon?: string | null
   archived?: boolean
+  /** Server: system-managed Savings envelope when ledger funding is enabled */
+  systemRole?: string | null
 }
 
 export interface Tag {
@@ -82,6 +98,7 @@ export interface AppState {
   monthlyIncome: number
   btcDisplayUnit: BtcDisplayUnit
   opportunityCostEnabled: boolean
+  ledgerFundingEnabled: boolean
 }
 
 export function compareTransactionsDesc(a: Transaction, b: Transaction): number {
@@ -255,6 +272,7 @@ export function getDefaultState(): AppState {
     monthlyIncome: 0,
     btcDisplayUnit: "sats",
     opportunityCostEnabled: false,
+    ledgerFundingEnabled: false,
   }
 }
 
@@ -290,9 +308,18 @@ export function getEnvelopeBalance(
   envelopeId: string,
   monthKey: string,
   allotment: number,
+  options?: { ledgerFundingEnabled?: boolean },
 ): number {
   const monthTxns = getTransactionsForEnvelope(transactions, envelopeId, monthKey)
   const expenses = monthTxns.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0)
   const credits = monthTxns.filter(t => t.type === "credit").reduce((sum, t) => sum + t.amount, 0)
+  if (options?.ledgerFundingEnabled) {
+    return credits - expenses
+  }
   return allotment - expenses + credits
+}
+
+/** Exclude ledger funding allocation legs from global-style feeds (dashboard recent, transactions page). */
+export function transactionsVisibleInMainHistory(transactions: readonly Transaction[]): Transaction[] {
+  return transactions.filter((t) => !t.excludeFromMainHistory)
 }

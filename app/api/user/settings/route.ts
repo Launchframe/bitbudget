@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { canRedeemReferralInSettings, referralStatsForUser } from "@/lib/referral"
 import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
+import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
+import { assertPayCadencePersistable, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
 type UserSettingsPutBody = Partial<{
@@ -11,6 +13,7 @@ type UserSettingsPutBody = Partial<{
   onboardingComplete: boolean
   btcDisplayUnit: string
   opportunityCostEnabled: boolean
+  ledgerFundingEnabled: boolean
   receiptInboxToken: string | null
   name: string | null
 }>
@@ -21,6 +24,7 @@ const ALLOWED_SETTINGS_PUT_FIELDS = [
   "onboardingComplete",
   "btcDisplayUnit",
   "opportunityCostEnabled",
+  "ledgerFundingEnabled",
   "receiptInboxToken",
   "name",
 ] as const satisfies readonly (keyof UserSettingsPutBody)[]
@@ -45,6 +49,8 @@ export async function GET() {
       privacyKeySalt: true,
       receiptInboxToken: true,
       name: true,
+      ledgerFundingEnabled: true,
+      fundingStartedAt: true,
       email: true,
       subscriptionTier: true,
       role: true,
@@ -109,6 +115,8 @@ export async function GET() {
 
   return NextResponse.json({
     ...rest,
+    fundingStartedAt:
+      rest.fundingStartedAt instanceof Date ? rest.fundingStartedAt.toISOString() : rest.fundingStartedAt ?? null,
     premiumGratisUntil: premiumGratisUntil?.toISOString() ?? null,
     premiumTrialUntil: premiumTrialUntil?.toISOString() ?? null,
     effectiveTier,
@@ -118,6 +126,7 @@ export async function GET() {
     referralRefereeCanRedeem,
     referralRefereeTrialMonths,
     referral: referralPayload,
+    dailyCadenceAllowed: isDailyPayCadenceAllowed(),
   })
 }
 
@@ -138,15 +147,36 @@ export async function PUT(req: NextRequest) {
   }
   const body = raw as UserSettingsPutBody
 
+  const prevUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: {
+      ledgerFundingEnabled: true,
+      fundingStartedAt: true,
+      onboardingComplete: true,
+      onboardingCompletedAt: true,
+    },
+  })
+
+  if (body.payCadence !== undefined) {
+    if (typeof body.payCadence !== "string") {
+      return NextResponse.json({ error: "Invalid pay cadence" }, { status: 400 })
+    }
+    try {
+      assertPayCadencePersistable(body.payCadence)
+    } catch {
+      return NextResponse.json(
+        { error: "Daily pay cadence is not available in this environment." },
+        { status: 400 },
+      )
+    }
+  }
+
+  if (body.ledgerFundingEnabled === true && !prevUser?.ledgerFundingEnabled) {
+    await ensureSystemSavingsEnvelope(session.user.id)
+  }
+
   // Never allow encryptedPrivacyKey / privacyKeySalt via this route — use POST /api/user/encryption
   // (guarded) so existing keys cannot be clobbered by mistake or a buggy client.
-  let prevUser: { onboardingComplete: boolean; onboardingCompletedAt: Date | null } | null = null
-  if (body.onboardingComplete === true) {
-    prevUser = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { onboardingComplete: true, onboardingCompletedAt: true },
-    })
-  }
 
   const data: Record<string, unknown> = {}
   for (const field of ALLOWED_SETTINGS_PUT_FIELDS) {
@@ -164,6 +194,15 @@ export async function PUT(req: NextRequest) {
     data.onboardingCompletedAt = new Date()
   }
 
+  if (
+    body.ledgerFundingEnabled === true &&
+    prevUser &&
+    !prevUser.ledgerFundingEnabled &&
+    prevUser.fundingStartedAt == null
+  ) {
+    data.fundingStartedAt = new Date()
+  }
+
   if (Object.keys(data).length === 0) {
     return NextResponse.json(
       { error: "No valid settings fields to update" },
@@ -179,10 +218,16 @@ export async function PUT(req: NextRequest) {
       payCadence: true,
       onboardingComplete: true,
       btcDisplayUnit: true,
+      opportunityCostEnabled: true,
       receiptInboxToken: true,
       name: true,
+      ledgerFundingEnabled: true,
+      fundingStartedAt: true,
     },
   })
 
-  return NextResponse.json(updated)
+  return NextResponse.json({
+    ...updated,
+    fundingStartedAt: updated.fundingStartedAt?.toISOString() ?? null,
+  })
 }

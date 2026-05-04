@@ -170,6 +170,7 @@ function buildHeatmapDays(transactions: Transaction[], startDate: string, endDat
   const byDay = new Map<string, { count: number; spent: number }>()
 
   for (const txn of transactions) {
+    if (txn.excludeFromMainHistory) continue
     const entry = byDay.get(txn.date) ?? { count: 0, spent: 0 }
     entry.count += 1
     if (txn.type === "expense") {
@@ -200,6 +201,7 @@ function buildIncomeFlowData(transactions: Transaction[], activeEnvelopes: Envel
   let totalExpenses = 0
 
   for (const txn of transactions) {
+    if (txn.excludeFromMainHistory) continue
     if (txn.type === "credit") {
       totalIncome += txn.amount
     } else {
@@ -311,6 +313,7 @@ export function AnalyticsPage() {
   const cashFlowData = useMemo(() => {
     const months: Record<string, { income: number; expenses: number }> = {}
     for (const txn of filtered) {
+      if (txn.excludeFromMainHistory) continue
       const mk = getMonthKey(txn.date)
       if (!months[mk]) months[mk] = { income: 0, expenses: 0 }
       if (txn.type === "credit") months[mk].income += txn.amount
@@ -328,6 +331,7 @@ export function AnalyticsPage() {
   const envelopePieData = useMemo(() => {
     const envelopeMap: Record<string, number> = {}
     for (const txn of filtered) {
+      if (txn.excludeFromMainHistory) continue
       if (txn.type === "expense") {
         envelopeMap[txn.envelopeId] = (envelopeMap[txn.envelopeId] || 0) + txn.amount
       }
@@ -345,6 +349,7 @@ export function AnalyticsPage() {
     if (!state.opportunityCostEnabled) return []
     const byEnvelope: Record<string, { spent: number; opCost: number }> = {}
     for (const txn of filtered) {
+      if (txn.excludeFromMainHistory) continue
       if (txn.type === "expense") {
         if (!byEnvelope[txn.envelopeId]) byEnvelope[txn.envelopeId] = { spent: 0, opCost: 0 }
         byEnvelope[txn.envelopeId].spent += txn.amount

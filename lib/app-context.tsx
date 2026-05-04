@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { signOut } from "next-auth/react"
 import type { Transaction, Envelope, AppState, BtcDisplayUnit, PendingTransaction, Tag, RecurringTransaction } from "@/lib/data"
 import { compareTransactionsDesc, generateId, getDefaultState } from "@/lib/data"
+import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import {
   encryptFieldAsymmetric,
   decryptFieldAsymmetric,
@@ -187,6 +188,7 @@ interface AppContextValue {
   setMonthlyIncome: (income: number) => void
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
   setOpportunityCostEnabled: (enabled: boolean) => void
+  setLedgerFundingEnabled: (enabled: boolean) => void
   addTag: (tag: string) => void
   deleteTag: (id: string) => void
   refreshData: () => Promise<void>
@@ -615,6 +617,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         monthlyIncome: settings.monthlyIncome || 0,
         btcDisplayUnit: settings.btcDisplayUnit || "sats",
         opportunityCostEnabled: settings.opportunityCostEnabled ?? false,
+        ledgerFundingEnabled: Boolean((settings as { ledgerFundingEnabled?: boolean }).ledgerFundingEnabled),
       }))
 
       const uid = currentUserIdRef.current
@@ -1067,10 +1070,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const archiveEnvelope = useCallback(async (id: string) => {
-    setState(prev => ({
-      ...prev,
-      envelopes: prev.envelopes.map(e => e.id === id ? { ...e, archived: true } : e),
-    }))
+    let blocked = false
+    setState(prev => {
+      const env = prev.envelopes.find(e => e.id === id)
+      if (env?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
+        blocked = true
+        return prev
+      }
+      return {
+        ...prev,
+        envelopes: prev.envelopes.map(e => e.id === id ? { ...e, archived: true } : e),
+      }
+    })
+    if (blocked) return
 
     try {
       await fetch("/api/envelopes", {
@@ -1101,11 +1113,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const deleteEnvelope = useCallback(async (id: string) => {
-    setState(prev => ({
-      ...prev,
-      envelopes: prev.envelopes.filter(e => e.id !== id),
-      transactions: prev.transactions.filter(t => t.envelopeId !== id),
-    }))
+    let blocked = false
+    setState(prev => {
+      const env = prev.envelopes.find(e => e.id === id)
+      if (env?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
+        blocked = true
+        return prev
+      }
+      return {
+        ...prev,
+        envelopes: prev.envelopes.filter(e => e.id !== id),
+        transactions: prev.transactions.filter(t => t.envelopeId !== id),
+      }
+    })
+    if (blocked) return
 
     try {
       const res = await fetch(`/api/envelopes?id=${id}`, { method: "DELETE" })
@@ -1120,13 +1141,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const mergeEnvelope = useCallback(async (sourceId: string, targetId: string) => {
-    setState(prev => ({
-      ...prev,
-      envelopes: prev.envelopes.filter(e => e.id !== sourceId),
-      transactions: prev.transactions.map(t =>
-        t.envelopeId === sourceId ? { ...t, envelopeId: targetId } : t,
-      ),
-    }))
+    let blocked = false
+    setState(prev => {
+      const src = prev.envelopes.find(e => e.id === sourceId)
+      if (src?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
+        blocked = true
+        return prev
+      }
+      return {
+        ...prev,
+        envelopes: prev.envelopes.filter(e => e.id !== sourceId),
+        transactions: prev.transactions.map(t =>
+          t.envelopeId === sourceId ? { ...t, envelopeId: targetId } : t,
+        ),
+      }
+    })
+    if (blocked) return
 
     try {
       await fetch("/api/envelopes/merge", {
@@ -1174,6 +1204,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ opportunityCostEnabled: enabled }),
+      })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
+  const setLedgerFundingEnabled = useCallback(async (enabled: boolean) => {
+    setState(prev => ({ ...prev, ledgerFundingEnabled: enabled }))
+    try {
+      await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ledgerFundingEnabled: enabled }),
       })
     } catch {
       refreshData()
@@ -1476,6 +1519,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setMonthlyIncome,
         setBtcDisplayUnit,
         setOpportunityCostEnabled,
+        setLedgerFundingEnabled,
         addTag,
         deleteTag,
         refreshData,

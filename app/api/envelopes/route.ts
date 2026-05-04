@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { isReservedSavingsEnvelopeName, SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 
 /**
  * List envelopes for the signed-in user.
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
         color: e.color,
         icon: e.icon,
         archived: e.archived,
+        systemRole: e.systemRole ?? null,
         transactionCount: e._count.transactions,
         recurringCount: e._count.recurringTransactions,
       })),
@@ -56,6 +58,7 @@ export async function GET(req: NextRequest) {
       color: e.color,
       icon: e.icon,
       archived: e.archived,
+      systemRole: e.systemRole ?? null,
     })),
   )
 }
@@ -69,6 +72,12 @@ export async function POST(req: NextRequest) {
   const { name, monthlyAllotment, color, icon } = await req.json()
   if (!name) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 })
+  }
+  if (isReservedSavingsEnvelopeName(name)) {
+    return NextResponse.json(
+      { error: `"${name.trim()}" is reserved for ledger Savings.` },
+      { status: 400 },
+    )
   }
 
   let envelope
@@ -99,6 +108,7 @@ export async function POST(req: NextRequest) {
     color: envelope.color,
     icon: envelope.icon,
     archived: envelope.archived,
+    systemRole: envelope.systemRole ?? null,
   }, { status: 201 })
 }
 
@@ -118,6 +128,21 @@ export async function PUT(req: NextRequest) {
   })
   if (!existing) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
+  }
+
+  if (existing.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
+    if (name !== undefined && name.trim() !== existing.name) {
+      return NextResponse.json(
+        { error: "The system Savings envelope cannot be renamed." },
+        { status: 403 },
+      )
+    }
+    if (archived === true) {
+      return NextResponse.json(
+        { error: "The system Savings envelope cannot be archived." },
+        { status: 403 },
+      )
+    }
   }
 
   let updated
@@ -149,6 +174,7 @@ export async function PUT(req: NextRequest) {
     color: updated.color,
     icon: updated.icon,
     archived: updated.archived,
+    systemRole: updated.systemRole ?? null,
   })
 }
 
@@ -163,6 +189,11 @@ export async function DELETE(req: NextRequest) {
 
   if (all === "true") {
     const userId = session.user.id
+    const userRow = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { ledgerFundingEnabled: true },
+    })
+    const ledgerOn = userRow?.ledgerFundingEnabled ?? false
     const { count } = await prisma.$transaction(async tx => {
       await tx.pendingTransaction.updateMany({
         where: { userId },
@@ -170,7 +201,11 @@ export async function DELETE(req: NextRequest) {
       })
       await tx.transactionShortcut.deleteMany({ where: { userId } })
       // Transactions/recurring/payee mappings cascade when envelopes are removed; shortcuts do not.
-      return tx.envelope.deleteMany({ where: { userId } })
+      return tx.envelope.deleteMany({
+        where: ledgerOn
+          ? { userId, NOT: { systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS } }
+          : { userId },
+      })
     })
     return NextResponse.json({ deleted: count })
   }
@@ -185,6 +220,13 @@ export async function DELETE(req: NextRequest) {
   })
   if (!existing) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
+  }
+
+  if (existing.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
+    return NextResponse.json(
+      { error: "The system Savings envelope cannot be deleted." },
+      { status: 403 },
+    )
   }
 
   const userId = session.user.id

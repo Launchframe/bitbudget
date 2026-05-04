@@ -29,6 +29,7 @@ import {
   Link2,
   Settings2,
   Plug,
+  Landmark,
 } from "lucide-react"
 import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
 import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
@@ -36,6 +37,7 @@ import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { SettingsReferralsCard } from "@/components/settings-referrals-card"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
+import { Switch } from "@/components/ui/switch"
 
 type SettingsTab = "general" | "integrations" | "tags" | "payees" | "data"
 
@@ -71,6 +73,7 @@ export function SettingsPage() {
     setMonthlyIncome,
     setBtcDisplayUnit,
     setOpportunityCostEnabled,
+    setLedgerFundingEnabled,
     addTag,
     deleteTag,
     refreshData,
@@ -406,6 +409,29 @@ export function SettingsPage() {
             {formatUsd(state.monthlyIncome)}
           </button>
         )}
+      </div>
+
+      {/* Ledger envelope funding */}
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-emerald-500/10">
+            <Landmark className="h-5 w-5 text-[#22C55E]" />
+          </div>
+          <h3 className="text-lg font-semibold text-foreground">Ledger envelope funding</h3>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Income credits your Savings envelope first; funding runs move money into envelopes from your allotment
+          percentages. Paired allocation movements stay out of the main transaction list so you see one Income row per
+          batch.
+        </p>
+        <div className="flex items-center justify-between gap-4 rounded-lg bg-[#1A1A1A] px-4 py-3">
+          <span className="text-sm text-foreground">Enable ledger funding</span>
+          <Switch
+            checked={state.ledgerFundingEnabled}
+            onCheckedChange={(v) => void setLedgerFundingEnabled(Boolean(v))}
+            aria-label="Enable ledger envelope funding"
+          />
+        </div>
       </div>
 
       <SettingsReferralsCard />

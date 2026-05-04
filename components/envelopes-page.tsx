@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { getEnvelopeBalance, getCurrentMonthKey, formatUsd } from "@/lib/data"
+import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import { Progress } from "@/components/ui/progress"
 import { Pencil, Trash2, Plus, SlidersHorizontal, Merge, X, Archive, RotateCcw, ChevronDown } from "lucide-react"
 import {
@@ -22,6 +23,7 @@ import {
   initialsForEnvelopeName,
 } from "@/lib/envelope-icons"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
+import { IrregularIncomeDialog } from "@/components/irregular-income-dialog"
 
 export function EnvelopesPage() {
   const { state, navigateTo, addEnvelope, editEnvelope, archiveEnvelope, restoreEnvelope, deleteEnvelope, mergeEnvelope, setMonthlyIncome } = useApp()
@@ -223,25 +225,31 @@ export function EnvelopesPage() {
               {formatUsd(unallocated)}
             </span>
           </div>
-          {activeEnvelopes.length > 0 && (
-            <button
-              type="button"
-              onClick={() => navigateTo("envelope-allocations")}
-              className="ml-auto p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333] text-muted-foreground hover:text-foreground hover:border-[#555] transition-colors"
-              title="Adjust allocations"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-            </button>
-          )}
+          <div className="flex items-center gap-2 ml-auto">
+            {state.ledgerFundingEnabled && <IrregularIncomeDialog />}
+            {activeEnvelopes.length > 0 && (
+              <button
+                type="button"
+                onClick={() => navigateTo("envelope-allocations")}
+                className="p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333] text-muted-foreground hover:text-foreground hover:border-[#555] transition-colors"
+                title="Adjust allocations"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Envelope cards grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {activeEnvelopes.map((env) => {
-          const balance = getEnvelopeBalance(state.transactions, env.id, currentMonth, env.monthlyAllotment)
+          const balance = getEnvelopeBalance(state.transactions, env.id, currentMonth, env.monthlyAllotment, {
+            ledgerFundingEnabled: state.ledgerFundingEnabled,
+          })
           const percentage = env.monthlyAllotment > 0 ? Math.max(0, (balance / env.monthlyAllotment) * 100) : 0
           const healthColor = percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
+          const protectSystem = env.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS
           return (
             <div
               key={env.id}
@@ -270,7 +278,8 @@ export function EnvelopesPage() {
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">{formatUsd(env.monthlyAllotment)}/mo</span>
                     <span style={{ color: healthColor }} className="font-medium">
-                      {formatUsd(balance)} left
+                      {formatUsd(balance)}
+                      {protectSystem && state.ledgerFundingEnabled ? " balance" : " left"}
                     </span>
                   </div>
                   <Progress
@@ -296,7 +305,8 @@ export function EnvelopesPage() {
                 <div className="w-px h-5 bg-[#1A1A1A]" />
                 <button
                   onClick={() => { setMergeSourceId(env.id); setMergeDialogOpen(true) }}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-[#3B82F6] hover:bg-[#1A1A1A] transition-colors"
+                  disabled={protectSystem}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-[#3B82F6] hover:bg-[#1A1A1A] transition-colors disabled:opacity-40 disabled:pointer-events-none"
                   aria-label={`Merge ${env.name}`}
                 >
                   <Merge className="h-3 w-3" /> Merge
@@ -304,7 +314,8 @@ export function EnvelopesPage() {
                 <div className="w-px h-5 bg-[#1A1A1A]" />
                 <button
                   onClick={() => handleArchive(env.id)}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-amber-400 hover:bg-[#1A1A1A] transition-colors"
+                  disabled={protectSystem}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-amber-400 hover:bg-[#1A1A1A] transition-colors disabled:opacity-40 disabled:pointer-events-none"
                   aria-label={`Archive ${env.name}`}
                 >
                   <Archive className="h-3 w-3" /> Archive

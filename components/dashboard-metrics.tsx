@@ -12,14 +12,33 @@ export function DashboardMetrics() {
 
   const currentMonth = getCurrentMonthKey()
 
+  const fundedIncomeMonth = activeTransactions
+    .filter(
+      (t) =>
+        state.ledgerFundingEnabled &&
+        !t.excludeFromMainHistory &&
+        t.type === "credit" &&
+        t.date.startsWith(currentMonth) &&
+        (t.source === "paycheck" || t.source === "irregular_income"),
+    )
+    .reduce((sum, t) => sum + t.amount, 0)
+
+  const displayedMonthlyIncome =
+    state.ledgerFundingEnabled && fundedIncomeMonth > 0 ? fundedIncomeMonth : state.monthlyIncome
+
   const monthlySpend = activeTransactions
-    .filter((t) => t.type === "expense" && t.date.startsWith(currentMonth))
+    .filter(
+      (t) =>
+        !t.excludeFromMainHistory &&
+        t.type === "expense" &&
+        t.date.startsWith(currentMonth),
+    )
     .reduce((sum, t) => sum + t.amount, 0)
 
   const baseMetrics = [
     {
       label: "Monthly Income",
-      value: formatUsd(state.monthlyIncome),
+      value: formatUsd(displayedMonthlyIncome),
       icon: DollarSign,
       color: "#22C55E",
     },

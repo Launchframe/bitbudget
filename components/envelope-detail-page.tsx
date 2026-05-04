@@ -3,14 +3,8 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import {
-  compareTransactionsDesc,
-  getEnvelopeBalance,
-  getCurrentMonthKey,
-  formatUsd,
-  type TransactionType,
-} from "@/lib/data"
-import type { Transaction } from "@/lib/data"
+import { compareTransactionsDesc, getEnvelopeBalance, getCurrentMonthKey, formatUsd, type Transaction, type TransactionType } from "@/lib/data"
+import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { Progress } from "@/components/ui/progress"
@@ -106,7 +100,11 @@ export function EnvelopeDetailPage() {
     )
   }
 
-  const balance = getEnvelopeBalance(state.transactions, envelope.id, currentMonth, envelope.monthlyAllotment)
+  const balance = getEnvelopeBalance(state.transactions, envelope.id, currentMonth, envelope.monthlyAllotment, {
+    ledgerFundingEnabled: state.ledgerFundingEnabled,
+  })
+  const isLedgerSavingsHub =
+    state.ledgerFundingEnabled && envelope.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS
   const percentage = envelope.monthlyAllotment > 0 ? Math.max(0, (balance / envelope.monthlyAllotment) * 100) : 0
   const healthColor = percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
 
@@ -133,7 +131,9 @@ export function EnvelopeDetailPage() {
             <span className="text-lg font-semibold text-foreground">{formatUsd(envelope.monthlyAllotment)}</span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Remaining</span>
+            <span className="text-xs text-muted-foreground uppercase tracking-wider">
+              {isLedgerSavingsHub ? "Balance" : "Remaining"}
+            </span>
             <span className="text-lg font-semibold" style={{ color: healthColor }}>
               {formatUsd(balance)}
             </span>

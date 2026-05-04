@@ -27,9 +27,11 @@ model User {
 
   // Budgeting settings
   monthlyIncome           Float    @default(0)
-  payCadence              String   @default("monthly") // "monthly" | "bimonthly"
+  payCadence              String   @default("monthly") // "monthly" | "bimonthly" | "daily" (daily non-production only)
   onboardingComplete      Boolean  @default(false)
   onboardingCompletedAt   DateTime?
+  ledgerFundingEnabled    Boolean  @default(false)
+  fundingStartedAt        DateTime?
   btcDisplayUnit          String   @default("sats") // "sats" | "btc"
   opportunityCostEnabled  Boolean  @default(false)
   role      String? @default("user")
@@ -69,6 +71,7 @@ model User {
   referralReceived    Referral?      @relation("ReferralReceived")
   survey              Survey?
   referredByCode      ReferralCode?  @relation("ReferredByCode", fields: [referredByCodeId], references: [id], onDelete: SetNull)
+  envelopeFundingBatches EnvelopeFundingBatch[]
 }
 
 model ReferralCode {
@@ -178,6 +181,8 @@ model Envelope {
   color           String  @default("#F7931A")
   icon            String?
   archived        Boolean @default(false)
+  /// null | savings — system-managed Savings envelope when ledger funding is enabled
+  systemRole      String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -208,6 +213,11 @@ model Transaction {
 
   recurringId String?
 
+  /// Hidden allocation legs excluded from global transaction history
+  excludeFromMainHistory Boolean @default(false)
+  fundingBatchId         String?
+  fundingBatch           EnvelopeFundingBatch? @relation(fields: [fundingBatchId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -219,6 +229,20 @@ model Transaction {
   @@index([envelopeId])
   @@index([date])
   @@index([recurringId])
+  @@index([fundingBatchId])
+}
+
+model EnvelopeFundingBatch {
+  id        String   @id @default(cuid())
+  userId    String
+  periodKey String
+  createdAt DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([userId, periodKey])
+  @@index([userId])
 }
 
 model RecurringTransaction {
