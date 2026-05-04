@@ -149,6 +149,10 @@ export async function PUT(req: NextRequest) {
   }
   const body = raw as UserSettingsPutBody
 
+  if (body.ledgerFundingEnabled !== undefined && typeof body.ledgerFundingEnabled !== "boolean") {
+    return NextResponse.json({ error: "ledgerFundingEnabled must be a boolean" }, { status: 400 })
+  }
+
   const prevUser = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: {

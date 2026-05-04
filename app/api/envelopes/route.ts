@@ -135,6 +135,25 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
   }
 
+  if (name !== undefined) {
+    if (existing.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
+      return NextResponse.json(
+        { error: "The system Savings envelope name cannot be changed." },
+        { status: 403 },
+      )
+    }
+    const userLedger = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { ledgerFundingEnabled: true },
+    })
+    if (userLedger?.ledgerFundingEnabled && isReservedSavingsEnvelopeName(name)) {
+      return NextResponse.json(
+        { error: `"${String(name).trim()}" is reserved for ledger Savings.` },
+        { status: 400 },
+      )
+    }
+  }
+
   if (existing.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
     if (archived === true) {
       return NextResponse.json(

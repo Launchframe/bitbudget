@@ -78,6 +78,10 @@ export async function POST(req: NextRequest) {
     dateIso,
     displayPayee: payee.trim(),
     notesPlain: notesStr,
+    userLedger: {
+      ledgerFundingEnabled: user.ledgerFundingEnabled,
+      monthlyIncome: user.monthlyIncome,
+    },
   })
 
   if (createdCount <= 0) {

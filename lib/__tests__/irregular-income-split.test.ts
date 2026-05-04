@@ -48,4 +48,17 @@ describe("irregular-income-split", () => {
     expect(sumAllocatedIrregularCents(r)).toBe(3333)
     expect((r.envelopeIdToCents.get("a") ?? 0) + (r.envelopeIdToCents.get("b") ?? 0)).toBe(3333)
   })
+
+  it("distributes many spare cents without O(spare * rows) inner scans", () => {
+    const r = computeIrregularIncomeSplits({
+      grossUsd: 100,
+      monthlyIncome: 100,
+      envelopes: [
+        { id: "a", monthlyAllotment: 33.33 },
+        { id: "b", monthlyAllotment: 33.33 },
+        { id: "c", monthlyAllotment: 33.34 },
+      ],
+    })
+    expect(sumAllocatedIrregularCents(r)).toBe(10_000)
+  })
 })

@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { processAllEnvelopeFunding } from "@/lib/envelope-funding"
 
 export async function GET(req: NextRequest) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret == null || cronSecret === "") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 

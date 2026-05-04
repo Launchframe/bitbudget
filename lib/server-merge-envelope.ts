@@ -31,8 +31,9 @@ export async function mergeEnvelopeRecords(
     where: { userId, envelopeId: fromEnvelopeId },
     data: { envelopeId: intoEnvelopeId },
   })
-  await tx.payeeEnvelopeMapping.deleteMany({
+  await tx.payeeEnvelopeMapping.updateMany({
     where: { userId, envelopeId: fromEnvelopeId },
+    data: { envelopeId: intoEnvelopeId },
   })
 
   await tx.envelope.update({

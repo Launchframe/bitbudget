@@ -12,9 +12,61 @@ export interface IrregularSplitResult {
   envelopeIdToCents: Map<string, number>
 }
 
+type SplitRow = { id: string; ideal: number; floor: number; cur: number }
+
+/** Max-heap of indices into `rows`; top = largest (ideal - cur), then lexicographic id for stability. */
+function siftDown(rows: SplitRow[], heap: number[], i: number): void {
+  const n = heap.length
+  for (let idx = i; ; ) {
+    const l = idx * 2 + 1
+    const r = l + 1
+    let m = idx
+    const hi = heap[idx]!
+    if (l < n && better(rows, heap[l]!, hi)) m = l
+    if (r < n && better(rows, heap[r]!, heap[m]!)) m = r
+    if (m === idx) return
+    heap[idx] = heap[m]!
+    heap[m] = hi
+    idx = m
+  }
+}
+
+function better(rows: SplitRow[], ia: number, ib: number): boolean {
+  const a = rows[ia]!
+  const b = rows[ib]!
+  const sa = a.ideal - a.cur
+  const sb = b.ideal - b.cur
+  if (sa !== sb) return sa > sb
+  return a.id.localeCompare(b.id) < 0
+}
+
+function popMax(rows: SplitRow[], heap: number[]): number | undefined {
+  if (heap.length === 0) return undefined
+  const top = heap[0]!
+  const last = heap.pop()!
+  if (heap.length > 0) {
+    heap[0] = last
+    siftDown(rows, heap, 0)
+  }
+  return top
+}
+
+function pushMax(rows: SplitRow[], heap: number[], idx: number): void {
+  heap.push(idx)
+  let i = heap.length - 1
+  while (i > 0) {
+    const p = Math.floor((i - 1) / 2)
+    if (!better(rows, heap[i]!, heap[p]!)) return
+    const tmp = heap[i]!
+    heap[i] = heap[p]!
+    heap[p] = tmp
+    i = p
+  }
+}
+
 /**
  * Split gross amount `X` across envelopes proportional to allotments vs `monthlyIncome`.
- * Uses integer cents + Hamilton largest-remainder distribution when spare ≤ row count (single sorted pass).
+ * Integer cents + greedily assigning spare to the most under-funded row vs ideal share (max-heap, O(spare log n)).
  */
 export function computeIrregularIncomeSplits(params: {
   grossUsd: number
@@ -42,8 +94,7 @@ export function computeIrregularIncomeSplits(params: {
     return { envelopeIdToCents }
   }
 
-  type Row = { id: string; ideal: number; floor: number }
-  const rows: Row[] = []
+  const rows: SplitRow[] = []
   let floorSum = 0
 
   for (const e of params.envelopes) {
@@ -56,52 +107,35 @@ export function computeIrregularIncomeSplits(params: {
     const ideal = (grossCents * allotCents) / miCents
     const floor = Math.floor(ideal)
     floorSum += floor
-    rows.push({ id: e.id, ideal, floor })
+    rows.push({ id: e.id, ideal, floor, cur: floor })
   }
 
   if (rows.length === 0) {
     return { envelopeIdToCents }
   }
 
-  for (const r of rows) {
-    envelopeIdToCents.set(r.id, r.floor)
-  }
-
   let spare = grossCents - floorSum
   if (spare < 0) {
-    // Over-allocated floors (extreme float) — zero out
     return { envelopeIdToCents: new Map() }
   }
 
-  const remainderOrder = [...rows].sort((a, b) => {
-    const fa = a.ideal - a.floor
-    const fb = b.ideal - b.floor
-    if (fb !== fa) return fb - fa
-    return a.id.localeCompare(b.id)
-  })
-
-  if (spare <= remainderOrder.length) {
-    for (let i = 0; i < spare; i++) {
-      const r = remainderOrder[i]!
-      envelopeIdToCents.set(r.id, (envelopeIdToCents.get(r.id) ?? 0) + 1)
-    }
-    return { envelopeIdToCents }
+  const heap: number[] = []
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i]!.ideal - rows[i]!.cur > 0) pushMax(rows, heap, i)
   }
 
   while (spare > 0) {
-    let bestId: string | null = null
-    let bestScore = -Infinity
-    for (const r of rows) {
-      const cur = envelopeIdToCents.get(r.id) ?? 0
-      const score = r.ideal - cur
-      if (score > bestScore) {
-        bestScore = score
-        bestId = r.id
-      }
-    }
-    if (!bestId || bestScore <= 0) break
-    envelopeIdToCents.set(bestId, (envelopeIdToCents.get(bestId) ?? 0) + 1)
+    const i = popMax(rows, heap)
+    if (i === undefined) break
+    const row = rows[i]!
+    if (row.ideal - row.cur <= 0) continue
+    row.cur++
     spare--
+    if (row.ideal - row.cur > 0) pushMax(rows, heap, i)
+  }
+
+  for (const r of rows) {
+    envelopeIdToCents.set(r.id, r.cur)
   }
 
   return { envelopeIdToCents }
