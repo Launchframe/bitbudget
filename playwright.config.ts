@@ -29,6 +29,9 @@ const webServerCommand =
   process.env.PW_WEBSERVER_COMMAND?.trim() ||
   `pnpm exec next build && pnpm exec next start -p ${e2ePort} -H 127.0.0.1`
 
+/** Inherit logs unless explicitly silenced (`PW_WEBSERVER_STDIO=ignore`). Do not key off `CI`: many environments set `CI=true` (Codespaces, scripts), which would hide `next build` / `next start` errors locally. */
+const webServerStdio = process.env.PW_WEBSERVER_STDIO === "ignore" ? "ignore" : "inherit"
+
 export default defineConfig({
   testDir: "./e2e",
   globalSetup: "./e2e/global-setup.ts",
@@ -49,7 +52,7 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: process.env.CI ? 600_000 : 420_000,
     env: e2eWebServerEnv,
-    stdout: "ignore",
-    stderr: "ignore",
+    stdout: webServerStdio,
+    stderr: webServerStdio,
   },
 })
