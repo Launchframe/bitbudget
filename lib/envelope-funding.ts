@@ -53,6 +53,7 @@ export async function ensureSystemSavingsEnvelope(userId: string): Promise<{ id:
       data: {
         archived: false,
         name: RESERVED_SAVINGS_ENVELOPE_NAME,
+        monthlyAllotment: 0,
         systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
       },
       select: { id: true },
@@ -87,6 +88,7 @@ export async function ensureSystemSavingsEnvelope(userId: string): Promise<{ id:
           data: {
             archived: false,
             name: RESERVED_SAVINGS_ENVELOPE_NAME,
+            monthlyAllotment: 0,
             systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
           },
           select: { id: true },

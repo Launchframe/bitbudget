@@ -28,9 +28,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ processed: created })
   } catch (err) {
     console.error("[cron/envelope-funding] Error:", err)
-    return NextResponse.json(
-      { error: "Processing failed", message: String(err) },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: "Processing failed" }, { status: 500 })
   }
 }

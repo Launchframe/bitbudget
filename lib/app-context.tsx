@@ -1201,11 +1201,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setLedgerFundingEnabled = useCallback(async (enabled: boolean) => {
     setState(prev => ({ ...prev, ledgerFundingEnabled: enabled }))
     try {
-      await fetch("/api/user/settings", {
+      const res = await fetch("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ledgerFundingEnabled: enabled }),
       })
+      if (!res.ok) await refreshData()
     } catch {
       refreshData()
     }

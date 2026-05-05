@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
               data: {
                 systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
                 name: RESERVED_SAVINGS_ENVELOPE_NAME,
+                monthlyAllotment: 0,
               },
             })
             server = await tx.envelope.findMany({ where: { userId } })
