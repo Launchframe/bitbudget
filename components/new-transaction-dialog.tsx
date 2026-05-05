@@ -147,6 +147,8 @@ export function NewTransactionDialog() {
   const appliedPrefillKeyRef = useRef<string | null>(null)
   const prefillPayeeRawRef = useRef<string | null>(null)
   const skipCanonicalForPrefillRef = useRef(false)
+  /** No `transactionPrefill.payee`: clear payee once when the dialog opens, not on every effect run (`payee` is in deps). */
+  const emptyPayeePrefillResetDoneRef = useRef(false)
 
   useEffect(() => {
     if (!transactionDialogOpen) {
@@ -274,6 +276,7 @@ export function NewTransactionDialog() {
 
   useEffect(() => {
     if (!transactionDialogOpen) {
+      emptyPayeePrefillResetDoneRef.current = false
       prefillPayeeRawRef.current = null
       skipCanonicalForPrefillRef.current = false
       setPayeeMatchHint(null)
@@ -285,12 +288,17 @@ export function NewTransactionDialog() {
     if (!raw) {
       prefillPayeeRawRef.current = null
       skipCanonicalForPrefillRef.current = false
-      setPayee("")
+      if (!emptyPayeePrefillResetDoneRef.current) {
+        emptyPayeePrefillResetDoneRef.current = true
+        setPayee("")
+      }
       setPayeeMatchHint(null)
       setImportSourcePayee(null)
       setAliasSaveMessage(null)
       return
     }
+
+    emptyPayeePrefillResetDoneRef.current = false
 
     const applyResolved = (
       resolved: string,
