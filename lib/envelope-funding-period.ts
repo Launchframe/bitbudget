@@ -35,10 +35,14 @@ export function sliceMonthlyAmountForDailyRun(monthAmount: number, runDateUtc: D
   return sliceCents / 100
 }
 
-/** Slice when cadence is bimonthly (half per half-month window). */
-export function sliceMonthlyAmountForBimonthlyRun(monthAmount: number): number {
+/** Bimonthly: UTC days 1–15 vs 16–end; odd cent goes to the second half so both runs sum to the monthly total. */
+export function sliceMonthlyAmountForBimonthlyRun(monthAmount: number, runDateUtc: Date): number {
   const cents = Math.round(monthAmount * 100)
-  return Math.round(cents / 2) / 100
+  const dom = runDateUtc.getUTCDate()
+  const firstHalf = dom <= 15
+  const lowHalf = Math.floor(cents / 2)
+  const sliceCents = firstHalf ? lowHalf : cents - lowHalf
+  return sliceCents / 100
 }
 
 /** Period key for idempotent funding batches; `null` when daily cadence not allowed at runtime. */
@@ -76,7 +80,7 @@ export function grossIncomeForFundingRun(
 ): number {
   if (!Number.isFinite(monthlyIncome) || monthlyIncome <= 0) return 0
   if (payCadence === "monthly") return Math.round(monthlyIncome * 100) / 100
-  if (payCadence === "bimonthly") return sliceMonthlyAmountForBimonthlyRun(monthlyIncome)
+  if (payCadence === "bimonthly") return sliceMonthlyAmountForBimonthlyRun(monthlyIncome, runDateUtc)
   if (payCadence === "daily") {
     if (!dailyCadenceAllowed) return 0
     return sliceMonthlyAmountForDailyRun(monthlyIncome, runDateUtc)
@@ -93,7 +97,7 @@ export function allotmentSliceForFundingRun(
 ): number {
   if (!Number.isFinite(monthlyAllotment) || monthlyAllotment <= 0) return 0
   if (payCadence === "monthly") return Math.round(monthlyAllotment * 100) / 100
-  if (payCadence === "bimonthly") return sliceMonthlyAmountForBimonthlyRun(monthlyAllotment)
+  if (payCadence === "bimonthly") return sliceMonthlyAmountForBimonthlyRun(monthlyAllotment, runDateUtc)
   if (payCadence === "daily") {
     if (!dailyCadenceAllowed) return 0
     return sliceMonthlyAmountForDailyRun(monthlyAllotment, runDateUtc)

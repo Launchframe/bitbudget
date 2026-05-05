@@ -27,20 +27,30 @@ export const TX_SOURCE_FUNDING_IN = "envelope_funding_in"
 
 const EMPTY_TAGS = "[]"
 
-async function savingsEnvelopeForUser(userId: string): Promise<{ id: string } | null> {
-  const row = await prisma.envelope.findFirst({
+type FundingDb = Pick<typeof prisma, "envelope">
+
+async function savingsEnvelopeForUserDb(db: FundingDb, userId: string): Promise<{ id: string } | null> {
+  const row = await db.envelope.findFirst({
     where: { userId, systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS, archived: false },
     select: { id: true },
   })
   return row
 }
 
-/** Ensure system Savings envelope exists (idempotent). Un-archives a legacy Savings-named row if needed. */
-export async function ensureSystemSavingsEnvelope(userId: string): Promise<{ id: string }> {
-  const existing = await savingsEnvelopeForUser(userId)
+/**
+ * Ensure system Savings envelope exists (idempotent). Un-archives a legacy Savings-named row if needed.
+ * Pass `tx` to participate in a caller transaction (e.g. settings enable + user row update).
+ */
+export async function ensureSystemSavingsEnvelope(
+  userId: string,
+  tx?: Prisma.TransactionClient,
+): Promise<{ id: string }> {
+  const db = tx ?? prisma
+
+  const existing = await savingsEnvelopeForUserDb(db, userId)
   if (existing) return existing
 
-  const legacyNamed = await prisma.envelope.findFirst({
+  const legacyNamed = await db.envelope.findFirst({
     where: {
       userId,
       name: { equals: RESERVED_SAVINGS_ENVELOPE_NAME, mode: "insensitive" },
@@ -48,7 +58,7 @@ export async function ensureSystemSavingsEnvelope(userId: string): Promise<{ id:
     select: { id: true },
   })
   if (legacyNamed) {
-    return prisma.envelope.update({
+    return db.envelope.update({
       where: { id: legacyNamed.id },
       data: {
         archived: false,
@@ -61,7 +71,7 @@ export async function ensureSystemSavingsEnvelope(userId: string): Promise<{ id:
   }
 
   try {
-    return await prisma.envelope.create({
+    return await db.envelope.create({
       data: {
         userId,
         name: RESERVED_SAVINGS_ENVELOPE_NAME,
@@ -73,9 +83,9 @@ export async function ensureSystemSavingsEnvelope(userId: string): Promise<{ id:
     })
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      const promoted = await savingsEnvelopeForUser(userId)
+      const promoted = await savingsEnvelopeForUserDb(db, userId)
       if (promoted) return promoted
-      const again = await prisma.envelope.findFirst({
+      const again = await db.envelope.findFirst({
         where: {
           userId,
           name: { equals: RESERVED_SAVINGS_ENVELOPE_NAME, mode: "insensitive" },
@@ -83,7 +93,7 @@ export async function ensureSystemSavingsEnvelope(userId: string): Promise<{ id:
         select: { id: true },
       })
       if (again) {
-        return prisma.envelope.update({
+        return db.envelope.update({
           where: { id: again.id },
           data: {
             archived: false,
@@ -170,7 +180,7 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
   })
   if (!periodKey) return 0
 
-  const savings = await savingsEnvelopeForUser(userId)
+  const savings = await savingsEnvelopeForUserDb(prisma, userId)
   if (!savings) return 0
 
   const gross = grossIncomeForFundingRun(user.monthlyIncome, user.payCadence, now, dailyAllowed)
@@ -334,7 +344,7 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
   const mi = user.monthlyIncome
   if (!Number.isFinite(mi) || mi <= 0) return 0
 
-  const savings = await savingsEnvelopeForUser(input.userId)
+  const savings = await savingsEnvelopeForUserDb(prisma, input.userId)
   if (!savings) return 0
 
   const envelopes = await prisma.envelope.findMany({

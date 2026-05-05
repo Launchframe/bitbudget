@@ -7,6 +7,7 @@ import {
   fundingPeriodKeyForDate,
   grossIncomeForFundingRun,
   pad2,
+  sliceMonthlyAmountForBimonthlyRun,
   sliceMonthlyAmountForDailyRun,
 } from "../envelope-funding-period"
 
@@ -62,5 +63,15 @@ describe("envelope-funding-period", () => {
   it("bimonthly gross is half of monthly income", () => {
     const run = new Date(Date.UTC(2026, 2, 5))
     expect(grossIncomeForFundingRun(4000, "bimonthly", run, false)).toBe(2000)
+  })
+
+  it("bimonthly slices partition odd cents across halves without monthly drift", () => {
+    const first = new Date(Date.UTC(2026, 2, 10))
+    const second = new Date(Date.UTC(2026, 2, 20))
+    const a = sliceMonthlyAmountForBimonthlyRun(100.01, first)
+    const b = sliceMonthlyAmountForBimonthlyRun(100.01, second)
+    expect(a + b).toBeCloseTo(100.01, 5)
+    expect(a).toBe(50)
+    expect(b).toBeCloseTo(50.01, 5)
   })
 })

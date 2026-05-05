@@ -180,10 +180,6 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  if (body.ledgerFundingEnabled === true && !prevUser?.ledgerFundingEnabled) {
-    await ensureSystemSavingsEnvelope(session.user.id)
-  }
-
   // Never allow encryptedPrivacyKey / privacyKeySalt via this route — use POST /api/user/encryption
   // (guarded) so existing keys cannot be clobbered by mistake or a buggy client.
 
@@ -219,21 +215,37 @@ export async function PUT(req: NextRequest) {
     )
   }
 
-  const updated = await prisma.user.update({
-    where: { id: session.user.id },
-    data,
-    select: {
-      monthlyIncome: true,
-      payCadence: true,
-      onboardingComplete: true,
-      btcDisplayUnit: true,
-      opportunityCostEnabled: true,
-      receiptInboxToken: true,
-      name: true,
-      ledgerFundingEnabled: true,
-      fundingStartedAt: true,
-    },
-  })
+  const enablingLedgerFirstTime =
+    body.ledgerFundingEnabled === true &&
+    prevUser != null &&
+    !prevUser.ledgerFundingEnabled
+
+  const select = {
+    monthlyIncome: true,
+    payCadence: true,
+    onboardingComplete: true,
+    btcDisplayUnit: true,
+    opportunityCostEnabled: true,
+    receiptInboxToken: true,
+    name: true,
+    ledgerFundingEnabled: true,
+    fundingStartedAt: true,
+  } as const
+
+  const updated = enablingLedgerFirstTime
+    ? await prisma.$transaction(async (tx) => {
+        await ensureSystemSavingsEnvelope(session.user.id, tx)
+        return tx.user.update({
+          where: { id: session.user.id },
+          data,
+          select,
+        })
+      })
+    : await prisma.user.update({
+        where: { id: session.user.id },
+        data,
+        select,
+      })
 
   return NextResponse.json({
     ...updated,
