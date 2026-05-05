@@ -58,5 +58,10 @@ export async function initReceiptPdfParseEnvironment(): Promise<void> {
       pdfjs.GlobalWorkerOptions.workerSrc = workerHref
     })()
   }
-  await pdfJsWorkerConfigured
+  try {
+    await pdfJsWorkerConfigured
+  } catch (err) {
+    pdfJsWorkerConfigured = null
+    throw err
+  }
 }

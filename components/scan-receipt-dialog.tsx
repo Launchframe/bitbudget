@@ -92,20 +92,17 @@ export function ScanReceiptDialog({
     }
     setScanning(true)
 
-    let receiptPreviewDataUrl: string | undefined
-    try {
-      if (file.type.startsWith("image/") || file.type === "application/pdf") {
-        receiptPreviewDataUrl = await readFileAsDataURL(file)
-        if (file.type.startsWith("image/")) {
-          setPreview(receiptPreviewDataUrl)
-        } else {
-          setPreview(null)
-        }
-      } else {
-        setPreview(null)
-      }
-    } catch {
-      receiptPreviewDataUrl = undefined
+    const canHaveDataUrl =
+      file.type.startsWith("image/") || file.type === "application/pdf"
+    const dataUrlPromise = canHaveDataUrl
+      ? readFileAsDataURL(file).catch(() => undefined)
+      : Promise.resolve(undefined)
+
+    if (file.type.startsWith("image/")) {
+      void dataUrlPromise.then((url) => {
+        if (url) setPreview(url)
+      })
+    } else {
       setPreview(null)
     }
 
@@ -137,6 +134,8 @@ export function ScanReceiptDialog({
         setScanning(false)
         return
       }
+
+      const receiptPreviewDataUrl = (await dataUrlPromise) ?? undefined
 
       onOpenChange(false)
       reset()
