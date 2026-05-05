@@ -14,6 +14,12 @@ export default defineConfig({
     passWithNoTests: true,
     setupFiles: ["./vitest.setup.ts"],
     exclude: ["**/node_modules/**", "**/e2e/**", "**/.next/**"],
+    server: {
+      deps: {
+        // Mirror Next serverExternalPackages — bundling pdfjs breaks worker resolution.
+        external: ["pdf-parse", "pdfjs-dist"],
+      },
+    },
   },
   resolve: {
     alias: {

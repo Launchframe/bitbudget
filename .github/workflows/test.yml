@@ -54,6 +54,8 @@ jobs:
       AUTH_URL: http://127.0.0.1:3100
       NEXTAUTH_URL: http://127.0.0.1:3100
       NEXT_PUBLIC_APP_URL: http://127.0.0.1:3100
+      # Build is a separate step so PR logs show full `next build` output when it fails.
+      PW_WEBSERVER_SKIP_BUILD: "true"
 
     steps:
       - uses: actions/checkout@v4
@@ -69,4 +71,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install chromium --with-deps
+      - run: pnpm exec next build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
       - run: pnpm test:e2e

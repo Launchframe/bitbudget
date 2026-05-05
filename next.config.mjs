@@ -1,7 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Native addon; Turbopack cannot bundle it (js-binding is not ESM-placeable).
-  serverExternalPackages: ["@napi-rs/canvas"],
+  // pdf-parse → pdfjs-dist: bundling breaks worker resolution ("Cannot find module ... pdf.worker.mjs").
+  serverExternalPackages: ["@napi-rs/canvas", "pdf-parse", "pdfjs-dist"],
   images: {
     unoptimized: true,
   },
