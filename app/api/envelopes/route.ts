@@ -70,17 +70,18 @@ export async function POST(req: NextRequest) {
   }
 
   const { name, monthlyAllotment, color, icon } = await req.json()
-  if (!name) {
+  if (typeof name !== "string" || !name.trim()) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 })
   }
+  const trimmedName = name.trim()
 
   const userLedger = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: { ledgerFundingEnabled: true },
   })
-  if (userLedger?.ledgerFundingEnabled && isReservedSavingsEnvelopeName(name)) {
+  if (userLedger?.ledgerFundingEnabled && isReservedSavingsEnvelopeName(trimmedName)) {
     return NextResponse.json(
-      { error: `"${name.trim()}" is reserved for ledger Savings.` },
+      { error: `"${trimmedName}" is reserved for ledger Savings.` },
       { status: 400 },
     )
   }
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
     envelope = await prisma.envelope.create({
       data: {
         userId: session.user.id,
-        name,
+        name: trimmedName,
         monthlyAllotment: monthlyAllotment || 0,
         color: color || "#F7931A",
         icon,
@@ -136,6 +137,9 @@ export async function PUT(req: NextRequest) {
   }
 
   if (name !== undefined) {
+    if (typeof name !== "string") {
+      return NextResponse.json({ error: "Name must be a string" }, { status: 400 })
+    }
     if (existing.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) {
       return NextResponse.json(
         { error: "The system Savings envelope name cannot be changed." },
@@ -148,7 +152,7 @@ export async function PUT(req: NextRequest) {
     })
     if (userLedger?.ledgerFundingEnabled && isReservedSavingsEnvelopeName(name)) {
       return NextResponse.json(
-        { error: `"${String(name).trim()}" is reserved for ledger Savings.` },
+        { error: `"${name.trim()}" is reserved for ledger Savings.` },
         { status: 400 },
       )
     }
@@ -168,7 +172,7 @@ export async function PUT(req: NextRequest) {
     updated = await prisma.envelope.update({
       where: { id },
       data: {
-        ...(existing.systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS && name !== undefined ? { name } : {}),
+        ...(existing.systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS && name !== undefined ? { name: name.trim() } : {}),
         ...(monthlyAllotment !== undefined ? { monthlyAllotment } : {}),
         ...(color !== undefined ? { color } : {}),
         ...(icon !== undefined ? { icon } : {}),

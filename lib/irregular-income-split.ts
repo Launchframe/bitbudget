@@ -10,6 +10,8 @@ export interface IrregularSplitEnvelopeInput {
 export interface IrregularSplitResult {
   /** Cents allocated to each envelope id (positive integers when monthlyIncome > 0). */
   envelopeIdToCents: Map<string, number>
+  /** Set when floor rounding overshoots gross; caller must not apply a partial batch. */
+  invalid?: boolean
 }
 
 type SplitRow = { id: string; ideal: number; floor: number; cur: number }
@@ -116,7 +118,7 @@ export function computeIrregularIncomeSplits(params: {
 
   let spare = grossCents - floorSum
   if (spare < 0) {
-    return { envelopeIdToCents: new Map() }
+    return { envelopeIdToCents: new Map(), invalid: true }
   }
 
   const heap: number[] = []

@@ -147,7 +147,6 @@ async function createFundingLeg(
 export async function processEnvelopeFundingForUser(userId: string, runDateUtc?: Date): Promise<number> {
   const now = runDateUtc ?? new Date()
   const dailyAllowed = isDailyPayCadenceAllowed()
-  const production = process.env.NODE_ENV === "production"
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -161,8 +160,6 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
 
   if (!user?.ledgerFundingEnabled) return 0
   if (!user.publicKey?.trim()) return 0
-
-  if (production && user.payCadence === "daily") return 0
 
   const periodKey = fundingPeriodKeyForDate({
     payCadence: user.payCadence,
@@ -347,12 +344,20 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
     select: { id: true, monthlyAllotment: true },
   })
 
+  let sumAllot = 0
+  for (const e of envelopes) {
+    const a = e.monthlyAllotment
+    if (Number.isFinite(a) && a > 0) sumAllot += a
+  }
+  if (sumAllot > mi + 0.015) return 0
+
   const split = computeIrregularIncomeSplits({
     grossUsd: gross,
     monthlyIncome: mi,
     envelopes,
     excludeEnvelopeIds: new Set([savings.id]),
   })
+  if (split.invalid) return 0
 
   const grossCents = cents(gross)
   const allocated = sumAllocatedIrregularCents(split)
