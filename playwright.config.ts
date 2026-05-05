@@ -24,13 +24,27 @@ const e2eWebServerEnv = {
 /**
  * `next dev` takes an exclusive `.next/dev/lock`; a second dev (e.g. Playwright) fails if you already
  * have `pnpm dev` running. Production `next start` after `next build` avoids that lock.
+ *
+ * GitHub Actions runs `pnpm exec next build` as its own step (full logs on failure), then sets
+ * **`PW_WEBSERVER_SKIP_BUILD=true`** so Playwright only runs **`next start`** here.
  */
+const skipWebServerBuild = process.env.PW_WEBSERVER_SKIP_BUILD === "true"
+
 const webServerCommand =
   process.env.PW_WEBSERVER_COMMAND?.trim() ||
-  `pnpm exec next build && pnpm exec next start -p ${e2ePort} -H 127.0.0.1`
+  (skipWebServerBuild
+    ? `pnpm exec next start -p ${e2ePort} -H 127.0.0.1`
+    : `pnpm exec next build && pnpm exec next start -p ${e2ePort} -H 127.0.0.1`)
 
-/** Inherit logs unless explicitly silenced (`PW_WEBSERVER_STDIO=ignore`). Do not key off `CI`: many environments set `CI=true` (Codespaces, scripts), which would hide `next build` / `next start` errors locally. */
-const webServerStdio = process.env.PW_WEBSERVER_STDIO === "ignore" ? "ignore" : "inherit"
+/**
+ * Playwright only forwards webServer output to the terminal when stdout/stderr are **pipe**
+ * (see `webServerPlugin.js`: `inherit` never gates `onStdOut`/`onStdErr`).
+ * Alternatively: `DEBUG=pw:webserver pnpm test:e2e`.
+ */
+const webServerLogs =
+  process.env.PW_WEBSERVER_STDIO === "ignore"
+    ? ({ stdout: "ignore", stderr: "ignore" } as const)
+    : ({ stdout: "pipe", stderr: "pipe" } as const)
 
 export default defineConfig({
   testDir: "./e2e",
@@ -39,7 +53,8 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: process.env.CI ? "github" : "list",
+  /** `list` echoes `[WebServer]` lines from piped stdout/stderr; `github` annotates the Actions UI. */
+  reporter: process.env.CI ? [["github"], ["list"]] : "list",
   timeout: 60_000,
   use: {
     ...devices["Desktop Chrome"],
@@ -52,7 +67,7 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: process.env.CI ? 600_000 : 420_000,
     env: e2eWebServerEnv,
-    stdout: webServerStdio,
-    stderr: webServerStdio,
+    stdout: webServerLogs.stdout,
+    stderr: webServerLogs.stderr,
   },
 })
