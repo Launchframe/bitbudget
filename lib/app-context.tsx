@@ -119,6 +119,11 @@ export interface TransactionPrefill {
   tags?: string[]
   /** When set, the dialog operates in "post now" mode for the given recurring rule. */
   recurringId?: string
+  /**
+   * Data URL of the receipt file (image or PDF) for in-dialog cross-check after scan.
+   * Large; omit from persistence. Cleared when the new-transaction dialog closes.
+   */
+  receiptPreviewDataUrl?: string
 }
 
 export interface ReferralSummaryState {
@@ -332,6 +337,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
   const [transactionPrefill, setTransactionPrefill] = useState<TransactionPrefill | null>(null)
+
+  useEffect(() => {
+    if (transactionDialogOpen) return
+    setTransactionPrefill((prev) => {
+      if (!prev?.receiptPreviewDataUrl) return prev
+      const next = { ...prev }
+      delete next.receiptPreviewDataUrl
+      return Object.keys(next).length > 0 ? next : null
+    })
+  }, [transactionDialogOpen])
+
   const [inputModeSheetOpen, setInputModeSheetOpen] = useState(false)
   const [transactionEnvelopeFilter, setTransactionEnvelopeFilter] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set()

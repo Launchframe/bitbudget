@@ -11,6 +11,15 @@ import {
 } from "@/components/ui/dialog"
 import { Camera, Upload, Loader2, AlertCircle, X } from "lucide-react"
 
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"))
+    reader.readAsDataURL(file)
+  })
+}
+
 export function ScanReceiptDialog({
   open,
   onOpenChange,
@@ -83,11 +92,20 @@ export function ScanReceiptDialog({
     }
     setScanning(true)
 
-    if (file.type.startsWith("image/")) {
-      const reader = new FileReader()
-      reader.onload = () => setPreview(reader.result as string)
-      reader.readAsDataURL(file)
-    } else {
+    let receiptPreviewDataUrl: string | undefined
+    try {
+      if (file.type.startsWith("image/") || file.type === "application/pdf") {
+        receiptPreviewDataUrl = await readFileAsDataURL(file)
+        if (file.type.startsWith("image/")) {
+          setPreview(receiptPreviewDataUrl)
+        } else {
+          setPreview(null)
+        }
+      } else {
+        setPreview(null)
+      }
+    } catch {
+      receiptPreviewDataUrl = undefined
       setPreview(null)
     }
 
@@ -127,6 +145,7 @@ export function ScanReceiptDialog({
         amount: data.amount || "",
         date: data.date || "",
         ...(data.suggestedEnvelopeId && { envelopeId: data.suggestedEnvelopeId }),
+        ...(receiptPreviewDataUrl ? { receiptPreviewDataUrl } : {}),
       })
     } catch {
       setError("Something went wrong. Please try again.")

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react"
-import { useApp } from "@/lib/app-context"
+import { useApp, type TransactionPrefill } from "@/lib/app-context"
 import type { TransactionType, Transaction } from "@/lib/data"
 import { formatUsdPrecise } from "@/lib/data"
 import {
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { X, Repeat, Tag, ChevronRight } from "lucide-react"
+import { X, Repeat, Tag, ChevronRight, FileText } from "lucide-react"
 import { ShortcutsPanel, useTransactionShortcuts } from "@/components/shortcuts-panel"
 import {
   mergePayeeCandidates,
@@ -42,6 +42,35 @@ const CADENCE_OPTIONS: { value: Cadence; label: string }[] = [
   { value: "quarterly", label: "Quarterly" },
   { value: "annual", label: "Annual" },
 ]
+
+function stableTransactionPrefillKey(prefill: TransactionPrefill): string {
+  const { receiptPreviewDataUrl: _r, ...rest } = prefill
+  void _r
+  return JSON.stringify(rest)
+}
+
+/** Many browsers fail on huge `data:application/pdf;base64,...` targets for `<a target=_blank>` / navigation; `blob:` URLs work reliably. */
+function pdfDataUrlToBlob(dataUrl: string): Blob | null {
+  const m = /^data:application\/pdf([^,]*),([\s\S]*)$/i.exec(dataUrl.trim())
+  if (!m) return null
+  const meta = m[1]
+  const body = m[2].replace(/\s/g, "")
+  if (/;base64/i.test(meta)) {
+    try {
+      const binary = atob(body)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+      return new Blob([bytes], { type: "application/pdf" })
+    } catch {
+      return null
+    }
+  }
+  try {
+    return new Blob([decodeURIComponent(body)], { type: "application/pdf" })
+  } catch {
+    return null
+  }
+}
 
 function bestEnvelopeIdForPayee(
   payeeDisplay: string,
@@ -103,6 +132,10 @@ export function NewTransactionDialog() {
   const [importSourcePayee, setImportSourcePayee] = useState<string | null>(null)
   const [aliasSaveBusy, setAliasSaveBusy] = useState(false)
   const [aliasSaveMessage, setAliasSaveMessage] = useState<string | null>(null)
+  const [receiptAttachmentPreview, setReceiptAttachmentPreview] = useState<string | null>(null)
+  /** Short-lived object URL for PDF previews (see `pdfDataUrlToBlob`). */
+  const [receiptPdfBlobUrl, setReceiptPdfBlobUrl] = useState<string | null>(null)
+  const [receiptLightboxOpen, setReceiptLightboxOpen] = useState(false)
 
   type ModalView = "main" | "recurring" | "tags"
   const [modalView, setModalView] = useState<ModalView>("main")
@@ -196,7 +229,7 @@ export function NewTransactionDialog() {
       appliedPrefillKeyRef.current = null
       return
     }
-    const key = JSON.stringify(transactionPrefill)
+    const key = stableTransactionPrefillKey(transactionPrefill)
     if (appliedPrefillKeyRef.current === key) return
     appliedPrefillKeyRef.current = key
 
@@ -207,6 +240,37 @@ export function NewTransactionDialog() {
     if (transactionPrefill.type) setType(transactionPrefill.type)
     if (transactionPrefill.tags) setSelectedTags(transactionPrefill.tags)
   }, [transactionDialogOpen, transactionPrefill])
+
+  useEffect(() => {
+    if (!transactionDialogOpen) {
+      setReceiptAttachmentPreview(null)
+      return
+    }
+    const url = transactionPrefill?.receiptPreviewDataUrl
+    setReceiptAttachmentPreview(typeof url === "string" && url.length > 0 ? url : null)
+  }, [transactionDialogOpen, transactionPrefill?.receiptPreviewDataUrl])
+
+  useEffect(() => {
+    if (!receiptAttachmentPreview?.startsWith("data:application/pdf")) {
+      setReceiptPdfBlobUrl(null)
+      return
+    }
+    const blob = pdfDataUrlToBlob(receiptAttachmentPreview)
+    if (!blob) {
+      setReceiptPdfBlobUrl(null)
+      return
+    }
+    const objectUrl = URL.createObjectURL(blob)
+    setReceiptPdfBlobUrl(objectUrl)
+    return () => {
+      setReceiptPdfBlobUrl(null)
+      URL.revokeObjectURL(objectUrl)
+    }
+  }, [receiptAttachmentPreview])
+
+  useEffect(() => {
+    if (!receiptAttachmentPreview) setReceiptLightboxOpen(false)
+  }, [receiptAttachmentPreview])
 
   useEffect(() => {
     if (!transactionDialogOpen) {
@@ -563,6 +627,80 @@ export function NewTransactionDialog() {
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-4">
               <ShortcutsPanel shortcuts={shortcuts} />
+              {receiptAttachmentPreview && (
+                <div className="rounded-xl border border-[#333] bg-[#141414] overflow-hidden shrink-0">
+                  <div className="flex items-center justify-between gap-2 px-3 pt-2 pb-1">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      Receipt preview
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setReceiptAttachmentPreview(null)}
+                    >
+                      Hide
+                    </button>
+                  </div>
+                  <div className="max-h-[min(260px,38vh)] overflow-auto px-3 pb-2">
+                    {receiptAttachmentPreview.startsWith("data:image/") ? (
+                      <button
+                        type="button"
+                        className="group relative block w-full rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-btc-orange focus-visible:ring-offset-2 focus-visible:ring-offset-[#141414]"
+                        onClick={() => setReceiptLightboxOpen(true)}
+                        aria-label="Enlarge receipt image"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element -- client-only data URL from scan flow */}
+                        <img
+                          src={receiptAttachmentPreview}
+                          alt="Scanned receipt"
+                          className="w-full rounded-lg object-contain bg-black/40 cursor-zoom-in transition-opacity group-hover:opacity-95"
+                        />
+                      </button>
+                    ) : receiptAttachmentPreview.startsWith("data:application/pdf") ? (
+                      <div className="flex flex-col gap-2">
+                        {/* Cannot nest iframe inside <button>; thumbnail iframe is non-interactive so clicks enlarge. */}
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="relative rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-btc-orange focus-visible:ring-offset-2 focus-visible:ring-offset-[#141414] cursor-zoom-in"
+                          onClick={() => setReceiptLightboxOpen(true)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault()
+                              setReceiptLightboxOpen(true)
+                            }
+                          }}
+                          aria-label="Enlarge receipt PDF preview"
+                        >
+                          <iframe
+                            title="Receipt PDF preview"
+                            src={receiptPdfBlobUrl ?? receiptAttachmentPreview}
+                            className="pointer-events-none w-full min-h-[200px] rounded-lg bg-black border border-[#333]"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!receiptPdfBlobUrl}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (!receiptPdfBlobUrl) return
+                            window.open(receiptPdfBlobUrl, "_blank", "noopener,noreferrer")
+                          }}
+                          className="text-xs text-btc-orange hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed inline-flex items-center gap-1 text-left"
+                          aria-label="Open receipt PDF in a new tab"
+                        >
+                          <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                          Open PDF in new tab
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground px-3 pb-2 pt-0">
+                    Cross-check payee, amount, and date with the receipt before saving. Tap the preview to
+                    enlarge.
+                  </p>
+                </div>
+              )}
               {/* Type toggle */}
               <div className="flex flex-col gap-2">
                 <Label className="text-muted-foreground text-xs uppercase tracking-wider">Type</Label>
@@ -1050,6 +1188,47 @@ export function NewTransactionDialog() {
             </div>
           )}
         </form>
+
+        {/* Nested dialog avoids body-portal + outer preventDefault(), which blocked lightbox controls (e.g. close X). */}
+        <Dialog open={receiptLightboxOpen} onOpenChange={setReceiptLightboxOpen}>
+          <DialogContent
+            showCloseButton={false}
+            aria-describedby={undefined}
+            className="flex max-h-[90vh] min-h-0 w-full max-w-[min(96vw,1400px)] flex-col gap-0 overflow-hidden border-[#333] bg-[#0D0D0D] p-0 text-foreground sm:max-w-[min(96vw,1400px)]"
+          >
+            <DialogHeader className="sr-only">
+              <DialogTitle>Enlarged receipt preview</DialogTitle>
+            </DialogHeader>
+            <div className="flex shrink-0 justify-end p-2">
+              <button
+                type="button"
+                className="rounded-lg p-2 text-muted-foreground hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-btc-orange"
+                aria-label="Close enlarged receipt"
+                onClick={() => setReceiptLightboxOpen(false)}
+              >
+                <X className="h-6 w-6" aria-hidden />
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto px-4 pb-6">
+              {receiptAttachmentPreview?.startsWith("data:image/") ? (
+                <div className="max-h-[calc(90vh-5rem)] max-w-[calc(100vw-2rem)] overflow-auto rounded-lg shadow-xl">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- client-only data URL from scan flow */}
+                  <img
+                    src={receiptAttachmentPreview}
+                    alt="Receipt enlarged"
+                    className="block max-w-none"
+                  />
+                </div>
+              ) : receiptAttachmentPreview?.startsWith("data:application/pdf") ? (
+                <iframe
+                  title="Receipt PDF enlarged"
+                  src={receiptPdfBlobUrl ?? receiptAttachmentPreview ?? ""}
+                  className="h-[calc(90vh-5rem)] w-[min(95vw,1400px)] shrink-0 rounded-lg border border-[#333] bg-black shadow-xl"
+                />
+              ) : null}
+            </div>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   )

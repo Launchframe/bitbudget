@@ -78,7 +78,8 @@ async function extractFromImage(base64: string, mimeType: string, apiKey: string
 
 /** Loads canvas shims then pdf-parse only when needed (image uploads skip this). */
 async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
-  await import("@/lib/pdfjs-server-globals")
+  const { initReceiptPdfParseEnvironment } = await import("@/lib/pdfjs-server-globals")
+  await initReceiptPdfParseEnvironment()
   const { PDFParse } = await import("pdf-parse")
   const parser = new PDFParse({ data: buffer })
   try {
