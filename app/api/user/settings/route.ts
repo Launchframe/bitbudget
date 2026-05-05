@@ -137,6 +137,7 @@ export async function PUT(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+  const userId = session.user.id
 
   let raw: unknown
   try {
@@ -154,7 +155,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const prevUser = await prisma.user.findUnique({
-    where: { id: session.user.id },
+    where: { id: userId },
     select: {
       ledgerFundingEnabled: true,
       fundingStartedAt: true,
@@ -234,15 +235,15 @@ export async function PUT(req: NextRequest) {
 
   const updated = enablingLedgerFirstTime
     ? await prisma.$transaction(async (tx) => {
-        await ensureSystemSavingsEnvelope(session.user.id, tx)
+        await ensureSystemSavingsEnvelope(userId, tx)
         return tx.user.update({
-          where: { id: session.user.id },
+          where: { id: userId },
           data,
           select,
         })
       })
     : await prisma.user.update({
-        where: { id: session.user.id },
+        where: { id: userId },
         data,
         select,
       })
