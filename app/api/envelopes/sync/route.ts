@@ -175,14 +175,22 @@ export async function POST(req: NextRequest) {
       }
 
       for (const d of withIds) {
+        const isSystemSavings = ledgerOn && systemSavId !== undefined && d.id === systemSavId
         await tx.envelope.update({
           where: { id: d.id },
-          data: {
-            name: d.name,
-            color: d.color,
-            ...(d.icon !== undefined ? { icon: d.icon } : {}),
-            monthlyAllotment: d.monthlyAllotment,
-          },
+          data: isSystemSavings
+            ? {
+                name: RESERVED_SAVINGS_ENVELOPE_NAME,
+                monthlyAllotment: 0,
+                color: d.color,
+                ...(d.icon !== undefined ? { icon: d.icon } : {}),
+              }
+            : {
+                name: d.name,
+                color: d.color,
+                ...(d.icon !== undefined ? { icon: d.icon } : {}),
+                monthlyAllotment: d.monthlyAllotment,
+              },
         })
       }
 

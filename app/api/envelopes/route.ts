@@ -211,23 +211,15 @@ export async function DELETE(req: NextRequest) {
 
   if (all === "true") {
     const userId = session.user.id
-    const userRow = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { ledgerFundingEnabled: true },
-    })
-    const ledgerOn = userRow?.ledgerFundingEnabled ?? false
     const { count } = await prisma.$transaction(async tx => {
       await tx.pendingTransaction.updateMany({
         where: { userId },
         data: { suggestedEnvelopeId: null },
       })
       await tx.transactionShortcut.deleteMany({ where: { userId } })
+      // Explicit destructive reset (Settings → Clear all data): remove every envelope, including system Savings.
       // Transactions/recurring/payee mappings cascade when envelopes are removed; shortcuts do not.
-      return tx.envelope.deleteMany({
-        where: ledgerOn
-          ? { userId, NOT: { systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS } }
-          : { userId },
-      })
+      return tx.envelope.deleteMany({ where: { userId } })
     })
     return NextResponse.json({ deleted: count })
   }

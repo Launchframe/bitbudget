@@ -1134,7 +1134,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const mergeEnvelope = useCallback(async (sourceId: string, targetId: string) => {
     const src = envelopesRef.current.find(e => e.id === sourceId)
+    const tgt = envelopesRef.current.find(e => e.id === targetId)
     if (src?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) return
+    if (tgt?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) return
 
     setState(prev => ({
       ...prev,
