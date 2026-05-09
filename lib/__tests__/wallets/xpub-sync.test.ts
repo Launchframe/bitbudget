@@ -1,0 +1,498 @@
+// @vitest-environment jsdom
+import "fake-indexeddb/auto"
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { webcrypto } from "node:crypto"
+import { EsploraClient, type EsploraTx, type FetchLike } from "@/lib/wallets/esplora-client"
+import {
+  buildTransactionPayload,
+  isPureSelfTransfer,
+  netSatsForTx,
+  runSync,
+  unixSecondsToIsoDate,
+} from "@/lib/wallets/xpub-sync"
+import {
+  clearWalletDb,
+  getAddressesForWallet,
+  getImportedTxidsForWallet,
+  hasImportedTxid,
+} from "@/lib/wallets/xpub-cache"
+import { deriveAddress, parseExtendedKey } from "@/lib/wallets/xpub-derive"
+import { buildStoredWallet } from "@/lib/wallets/xpub-store"
+
+beforeAll(() => {
+  if (!globalThis.crypto) {
+    globalThis.crypto = webcrypto as unknown as Crypto
+  }
+})
+
+const ZPUB =
+  "zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs"
+// Pre-derived from the BIP84 official vector.
+const ADDR_R0 = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
+const ADDR_R1 = "bc1qnjg0jd8228aq7egyzacy8cys3knf9xvrerkf9g"
+const ADDR_C0 = "bc1q8c6fshw2dlwun7ekn9qwf37cu2rn755upcp6el"
+const ADDR_EXTERNAL = "bc1q123externalpaymentdestinationxxxxxxxxxx"
+
+const USER = "user-1"
+
+beforeEach(async () => {
+  await clearWalletDb(USER)
+})
+
+describe("unixSecondsToIsoDate", () => {
+  it("converts to YYYY-MM-DD UTC", () => {
+    expect(unixSecondsToIsoDate(0)).toBe("1970-01-01")
+    // 2024-04-01T00:00:00Z = 1711929600
+    expect(unixSecondsToIsoDate(1711929600)).toBe("2024-04-01")
+  })
+})
+
+describe("netSatsForTx", () => {
+  const my = new Set([ADDR_R0, ADDR_R1, ADDR_C0])
+
+  it("returns +inflow when only outputs are mine", () => {
+    const tx: EsploraTx = {
+      txid: "tx1", version: 1, size: 1, weight: 1, fee: 100,
+      vin: [{ txid: "p", vout: 0, prevout: { scriptpubkey_address: "someone-else", value: 50000 } }],
+      vout: [{ scriptpubkey_address: ADDR_R0, value: 49900 }],
+      status: { confirmed: true, block_height: 800000, block_time: 1711929600 },
+    }
+    expect(netSatsForTx(tx, my)).toBe(49900)
+  })
+
+  it("returns -outflow when paying out to an external address (with change)", () => {
+    const tx: EsploraTx = {
+      txid: "tx2", version: 1, size: 1, weight: 1, fee: 200,
+      vin: [{ txid: "p", vout: 0, prevout: { scriptpubkey_address: ADDR_R0, value: 100000 } }],
+      vout: [
+        { scriptpubkey_address: ADDR_EXTERNAL, value: 60000 },
+        { scriptpubkey_address: ADDR_C0, value: 39800 },
+      ],
+      status: { confirmed: true, block_height: 800000, block_time: 1711929600 },
+    }
+    // I lose 100000 (input) and gain 39800 (change). Net = -60200.
+    expect(netSatsForTx(tx, my)).toBe(-60200)
+  })
+
+  it("returns -fee for a pure self-transfer (consolidation)", () => {
+    const tx: EsploraTx = {
+      txid: "tx3", version: 1, size: 1, weight: 1, fee: 500,
+      vin: [
+        { txid: "p", vout: 0, prevout: { scriptpubkey_address: ADDR_R0, value: 50000 } },
+        { txid: "q", vout: 0, prevout: { scriptpubkey_address: ADDR_R1, value: 50000 } },
+      ],
+      vout: [{ scriptpubkey_address: ADDR_C0, value: 99500 }],
+      status: { confirmed: true, block_height: 800000, block_time: 1711929600 },
+    }
+    expect(netSatsForTx(tx, my)).toBe(-500)
+  })
+
+  it("ignores vin without a prevout (e.g. coinbase)", () => {
+    const tx: EsploraTx = {
+      txid: "cb", version: 1, size: 1, weight: 1, fee: 0,
+      vin: [{ txid: "0".repeat(64), vout: 0, prevout: null }],
+      vout: [{ scriptpubkey_address: ADDR_R0, value: 625000000 }],
+      status: { confirmed: true, block_height: 800000, block_time: 1711929600 },
+    }
+    expect(netSatsForTx(tx, my)).toBe(625000000)
+  })
+})
+
+describe("isPureSelfTransfer", () => {
+  const my = new Set([ADDR_R0, ADDR_C0])
+
+  it("true when every input and output is mine", () => {
+    const tx = {
+      txid: "x", version: 1, size: 1, weight: 1, fee: 1,
+      vin: [{ txid: "p", vout: 0, prevout: { scriptpubkey_address: ADDR_R0, value: 1000 } }],
+      vout: [{ scriptpubkey_address: ADDR_C0, value: 999 }],
+      status: { confirmed: true, block_height: 1, block_time: 1 },
+    } as EsploraTx
+    expect(isPureSelfTransfer(tx, my)).toBe(true)
+  })
+
+  it("false when any output goes elsewhere", () => {
+    const tx = {
+      txid: "x", version: 1, size: 1, weight: 1, fee: 1,
+      vin: [{ txid: "p", vout: 0, prevout: { scriptpubkey_address: ADDR_R0, value: 1000 } }],
+      vout: [{ scriptpubkey_address: "other", value: 999 }],
+      status: { confirmed: true, block_height: 1, block_time: 1 },
+    } as EsploraTx
+    expect(isPureSelfTransfer(tx, my)).toBe(false)
+  })
+})
+
+describe("buildTransactionPayload", () => {
+  const wallet = { id: "w1", nickname: "Cold", defaultEnvelopeId: "env-bitcoin" }
+
+  it("builds an expense for a negative net delta", () => {
+    const p = buildTransactionPayload({
+      netSats: -100_000,
+      blockTime: 1711929600,
+      txid: "abc",
+      blockHeight: 800001,
+      wallet,
+      fallbackEnvelopeId: "env-fallback",
+      btcPriceOnDate: 70000,
+    })
+    expect(p.type).toBe("expense")
+    expect(p.satsAmount).toBe(100_000)
+    // 0.001 BTC * $70000 = $70
+    expect(p.amount).toBeCloseTo(70, 6)
+    expect(p.envelopeId).toBe("env-bitcoin")
+    expect(p.payee).toBe("Bitcoin: Cold")
+    expect(p.notes).toContain("abc")
+    expect(p.source).toBe("onchain_xpub")
+    expect(p.date).toBe("2024-04-01")
+    expect(p.tags).toEqual([])
+  })
+
+  it("builds a credit for a positive net delta and falls back to fallback envelope", () => {
+    const p = buildTransactionPayload({
+      netSats: 50_000,
+      blockTime: 1711929600,
+      txid: "def",
+      blockHeight: 800001,
+      wallet: { id: "w1", nickname: "Hot", defaultEnvelopeId: null },
+      fallbackEnvelopeId: "env-fallback",
+      btcPriceOnDate: 60000,
+    })
+    expect(p.type).toBe("credit")
+    expect(p.envelopeId).toBe("env-fallback")
+    expect(p.payee).toBe("Bitcoin: Hot")
+  })
+
+  it("throws on a zero-delta input (should be filtered upstream)", () => {
+    expect(() =>
+      buildTransactionPayload({
+        netSats: 0,
+        blockTime: 1, txid: "z", blockHeight: 0,
+        wallet, fallbackEnvelopeId: "f", btcPriceOnDate: 1,
+      }),
+    ).toThrow()
+  })
+})
+
+// ─── End-to-end: gap-limit scan over a mocked Esplora ────────────────
+
+interface MockTx {
+  txid: string
+  vin: Array<{ addr: string; value: number }>
+  vout: Array<{ addr: string; value: number }>
+  blockTime: number
+  blockHeight: number
+}
+
+function buildMockEsplora(opts: {
+  byAddressTxs: Map<string, MockTx[]>
+  tipHeight?: number
+}): { fetchImpl: FetchLike; calls: string[] } {
+  const calls: string[] = []
+  const tipHeight = opts.tipHeight ?? 800100
+  const fetchImpl: FetchLike = async (url) => {
+    calls.push(url)
+    if (url.endsWith("/api/blocks/tip/height")) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => String(tipHeight),
+        json: async () => tipHeight,
+      }
+    }
+    const addrInfoMatch = url.match(/\/api\/address\/([^/]+)$/)
+    if (addrInfoMatch) {
+      const addr = addrInfoMatch[1]!
+      const txs = opts.byAddressTxs.get(addr) ?? []
+      const stats = {
+        funded_txo_count: txs.length,
+        funded_txo_sum: 0,
+        spent_txo_count: 0,
+        spent_txo_sum: 0,
+        tx_count: txs.length,
+      }
+      const empty = { funded_txo_count: 0, funded_txo_sum: 0, spent_txo_count: 0, spent_txo_sum: 0, tx_count: 0 }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => "",
+        json: async () => ({ address: addr, chain_stats: stats, mempool_stats: empty }),
+      }
+    }
+    const addrTxsMatch = url.match(/\/api\/address\/([^/]+)\/txs$/)
+    if (addrTxsMatch) {
+      const addr = addrTxsMatch[1]!
+      const mocks = opts.byAddressTxs.get(addr) ?? []
+      const txs: EsploraTx[] = mocks.map((m) => ({
+        txid: m.txid, version: 1, size: 1, weight: 1, fee: 0,
+        vin: m.vin.map((v) => ({ txid: "p", vout: 0, prevout: { scriptpubkey_address: v.addr, value: v.value } })),
+        vout: m.vout.map((v) => ({ scriptpubkey_address: v.addr, value: v.value })),
+        status: { confirmed: true, block_height: m.blockHeight, block_time: m.blockTime },
+      }))
+      return { ok: true, status: 200, text: async () => "", json: async () => txs }
+    }
+    if (url.includes("/txs/chain/")) {
+      // Pagination follow-up: empty page ends paging.
+      return { ok: true, status: 200, text: async () => "", json: async () => [] }
+    }
+    throw new Error(`Unexpected URL in mock Esplora: ${url}`)
+  }
+  return { fetchImpl, calls }
+}
+
+describe("runSync (mocked Esplora, BIP84 vector)", () => {
+  const wallet = buildStoredWallet({
+    nickname: "Test BIP84",
+    xpub: ZPUB,
+    kind: "bip84",
+    explorerBaseUrl: "https://mempool.space",
+    defaultEnvelopeId: "env-bitcoin",
+    gapLimit: 5,
+  })
+
+  type SavedPayload = {
+    payee: string
+    type: "expense" | "credit"
+    satsAmount?: number | null
+    amount: number
+    notes?: string | null
+    envelopeId: string
+    date: string
+    source?: string
+    tags: string[]
+  }
+  let savedPayloads: SavedPayload[] = []
+  const saveTransaction = async (txn: SavedPayload) => {
+    savedPayloads.push(txn)
+    return `srv_${Math.random().toString(36).slice(2)}`
+  }
+
+  /** Find a saved payload whose notes contain the given txid substring. */
+  const findByTxid = (txid: string): SavedPayload | undefined =>
+    savedPayloads.find((p) => (p.notes ?? "").includes(txid))
+
+  afterEach(() => {
+    savedPayloads = []
+  })
+
+  it("imports one tx for the BIP84 receive address and skips a self-transfer", async () => {
+    const mock = buildMockEsplora({
+      byAddressTxs: new Map<string, MockTx[]>([
+        // Inbound payment to receive index 0
+        [
+          ADDR_R0,
+          [
+            {
+              txid: "TX_INBOUND",
+              vin: [{ addr: "external_payer", value: 50_000 }],
+              vout: [{ addr: ADDR_R0, value: 50_000 }],
+              blockTime: 1711929600,
+              blockHeight: 800050,
+            },
+            // Pure self-transfer (consolidation) — should be skipped, not turned into a tx.
+            {
+              txid: "TX_SELF",
+              vin: [{ addr: ADDR_R0, value: 50_000 }],
+              vout: [{ addr: ADDR_C0, value: 49_500 }],
+              blockTime: 1711930000,
+              blockHeight: 800051,
+            },
+          ],
+        ],
+        [
+          ADDR_C0,
+          [
+            // Same self-transfer pulled in via the change address — must dedup by txid.
+            {
+              txid: "TX_SELF",
+              vin: [{ addr: ADDR_R0, value: 50_000 }],
+              vout: [{ addr: ADDR_C0, value: 49_500 }],
+              blockTime: 1711930000,
+              blockHeight: 800051,
+            },
+            // Outbound payment from the change address
+            {
+              txid: "TX_OUTBOUND",
+              vin: [{ addr: ADDR_C0, value: 49_500 }],
+              vout: [
+                { addr: "external_merchant", value: 30_000 },
+                { addr: ADDR_R1, value: 19_000 },
+              ],
+              blockTime: 1711931000,
+              blockHeight: 800052,
+            },
+          ],
+        ],
+        // ADDR_R1 also sees the outbound tx (it received the change-back).
+        // Without this, the scanner never marks R1 as ours and would
+        // mis-classify the outbound's true net delta.
+        [
+          ADDR_R1,
+          [
+            {
+              txid: "TX_OUTBOUND",
+              vin: [{ addr: ADDR_C0, value: 49_500 }],
+              vout: [
+                { addr: "external_merchant", value: 30_000 },
+                { addr: ADDR_R1, value: 19_000 },
+              ],
+              blockTime: 1711931000,
+              blockHeight: 800052,
+            },
+          ],
+        ],
+      ]),
+    })
+
+    const client = new EsploraClient({
+      baseUrl: wallet.explorerBaseUrl,
+      fetchImpl: mock.fetchImpl,
+      minRequestSpacingMs: 0,
+    })
+
+    const res = await runSync({
+      userId: USER,
+      wallet,
+      fallbackEnvelopeId: "env-fallback",
+      client,
+      getPriceOnDate: () => 70000,
+      saveTransaction: saveTransaction as never,
+    })
+
+    // We saved exactly the inbound and outbound txs (self-transfer skipped).
+    const inbound = findByTxid("TX_INBOUND")
+    const outbound = findByTxid("TX_OUTBOUND")
+    const self = findByTxid("TX_SELF")
+    expect(inbound).toBeDefined()
+    expect(outbound).toBeDefined()
+    expect(self).toBeUndefined()
+
+    expect(res.txsImported).toBe(2)
+    expect(inbound!.type).toBe("credit")
+    expect(inbound!.satsAmount).toBe(50_000)
+    expect(inbound!.source).toBe("onchain_xpub")
+    expect(outbound!.type).toBe("expense")
+    expect(outbound!.satsAmount).toBe(30_500) // 49500 spent − 19000 returned
+
+    // Self-transfer is recorded in the dedup cache so we don't reconsider it.
+    expect(await hasImportedTxid(USER, wallet.id, "TX_SELF")).toBe(true)
+
+    // Cache populated; gap-limit watermark reflects scan depth.
+    const addrs = await getAddressesForWallet(USER, wallet.id)
+    expect(addrs.length).toBeGreaterThan(0)
+    const importedTxids = await getImportedTxidsForWallet(USER, wallet.id)
+    expect(importedTxids.length).toBe(3) // 2 imported + 1 self-transfer recorded
+  })
+
+  it("re-running the sync is idempotent (no duplicate writes)", async () => {
+    const mock = buildMockEsplora({
+      byAddressTxs: new Map<string, MockTx[]>([
+        [
+          ADDR_R0,
+          [
+            {
+              txid: "TX_ONCE",
+              vin: [{ addr: "external", value: 10000 }],
+              vout: [{ addr: ADDR_R0, value: 10000 }],
+              blockTime: 1711929600,
+              blockHeight: 800050,
+            },
+          ],
+        ],
+      ]),
+    })
+    const client = new EsploraClient({
+      baseUrl: wallet.explorerBaseUrl, fetchImpl: mock.fetchImpl, minRequestSpacingMs: 0,
+    })
+    const r1 = await runSync({
+      userId: USER, wallet, fallbackEnvelopeId: "env-fb", client,
+      getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never,
+    })
+    const r2 = await runSync({
+      userId: USER, wallet, fallbackEnvelopeId: "env-fb", client,
+      getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never,
+    })
+    expect(r1.txsImported).toBe(1)
+    expect(r2.txsImported).toBe(0)
+    expect(savedPayloads.length).toBe(1)
+  })
+})
+
+// ─── Privacy regression test ─────────────────────────────────────────
+
+describe("PRIVACY: sync only contacts the configured explorer", () => {
+  it("never sends the xpub or any derived address to BitBudget API or any other host", async () => {
+    const wallet = buildStoredWallet({
+      nickname: "Priv test",
+      xpub: ZPUB,
+      kind: "bip84",
+      explorerBaseUrl: "https://mempool.space",
+      gapLimit: 3,
+    })
+    const mock = buildMockEsplora({
+      byAddressTxs: new Map<string, MockTx[]>([
+        [
+          ADDR_R0,
+          [
+            {
+              txid: "TX_X",
+              vin: [{ addr: "external", value: 1000 }],
+              vout: [{ addr: ADDR_R0, value: 1000 }],
+              blockTime: 1711929600,
+              blockHeight: 800050,
+            },
+          ],
+        ],
+      ]),
+    })
+
+    const apiCalls: string[] = []
+    const apiSeenBodies: string[] = []
+    const saveTransaction = async (txn: unknown) => {
+      // Simulate what AppContext does: a POST to /api/transactions with the
+      // payload. We capture the URL and the body.
+      const body = JSON.stringify(txn)
+      apiCalls.push("/api/transactions")
+      apiSeenBodies.push(body)
+      return "srv_id"
+    }
+
+    const client = new EsploraClient({
+      baseUrl: wallet.explorerBaseUrl, fetchImpl: mock.fetchImpl, minRequestSpacingMs: 0,
+    })
+    await runSync({
+      userId: USER, wallet, fallbackEnvelopeId: "env-fb", client,
+      getPriceOnDate: () => 70000, saveTransaction,
+    })
+
+    // 1) Every explorer-bound URL starts with the configured base URL.
+    for (const url of mock.calls) {
+      expect(url.startsWith(wallet.explorerBaseUrl + "/")).toBe(true)
+    }
+
+    // 2) None of the explorer URLs contain the xpub.
+    for (const url of mock.calls) {
+      expect(url).not.toContain(wallet.xpub)
+    }
+
+    // 3) None of the BitBudget API requests contain the xpub or any derived
+    //    address. (txids are public and acceptable — they're stored encrypted
+    //    on the server inside the encrypted notes field, but we still verify
+    //    the *plaintext* payload body before encryption doesn't carry the xpub
+    //    or the user's specific addresses.)
+    const parsed = parseExtendedKey(wallet.xpub)
+    const derived = [
+      deriveAddress(parsed, 0, 0),
+      deriveAddress(parsed, 0, 1),
+      deriveAddress(parsed, 1, 0),
+    ]
+    for (const body of apiSeenBodies) {
+      expect(body).not.toContain(wallet.xpub)
+      for (const a of derived) {
+        expect(body).not.toContain(a)
+      }
+    }
+
+    // 4) We did call /api/transactions exactly once for the one importable tx.
+    expect(apiCalls).toEqual(["/api/transactions"])
+  })
+})
