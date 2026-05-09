@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import { isTransactionSource } from "@/lib/data"
 import {
   parseTransactionDateInput,
   transactionCalendarDay,
@@ -122,7 +123,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { date, payee, amount, type, envelopeId, tags, notes } = body
+  const { date, payee, amount, type, envelopeId, tags, notes, source, satsAmount } = body
 
   if (!date || payee == null || amount == null || !type || !envelopeId) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
@@ -142,6 +143,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "tags must be an array of strings" }, { status: 400 })
     }
   }
+  if (source !== undefined && source !== null && !isTransactionSource(source)) {
+    return NextResponse.json({ error: "Invalid source" }, { status: 400 })
+  }
+  let explicitSats: number | null = null
+  if (satsAmount !== undefined && satsAmount !== null) {
+    const n = typeof satsAmount === "number" ? satsAmount : Number(satsAmount)
+    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+      return NextResponse.json({ error: "satsAmount must be a non-negative integer" }, { status: 400 })
+    }
+    explicitSats = n
+  }
 
   const envelope = await prisma.envelope.findFirst({
     where: { id: envelopeId, userId: session.user.id },
@@ -155,8 +167,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid date" }, { status: 400 })
   }
   const dateStr = transactionCalendarDay(String(date))
-  const btcPrice = await getBtcPriceForDate(dateStr)
   const absAmount = Math.abs(amountNum)
+  let resolvedSats: number | null
+  if (explicitSats !== null) {
+    resolvedSats = explicitSats
+  } else {
+    const btcPrice = await getBtcPriceForDate(dateStr)
+    resolvedSats = btcPrice ? usdToSats(absAmount, btcPrice) : null
+  }
 
   const transaction = await prisma.transaction.create({
     data: {
@@ -168,7 +186,8 @@ export async function POST(req: NextRequest) {
       type,
       tags: JSON.stringify(tags || []),
       notes: notes || null,
-      satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
+      satsAmount: resolvedSats,
+      ...(source ? { source } : {}),
     },
   })
 

@@ -1061,11 +1061,13 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     }))
 
     try {
-      const payload = { ...txn }
+      const payload: Record<string, unknown> = { ...txn }
       if (publicKeyRef.current) {
         payload.payee = encryptFieldAsymmetric(txn.payee, publicKeyRef.current)
-        if (payload.notes) payload.notes = encryptFieldAsymmetric(payload.notes, publicKeyRef.current)
+        if (txn.notes) payload.notes = encryptFieldAsymmetric(txn.notes, publicKeyRef.current)
       }
+      if (txn.source) payload.source = txn.source
+      if (typeof txn.satsAmount === "number") payload.satsAmount = txn.satsAmount
 
       const res = await fetch("/api/transactions", {
         method: "POST",
