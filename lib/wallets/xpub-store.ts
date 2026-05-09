@@ -86,7 +86,8 @@ function clearRaw(userId: string): void {
 }
 
 function sanitizeExplorerBase(url: string): string {
-  return url.replace(/\/+$/, "")
+  const trimmed = url.replace(/\/+$/, "")
+  return trimmed.endsWith("/api") ? trimmed.slice(0, -4) : trimmed
 }
 
 function normalizeWallet(w: StoredWallet): StoredWallet {

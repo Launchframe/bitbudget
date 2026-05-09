@@ -329,13 +329,19 @@ export async function runSync(opts: RunSyncOptions): Promise<RunSyncResult> {
       continue
     }
 
+    const blockHeight = tx.status.block_height
+    if (blockHeight == null) {
+      // Do not coerce a missing confirmed block height to 0 (genesis).
+      // Leave un-recorded so a later sync can retry with complete metadata.
+      continue
+    }
     const date = unixSecondsToIsoDate(tx.status.block_time!)
     const price = opts.getPriceOnDate(date)
     const payload = buildTransactionPayload({
       netSats: net,
       blockTime: tx.status.block_time!,
       txid: tx.txid,
-      blockHeight: tx.status.block_height ?? 0,
+      blockHeight,
       wallet,
       fallbackEnvelopeId,
       btcPriceOnDate: price,

@@ -9,6 +9,7 @@ import {
   Bell,
   Mail,
   Building2,
+  Bitcoin,
   Wallet,
   TrendingUp,
   ArrowDownToLine,
@@ -65,6 +66,7 @@ const sourceIcons: Record<TransactionSource, React.ElementType> = {
   deficit_cover: ArrowDownToLine,
   envelope_transfer_in: ArrowDownToLine,
   envelope_transfer_out: ArrowUpFromLine,
+  onchain_xpub: Bitcoin,
 }
 
 const sourceLabels: Record<TransactionSource, string> = {
@@ -88,6 +90,7 @@ const sourceLabels: Record<TransactionSource, string> = {
   deficit_cover: "Cover from Savings",
   envelope_transfer_in: "Transfer in",
   envelope_transfer_out: "Transfer out",
+  onchain_xpub: "Bitcoin wallet",
 }
 
 export function ReviewInbox() {

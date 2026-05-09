@@ -49,8 +49,8 @@ import { SettingsSavingsCard } from "@/components/settings-savings-card"
 import { IncomeImporterCard } from "@/components/income-importer-dialog"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
 import { SettingsSetupGuideSection } from "@/components/settings-setup-guide-section"
+import { BitcoinWalletsCard } from "@/components/bitcoin-wallets-card"
 import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
-
 type SettingsTab = "general" | "communications" | "savings" | "integrations" | "tags" | "payees" | "data"
 
 const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
@@ -756,6 +756,9 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Bitcoin wallets — only shown for OC-enabled users; entirely client-side */}
+      <BitcoinWalletsCard />
 
       {/* CSV Import */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
