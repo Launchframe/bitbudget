@@ -14,6 +14,7 @@
     "db:seed": "npx tsx prisma/seed.ts",
     "db:seed-admin": "npx tsx prisma/seed-admin.ts",
     "qa:recurring:bump": "npx tsx scripts/qa-bump-recurring-due.ts",
+    "referral:admin-code": "npx tsx scripts/print-admin-referral-code.ts",
     "postinstall": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",
