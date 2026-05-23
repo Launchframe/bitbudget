@@ -6,6 +6,8 @@ import { useApp } from "@/lib/app-context"
 import { getPublicAppUrlClient } from "@/lib/public-app-url"
 import { ReferralTerms } from "@/components/referral-terms"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Gift, Copy, Check, Loader2, Mail, Share2 } from "lucide-react"
 import {
   REFEREE_PREMIUM_CARROT_FALLBACK,
@@ -30,11 +32,16 @@ export function SettingsReferralsCard() {
     effectiveTier,
     subscriptionTier,
     refereePendingBankLink,
+    referralRefereeRedeemed,
+    referralRefereeCanRedeem,
     referralRefereeTrialMonths,
   } = useApp()
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [refCodeInput, setRefCodeInput] = useState("")
+  const [refRedeeming, setRefRedeeming] = useState(false)
+  const [refRedeemError, setRefRedeemError] = useState<string | null>(null)
 
   const base = useMemo(() => getPublicAppUrlClient(), [])
 
@@ -106,6 +113,44 @@ export function SettingsReferralsCard() {
     }
   }, [referralUrl])
 
+  const handleRedeemReferralCode = useCallback(async () => {
+    const code = refCodeInput.trim()
+    if (!code) return
+    setRefRedeemError(null)
+    setRefRedeeming(true)
+    try {
+      const res = await fetch("/api/referral/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, shareMethod: "direct" }),
+      })
+      const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string }
+      if (!res.ok) {
+        if (j.code === "already_redeemed") {
+          setRefRedeemError("This account already used a referral code.")
+        } else if (j.code === "redeem_window_closed") {
+          setRefRedeemError("Referral codes can only be applied within 7 days of finishing onboarding.")
+        } else if (j.code === "self_referral") {
+          setRefRedeemError("You cannot use your own referral code.")
+        } else if (
+          j.code === "expired" ||
+          j.code === "exhausted" ||
+          j.code === "not_found" ||
+          j.error === "Referral code is not valid"
+        ) {
+          setRefRedeemError("It looks like that code is invalid, expired, or already taken.")
+        } else {
+          setRefRedeemError(typeof j.error === "string" ? j.error : "Could not apply referral code")
+        }
+        return
+      }
+      setRefCodeInput("")
+      await refreshData()
+    } finally {
+      setRefRedeeming(false)
+    }
+  }, [refCodeInput, refreshData])
+
   const dLeft = daysUntil(expiresAt)
 
   return (
@@ -118,6 +163,55 @@ export function SettingsReferralsCard() {
       </div>
 
       <ReferralTerms />
+
+      {!referralRefereeRedeemed && referralRefereeCanRedeem && (
+        <div className="rounded-xl border border-[#333] bg-[#1A1A1A] p-4 space-y-3">
+          <p className="text-sm font-medium text-foreground">Have a referral code?</p>
+          <p className="text-xs text-muted-foreground">
+            Enter a friend&apos;s code within 7 days of finishing onboarding to unlock a premium trial after you
+            connect your bank.
+          </p>
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <Input
+                id="settings-referral-code"
+                value={refCodeInput}
+                onChange={e => {
+                  setRefCodeInput(e.target.value)
+                  if (refRedeemError) setRefRedeemError(null)
+                }}
+                placeholder="Enter code"
+                className="bg-[#0D0D0D] border-[#333] text-foreground placeholder:text-[#555] flex-1"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={refRedeeming || !refCodeInput.trim()}
+                className="shrink-0 border-[#333] bg-[#0D0D0D]"
+                onClick={() => {
+                  void handleRedeemReferralCode()
+                }}
+              >
+                {refRedeeming ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
+              </Button>
+            </div>
+            {refRedeemError && (
+              <div
+                role="alert"
+                className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+              >
+                {refRedeemError}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {refereePendingBankLink && (
+        <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 text-sm text-[#86EFAC]">
+          Referral code successfully applied!
+        </div>
+      )}
 
       {refereePendingBankLink && (
         <div className="rounded-xl border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-4 py-3 space-y-2 text-sm text-muted-foreground">

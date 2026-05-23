@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
   addMonthsUtc,
+  canRedeemReferralAsPostOnboardingReferee,
   generateUserReferralCodeSegment,
   isValidOfferSlug,
   normalizeOfferSlug,
   normalizeReferralCodeInput,
+  refereePostOnboardingRedeemDeadline,
+  REFEREE_POST_ONBOARDING_REDEEM_DAYS,
 } from "@/lib/referral"
 
 describe("referral code helpers", () => {
@@ -38,5 +41,49 @@ describe("referral code helpers", () => {
     const end = addMonthsUtc(start, 3)
     expect(end.getUTCMonth()).toBe(3)
     expect(end.getUTCDate()).toBe(15)
+  })
+
+  it("refereePostOnboardingRedeemDeadline adds configured days", () => {
+    const completed = new Date(Date.UTC(2026, 4, 1, 12, 0, 0))
+    const deadline = refereePostOnboardingRedeemDeadline(completed)
+    expect(deadline?.getTime()).toBe(
+      completed.getTime() + REFEREE_POST_ONBOARDING_REDEEM_DAYS * 86400000,
+    )
+  })
+
+  it("canRedeemReferralAsPostOnboardingReferee respects onboarding window", () => {
+    const completed = new Date(Date.UTC(2026, 4, 1, 12, 0, 0))
+    expect(
+      canRedeemReferralAsPostOnboardingReferee({
+        onboardingComplete: false,
+        onboardingCompletedAt: null,
+        alreadyRedeemed: false,
+        now: completed,
+      }),
+    ).toBe(true)
+    expect(
+      canRedeemReferralAsPostOnboardingReferee({
+        onboardingComplete: true,
+        onboardingCompletedAt: completed,
+        alreadyRedeemed: false,
+        now: new Date(completed.getTime() + 6 * 86400000),
+      }),
+    ).toBe(true)
+    expect(
+      canRedeemReferralAsPostOnboardingReferee({
+        onboardingComplete: true,
+        onboardingCompletedAt: completed,
+        alreadyRedeemed: false,
+        now: new Date(completed.getTime() + 7 * 86400000),
+      }),
+    ).toBe(false)
+    expect(
+      canRedeemReferralAsPostOnboardingReferee({
+        onboardingComplete: true,
+        onboardingCompletedAt: completed,
+        alreadyRedeemed: true,
+        now: completed,
+      }),
+    ).toBe(false)
   })
 })

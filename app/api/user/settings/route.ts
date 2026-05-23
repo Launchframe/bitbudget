@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { referralStatsForUser } from "@/lib/referral"
+import { canRedeemReferralAsPostOnboardingReferee, referralStatsForUser } from "@/lib/referral"
 import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
@@ -37,6 +37,7 @@ export async function GET() {
       monthlyIncome: true,
       payCadence: true,
       onboardingComplete: true,
+      onboardingCompletedAt: true,
       btcDisplayUnit: true,
       opportunityCostEnabled: true,
       nostrPubkey: true,
@@ -74,6 +75,13 @@ export async function GET() {
       ? refereeTrialMonthsForReferrerSubscription(refereeReferralRow.referrer.subscriptionTier)
       : null
 
+  const referralRefereeRedeemed = !!refereeReferralRow
+  const referralRefereeCanRedeem = canRedeemReferralAsPostOnboardingReferee({
+    onboardingComplete: user.onboardingComplete,
+    onboardingCompletedAt: user.onboardingCompletedAt,
+    alreadyRedeemed: referralRefereeRedeemed,
+  })
+
   let referralPayload: Record<string, unknown> | null = null
   if (user.onboardingComplete) {
     const stats = await referralStatsForUser(session.user.id, new Date(), {
@@ -106,6 +114,8 @@ export async function GET() {
     effectiveTier,
     transactionCount: _count.transactions,
     referralRefereePendingBankLink: isRefereePendingBankLink,
+    referralRefereeRedeemed,
+    referralRefereeCanRedeem,
     referralRefereeTrialMonths,
     referral: referralPayload,
   })

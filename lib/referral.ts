@@ -6,6 +6,8 @@ import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from 
 
 export const REFERRAL_USER_CODE_LENGTH = 8
 export const USER_REFERRAL_CODE_TTL_DAYS = 7
+/** After onboarding, referees may redeem a referral code in Settings for this many days. */
+export const REFEREE_POST_ONBOARDING_REDEEM_DAYS = 7
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -42,6 +44,25 @@ export function addMonthsUtc(d: Date, months: number): Date {
     x.setUTCDate(0)
   }
   return x
+}
+
+export function refereePostOnboardingRedeemDeadline(onboardingCompletedAt: Date | null): Date | null {
+  if (!onboardingCompletedAt) return null
+  return new Date(onboardingCompletedAt.getTime() + REFEREE_POST_ONBOARDING_REDEEM_DAYS * 86400000)
+}
+
+/** Post-onboarding Settings redeem; during onboarding (`onboardingComplete` false) redeem stays allowed. */
+export function canRedeemReferralAsPostOnboardingReferee(args: {
+  onboardingComplete: boolean
+  onboardingCompletedAt: Date | null
+  alreadyRedeemed: boolean
+  now?: Date
+}): boolean {
+  if (args.alreadyRedeemed) return false
+  if (!args.onboardingComplete) return true
+  const deadline = refereePostOnboardingRedeemDeadline(args.onboardingCompletedAt)
+  if (!deadline) return false
+  return (args.now ?? new Date()) < deadline
 }
 
 export type ValidateReferralCodeResult =
@@ -186,6 +207,27 @@ export async function redeemReferralCode(args: {
       status: 409,
       code: "already_redeemed",
       message: "This account already used a referral",
+    }
+  }
+
+  const refereeUser = await prisma.user.findUnique({
+    where: { id: args.refereeId },
+    select: { onboardingComplete: true, onboardingCompletedAt: true },
+  })
+  if (
+    refereeUser &&
+    !canRedeemReferralAsPostOnboardingReferee({
+      onboardingComplete: refereeUser.onboardingComplete,
+      onboardingCompletedAt: refereeUser.onboardingCompletedAt,
+      alreadyRedeemed: false,
+      now,
+    })
+  ) {
+    return {
+      ok: false,
+      status: 410,
+      code: "redeem_window_closed",
+      message: "Referral codes can only be applied within 7 days of finishing onboarding",
     }
   }
 
