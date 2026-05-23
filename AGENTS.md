@@ -125,10 +125,46 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 - Parse JSON fields (like `tags`) defensively with try/catch — database rows may contain malformed data from older versions.
 
 ### Database
-- Prisma schema is the source of truth. All schema changes require a migration.
+
+- Prisma schema is the source of truth. **Merged** schema changes must ship with a committed migration; **in-progress** work uses `db push` first (see below).
 - Migrations must be **idempotent** (`ADD COLUMN IF NOT EXISTS`, etc.) to survive re-runs during deployment.
 - After changing `schema.prisma`, always run `pnpm prisma generate` before testing types.
 - Use `cuid()` for IDs. Dates are stored as `DateTime` and formatted as `YYYY-MM-DD` strings at the API boundary.
+
+#### Schema changes during development (`db push`)
+
+While a feature is still evolving, **do not** run `pnpm db:migrate` on every schema tweak. That creates migration files and checksum history that are painful to revise.
+
+**Default loop:**
+
+1. Edit `prisma/schema.prisma`.
+2. Apply locally with **`pnpm db:push`** (updates the dev DB without migration files).
+3. Run **`pnpm prisma generate`** and continue building/testing.
+
+**Before creating a migration file, ask the maintainer:**
+
+- **Create migration now** — schema shape is stable enough for CI, another developer, or a shared environment. Run `pnpm db:migrate --name <descriptive_name>`, then hand-edit the generated SQL for idempotency if needed.
+- **Wait until later** — still iterating; keep using `db push` only and defer migration files until PR finalization.
+
+**Never edit a migration after it has been applied** (local, CI, staging, or prod). Prisma stores a checksum in `_prisma_migrations`; changing the file causes “migration was modified after it was applied” errors. For fixes after apply, add a **new** migration instead.
+
+#### PR finalization: migrations (without resetting local dev data)
+
+Before merge, the branch must have clean, reviewable migration(s) that match final `schema.prisma`. Consolidate WIP history **without** asking the developer to wipe their database:
+
+1. **Confirm final schema** — `schema.prisma` on the branch is the intended end state (usually already true after `db push`).
+2. **Consolidate migration folders** — if the branch has multiple experimental migrations that never reached `main`, replace them with one (or a few logical) idempotent migration(s):
+   - Remove superseded migration folders from the branch (only those not yet on `main`).
+   - Create fresh SQL for the feature, e.g. `pnpm exec prisma migrate dev --create-only --name <feature>` against a DB at `main`'s migration baseline, or compose idempotent DDL by hand from the diff.
+   - Ensure every statement is safe to re-run (`IF NOT EXISTS`, guarded `DO $$ … EXCEPTION … $$` blocks, etc.).
+3. **Reconcile the maintainer's local DB** (preserve data):
+   - If their DB already has the columns (from `db push` and/or WIP migrations), the consolidated migration should be a **no-op** on apply.
+   - Delete `_prisma_migrations` rows for removed WIP migration names.
+   - Mark the consolidated migration applied: `pnpm exec prisma migrate resolve --applied <migration_folder_name>`, or update the checksum row if the migration was already applied manually (see **Common Pitfalls**).
+   - Verify with **`pnpm db:migrate`** — expect “Already in sync”, not a reset prompt.
+4. **PR checklist** — migration(s) committed with schema + code; PR description notes `pnpm prisma migrate deploy` for deploy targets.
+
+CI and fresh clones use `prisma migrate deploy`; idempotent consolidated migrations must apply cleanly from `main`'s baseline.
 
 ## Feature Gating: Opportunity Cost
 
@@ -209,7 +245,9 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 - **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don’t rely on manual checks alone for production-critical behavior.
 - **PR descriptions** should have a Summary (bullet points of what changed) and a Test Plan (checkboxes).
 - **Never force-push to main.**
-- **Database migrations** should be committed alongside the schema change and the code that uses the new field.
+- **Schema during development:** use **`pnpm db:push`**; ask the maintainer whether to **`pnpm db:migrate`** now or defer until PR finalization (see **Database → Schema changes during development**).
+- **Before merge:** consolidate branch migrations into clean idempotent file(s) and reconcile the maintainer's local `_prisma_migrations` without a full DB reset (see **Database → PR finalization**).
+- **Database migrations** on the merged branch must be committed alongside the schema change and the code that uses the new field.
 
 ### Addressing open PR review comments
 
@@ -229,6 +267,8 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **Calling `useBtcPrices()` outside `BtcPriceProvider`** — the hook returns **`NOOP_PRICES`** and warns in development; it does not throw. Real prices and OC math need `BtcPriceProvider`; gate Bitcoin UI with `state.opportunityCostEnabled` so vanilla mode does not depend on live BTC data.
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
+- **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During dev, prefer **`db push`**; at PR time, consolidate into a new migration. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.
+- **`db:migrate` on every schema tweak** — creates migration churn and checksum traps. Use **`db push`** while iterating; create migration files when the maintainer agrees or at PR finalization.
 - **Stale encryption keys** — switching accounts or clearing data can leave cached keys in `sessionStorage`. The `EncryptionGate` and `PinUnlockDialog` handle re-prompting; don't bypass them.
 - **`POST /api/user/encryption` and existing keys** — see **Privacy key custody & safeguard**; 409 prevents overwrites. Onboarding must handle 409 in `handleSecuritySetup`. Nostr nsec storage: intent `bitbudget-nsec-onboarding-intent`; pending raw key is **in-memory only** until PIN encrypts to `bitbudget-nsec` (JSON iv+ciphertext in localStorage). Legacy `bitbudget-pending-nsec` session key is cleared on `clearPendingNsec`. Logout clears pending/intent and localStorage nsec keys.
 - **`colSpan` mismatch** — when conditionally rendering table columns (e.g. hiding BTC columns in vanilla mode), update the empty-state row's `colSpan` accordingly.
