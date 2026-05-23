@@ -2,7 +2,6 @@
 
 import { useCallback, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import { formatUsd } from "@/lib/data"
 import {
   Dialog,
   DialogContent,
@@ -53,7 +52,7 @@ export function IrregularIncomeDialog() {
     }
     const p = payee.trim()
     if (!p) {
-      setError("Payee is required.")
+      setError("Enter who paid you.")
       return
     }
     setSubmitting(true)
@@ -90,8 +89,8 @@ export function IrregularIncomeDialog() {
         type="button"
         onClick={() => setOpen(true)}
         className="p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333] text-muted-foreground hover:text-foreground hover:border-[#555] transition-colors"
-        title="Record irregular income"
-        aria-label="Record irregular income"
+        title="Add extra income"
+        aria-label="Add extra income"
       >
         <Landmark className="h-4 w-4" />
       </button>
@@ -99,11 +98,11 @@ export function IrregularIncomeDialog() {
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-sm">
           <DialogHeader>
-            <DialogTitle>Irregular income</DialogTitle>
+            <DialogTitle>Add extra income</DialogTitle>
           </DialogHeader>
           <p className="text-xs text-muted-foreground">
-            Credits Savings and splits into envelopes using your allotment percentages vs Monthly Income (
-            {state.monthlyIncome > 0 ? formatUsd(state.monthlyIncome) : "set income first"}).
+            Pay yourself first—same as a regular paycheck. The unassigned portion stays in Savings; envelopes are
+            filled proportionately using your budget mix.
           </p>
 
           <div className="flex flex-col gap-4 pt-2">
@@ -130,12 +129,13 @@ export function IrregularIncomeDialog() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="irr-payee">Payee</Label>
+              <Label htmlFor="irr-payee">Who paid you</Label>
               <Input
                 id="irr-payee"
                 value={payee}
                 onChange={(e) => setPayee(e.target.value)}
-                placeholder="e.g. Bonus, freelance"
+                placeholder="e.g. Employer, freelance client"
+                aria-label="Who paid you"
                 className="bg-[#1A1A1A] border-[#333]"
               />
             </div>

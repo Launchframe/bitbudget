@@ -6,6 +6,7 @@ import {
   LEDGER_INCOME_PAYEE_LABEL,
   RESERVED_SAVINGS_ENVELOPE_NAME,
   SYSTEM_ENVELOPE_ROLE_SAVINGS,
+  isBudgetEnvelope,
 } from "@/lib/constants"
 import {
   allotmentSliceForFundingRun,
@@ -28,6 +29,18 @@ export const TX_SOURCE_FUNDING_IN = "envelope_funding_in"
 const EMPTY_TAGS = "[]"
 
 type FundingDb = Pick<typeof prisma, "envelope">
+
+/**
+ * Budget envelopes for funding splits. Prisma `NOT: { systemRole: 'savings' }` excludes rows
+ * where `systemRole` IS NULL — use an explicit OR so legacy envelopes still receive slices.
+ */
+function budgetEnvelopeWhere(userId: string): Prisma.EnvelopeWhereInput {
+  return {
+    userId,
+    archived: false,
+    OR: [{ systemRole: null }, { systemRole: { not: SYSTEM_ENVELOPE_ROLE_SAVINGS } }],
+  }
+}
 
 async function savingsEnvelopeForUserDb(db: FundingDb, userId: string): Promise<{ id: string } | null> {
   const row = await db.envelope.findFirst({
@@ -186,14 +199,11 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
   const gross = grossIncomeForFundingRun(user.monthlyIncome, user.payCadence, now, dailyAllowed)
   if (!Number.isFinite(gross) || gross <= 0) return 0
 
-  const envelopes = await prisma.envelope.findMany({
-    where: {
-      userId,
-      archived: false,
-      NOT: { systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS },
-    },
-    select: { id: true, monthlyAllotment: true },
+  const envelopeRows = await prisma.envelope.findMany({
+    where: budgetEnvelopeWhere(userId),
+    select: { id: true, monthlyAllotment: true, systemRole: true },
   })
+  const envelopes = envelopeRows.filter((e) => isBudgetEnvelope(e.systemRole))
 
   type SliceRow = { id: string; slice: number }
   const slices: SliceRow[] = []
@@ -347,14 +357,11 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
   const savings = await savingsEnvelopeForUserDb(prisma, input.userId)
   if (!savings) return 0
 
-  const envelopes = await prisma.envelope.findMany({
-    where: {
-      userId: input.userId,
-      archived: false,
-      NOT: { systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS },
-    },
-    select: { id: true, monthlyAllotment: true },
+  const envelopeRows = await prisma.envelope.findMany({
+    where: budgetEnvelopeWhere(input.userId),
+    select: { id: true, monthlyAllotment: true, systemRole: true },
   })
+  const envelopes = envelopeRows.filter((e) => isBudgetEnvelope(e.systemRole))
 
   let sumAllot = 0
   for (const e of envelopes) {
@@ -374,6 +381,7 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
   const grossCents = cents(gross)
   const allocated = sumAllocatedIrregularCents(split)
   if (allocated > grossCents + 1) return 0
+  if (sumAllot > 0 && allocated <= 0) return 0
 
   const dateStr = input.dateIso
   const btcPrice = await getBtcPriceForDate(dateStr)
@@ -441,6 +449,119 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
         source: TX_SOURCE_FUNDING_IN,
         excludeFromMainHistory: true,
         fundingBatchId: batch.id,
+        btcPrice,
+      })
+      created += 2
+    }
+  })
+
+  return created
+}
+
+/**
+ * Backfill hidden allocation legs for an irregular-income batch that only has the Savings credit
+ * (e.g. after the Prisma null systemRole query bug). Idempotent when legs already exist.
+ */
+export async function repairIrregularIncomeFundingLegs(
+  userId: string,
+  batchId: string,
+): Promise<number> {
+  const batch = await prisma.envelopeFundingBatch.findFirst({
+    where: { id: batchId, userId },
+  })
+  if (!batch) return 0
+
+  const existingLegs = await prisma.transaction.count({
+    where: {
+      fundingBatchId: batchId,
+      source: { in: [TX_SOURCE_FUNDING_OUT, TX_SOURCE_FUNDING_IN] },
+    },
+  })
+  if (existingLegs > 0) return 0
+
+  const incomeRow = await prisma.transaction.findFirst({
+    where: {
+      fundingBatchId: batchId,
+      userId,
+      source: TX_SOURCE_IRREGULAR_INCOME,
+      type: "credit",
+    },
+  })
+  if (!incomeRow) return 0
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { ledgerFundingEnabled: true, monthlyIncome: true, publicKey: true },
+  })
+  const pk = user?.publicKey?.trim()
+  if (!user?.ledgerFundingEnabled || !pk) return 0
+
+  const mi = user.monthlyIncome
+  if (!Number.isFinite(mi) || mi <= 0) return 0
+
+  const savings = await savingsEnvelopeForUserDb(prisma, userId)
+  if (!savings || incomeRow.envelopeId !== savings.id) return 0
+
+  const envelopeRows = await prisma.envelope.findMany({
+    where: budgetEnvelopeWhere(userId),
+    select: { id: true, monthlyAllotment: true, systemRole: true },
+  })
+  const envelopes = envelopeRows.filter((e) => isBudgetEnvelope(e.systemRole))
+
+  let sumAllot = 0
+  for (const e of envelopes) {
+    const a = e.monthlyAllotment
+    if (Number.isFinite(a) && a > 0) sumAllot += a
+  }
+  if (sumAllot > mi + 0.015) return 0
+
+  const split = computeIrregularIncomeSplits({
+    grossUsd: incomeRow.amount,
+    monthlyIncome: mi,
+    envelopes,
+    excludeEnvelopeIds: new Set([savings.id]),
+  })
+  if (split.invalid) return 0
+
+  const allocated = sumAllocatedIrregularCents(split)
+  if (sumAllot > 0 && allocated <= 0) return 0
+
+  const encAllocOut = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
+  const encAllocIn = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
+  if (!encAllocOut || !encAllocIn) return 0
+
+  const dateStr = incomeRow.date.toISOString().slice(0, 10)
+  const btcPrice = await getBtcPriceForDate(dateStr)
+  const fundingDate = incomeRow.date
+
+  let created = 0
+  await prisma.$transaction(async (tx) => {
+    for (const [envId, allocCents] of split.envelopeIdToCents) {
+      const amt = allocCents / 100
+      if (amt <= 0) continue
+
+      await createFundingLeg(tx, {
+        userId,
+        envelopeId: savings.id,
+        date: fundingDate,
+        amount: amt,
+        type: "expense",
+        payeeCipher: encAllocOut,
+        source: TX_SOURCE_FUNDING_OUT,
+        excludeFromMainHistory: true,
+        fundingBatchId: batchId,
+        btcPrice,
+      })
+      await createFundingLeg(tx, {
+        userId,
+        envelopeId: envId,
+        date: fundingDate,
+        amount: amt,
+        type: "credit",
+        payeeCipher: encAllocIn,
+        source: TX_SOURCE_FUNDING_IN,
+        excludeFromMainHistory: true,
+        fundingBatchId: batchId,
         btcPrice,
       })
       created += 2

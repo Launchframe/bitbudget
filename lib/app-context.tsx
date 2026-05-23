@@ -149,6 +149,7 @@ interface AppContextValue {
   currentPage: PageId
   selectedEnvelopeId: string | null
   highlightTransactionId: string | null
+  clearHighlightTransactionId: () => void
   transactionDialogOpen: boolean
   transactionPrefill: TransactionPrefill | null
   inputModeSheetOpen: boolean
@@ -1478,6 +1479,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         currentPage,
         selectedEnvelopeId,
         highlightTransactionId,
+        clearHighlightTransactionId: () => setHighlightTransactionId(null),
         transactionDialogOpen,
         transactionPrefill,
         inputModeSheetOpen,

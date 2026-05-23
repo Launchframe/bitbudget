@@ -86,7 +86,10 @@ export async function POST(req: NextRequest) {
 
   if (createdCount <= 0) {
     return NextResponse.json(
-      { error: "Could not record irregular income (missing Savings envelope or encryption keys)." },
+      {
+        error:
+          "Could not record extra income. Check Monthly Income and envelope allocations under Allocations, and confirm your encryption keys are set up.",
+      },
       { status: 400 },
     )
   }

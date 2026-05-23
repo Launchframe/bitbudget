@@ -411,25 +411,24 @@ export function SettingsPage() {
         )}
       </div>
 
-      {/* Ledger envelope funding */}
+      {/* Pay-yourself-first income (ledger funding) */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-emerald-500/10">
             <Landmark className="h-5 w-5 text-[#22C55E]" />
           </div>
-          <h3 className="text-lg font-semibold text-foreground">Ledger envelope funding</h3>
+          <h3 className="text-lg font-semibold text-foreground">Pay yourself first</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
-          Income credits your Savings envelope first; funding runs move money into envelopes from your allotment
-          percentages. Paired allocation movements stay out of the main transaction list so you see one Income row per
-          batch.
+          Income shows up as one entry in your transaction list. What you have not assigned to envelopes stays in
+          Savings; envelopes are filled using the same budget mix you set under Allocations.
         </p>
         <div className="flex items-center justify-between gap-4 rounded-lg bg-[#1A1A1A] px-4 py-3">
-          <span className="text-sm text-foreground">Enable ledger funding</span>
+          <span className="text-sm text-foreground">Track income this way</span>
           <Switch
             checked={state.ledgerFundingEnabled}
             onCheckedChange={(v) => void setLedgerFundingEnabled(Boolean(v))}
-            aria-label="Enable ledger envelope funding"
+            aria-label="Enable pay-yourself-first income tracking"
           />
         </div>
       </div>

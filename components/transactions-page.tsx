@@ -3,7 +3,14 @@
 import { useState, useMemo, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { compareTransactionsDesc, formatUsd, formatUsdPrecise, transactionsVisibleInMainHistory, type BtcDisplayUnit, type TransactionType } from "@/lib/data"
+import { compareTransactionsDesc, formatUsd, formatUsdPrecise, transactionsForTransactionList, type BtcDisplayUnit } from "@/lib/data"
+import {
+  displayPayeeForTransaction,
+  displayTypeLabelForTransaction,
+  typeBadgeClassForTransaction,
+  transactionMatchesTypeFilter,
+  type TransactionListTypeFilter,
+} from "@/lib/ledger-funding-display"
 import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
@@ -55,7 +62,7 @@ export function TransactionsPage() {
 
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
-  const [typeFilter, setTypeFilter] = useState<"all" | TransactionType>("all")
+  const [typeFilter, setTypeFilter] = useState<TransactionListTypeFilter>("all")
   const [envelopeFilters, setEnvelopeFilters] = useState<Set<string>>(() => transactionEnvelopeFilter)
   const [tagFilters, setTagFilters] = useState<Set<string>>(() => new Set())
   const [startDate, setStartDate] = useState("")
@@ -66,10 +73,10 @@ export function TransactionsPage() {
   const moreFiltersRef = useRef<HTMLDivElement>(null)
   const highlightedRef = useRef<HTMLTableRowElement>(null)
 
-  useEffect(() => {
-    if (transactionEnvelopeFilter.size > 0) clearTransactionEnvelopeFilter()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const activeEnvelopeFilters = useMemo(() => {
+    if (transactionEnvelopeFilter.size > 0) return transactionEnvelopeFilter
+    return envelopeFilters
+  }, [transactionEnvelopeFilter, envelopeFilters])
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -87,33 +94,43 @@ export function TransactionsPage() {
     return map
   }, [state.envelopes])
 
-  const visibleTransactions = useMemo(
-    () => transactionsVisibleInMainHistory(activeTransactions),
-    [activeTransactions],
+  const listTransactions = useMemo(
+    () =>
+      transactionsForTransactionList(
+        activeTransactions,
+        activeEnvelopeFilters.size > 0 ? activeEnvelopeFilters : undefined,
+      ),
+    [activeTransactions, activeEnvelopeFilters],
   )
 
   const availableTags = useMemo(() => {
     const tags = new Set<string>()
-    for (const txn of visibleTransactions) {
+    for (const txn of listTransactions) {
       for (const tag of txn.tags ?? []) tags.add(tag)
     }
     return Array.from(tags).sort((a, b) => a.localeCompare(b))
-  }, [visibleTransactions])
+  }, [listTransactions])
 
   const filteredTransactions = useMemo(() => {
-    let result = visibleTransactions
+    let result = listTransactions
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
-      result = result.filter((t) => t.payee.toLowerCase().includes(q))
+      result = result.filter((t) => {
+        const displayPayee = displayPayeeForTransaction(t, activeTransactions)
+        return (
+          displayPayee.toLowerCase().includes(q) ||
+          t.payee.toLowerCase().includes(q)
+        )
+      })
     }
 
     if (typeFilter !== "all") {
-      result = result.filter((t) => t.type === typeFilter)
+      result = result.filter((t) => transactionMatchesTypeFilter(t, typeFilter))
     }
 
-    if (envelopeFilters.size > 0) {
-      result = result.filter((t) => envelopeFilters.has(t.envelopeId))
+    if (activeEnvelopeFilters.size > 0) {
+      result = result.filter((t) => activeEnvelopeFilters.has(t.envelopeId))
     }
 
     if (tagFilters.size > 0) {
@@ -128,14 +145,17 @@ export function TransactionsPage() {
     }
 
     return [...result].sort(compareTransactionsDesc)
-  }, [visibleTransactions, searchQuery, typeFilter, envelopeFilters, tagFilters, startDate, endDate])
+  }, [listTransactions, activeTransactions, searchQuery, typeFilter, activeEnvelopeFilters, tagFilters, startDate, endDate])
 
   useEffect(() => {
     if (!highlightTransactionId) return
     const idx = filteredTransactions.findIndex(t => t.id === highlightTransactionId)
     if (idx === -1) return
     const targetPage = Math.floor(idx / pageSize) + 1
-    if (targetPage !== page) setPage(targetPage)
+    if (targetPage !== page) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- jump to page containing deep-linked transaction
+      setPage(targetPage)
+    }
   }, [highlightTransactionId, filteredTransactions, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -147,7 +167,10 @@ export function TransactionsPage() {
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
   const paginatedTransactions = filteredTransactions.slice((page - 1) * pageSize, page * pageSize)
 
-  const expenseTxns = filteredTransactions.filter(t => t.type === "expense")
+  const expenseTxns = useMemo(
+    () => filteredTransactions.filter(t => t.type === "expense"),
+    [filteredTransactions],
+  )
   const totalExpenses = expenseTxns.reduce((sum, t) => sum + t.amount, 0)
   const totalCredits = filteredTransactions
     .filter(t => t.type === "credit")
@@ -161,9 +184,10 @@ export function TransactionsPage() {
     return expenseTxns.reduce((sum, t) => sum + (t.satsAmount ?? 0), 0)
   }, [expenseTxns])
 
-  const hasActiveFilter = searchQuery.trim() || typeFilter !== "all" || envelopeFilters.size > 0 || tagFilters.size > 0 || startDate || endDate
+  const hasActiveFilter = searchQuery.trim() || typeFilter !== "all" || activeEnvelopeFilters.size > 0 || tagFilters.size > 0 || startDate || endDate
 
   function toggleEnvelopeFilter(id: string) {
+    clearTransactionEnvelopeFilter()
     setEnvelopeFilters(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -187,8 +211,8 @@ export function TransactionsPage() {
     const now = new Date()
     const stampDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
     const envelopeNames =
-      envelopeFilters.size > 0
-        ? Array.from(envelopeFilters).map((id) => envelopeMap[id]?.name ?? id)
+      activeEnvelopeFilters.size > 0
+        ? Array.from(activeEnvelopeFilters).map((id) => envelopeMap[id]?.name ?? id)
         : undefined
     const tagNames = tagFilters.size > 0 ? Array.from(tagFilters) : undefined
     const filename = buildExportFilename({
@@ -319,7 +343,7 @@ export function TransactionsPage() {
 
                 <div className="flex flex-col gap-1.5">
                   <span className="text-xs text-muted-foreground">Type</span>
-                  <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v as "all" | TransactionType); setPage(1) }}>
+                  <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v as TransactionListTypeFilter); setPage(1) }}>
                     <SelectTrigger className="bg-[#0D0D0D] border-[#333] text-foreground w-full">
                       <SelectValue />
                     </SelectTrigger>
@@ -327,6 +351,7 @@ export function TransactionsPage() {
                       <SelectItem value="all" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">All Types</SelectItem>
                       <SelectItem value="expense" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Expenses</SelectItem>
                       <SelectItem value="credit" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Credits</SelectItem>
+                      <SelectItem value="income" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Income</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -364,7 +389,7 @@ export function TransactionsPage() {
 
           {/* Desktop: Type select */}
           <div className="hidden sm:block">
-            <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v as "all" | TransactionType); setPage(1) }}>
+            <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v as TransactionListTypeFilter); setPage(1) }}>
               <SelectTrigger className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground w-[140px]">
                 <SelectValue />
               </SelectTrigger>
@@ -372,6 +397,7 @@ export function TransactionsPage() {
                 <SelectItem value="all" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">All Types</SelectItem>
                 <SelectItem value="expense" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Expenses</SelectItem>
                 <SelectItem value="credit" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Credits</SelectItem>
+                <SelectItem value="income" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Income</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -398,7 +424,7 @@ export function TransactionsPage() {
         {activeEnvelopes.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
             {activeEnvelopes.map((env) => {
-              const active = envelopeFilters.has(env.id)
+              const active = activeEnvelopeFilters.has(env.id)
               return (
                 <button
                   key={env.id}
@@ -425,7 +451,7 @@ export function TransactionsPage() {
                 </button>
               )
             })}
-            {envelopeFilters.size > 0 && (
+            {activeEnvelopeFilters.size > 0 && (
               <button
                 type="button"
                 onClick={() => { setEnvelopeFilters(new Set()); setPage(1) }}
@@ -496,6 +522,10 @@ export function TransactionsPage() {
                 const opCost = calculateOpportunityCost(txn.amount, txn.date)
                 const env = envelopeMap[txn.envelopeId]
                 const isHighlighted = txn.id === highlightTransactionId
+                const payeeLabel =
+                  txn.isDecrypted === false
+                    ? null
+                    : displayPayeeForTransaction(txn, activeTransactions)
                 return (
                   <tr
                     key={txn.id}
@@ -512,7 +542,7 @@ export function TransactionsPage() {
                           {txn.isDecrypted === false ? (
                             <span className="text-muted-foreground italic">{ENCRYPTED_DISPLAY}</span>
                           ) : (
-                            txn.payee
+                            payeeLabel
                           )}
                           {txn.recurringId && (
                             <span title="Recurring transaction"><Repeat className="h-3 w-3 text-muted-foreground shrink-0" /></span>
@@ -545,13 +575,9 @@ export function TransactionsPage() {
                     <td className="py-3.5 px-4 hidden sm:table-cell">
                       <Badge
                         variant="outline"
-                        className={
-                          txn.type === "expense"
-                            ? "border-[#F7931A]/30 text-[#F7931A] bg-[#F7931A]/5"
-                            : "border-[#22C55E]/30 text-[#22C55E] bg-[#22C55E]/5"
-                        }
+                        className={typeBadgeClassForTransaction(txn)}
                       >
-                        {txn.type === "expense" ? "Expense" : "Credit"}
+                        {displayTypeLabelForTransaction(txn)}
                       </Badge>
                     </td>
                     <td className="py-3.5 px-4 text-right text-sm font-medium text-foreground">
@@ -702,6 +728,11 @@ export function TransactionsPage() {
         transaction={selectedTxn}
         open={!!selectedTxn}
         onOpenChange={(open) => { if (!open) setSelectedTxn(null) }}
+        onNavigateToLinkedIncome={(incomeTxn) => {
+          clearTransactionEnvelopeFilter()
+          setEnvelopeFilters(new Set([incomeTxn.envelopeId]))
+          setSelectedTxn(incomeTxn)
+        }}
       />
     </div>
   )

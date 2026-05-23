@@ -66,6 +66,9 @@ describe("buildExportFilename", () => {
     expect(
       buildExportFilename({ stampDate: "2026-02-28", typeFilter: "credit" })
     ).toBe("bitbudget-transactions-2026-02-28-credit.csv")
+    expect(
+      buildExportFilename({ stampDate: "2026-02-28", typeFilter: "income" })
+    ).toBe("bitbudget-transactions-2026-02-28-income.csv")
   })
 
   it("appends envelope names when provided", () => {

@@ -323,3 +323,21 @@ export function getEnvelopeBalance(
 export function transactionsVisibleInMainHistory(transactions: readonly Transaction[]): Transaction[] {
   return transactions.filter((t) => !t.excludeFromMainHistory)
 }
+
+/**
+ * Transaction list feed: global history hides funding legs; envelope-scoped views include them
+ * so envelope balances tie back to visible Income rows on Savings.
+ */
+export function transactionsForTransactionList(
+  transactions: readonly Transaction[],
+  envelopeIds?: ReadonlySet<string>,
+): Transaction[] {
+  if (!envelopeIds || envelopeIds.size === 0) {
+    return transactionsVisibleInMainHistory(transactions)
+  }
+  return transactions.filter((t) => {
+    if (!envelopeIds.has(t.envelopeId)) return false
+    if (!t.excludeFromMainHistory) return true
+    return t.source === "envelope_funding_in" || t.source === "envelope_funding_out"
+  })
+}

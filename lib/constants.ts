@@ -24,3 +24,8 @@ export const LEDGER_ALLOCATION_PAYEE_LABEL = "Envelope allocation"
 export function isReservedSavingsEnvelopeName(name: string): boolean {
   return name.trim().toLowerCase() === RESERVED_SAVINGS_ENVELOPE_NAME.toLowerCase()
 }
+
+/** Budget envelopes receive allotment slices; system Savings holds unallocated income. */
+export function isBudgetEnvelope(systemRole: string | null | undefined): boolean {
+  return systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS
+}
