@@ -30,10 +30,6 @@ import {
   Settings2,
   Plug,
 } from "lucide-react"
-import {
-  REFEREE_PREMIUM_CARROT_FALLBACK,
-  refereePremiumExperienceCarrot,
-} from "@/lib/subscription"
 import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
 import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
@@ -85,7 +81,6 @@ export function SettingsPage() {
     effectiveTier,
     hasPremiumFeatures,
     refereePendingBankLink,
-    referralRefereeTrialMonths,
     navigateTo,
     memoTransactionCount,
     historyReady,
@@ -575,11 +570,7 @@ export function SettingsPage() {
         </div>
         <p className="text-sm text-muted-foreground mb-6">
           {refereePendingBankLink && !hasPremiumFeatures
-            ? `${
-                referralRefereeTrialMonths === 1 || referralRefereeTrialMonths === 3
-                  ? refereePremiumExperienceCarrot(referralRefereeTrialMonths)
-                  : REFEREE_PREMIUM_CARROT_FALLBACK
-              } Link here first—then receipt inbox, SMS, and the rest unlock.`
+            ? "Connect your bank to activate your referral premium trial. See Referrals above for details."
             : "Connect your accounts to automatically import transactions. Premium unlocks bank sync, SMS capture, and connected email scanning."}
         </p>
         <div className="flex flex-col gap-4">

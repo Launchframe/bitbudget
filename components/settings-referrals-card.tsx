@@ -7,6 +7,10 @@ import { getPublicAppUrlClient } from "@/lib/public-app-url"
 import { ReferralTerms } from "@/components/referral-terms"
 import { Button } from "@/components/ui/button"
 import { Gift, Copy, Check, Loader2, Mail, Share2 } from "lucide-react"
+import {
+  REFEREE_PREMIUM_CARROT_FALLBACK,
+  refereePremiumExperienceCarrot,
+} from "@/lib/subscription"
 
 const QRCodeSVG = dynamic(() => import("qrcode.react").then(m => m.QRCodeSVG), { ssr: false })
 
@@ -25,6 +29,8 @@ export function SettingsReferralsCard() {
     premiumGratisUntilIso,
     effectiveTier,
     subscriptionTier,
+    refereePendingBankLink,
+    referralRefereeTrialMonths,
   } = useApp()
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -112,6 +118,25 @@ export function SettingsReferralsCard() {
       </div>
 
       <ReferralTerms />
+
+      {refereePendingBankLink && (
+        <div className="rounded-xl border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-4 py-3 space-y-2 text-sm text-muted-foreground">
+          <p className="font-medium text-foreground">Your referral bonus</p>
+          <p>
+            <strong className="text-foreground">
+              {referralRefereeTrialMonths === 1 || referralRefereeTrialMonths === 3
+                ? refereePremiumExperienceCarrot(referralRefereeTrialMonths)
+                : REFEREE_PREMIUM_CARROT_FALLBACK}
+            </strong>{" "}
+            Connect your bank in the <strong className="text-foreground">Connections</strong> section below to start
+            your trial — no payment details required.
+          </p>
+          <p className="text-xs">
+            Until you link a bank, Plan may show <strong className="text-foreground">Free</strong> — that&apos;s
+            expected. Receipt inbox and SMS unlock when your trial starts.
+          </p>
+        </div>
+      )}
 
       {premiumTrialUntilIso && effectiveTier === "premium-trial" && (
         <p className="text-sm text-[#3B82F6]">

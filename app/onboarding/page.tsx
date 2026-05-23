@@ -229,6 +229,8 @@ export default function OnboardingPage() {
   const [restoredSession, setRestoredSession] = useState(false)
   /** After first encryption + settings fetch (avoids flashing Secure Your Data when keys already exist). */
   const [bootstrapped, setBootstrapped] = useState(false)
+  /** False until settings confirm the user still needs onboarding (blocks back-nav into a finished flow). */
+  const [onboardingAccessChecked, setOnboardingAccessChecked] = useState(false)
   const [hasExistingEncryption, setHasExistingEncryption] = useState(false)
   /** Shown when user already has transactions — safe escape if onboardingComplete was reset by mistake. */
   const [canSkipOnboarding, setCanSkipOnboarding] = useState(false)
@@ -431,7 +433,7 @@ export default function OnboardingPage() {
         referrerOpportunityCostEnabled?: boolean
       }
       if (!j.valid) {
-        setRefError("It looks like that code is invalid, expired, or has already been used.")
+        setRefError("It looks like that code is invalid, expired, or already taken.")
         return false
       }
       const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
@@ -491,6 +493,37 @@ export default function OnboardingPage() {
     }
   }, [hydrated, pendingReferral?.code, pendingReferral?.refereeTrialMonths, pendingReferral?.referrerOpportunityCostEnabled])
 
+  /** Browser back/forward cache can restore onboarding without re-running bootstrap — re-check access. */
+  useEffect(() => {
+    if (!hydrated) return
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      void (async () => {
+        try {
+          const res = await fetch("/api/user/settings")
+          if (res.status === 401 || res.status === 403) {
+            await signOut({ callbackUrl: "/auth" })
+            return
+          }
+          if (!res.ok) return
+          const data = (await res.json()) as { onboardingComplete?: boolean }
+          if (data.onboardingComplete !== true) return
+          try {
+            sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
+            sessionStorage.removeItem("onboardingSource")
+          } catch {
+            /* ignore */
+          }
+          router.replace("/")
+        } catch {
+          /* ignore */
+        }
+      })()
+    }
+    window.addEventListener("pageshow", onPageShow)
+    return () => window.removeEventListener("pageshow", onPageShow)
+  }, [hydrated, router])
+
   /** Extra step count for referees (avoid `document`/cookie in render — prevents SSR/client mismatch). */
   const referralBankQueued = !!pendingReferral?.code || step === "referral-bank"
 
@@ -504,6 +537,7 @@ export default function OnboardingPage() {
     let cancelled = false
 
     async function bootstrapOnboarding() {
+      let leaveOnboarding = false
       try {
         const [encRes, settingsRes] = await Promise.all([
           fetch("/api/user/encryption"),
@@ -518,6 +552,23 @@ export default function OnboardingPage() {
         ) {
           signOut({ callbackUrl: "/auth" })
           return
+        }
+
+        type SettingsPayload = { onboardingComplete?: boolean; transactionCount?: unknown }
+        let settings: SettingsPayload | null = null
+        if (settingsRes.ok) {
+          settings = (await settingsRes.json()) as SettingsPayload
+          if (settings.onboardingComplete === true) {
+            leaveOnboarding = true
+            try {
+              sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
+              sessionStorage.removeItem("onboardingSource")
+            } catch {
+              /* ignore */
+            }
+            router.replace("/")
+            return
+          }
         }
 
         type EncPayload = {
@@ -538,8 +589,7 @@ export default function OnboardingPage() {
         if (hasPendingNsec) setIsNsecFallback(true)
 
         let txCount = 0
-        if (settingsRes.ok) {
-          const settings = (await settingsRes.json()) as { transactionCount?: unknown }
+        if (settings) {
           txCount = typeof settings.transactionCount === "number" ? settings.transactionCount : 0
         }
         setCanSkipOnboarding(txCount >= 1)
@@ -618,7 +668,10 @@ export default function OnboardingPage() {
       } catch {
         /* continue */
       } finally {
-        if (!cancelled) setBootstrapped(true)
+        if (!cancelled && !leaveOnboarding) {
+          setBootstrapped(true)
+          setOnboardingAccessChecked(true)
+        }
       }
     }
 
@@ -626,7 +679,7 @@ export default function OnboardingPage() {
     return () => {
       cancelled = true
     }
-  }, [hydrated])
+  }, [hydrated, router])
 
   function referralPayloadForRedeem(): { code: string; shareMethod: string } | null {
     if (pendingReferral?.code) return pendingReferral
@@ -1091,9 +1144,21 @@ export default function OnboardingPage() {
     [allocateMonthlyBudget],
   )
 
-  const refereeTrialExplainerOnComplete =
-    step === "complete" &&
-    !!(pendingReferral?.code || (typeof document !== "undefined" && parseBitbudgetRefCookie(document.cookie)?.code))
+  const completeStepReferralCode =
+    step === "complete"
+      ? pendingReferral?.code ??
+        parseBitbudgetRefCookie(typeof document !== "undefined" ? document.cookie : "")?.code
+      : undefined
+  const hasReferralOnComplete = !!completeStepReferralCode
+
+  if (!hydrated || !onboardingAccessChecked) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
+        <DocumentFavicon href={opportunityCostEnabled ? "/icon.svg" : "/icon-vanilla.svg"} />
+        <Spinner className="h-8 w-8 text-[#F7931A]" />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center p-6">
@@ -2171,22 +2236,9 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground text-center">
                 Your envelopes are ready and your data is secured.
               </p>
-              {refereeTrialExplainerOnComplete ? (
-                <div className="w-full rounded-xl border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-4 py-3 text-left space-y-2">
-                  <p className="text-sm text-foreground font-medium">Your referral</p>
-                  <p className="text-sm text-muted-foreground">
-                    <strong className="text-foreground">
-                      {pendingReferral?.refereeTrialMonths === 1 || pendingReferral?.refereeTrialMonths === 3
-                        ? refereePremiumExperienceCarrot(pendingReferral.refereeTrialMonths)
-                        : REFEREE_PREMIUM_CARROT_FALLBACK}
-                    </strong>{" "}
-                    Next, you&apos;ll connect your bank in a dedicated step. Your premium trial only starts after a successful link—take your time
-                    exploring BitBudget first if you like.
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Until you link a bank, Plan may show <strong className="text-foreground">Free</strong> — that&apos;s expected. Receipt inbox and SMS
-                    unlock when your trial starts.
-                  </p>
+              {hasReferralOnComplete ? (
+                <div className="w-full rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 text-sm text-[#86EFAC]">
+                  Referral code successfully applied!
                 </div>
               ) : (
                 <Collapsible
@@ -2233,10 +2285,14 @@ export default function OnboardingPage() {
                         {refValidating ? "…" : "Apply"}
                       </Button>
                     </div>
-                    {refError && <p className="text-sm text-red-400">{refError}</p>}
-                    <p className="text-xs text-muted-foreground">
-                      Connect your bank after signup to start your premium trial — no payment details required.
-                    </p>
+                    {refError && (
+                      <div
+                        role="alert"
+                        className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+                      >
+                        {refError}
+                      </div>
+                    )}
                   </CollapsibleContent>
                 </Collapsible>
               )}
@@ -2245,7 +2301,7 @@ export default function OnboardingPage() {
                 disabled={loading}
                 className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
               >
-                {loading ? "Finishing..." : refereeTrialExplainerOnComplete ? "Continue" : "Go to Dashboard"}
+                {loading ? "Finishing..." : hasReferralOnComplete ? "Continue" : "Go to Dashboard"}
               </button>
             </form>
           )}

@@ -11,6 +11,7 @@ const RESERVED_ROOT_SEGMENTS = new Set([
   "whitepapers",
   "ref",
   "offer",
+  "dashboard",
 ])
 
 export default auth((req) => {
@@ -46,6 +47,10 @@ export default auth((req) => {
   }
 
   if (isLoggedIn && isAuthPage) {
+    return NextResponse.redirect(new URL("/", req.url))
+  }
+
+  if (isLoggedIn && (pathname === "/dashboard" || pathname.startsWith("/dashboard/"))) {
     return NextResponse.redirect(new URL("/", req.url))
   }
 
