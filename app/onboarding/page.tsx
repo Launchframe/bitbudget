@@ -23,6 +23,7 @@ import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -261,6 +262,7 @@ export default function OnboardingPage() {
   const [refCodeInput, setRefCodeInput] = useState("")
   const [refValidating, setRefValidating] = useState(false)
   const [refError, setRefError] = useState<string | null>(null)
+  const [completeReferralOpen, setCompleteReferralOpen] = useState(false)
 
   const refreshEnvelopeUsage = useCallback(async () => {
     setEnvelopeUsageLoading(true)
@@ -415,6 +417,45 @@ export default function OnboardingPage() {
     if (!parsed?.code) return
     void tryApplyReferralFromCookie(parsed)
   }, [hydrated, pendingReferral?.code, tryApplyReferralFromCookie])
+
+  const applyReferralCodeFromInput = useCallback(async (): Promise<boolean> => {
+    const code = refCodeInput.trim()
+    if (!code) return false
+    setRefError(null)
+    setRefValidating(true)
+    try {
+      const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(code)}`)
+      const j = (await r.json()) as {
+        valid?: boolean
+        refereeTrialMonths?: 1 | 3
+        referrerOpportunityCostEnabled?: boolean
+      }
+      if (!j.valid) {
+        setRefError("It looks like that code is invalid, expired, or has already been used.")
+        return false
+      }
+      const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
+      const referrerOpportunityCostEnabled =
+        typeof j.referrerOpportunityCostEnabled === "boolean"
+          ? j.referrerOpportunityCostEnabled
+          : false
+      setPendingReferral({
+        code,
+        shareMethod: "direct",
+        refereeTrialMonths,
+        referrerOpportunityCostEnabled,
+      })
+      try {
+        document.cookie = `bitbudget_ref=${encodeURIComponent(`${code}:direct`)}; path=/; max-age=${86400 * 30}`
+      } catch {
+        /* ignore */
+      }
+      setCompleteReferralOpen(false)
+      return true
+    } finally {
+      setRefValidating(false)
+    }
+  }, [refCodeInput])
 
   /** Backfill trial length and referrer OC for older sessionStorage blobs that only stored the code. */
   useEffect(() => {
@@ -1158,43 +1199,7 @@ export default function OnboardingPage() {
                       disabled={refValidating || !refCodeInput.trim()}
                       className="shrink-0 border-[#333] bg-[#1A1A1A]"
                       onClick={() => {
-                        void (async () => {
-                          setRefError(null)
-                          setRefValidating(true)
-                          try {
-                            const r = await fetch(
-                              `/api/referral/validate?code=${encodeURIComponent(refCodeInput.trim())}`,
-                            )
-                            const j = (await r.json()) as {
-                              valid?: boolean
-                              refereeTrialMonths?: 1 | 3
-                              referrerOpportunityCostEnabled?: boolean
-                            }
-                            if (!j.valid) {
-                              setRefError("It looks like that code is invalid, expired, or has already been used.")
-                              return
-                            }
-                            const code = refCodeInput.trim()
-                            const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
-                            const referrerOpportunityCostEnabled =
-                              typeof j.referrerOpportunityCostEnabled === "boolean"
-                                ? j.referrerOpportunityCostEnabled
-                                : false
-                            setPendingReferral({
-                              code,
-                              shareMethod: "direct",
-                              refereeTrialMonths,
-                              referrerOpportunityCostEnabled,
-                            })
-                            try {
-                              document.cookie = `bitbudget_ref=${encodeURIComponent(`${code}:direct`)}; path=/; max-age=${86400 * 30}`
-                            } catch {
-                              /* ignore */
-                            }
-                          } finally {
-                            setRefValidating(false)
-                          }
-                        })()
+                        void applyReferralCodeFromInput()
                       }}
                     >
                       {refValidating ? "…" : "Apply"}
@@ -1376,13 +1381,17 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your income</h2>
-                  <p className="text-sm text-muted-foreground">How much do you earn after taxes?</p>
+                  <p className="text-sm text-muted-foreground">How much do you take home after taxes?</p>
                 </div>
               </div>
 
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {"Can be an exact amount or an estimate. You can always adjust this later."}
+              </p>
+
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">After-Tax Income (USD)</Label>
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Regular Income (USD)</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
                     <Input
@@ -2064,7 +2073,7 @@ export default function OnboardingPage() {
               </div>
 
               {savings === 0 && totalAllocated > 0 && (
-                <p className="text-xs text-amber-400/80 text-center">All income allocated — nothing goes to savings</p>
+                <p className="text-xs text-amber-400/80 text-center">That piggybank is looking a bit empty :'(</p>
               )}
 
               <div className="flex gap-3">
@@ -2180,10 +2189,56 @@ export default function OnboardingPage() {
                   </p>
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground text-center max-w-sm">
-                  Invited by a friend? Use <strong className="text-foreground">Back</strong> to the referral step or open their invite link in
-                  this browser before you continue so your trial can apply.
-                </p>
+                <Collapsible
+                  open={completeReferralOpen}
+                  onOpenChange={setCompleteReferralOpen}
+                  className="w-full max-w-sm space-y-3"
+                >
+                  <p className="text-xs text-muted-foreground text-center">
+                    Wait! Did you have a referral code?
+                  </p>
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="mx-auto block text-sm font-medium text-[#F7931A] hover:text-[#F7931A]/90 underline underline-offset-2 transition-colors"
+                      aria-expanded={completeReferralOpen}
+                    >
+                      Enter referral code
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-2 pt-1">
+                    <Label htmlFor="complete-referral-code" className="text-muted-foreground text-xs uppercase tracking-wider">
+                      Code
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="complete-referral-code"
+                        value={refCodeInput}
+                        onChange={e => {
+                          setRefCodeInput(e.target.value)
+                          if (refError) setRefError(null)
+                        }}
+                        placeholder="Enter code"
+                        className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={refValidating || !refCodeInput.trim()}
+                        className="shrink-0 border-[#333] bg-[#1A1A1A]"
+                        onClick={() => {
+                          void applyReferralCodeFromInput()
+                        }}
+                      >
+                        {refValidating ? "…" : "Apply"}
+                      </Button>
+                    </div>
+                    {refError && <p className="text-sm text-red-400">{refError}</p>}
+                    <p className="text-xs text-muted-foreground">
+                      Connect your bank after signup to start your premium trial — no payment details required.
+                    </p>
+                  </CollapsibleContent>
+                </Collapsible>
               )}
               <button
                 type="submit"
