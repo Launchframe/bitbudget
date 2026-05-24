@@ -211,6 +211,18 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 - **Never force-push to main.**
 - **Database migrations** should be committed alongside the schema change and the code that uses the new field.
 
+### Addressing open PR review comments
+
+When a maintainer asks the agent to address open comments on a PR:
+
+1. **Evaluate accuracy** — Read each comment in context and decide whether the concern is valid.
+2. **Decide on a fix** — Implement a code change when warranted; skip changes when the comment is incorrect or already handled (document why).
+3. **Reply on the thread** — Post a brief reply on behalf of the maintainer: what was fixed, or why no change is needed. Keep replies factual and concise.
+4. **Commit and push** — Land valid fixes on the PR branch with tests/lint as appropriate; push so CI runs on the updated branch.
+5. **Leave threads unresolved** — Do **not** resolve review threads. The maintainer will groom and resolve them after review.
+
+Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not call `resolveReviewThread` unless the maintainer explicitly asks to resolve threads.
+
 ## Common Pitfalls
 
 - **Adding a Prisma field but forgetting `pnpm prisma generate`** — TypeScript won't see the new field until the client is regenerated.
