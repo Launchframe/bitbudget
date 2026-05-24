@@ -32,7 +32,6 @@ export function SettingsReferralsCard() {
     effectiveTier,
     subscriptionTier,
     refereePendingBankLink,
-    referralRefereeRedeemed,
     referralRefereeCanRedeem,
     referralRefereeTrialMonths,
   } = useApp()
@@ -166,7 +165,7 @@ export function SettingsReferralsCard() {
 
       <ReferralTerms />
 
-      {!referralRefereeRedeemed && referralRefereeCanRedeem && (
+      {referralRefereeCanRedeem && (
         <div className="rounded-xl border border-[#333] bg-[#1A1A1A] p-4 space-y-3">
           <p className="text-sm font-medium text-foreground">Have a referral code?</p>
           <p className="text-xs text-muted-foreground">

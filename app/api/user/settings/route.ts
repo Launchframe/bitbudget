@@ -58,7 +58,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { _count, premiumGratisUntil, premiumTrialUntil, ...rest } = user
+  const { _count, premiumGratisUntil, premiumTrialUntil, onboardingCompletedAt, ...rest } = user
   const effectiveTier = resolveEffectiveTier({
     subscriptionTier: user.subscriptionTier,
     premiumGratisUntil,
@@ -78,7 +78,7 @@ export async function GET() {
   const referralRefereeRedeemed = !!refereeReferralRow
   const referralRefereeCanRedeem = canRedeemReferralInSettings({
     onboardingComplete: user.onboardingComplete,
-    onboardingCompletedAt: user.onboardingCompletedAt,
+    onboardingCompletedAt,
     alreadyRedeemed: referralRefereeRedeemed,
   })
 
