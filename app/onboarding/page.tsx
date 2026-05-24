@@ -472,6 +472,20 @@ export default function OnboardingPage() {
     }
   }, [refCodeInput])
 
+  /** Continue on referral step: apply typed code first, then advance or show validation error. */
+  const handleReferralStepContinue = useCallback(async () => {
+    if (pendingReferral) {
+      setStep("security")
+      return
+    }
+    if (refCodeInput.trim()) {
+      const ok = await applyReferralCodeFromInput()
+      if (ok) setStep("security")
+      return
+    }
+    setStep("security")
+  }, [pendingReferral, refCodeInput, applyReferralCodeFromInput])
+
   /** Backfill trial length and referrer OC for older sessionStorage blobs that only stored the code. */
   useEffect(() => {
     if (!hydrated || !pendingReferral?.code) return
@@ -1267,7 +1281,16 @@ export default function OnboardingPage() {
                   <div className="flex gap-2">
                     <Input
                       value={refCodeInput}
-                      onChange={e => setRefCodeInput(e.target.value)}
+                      onChange={e => {
+                        setRefCodeInput(e.target.value)
+                        if (refError) setRefError(null)
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          void handleReferralStepContinue()
+                        }
+                      }}
                       placeholder="Enter code"
                       className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] flex-1"
                     />
@@ -1289,11 +1312,24 @@ export default function OnboardingPage() {
               <div className="flex flex-col gap-3">
                 <button
                   type="button"
-                  onClick={() => setStep("security")}
-                  className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors flex items-center justify-center gap-2"
+                  disabled={refValidating}
+                  aria-busy={refValidating}
+                  onClick={() => {
+                    void handleReferralStepContinue()
+                  }}
+                  className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
                 >
-                  Continue
-                  <ChevronRight className="h-4 w-4" />
+                  {refValidating ? (
+                    <>
+                      <Spinner className="h-4 w-4" />
+                      Applying…
+                    </>
+                  ) : (
+                    <>
+                      Continue
+                      <ChevronRight className="h-4 w-4" />
+                    </>
+                  )}
                 </button>
                 <button
                   type="button"
