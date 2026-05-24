@@ -35,22 +35,14 @@ export async function savingsEnvelopeBalanceAllTime(
   return Math.round(balance * 100) / 100
 }
 
-/** Month-scoped envelope balance (matches client getEnvelopeBalance for a calendar month). */
-export async function envelopeBalanceForMonth(
+/** Envelope balance before a UTC instant (half-open: date < beforeExclusive). */
+export async function savingsEnvelopeBalanceBefore(
   userId: string,
   envelopeId: string,
-  monthKey: string,
+  beforeExclusive: Date,
 ): Promise<number> {
-  const [y, m] = monthKey.split("-").map(Number)
-  const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0))
-  const end = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0))
-
   const rows = await prisma.transaction.findMany({
-    where: {
-      userId,
-      envelopeId,
-      date: { gte: start, lt: end },
-    },
+    where: { userId, envelopeId, date: { lt: beforeExclusive } },
     select: { amount: true, type: true },
   })
   let balance = 0
@@ -59,6 +51,48 @@ export async function envelopeBalanceForMonth(
     else balance -= row.amount
   }
   return Math.round(balance * 100) / 100
+}
+
+/** Month-scoped balances for many envelopes in one query. */
+export async function envelopeBalancesForMonthBatch(
+  userId: string,
+  envelopeIds: readonly string[],
+  monthKey: string,
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>()
+  if (envelopeIds.length === 0) return result
+  for (const id of envelopeIds) result.set(id, 0)
+
+  const bounds = periodBoundsUtc(monthKey)
+  if (!bounds) return result
+
+  const rows = await prisma.transaction.findMany({
+    where: {
+      userId,
+      envelopeId: { in: [...envelopeIds] },
+      date: { gte: bounds.start, lt: bounds.end },
+    },
+    select: { envelopeId: true, amount: true, type: true },
+  })
+  for (const row of rows) {
+    const cur = result.get(row.envelopeId) ?? 0
+    const delta = row.type === "credit" ? row.amount : -row.amount
+    result.set(row.envelopeId, cur + delta)
+  }
+  for (const [id, value] of result) {
+    result.set(id, Math.round(value * 100) / 100)
+  }
+  return result
+}
+
+/** Month-scoped envelope balance (matches client getEnvelopeBalance for a calendar month). */
+export async function envelopeBalanceForMonth(
+  userId: string,
+  envelopeId: string,
+  monthKey: string,
+): Promise<number> {
+  const balances = await envelopeBalancesForMonthBatch(userId, [envelopeId], monthKey)
+  return balances.get(envelopeId) ?? 0
 }
 
 /** Period bounds for a YYYY-MM calendar month (UTC, half-open interval). */

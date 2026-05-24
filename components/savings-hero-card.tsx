@@ -113,7 +113,7 @@ export function SavingsHeroCard() {
 
   const savingsEnvelope = findSavingsEnvelope(state.envelopes)
   const monthKey = getCurrentMonthKey()
-  const balance = savingsBalance(activeTransactions, savingsEnvelope, monthKey)
+  const balance = savingsBalance(activeTransactions, savingsEnvelope)
   const engaged = state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED
 
   const discretionaryIds = useMemo(

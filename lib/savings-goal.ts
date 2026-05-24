@@ -1,7 +1,8 @@
 import type { Prisma, SavingsGoal } from "@prisma/client"
+import { SAVINGS_GOAL_DEFAULT_PERIOD } from "@/lib/constants"
 import { prisma } from "@/lib/db"
 
-export const SAVINGS_GOAL_DEFAULT_PERIOD = "default"
+export { SAVINGS_GOAL_DEFAULT_PERIOD } from "@/lib/constants"
 export const SAVINGS_GOAL_GRACE_DAYS = 7
 
 export type SavingsGoalEditability = "editable" | "upward_only" | "closed"

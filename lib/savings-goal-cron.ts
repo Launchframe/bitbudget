@@ -3,7 +3,9 @@ import { prisma } from "@/lib/db"
 import {
   monthKeyFromDate,
   netSavingsInflowForPeriod,
+  periodBoundsUtc,
   savingsEnvelopeBalanceAllTime,
+  savingsEnvelopeBalanceBefore,
 } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
@@ -55,8 +57,11 @@ export async function closePreviousPeriodGoal(userId: string, todayUtc?: Date): 
   })
   if (!row || row.closedAt != null || row.startBalance == null) return false
 
+  const bounds = periodBoundsUtc(priorKey)
+  if (!bounds) return false
+
   const savings = await ensureSystemSavingsEnvelope(userId)
-  const endBalance = await savingsEnvelopeBalanceAllTime(userId, savings.id)
+  const endBalance = await savingsEnvelopeBalanceBefore(userId, savings.id, bounds.end)
   const startBalance = Number(row.startBalance)
   const netInflow = await netSavingsInflowForPeriod(userId, savings.id, priorKey)
   const targetAmount = Number(row.targetAmount)

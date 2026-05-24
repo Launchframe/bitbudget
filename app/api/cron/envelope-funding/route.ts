@@ -37,6 +37,10 @@ export interface EnvelopeFundingCronResult {
 export async function processEnvelopeFundingCron(asOf?: Date): Promise<EnvelopeFundingCronResult> {
   const now = asOf ?? new Date()
   const users = await prisma.user.findMany({
+    where: {
+      publicKey: { not: null },
+      NOT: { publicKey: "" },
+    },
     select: {
       id: true,
       payCadence: true,

@@ -7,7 +7,7 @@ import {
   TX_SOURCE_INCOME_IMPORT,
 } from "@/lib/constants"
 import {
-  envelopeBalanceForMonth,
+  envelopeBalancesForMonthBatch,
   savingsEnvelopeBalanceAllTime,
 } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
@@ -132,12 +132,26 @@ async function detectGoalAchievements(userId: string): Promise<number> {
   })
   const budgetIds = budgetEnvelopes.filter((e) => isBudgetEnvelope(e.systemRole)).map((e) => e.id)
 
+  const closedMonthKeys = [
+    ...new Set(
+      closed.map((g) => g.periodKey).filter((pk) => /^\d{4}-\d{2}$/.test(pk)),
+    ),
+  ]
+  const balancesByMonth = new Map<string, Map<string, number>>()
+  for (const monthKey of closedMonthKeys) {
+    balancesByMonth.set(
+      monthKey,
+      await envelopeBalancesForMonthBatch(userId, budgetIds, monthKey),
+    )
+  }
+
   for (const goal of closed) {
     if (!/^\d{4}-\d{2}$/.test(goal.periodKey)) continue
-    let allClean = budgetIds.length > 0
+    const balances = balancesByMonth.get(goal.periodKey)
+    if (!balances || budgetIds.length === 0) continue
+    let allClean = true
     for (const envId of budgetIds) {
-      const bal = await envelopeBalanceForMonth(userId, envId, goal.periodKey)
-      if (bal > 0.01) {
+      if ((balances.get(envId) ?? 0) > 0.01) {
         allClean = false
         break
       }

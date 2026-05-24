@@ -318,6 +318,17 @@ export function getEnvelopeBalance(
   return credits - expenses
 }
 
+/** All-time envelope balance (Savings hub total; not month-scoped). */
+export function getEnvelopeBalanceAllTime(
+  transactions: Transaction[],
+  envelopeId: string,
+): number {
+  const txns = getTransactionsForEnvelope(transactions, envelopeId)
+  const expenses = txns.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0)
+  const credits = txns.filter(t => t.type === "credit").reduce((sum, t) => sum + t.amount, 0)
+  return credits - expenses
+}
+
 /** Exclude ledger funding allocation legs from global-style feeds (dashboard recent, transactions page). */
 export function transactionsVisibleInMainHistory(transactions: readonly Transaction[]): Transaction[] {
   return transactions.filter((t) => !t.excludeFromMainHistory)

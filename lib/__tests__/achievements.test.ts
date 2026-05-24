@@ -24,6 +24,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/envelope-balance-server", () => ({
   savingsEnvelopeBalanceAllTime: vi.fn().mockResolvedValue(0),
+  envelopeBalancesForMonthBatch: vi.fn().mockResolvedValue(new Map()),
   envelopeBalanceForMonth: vi.fn().mockResolvedValue(0),
 }))
 

@@ -51,7 +51,7 @@ export function DashboardMetrics() {
   )
 
   const savingsEnvelope = findSavingsEnvelope(state.envelopes)
-  const savingsBal = savingsBalance(activeTransactions, savingsEnvelope, currentMonth)
+  const savingsBal = savingsBalance(activeTransactions, savingsEnvelope)
 
   const baseMetrics = savingsEngaged
     ? [

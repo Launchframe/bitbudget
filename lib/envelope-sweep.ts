@@ -11,7 +11,7 @@ import {
   SYSTEM_ENVELOPE_ROLE_SAVINGS,
   TX_SOURCE_ENVELOPE_SWEEP,
 } from "@/lib/constants"
-import { envelopeBalanceForMonth, monthKeyFromDate } from "@/lib/envelope-balance-server"
+import { envelopeBalancesForMonthBatch, monthKeyFromDate } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
 import { fundingPeriodKeyForDate } from "@/lib/envelope-funding-period"
 import { isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
@@ -132,12 +132,18 @@ export async function sweepDiscretionaryEnvelopesForUser(
     },
   })
 
+  const budgetRows = envelopeRows.filter((env) => isBudgetEnvelope(env.systemRole))
+  const balances = await envelopeBalancesForMonthBatch(
+    userId,
+    budgetRows.map((env) => env.id),
+    monthKey,
+  )
+
   type SweepEntry = { envelopeId: string; name: string; amount: number }
   const entries: SweepEntry[] = []
 
-  for (const env of envelopeRows) {
-    if (!isBudgetEnvelope(env.systemRole)) continue
-    const balance = await envelopeBalanceForMonth(userId, env.id, monthKey)
+  for (const env of budgetRows) {
+    const balance = balances.get(env.id) ?? 0
     const policy = env.sweepPolicy || user.sweepDefaultPolicy || SWEEP_POLICY_RESET
     const capMult = resolveSweepCapMultiplier(env.sweepCapMultiplier, user.sweepDefaultCapMultiplier)
     const amount = sweepAmountForEnvelope({
@@ -330,13 +336,22 @@ export async function createManualEnvelopeSweep(
   })
   const envelopeById = new Map(envelopeRows.map((e) => [e.id, e]))
 
+  const validEntries = entries.filter((entry) => {
+    const env = envelopeById.get(entry.envelopeId)
+    return env != null && isBudgetEnvelope(env.systemRole)
+  })
+  const balances = await envelopeBalancesForMonthBatch(
+    userId,
+    validEntries.map((e) => e.envelopeId),
+    monthKey,
+  )
+
   type ResolvedEntry = { envelopeId: string; name: string; amount: number }
   const resolved: ResolvedEntry[] = []
 
-  for (const entry of entries) {
-    const env = envelopeById.get(entry.envelopeId)
-    if (!env || !isBudgetEnvelope(env.systemRole)) continue
-    const balance = await envelopeBalanceForMonth(userId, entry.envelopeId, monthKey)
+  for (const entry of validEntries) {
+    const env = envelopeById.get(entry.envelopeId)!
+    const balance = balances.get(entry.envelopeId) ?? 0
     const amount = Math.min(entry.amount, Math.max(0, balance))
     if (amount <= 0) continue
     resolved.push({ envelopeId: entry.envelopeId, name: env.name, amount })

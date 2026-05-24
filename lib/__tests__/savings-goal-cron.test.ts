@@ -96,8 +96,14 @@ describe("closePreviousPeriodGoal", () => {
     } as never)
 
     vi.mocked(prisma.transaction.findMany).mockImplementation(async (args) => {
-      const where = args?.where as { type?: string; date?: unknown }
-      if (where.date) {
+      const where = args?.where as {
+        type?: string
+        date?: { lt?: Date; gte?: Date }
+      }
+      if (where.date && "lt" in where.date && !("gte" in where.date)) {
+        return [{ amount: 1200, type: "credit" }] as never
+      }
+      if (where.date && "gte" in where.date) {
         if (where.type === "credit") return [{ amount: 500 }] as never
         return [{ amount: 100 }] as never
       }
