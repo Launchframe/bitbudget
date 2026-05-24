@@ -57,10 +57,16 @@ import {
 import {
   applyUnboundedOnboardingSliderDrag,
   unboundedOnboardingSliderThumbPct,
+  defaultOnboardingSavingsGoalAmount,
   isUnboundedOnboardingAllocation,
   monthlyBudgetForAllocation,
   monthlyCapacityFromAnnualEstimate,
   onboardingAllocationCapForRow,
+  onboardingSavingsGoalAmountFromPercent,
+  onboardingSavingsGoalCapacity,
+  onboardingSavingsGoalPercentOfCapacity,
+  ONBOARDING_SAVINGS_GOAL_DEFAULT_PCT,
+  ONBOARDING_SAVINGS_GOAL_SLIDER_MAX_PCT,
   onboardingSliderMaxForRow,
   savingsGoalPercentOfPaycheck,
   snapOnboardingAllocationToStep,
@@ -419,10 +425,19 @@ export default function OnboardingPage() {
               ? monthlyCapacityFromAnnualEstimate(parseFloat(saved.estimatedAnnualIncome) || 0)
               : 0
           const budget = regular + irregular
-          const defaultGoal = Math.round((budget * 0.1) / 25) * 25
+          const restoredTotal =
+            saved.envelopes?.reduce(
+              (sum: number, e: { monthlyAllotment?: number }) =>
+                sum + (typeof e.monthlyAllotment === "number" ? e.monthlyAllotment : 0),
+              0,
+            ) ?? 0
+          const capacity = onboardingSavingsGoalCapacity(budget, restoredTotal)
+          const defaultGoal = defaultOnboardingSavingsGoalAmount(capacity)
           setSavingsGoalAmount(defaultGoal)
           setSavingsGoalPct(
-            budget > 0 ? Math.round((defaultGoal / budget) * 100) : 10,
+            capacity > 0
+              ? onboardingSavingsGoalPercentOfCapacity(defaultGoal, capacity)
+              : ONBOARDING_SAVINGS_GOAL_DEFAULT_PCT,
           )
         }
         if (typeof saved.savingsGoalPct === "number") {
@@ -1133,12 +1148,13 @@ export default function OnboardingPage() {
     try {
       const ok = await saveEnvelopeAllocations()
       if (!ok) return
-      const defaultGoal = Math.round((allocateMonthlyBudget * 0.1) / 25) * 25
+      const capacity = onboardingSavingsGoalCapacity(allocateMonthlyBudget, totalAllocated)
+      const defaultGoal = defaultOnboardingSavingsGoalAmount(capacity)
       setSavingsGoalAmount(defaultGoal)
       setSavingsGoalPct(
-        allocateMonthlyBudget > 0
-          ? Math.round((defaultGoal / allocateMonthlyBudget) * 100)
-          : 10,
+        capacity > 0
+          ? onboardingSavingsGoalPercentOfCapacity(defaultGoal, capacity)
+          : ONBOARDING_SAVINGS_GOAL_DEFAULT_PCT,
       )
       setAllocPhase("savings-goal")
     } finally {
@@ -1248,6 +1264,7 @@ export default function OnboardingPage() {
   const unboundedAlloc = isUnboundedOnboardingAllocation(allocateMonthlyBudget)
   const showAllocStackBar = allocateMonthlyBudget > 0 || totalAllocated > 0
   const allocStackBarTotal = allocateMonthlyBudget > 0 ? allocateMonthlyBudget : totalAllocated
+  const savingsGoalCapacity = onboardingSavingsGoalCapacity(allocateMonthlyBudget, totalAllocated)
 
   const pendingDeleteEnv =
     pendingDeleteEnvelopeIdx !== null ? envelopes[pendingDeleteEnvelopeIdx] : undefined
@@ -2192,21 +2209,28 @@ export default function OnboardingPage() {
                     <input
                       type="range"
                       min={0}
-                      max={50}
+                      max={ONBOARDING_SAVINGS_GOAL_SLIDER_MAX_PCT}
                       step={1}
                       value={savingsGoalPct}
-                      aria-label="Savings goal percentage of monthly income"
+                      aria-label={
+                        unboundedAlloc
+                          ? "Savings goal percentage of estimated monthly spend"
+                          : "Savings goal percentage of monthly income"
+                      }
                       onChange={e => {
                         const pct = Number(e.target.value)
                         setSavingsGoalPct(pct)
-                        const raw = allocateMonthlyBudget > 0 ? (allocateMonthlyBudget * pct) / 100 : 0
-                        setSavingsGoalAmount(Math.round(raw / 25) * 25)
+                        setSavingsGoalAmount(
+                          onboardingSavingsGoalAmountFromPercent(savingsGoalCapacity, pct),
+                        )
                       }}
                       className="w-full accent-[#D4AF37]"
                     />
                     <div className="flex flex-col gap-0.5 text-center">
                       <p className="text-xs text-muted-foreground">
-                        {savingsGoalPct}% of monthly capacity
+                        {unboundedAlloc
+                          ? `${savingsGoalPct}% of estimated monthly spend`
+                          : `${savingsGoalPct}% of monthly capacity`}
                       </p>
                       {savingsGoalPaycheckPct != null && (
                         <p className="text-xs text-muted-foreground">
@@ -2374,7 +2398,9 @@ export default function OnboardingPage() {
               <div className="flex min-w-0 flex-col gap-4">
                 {envelopes.map((env, idx) => {
                   const lockedGestureMax =
-                    allocSliderLockedMax?.idx === idx ? allocSliderLockedMax.max : null
+                    unboundedAlloc && allocSliderLockedMax?.idx === idx
+                      ? allocSliderLockedMax.max
+                      : null
                   const sliderMax =
                     lockedGestureMax ??
                     onboardingSliderMaxForRow(
@@ -2533,18 +2559,15 @@ export default function OnboardingPage() {
                             allocSliderRawOverride?.idx === idx
                               ? allocSliderRawOverride.raw
                               : env.monthlyAllotment
+                          const isDraggingThisRow = allocSliderPointerRef.current?.idx === idx
                           const session = allocSliderDragSessionRef.current
                           const activeMax =
-                            session?.idx === idx
+                            unboundedAlloc && session?.idx === idx
                               ? session.lockedMax
                               : sliderMax
                           let val = parsedVal
 
-                          if (
-                            isUnboundedOnboardingAllocation(allocateMonthlyBudget) &&
-                            allocSliderPointerRef.current?.idx === idx &&
-                            session?.idx === idx
-                          ) {
+                          if (unboundedAlloc && isDraggingThisRow && session?.idx === idx) {
                             const drag = applyUnboundedOnboardingSliderDrag({
                               prevRaw,
                               val: parsedVal,
@@ -2561,10 +2584,19 @@ export default function OnboardingPage() {
                             val = Math.min(activeMax, parsedVal)
                           }
 
-                          setAllocSliderRawOverride({ idx, raw: val })
-                          // Commit allotment only after release — mid-drag envelope updates re-render
-                          // the controlled slider and drop pointer capture (especially unbounded mode).
-                          if (allocSliderPointerRef.current?.idx !== idx) {
+                          if (isDraggingThisRow) {
+                            setAllocSliderRawOverride({ idx, raw: val })
+                            // Bounded: live-update bar + savings on $50 bucket crossings.
+                            // Unbounded: defer commit until release (avoids slider runaway).
+                            if (!unboundedAlloc) {
+                              const newBucket = snapOnboardingAllocationToStep(val, activeMax)
+                              if (newBucket !== env.monthlyAllotment) {
+                                setEnvelopes(prev => prev.map((en, i) =>
+                                  i === idx ? { ...en, monthlyAllotment: newBucket } : en,
+                                ))
+                              }
+                            }
+                          } else {
                             const newBucket = snapOnboardingAllocationToStep(val, activeMax)
                             if (newBucket !== env.monthlyAllotment) {
                               setEnvelopes(prev => prev.map((en, i) =>
@@ -2574,19 +2606,24 @@ export default function OnboardingPage() {
                           }
                         }}
                         onPointerDown={e => {
-                          const gestureMax = isUnboundedOnboardingAllocation(allocateMonthlyBudget)
+                          const gestureMax = unboundedAlloc
                             ? unboundedOnboardingSliderMaxForGesture(env.monthlyAllotment)
                             : onboardingSliderMaxForRow(
                                 env.monthlyAllotment,
                                 savings,
                                 allocateMonthlyBudget,
                               )
-                          allocSliderDragSessionRef.current = {
-                            idx,
-                            lockedMax: gestureMax,
-                            expandedFrom: new Set(),
+                          if (unboundedAlloc) {
+                            allocSliderDragSessionRef.current = {
+                              idx,
+                              lockedMax: gestureMax,
+                              expandedFrom: new Set(),
+                            }
+                            setAllocSliderLockedMax({ idx, max: gestureMax })
+                          } else {
+                            allocSliderDragSessionRef.current = null
+                            setAllocSliderLockedMax(prev => (prev?.idx === idx ? null : prev))
                           }
-                          setAllocSliderLockedMax({ idx, max: gestureMax })
                           const rawInit = parseInt(e.currentTarget.value, 10)
                           const init = Number.isFinite(rawInit)
                             ? Math.min(gestureMax, Math.max(0, rawInit))

@@ -10,6 +10,10 @@ import {
   unboundedOnboardingSliderMaxForGesture,
   unboundedOnboardingSliderNextBand,
   applyUnboundedOnboardingSliderDrag,
+  defaultOnboardingSavingsGoalAmount,
+  onboardingSavingsGoalAmountFromPercent,
+  onboardingSavingsGoalCapacity,
+  onboardingSavingsGoalPercentOfCapacity,
   unboundedOnboardingSliderThumbPct,
   savingsGoalPercentOfPaycheck,
   snapOnboardingAllocationToStep,
@@ -47,6 +51,23 @@ describe("onboarding allocation caps", () => {
     expect(isUnboundedOnboardingAllocation(2400)).toBe(false)
     expect(onboardingSliderMaxForRow(600, 1800, 2400)).toBe(2400)
     expect(onboardingAllocationCapForRow(2400, 600)).toBe(1800)
+  })
+
+  it("uses envelope totals for savings goal capacity when unbounded", () => {
+    expect(onboardingSavingsGoalCapacity(0, 12_000)).toBe(12_000)
+    expect(onboardingSavingsGoalCapacity(3_000, 12_000)).toBe(3_000)
+  })
+})
+
+describe("onboarding savings goal defaults", () => {
+  it("defaults to 10% of capacity snapped to $25", () => {
+    expect(defaultOnboardingSavingsGoalAmount(12_000)).toBe(1_200)
+    expect(defaultOnboardingSavingsGoalAmount(10_050)).toBe(1_000)
+  })
+
+  it("derives amount and percent from capacity", () => {
+    expect(onboardingSavingsGoalAmountFromPercent(12_000, 10)).toBe(1_200)
+    expect(onboardingSavingsGoalPercentOfCapacity(1_200, 12_000)).toBe(10)
   })
 })
 

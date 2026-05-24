@@ -200,6 +200,55 @@ export function onboardingAllocationCapForRow(
   return Math.max(0, monthlyBudget - otherRowsAllocatedMonthly)
 }
 
+/** Default savings-goal slider position during onboarding (%). */
+export const ONBOARDING_SAVINGS_GOAL_DEFAULT_PCT = 10
+
+/** Savings-goal slider max during onboarding (% of capacity). */
+export const ONBOARDING_SAVINGS_GOAL_SLIDER_MAX_PCT = 50
+
+export const ONBOARDING_SAVINGS_GOAL_SNAP = 25
+
+/** Monthly basis for the onboarding savings-goal slider (income or envelope totals). */
+export function onboardingSavingsGoalCapacity(
+  monthlyBudget: number,
+  totalEnvelopeAllocated: number,
+): number {
+  if (isUnboundedOnboardingAllocation(monthlyBudget)) {
+    return Math.max(0, totalEnvelopeAllocated)
+  }
+  return Math.max(0, monthlyBudget)
+}
+
+export function snapOnboardingSavingsGoalAmount(raw: number): number {
+  if (!Number.isFinite(raw) || raw <= 0) return 0
+  return Math.round(raw / ONBOARDING_SAVINGS_GOAL_SNAP) * ONBOARDING_SAVINGS_GOAL_SNAP
+}
+
+export function defaultOnboardingSavingsGoalAmount(capacity: number): number {
+  return snapOnboardingSavingsGoalAmount(
+    (capacity * ONBOARDING_SAVINGS_GOAL_DEFAULT_PCT) / 100,
+  )
+}
+
+export function onboardingSavingsGoalAmountFromPercent(
+  capacity: number,
+  pct: number,
+): number {
+  if (!Number.isFinite(capacity) || capacity <= 0 || !Number.isFinite(pct) || pct <= 0) {
+    return 0
+  }
+  return snapOnboardingSavingsGoalAmount((capacity * pct) / 100)
+}
+
+export function onboardingSavingsGoalPercentOfCapacity(
+  amount: number,
+  capacity: number,
+): number {
+  if (!Number.isFinite(capacity) || capacity <= 0) return 0
+  if (!Number.isFinite(amount) || amount <= 0) return 0
+  return Math.round((amount / capacity) * 100)
+}
+
 /**
  * Round `raw` to the nearest `step` (default $50), clamp to `[0, max]`.
  * After rounding, clamp again so values like 997 stay at 997 when nearest step is 1000.
