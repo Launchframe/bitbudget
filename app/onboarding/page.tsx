@@ -218,6 +218,13 @@ export default function OnboardingPage() {
     raw: number
   } | null>(null)
   const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
+  const allocSliderPointerRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    captured: boolean
+    idx: number
+  } | null>(null)
 
   /** Append one draft envelope from trimmed name (shared by Add button and Continue). */
   function appendDraftEnvelope(prev: DraftEnvelope[], rawName: string): DraftEnvelope[] {
@@ -2008,7 +2015,7 @@ export default function OnboardingPage() {
 
           {/* Allocations Step */}
           {step === "allocations" && (
-            <form onSubmit={e => { e.preventDefault(); handleAllocationsSave() }} className="flex flex-col gap-6">
+            <form onSubmit={e => { e.preventDefault(); handleAllocationsSave() }} className="flex min-w-0 flex-col gap-6">
               <style>{`
                 input[type="range"].alloc-slider {
                   -webkit-appearance: none;
@@ -2018,7 +2025,7 @@ export default function OnboardingPage() {
                   border-radius: 3px;
                   outline: none;
                   cursor: pointer;
-                  touch-action: none;
+                  touch-action: pan-y;
                 }
                 input[type="range"].alloc-slider::-webkit-slider-thumb {
                   -webkit-appearance: none;
@@ -2171,10 +2178,11 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
-              {/* Stacked bar — sticky while scrolling envelope sliders */}
+              {/* Stacked bar + sliders — scrollable on small screens so Continue stays reachable */}
+              <div className="flex min-w-0 flex-col gap-4 max-md:max-h-[calc(100dvh-13rem)] max-md:overflow-x-hidden max-md:overflow-y-auto max-md:overscroll-y-contain max-md:[-webkit-overflow-scrolling:touch]">
               {allocateMonthlyBudget > 0 && (
                 <div
-                  className="sticky top-0 z-20 -mx-8 px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+                  className="sticky top-0 z-20 max-md:mx-0 max-md:px-0 -mx-8 px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
                 >
                   <div className="flex flex-col gap-2">
                   <div className="flex h-10 w-full flex-row rounded-xl overflow-hidden bg-[#1A1A1A]">
@@ -2267,7 +2275,7 @@ export default function OnboardingPage() {
               )}
 
               {/* Per-envelope slider rows */}
-              <div className="flex flex-col gap-4">
+              <div className="flex min-w-0 flex-col gap-4">
                 {envelopes.map((env, idx) => {
                   const sliderMax = env.monthlyAllotment + savings
                   const pct =
@@ -2289,7 +2297,7 @@ export default function OnboardingPage() {
                     <div
                       key={idx}
                       ref={el => { sliderRowRefs.current[idx] = el }}
-                      className={`flex flex-col gap-2 p-3 rounded-xl transition-colors ${
+                      className={`flex min-w-0 flex-col gap-2 p-3 rounded-xl transition-colors ${
                         activeEnvIdx === idx ? "bg-[#1A1A1A]" : "bg-transparent"
                       }`}
                       onClick={() => setActiveEnvIdx(idx)}
@@ -2298,7 +2306,7 @@ export default function OnboardingPage() {
                       <p className="sm:hidden text-xs font-semibold text-foreground leading-snug truncate">
                         {env.name}
                       </p>
-                      <div className="flex items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
                         <div
                           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                           style={{ backgroundColor: `${env.color}22` }}
@@ -2399,26 +2407,52 @@ export default function OnboardingPage() {
                             ? Math.min(sliderMax, Math.max(0, rawInit))
                             : 0
                           setAllocSliderRawOverride({ idx, raw: init })
-                          try {
-                            e.currentTarget.setPointerCapture(e.pointerId)
-                          } catch {
-                            /* noop */
+                          allocSliderPointerRef.current = {
+                            pointerId: e.pointerId,
+                            startX: e.clientX,
+                            startY: e.clientY,
+                            captured: false,
+                            idx,
+                          }
+                        }}
+                        onPointerMove={e => {
+                          const drag = allocSliderPointerRef.current
+                          if (!drag || drag.idx !== idx || drag.pointerId !== e.pointerId || drag.captured) {
+                            return
+                          }
+                          const dx = Math.abs(e.clientX - drag.startX)
+                          const dy = Math.abs(e.clientY - drag.startY)
+                          if (dx > dy && dx > 6) {
+                            drag.captured = true
+                            try {
+                              e.currentTarget.setPointerCapture(e.pointerId)
+                            } catch {
+                              /* noop */
+                            }
                           }
                         }}
                         onPointerUp={e => {
-                          try {
-                            e.currentTarget.releasePointerCapture(e.pointerId)
-                          } catch {
-                            /* noop */
+                          const drag = allocSliderPointerRef.current
+                          if (drag?.captured && drag.pointerId === e.pointerId) {
+                            try {
+                              e.currentTarget.releasePointerCapture(e.pointerId)
+                            } catch {
+                              /* noop */
+                            }
                           }
+                          allocSliderPointerRef.current = null
                           commitOnboardingSliderSnap(idx, e.currentTarget)
                         }}
                         onPointerCancel={e => {
-                          try {
-                            e.currentTarget.releasePointerCapture(e.pointerId)
-                          } catch {
-                            /* noop */
+                          const drag = allocSliderPointerRef.current
+                          if (drag?.captured && drag.pointerId === e.pointerId) {
+                            try {
+                              e.currentTarget.releasePointerCapture(e.pointerId)
+                            } catch {
+                              /* noop */
+                            }
                           }
+                          allocSliderPointerRef.current = null
                           commitOnboardingSliderSnap(idx, e.currentTarget)
                         }}
                         onBlur={e => {
@@ -2461,6 +2495,7 @@ export default function OnboardingPage() {
                   Without an income estimate, sliders are free-form. Add an annual estimate on the income step for bounded allocations.
                 </p>
               )}
+              </div>
 
               <div className="flex gap-3">
                 <button
