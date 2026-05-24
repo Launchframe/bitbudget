@@ -145,6 +145,7 @@ export interface ReferralSummaryState {
 interface AppContextValue {
   state: AppState
   activeEnvelopes: Envelope[]
+  discretionaryEnvelopes: Envelope[]
   activeTransactions: Transaction[]
   currentPage: PageId
   selectedEnvelopeId: string | null
@@ -189,7 +190,7 @@ interface AppContextValue {
   setMonthlyIncome: (income: number) => void
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
   setOpportunityCostEnabled: (enabled: boolean) => void
-  setLedgerFundingEnabled: (enabled: boolean) => void
+  setSavingsExperience: (experience: "engaged" | "dismissed") => Promise<void>
   addTag: (tag: string) => void
   deleteTag: (id: string) => void
   refreshData: () => Promise<void>
@@ -622,7 +623,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         monthlyIncome: settings.monthlyIncome || 0,
         btcDisplayUnit: settings.btcDisplayUnit || "sats",
         opportunityCostEnabled: settings.opportunityCostEnabled ?? false,
-        ledgerFundingEnabled: Boolean((settings as { ledgerFundingEnabled?: boolean }).ledgerFundingEnabled),
+        savingsExperience:
+          typeof (settings as { savingsExperience?: string }).savingsExperience === "string"
+            ? (settings as { savingsExperience: string }).savingsExperience
+            : "engaged",
       }))
 
       const uid = currentUserIdRef.current
@@ -1199,13 +1203,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
-  const setLedgerFundingEnabled = useCallback(async (enabled: boolean) => {
-    setState(prev => ({ ...prev, ledgerFundingEnabled: enabled }))
+  const setSavingsExperience = useCallback(async (experience: "engaged" | "dismissed") => {
+    setState(prev => ({ ...prev, savingsExperience: experience }))
     try {
       const res = await fetch("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ledgerFundingEnabled: enabled }),
+        body: JSON.stringify({ savingsExperience: experience }),
       })
       if (!res.ok) await refreshData()
     } catch {
@@ -1456,6 +1460,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [state.envelopes]
   )
 
+  const discretionaryEnvelopes = useMemo(
+    () => activeEnvelopes.filter(e => e.systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS),
+    [activeEnvelopes],
+  )
+
   const archivedEnvelopeIds = useMemo(
     () => new Set(state.envelopes.filter(e => e.archived).map(e => e.id)),
     [state.envelopes]
@@ -1475,6 +1484,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       value={{
         state,
         activeEnvelopes,
+        discretionaryEnvelopes,
         activeTransactions,
         currentPage,
         selectedEnvelopeId,
@@ -1510,7 +1520,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setMonthlyIncome,
         setBtcDisplayUnit,
         setOpportunityCostEnabled,
-        setLedgerFundingEnabled,
+        setSavingsExperience,
         addTag,
         deleteTag,
         refreshData,

@@ -13,6 +13,15 @@ BitBudget is a **privacy-first, user-sovereign budgeting app**. Every change mus
 
 If a change would cause sensitive data to be logged, stored in plaintext, or readable by the server, **stop and redesign**.
 
+## Savings as core mechanic
+
+BitBudget treats **pay yourself first** as a non-negotiable budgeting principle, not an optional mode:
+
+- **Ledger accounting is always on.** Income credits land in the system **Savings** envelope first; envelope funding allocation legs run from Savings. There is no user-facing toggle to disable this.
+- **Savings is its own UI primitive** — hero card on Envelopes, pinned filter pill on Transactions, dashboard tile, savings-mode chart — **not** a member of the discretionary envelope grid.
+- **`User.savingsExperience`** (`engaged` | `dismissed`, default `engaged`) controls the **motivational narrative** only: goals, streaks, achievements, year-end recap, sweep ritual UI. When `dismissed`, the ledger still works; hero/goals/recap UI is hidden; dismissing also sets `sweepDefaultPolicy: carry_forward` so envelopes stop auto-draining on payday.
+- **Do not reintroduce a ledger funding flag.** All server paths (`envelope-funding`, irregular income, cron) assume funding is active.
+
 ## Project Structure
 
 ```
@@ -108,6 +117,7 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 ### Styling
 - Dark theme only. Background: `#0D0D0D`, cards: `bg-[#0D0D0D] rounded-2xl`.
 - Accent color: `#F7931A` (Bitcoin orange), used for CTAs, active states, and BTC-related highlights.
+- **Savings gold accent:** `SAVINGS_GOLD_ACCENT` (`#D4AF37` in `lib/constants.ts`) — use sparingly for Savings hero card border, pinned Savings filter pill, savings-mode chart lines, and Savings dashboard tile highlights. Distinct from Bitcoin orange.
 - Success/credit color: `#22C55E`. Blue accent: `#3B82F6`.
 - BTC numeric values use `font-ibm-plex-mono` class for monospace rendering.
 - Mobile-first responsive design. Use Tailwind breakpoints (`sm:`, `md:`, `lg:`).
@@ -130,6 +140,8 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 - Migrations must be **idempotent** (`ADD COLUMN IF NOT EXISTS`, etc.) to survive re-runs during deployment.
 - After changing `schema.prisma`, always run `pnpm prisma generate` before testing types.
 - Use `cuid()` for IDs. Dates are stored as `DateTime` and formatted as `YYYY-MM-DD` strings at the API boundary.
+- **System Savings envelope:** created idempotently via `ensureSystemSavingsEnvelope()` on first session (see `lib/auth.ts`). Prisma `Envelope.systemRole = 'savings'`; reserved name `"Savings"`. Protected from rename, archive, merge, and delete in envelope API routes. **`activeEnvelopes`** includes Savings; **`discretionaryEnvelopes`** (`AppContext`) excludes it — use `discretionaryEnvelopes` for budget grids, sweep targets, and allotment totals.
+- **`SavingsGoal`** rows keyed by `periodKey` (`'YYYY-MM'` or `'default'`). Per-period lifecycle (grace, upward-only edits, close snapshots) is enforced in `lib/savings-goal.ts` and the savings-goal API routes.
 
 #### Schema changes during development (`db push`)
 
@@ -168,9 +180,13 @@ CI and fresh clones use `prisma migrate deploy`; idempotent consolidated migrati
 
 ## Feature Gating: Opportunity Cost
 
+**Only opportunity cost is gated.** Ledger funding (pay-yourself-first, Savings envelope, allocation legs) is **always on** for every user regardless of tier or entry point. Do not add flags or UI that disable the ledger.
+
 Bitcoin/sats/opportunity-cost features are controlled by `User.opportunityCostEnabled` (default `false`). New users get it from **entry point**: `/welcome` or app shell `/` → off; `/landing` → on. **Referral referees** inherit the flag from the **referrer** (code owner) at redeem and during onboarding via validate. **Premium** users can change it in Settings; free users do not see that control.
 
-When this flag is off, the app is a **vanilla budgeting tool** — no Bitcoin mentions anywhere:
+**Savings narrative UI** (hero card, goals, streaks, achievements, year-end recap) is controlled separately by `User.savingsExperience` (`engaged` | `dismissed`). When dismissed, the underlying ledger and Savings envelope still work; only motivational surfaces are hidden.
+
+When `opportunityCostEnabled` is off, the app is a **vanilla budgeting tool** — no Bitcoin mentions anywhere:
 
 - Sidebar: BTC Price nav item hidden
 - Dashboard: chart shows "Your Expenses" (cumulative spent, single line, no BTC data dependency); `RecentTransactions` replaces `TopOpportunityCosts`
@@ -265,6 +281,9 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 
 - **Adding a Prisma field but forgetting `pnpm prisma generate`** — TypeScript won't see the new field until the client is regenerated.
 - **Calling `useBtcPrices()` outside `BtcPriceProvider`** — the hook returns **`NOOP_PRICES`** and warns in development; it does not throw. Real prices and OC math need `BtcPriceProvider`; gate Bitcoin UI with `state.opportunityCostEnabled` so vanilla mode does not depend on live BTC data.
+- **Rendering Savings inside the discretionary envelope grid** — use `<SavingsHeroCard>` instead. Grid lists, sweep dialogs, and allotment math should use `discretionaryEnvelopes`, not `activeEnvelopes`.
+- **`activeEnvelopes` vs `discretionaryEnvelopes`** — `activeEnvelopes` includes the system Savings envelope; `discretionaryEnvelopes` filters `systemRole !== 'savings'`. Use the latter for budget envelopes; use Savings-specific helpers (`findSavingsEnvelope`, hero card) for the hub.
+- **Gating ledger funding or Savings accounting** — there is no ledger toggle. Gate motivational Savings UI with `state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED`; never tie funding to `opportunityCostEnabled`.
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
 - **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During dev, prefer **`db push`**; at PR time, consolidate into a new migration. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.

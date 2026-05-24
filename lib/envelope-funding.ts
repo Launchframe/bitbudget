@@ -2,6 +2,7 @@ import { randomUUID } from "crypto"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import {
+  ENVELOPE_FUNDING_BATCH_KIND_FUND,
   LEDGER_ALLOCATION_PAYEE_LABEL,
   LEDGER_INCOME_PAYEE_LABEL,
   RESERVED_SAVINGS_ENVELOPE_NAME,
@@ -14,6 +15,11 @@ import {
   grossIncomeForFundingRun,
 } from "@/lib/envelope-funding-period"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import {
+  fundingPeriodKeyForPayday,
+  isPaydayForUser,
+  type PaydayUserFields,
+} from "@/lib/payday-cadence"
 import { encryptFieldForUser } from "@/lib/server-encrypt"
 import { isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import {
@@ -27,6 +33,27 @@ export const TX_SOURCE_FUNDING_OUT = "envelope_funding_out"
 export const TX_SOURCE_FUNDING_IN = "envelope_funding_in"
 
 const EMPTY_TAGS = "[]"
+
+function usesPaydayCadence(user: Pick<PaydayUserFields, "payDays" | "payCadence">): boolean {
+  if (user.payDays.length > 0) return true
+  return user.payCadence === "weekly" || user.payCadence === "biweekly" || user.payCadence === "daily"
+}
+
+function fundingPeriodKeyForUser(
+  user: PaydayUserFields,
+  runDateUtc: Date,
+  dailyAllowed: boolean,
+): string | null {
+  if (usesPaydayCadence(user)) {
+    if (!isPaydayForUser(user, runDateUtc)) return null
+    return fundingPeriodKeyForPayday(user, runDateUtc)
+  }
+  return fundingPeriodKeyForDate({
+    payCadence: user.payCadence,
+    runDateUtc,
+    dailyCadenceAllowed: dailyAllowed,
+  })
+}
 
 type FundingDb = Pick<typeof prisma, "envelope">
 
@@ -218,21 +245,25 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
-      ledgerFundingEnabled: true,
       monthlyIncome: true,
       payCadence: true,
+      payDays: true,
+      payDayOfWeek: true,
+      lastPaydayAt: true,
       publicKey: true,
     },
   })
 
-  if (!user?.ledgerFundingEnabled) return 0
-  if (!user.publicKey?.trim()) return 0
+  if (!user?.publicKey?.trim()) return 0
 
-  const periodKey = fundingPeriodKeyForDate({
+  const paydayUser: PaydayUserFields = {
     payCadence: user.payCadence,
-    runDateUtc: now,
-    dailyCadenceAllowed: dailyAllowed,
-  })
+    payDays: user.payDays,
+    payDayOfWeek: user.payDayOfWeek,
+    lastPaydayAt: user.lastPaydayAt,
+  }
+
+  const periodKey = fundingPeriodKeyForUser(paydayUser, now, dailyAllowed)
   if (!periodKey) return 0
 
   const savings = await savingsEnvelopeForUserDb(prisma, userId)
@@ -280,14 +311,20 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
 
   return prisma.$transaction(async (tx) => {
     const dup = await tx.envelopeFundingBatch.findUnique({
-      where: { userId_periodKey: { userId, periodKey } },
+      where: {
+        userId_periodKey_kind: {
+          userId,
+          periodKey,
+          kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+        },
+      },
     })
     if (dup) return 0
 
     let batch
     try {
       batch = await tx.envelopeFundingBatch.create({
-        data: { userId, periodKey },
+        data: { userId, periodKey, kind: ENVELOPE_FUNDING_BATCH_KIND_FUND },
       })
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
@@ -348,10 +385,13 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
   })
 }
 
-/** Process ledger funding for every user with the flag enabled. */
+/** Process ledger funding for every user with encryption keys configured. */
 export async function processAllEnvelopeFunding(asOf?: Date): Promise<number> {
   const users = await prisma.user.findMany({
-    where: { ledgerFundingEnabled: true },
+    where: {
+      publicKey: { not: null },
+      NOT: { publicKey: "" },
+    },
     select: { id: true },
   })
   let total = 0
@@ -370,8 +410,8 @@ export interface IrregularIncomeInput {
   /** Plaintext payer description — encrypted before storage */
   displayPayee: string
   notesPlain?: string | null
-  /** When set, skips reloading `User.ledgerFundingEnabled` / `monthlyIncome` from the database. */
-  userLedger?: { ledgerFundingEnabled: boolean; monthlyIncome: number }
+  /** When set, skips reloading `User.monthlyIncome` from the database. */
+  userIncome?: { monthlyIncome: number }
 }
 
 /** Manual irregular income: one visible Savings credit + hidden allocation legs. */
@@ -383,15 +423,12 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
   if (!Number.isFinite(gross) || gross <= 0) return 0
 
   const user =
-    input.userLedger ??
+    input.userIncome ??
     (await prisma.user.findUnique({
       where: { id: input.userId },
-      select: {
-        ledgerFundingEnabled: true,
-        monthlyIncome: true,
-      },
+      select: { monthlyIncome: true },
     }))
-  if (!user?.ledgerFundingEnabled) return 0
+  if (!user) return 0
 
   const mi = user.monthlyIncome
   if (!Number.isFinite(mi) || mi <= 0) return 0
@@ -444,7 +481,11 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
 
   await prisma.$transaction(async (tx) => {
     const batch = await tx.envelopeFundingBatch.create({
-      data: { userId: input.userId, periodKey },
+      data: {
+        userId: input.userId,
+        periodKey,
+        kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+      },
     })
 
     await tx.transaction.create({
@@ -533,10 +574,10 @@ export async function repairIrregularIncomeFundingLegs(
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { ledgerFundingEnabled: true, monthlyIncome: true, publicKey: true },
+    select: { monthlyIncome: true, publicKey: true },
   })
   const pk = user?.publicKey?.trim()
-  if (!user?.ledgerFundingEnabled || !pk) return 0
+  if (!user || !pk) return 0
 
   const mi = user.monthlyIncome
   if (!Number.isFinite(mi) || mi <= 0) return 0

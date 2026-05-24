@@ -3,7 +3,6 @@
 import { useState, useMemo, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { getEnvelopeBalance, getCurrentMonthKey, formatUsd } from "@/lib/data"
-import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import { Progress } from "@/components/ui/progress"
 import { Pencil, Trash2, Plus, SlidersHorizontal, Merge, X, Archive, RotateCcw, ChevronDown } from "lucide-react"
 import {
@@ -24,9 +23,10 @@ import {
 } from "@/lib/envelope-icons"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { IrregularIncomeDialog } from "@/components/irregular-income-dialog"
+import { SavingsHeroCard } from "@/components/savings-hero-card"
 
 export function EnvelopesPage() {
-  const { state, navigateTo, addEnvelope, editEnvelope, archiveEnvelope, restoreEnvelope, deleteEnvelope, mergeEnvelope, setMonthlyIncome } = useApp()
+  const { state, discretionaryEnvelopes, navigateTo, addEnvelope, editEnvelope, archiveEnvelope, restoreEnvelope, deleteEnvelope, mergeEnvelope, setMonthlyIncome } = useApp()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -61,8 +61,8 @@ export function EnvelopesPage() {
   }
 
   const activeEnvelopes = useMemo(
-    () => state.envelopes.filter(e => !e.archived),
-    [state.envelopes]
+    () => discretionaryEnvelopes,
+    [discretionaryEnvelopes]
   )
   const archivedEnvelopes = useMemo(
     () => state.envelopes.filter(e => e.archived),
@@ -84,7 +84,6 @@ export function EnvelopesPage() {
     () => activeEnvelopes.reduce((sum, e) => sum + e.monthlyAllotment, 0),
     [activeEnvelopes]
   )
-  const unallocated = state.monthlyIncome - totalAllocated
 
   /** Icon shown in the dialog and saved on submit: suggestion from name until user picks manually. */
   const displayFormIcon = useMemo(() => {
@@ -219,14 +218,8 @@ export function EnvelopesPage() {
             <span className="text-xs text-muted-foreground">Allocated</span>
             <span className="text-lg font-semibold text-foreground">{formatUsd(totalAllocated)}</span>
           </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">Savings</span>
-            <span className={`text-lg font-semibold ${unallocated >= 0 ? "text-[#22C55E]" : "text-[#EF4444]"}`}>
-              {formatUsd(unallocated)}
-            </span>
-          </div>
           <div className="flex items-center gap-2 ml-auto">
-            {state.ledgerFundingEnabled && <IrregularIncomeDialog />}
+            <IrregularIncomeDialog />
             {activeEnvelopes.length > 0 && (
               <button
                 type="button"
@@ -241,29 +234,14 @@ export function EnvelopesPage() {
         </div>
       </div>
 
+      <SavingsHeroCard />
+
       {/* Envelope cards grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {activeEnvelopes.map((env) => {
-          const balance = getEnvelopeBalance(state.transactions, env.id, currentMonth, env.monthlyAllotment, {
-            ledgerFundingEnabled: state.ledgerFundingEnabled,
-          })
-          const protectSystem = env.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS
-          const isLedgerSavingsHub = protectSystem && state.ledgerFundingEnabled
-          const percentage =
-            !isLedgerSavingsHub && env.monthlyAllotment > 0
-              ? Math.max(0, (balance / env.monthlyAllotment) * 100)
-              : 0
-          const healthColor = isLedgerSavingsHub
-            ? balance > 0
-              ? "#22C55E"
-              : balance < 0
-                ? "#EF4444"
-                : "#A3A3A3"
-            : percentage > 25
-              ? "#22C55E"
-              : percentage > 10
-                ? "#EAB308"
-                : "#EF4444"
+          const balance = getEnvelopeBalance(state.transactions, env.id, currentMonth)
+          const percentage = env.monthlyAllotment > 0 ? Math.max(0, (balance / env.monthlyAllotment) * 100) : 0
+          const healthColor = percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
           return (
             <div
               key={env.id}
@@ -292,12 +270,10 @@ export function EnvelopesPage() {
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">{formatUsd(env.monthlyAllotment)}/mo</span>
                     <span style={{ color: healthColor }} className="font-medium">
-                      {formatUsd(balance)}
-                      {protectSystem && state.ledgerFundingEnabled ? " balance" : " left"}
+                      {formatUsd(balance)} left
                     </span>
                   </div>
-                  {!isLedgerSavingsHub && (
-                    <Progress
+                  <Progress
                       value={Math.min(100, percentage)}
                       markerPct={monthMarkerPct}
                       className="h-2"
@@ -306,7 +282,6 @@ export function EnvelopesPage() {
                         "--progress-color": healthColor,
                       }}
                     />
-                  )}
                 </div>
               </button>
 
@@ -321,8 +296,7 @@ export function EnvelopesPage() {
                 <div className="w-px h-5 bg-[#1A1A1A]" />
                 <button
                   onClick={() => { setMergeSourceId(env.id); setMergeDialogOpen(true) }}
-                  disabled={protectSystem}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-[#3B82F6] hover:bg-[#1A1A1A] transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-[#3B82F6] hover:bg-[#1A1A1A] transition-colors"
                   aria-label={`Merge ${env.name}`}
                 >
                   <Merge className="h-3 w-3" /> Merge
@@ -330,8 +304,7 @@ export function EnvelopesPage() {
                 <div className="w-px h-5 bg-[#1A1A1A]" />
                 <button
                   onClick={() => handleArchive(env.id)}
-                  disabled={protectSystem}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-amber-400 hover:bg-[#1A1A1A] transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-amber-400 hover:bg-[#1A1A1A] transition-colors"
                   aria-label={`Archive ${env.name}`}
                 >
                   <Archive className="h-3 w-3" /> Archive

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
@@ -8,7 +8,7 @@ import { DocumentFavicon } from "@/components/document-favicon"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck, Gift, Building2 } from "lucide-react"
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck, Gift, Building2, Target } from "lucide-react"
 import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
 import {
   filterSuggestions,
@@ -23,7 +23,6 @@ import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -50,8 +49,19 @@ import {
 } from "@/lib/nostr-local-signer"
 import {
   monthlyBudgetForAllocation,
+  monthlyCapacityFromAnnualEstimate,
   snapOnboardingAllocationToStep,
+  type OnboardingPayCadence,
 } from "@/lib/onboarding-allocate-budget"
+import {
+  PAYDAY_LAST_OF_MONTH,
+} from "@/lib/payday-cadence"
+import {
+  SAVINGS_EXPERIENCE_DISMISSED,
+  SAVINGS_GOLD_ACCENT,
+  SWEEP_POLICY_CARRY_FORWARD,
+} from "@/lib/constants"
+import { SAVINGS_GOAL_DEFAULT_PERIOD } from "@/lib/savings-goal"
 import {
   cadenceDisplayInteger,
   fromMonthly,
@@ -72,12 +82,40 @@ type Step =
   | "income"
   | "envelopes"
   | "allocations"
+  | "savings-game-plan"
   | "import"
   | "complete"
   | "referral-bank"
 
+type IncomeMode = "regular" | "irregular" | "mix"
+type AllocPhase = "budget" | "savings-goal"
+
 // Opportunity cost is set from entry point (/welcome or / → vanilla off; /landing → btc on), not a separate step.
-const STEPS: Step[] = ["referral", "security", "income", "envelopes", "allocations", "import", "complete"]
+const STEPS: Step[] = [
+  "referral",
+  "security",
+  "income",
+  "envelopes",
+  "allocations",
+  "savings-game-plan",
+  "import",
+  "complete",
+]
+
+const WEEKDAY_OPTIONS = [
+  { value: 0, label: "Sun" },
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+]
+
+const PAYDAY_DOM_OPTIONS = [
+  ...Array.from({ length: 28 }, (_, i) => i + 1),
+  PAYDAY_LAST_OF_MONTH,
+] as const
 const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#EAB308", "#EC4899", "#06B6D4"]
 
 /** Stacked allocation bar: smooth width when envelope totals change ($50 bucket steps). */
@@ -135,10 +173,18 @@ export default function OnboardingPage() {
   const [pinError, setPinError] = useState("")
 
   // Income
+  const [incomeMode, setIncomeMode] = useState<IncomeMode>("regular")
   const [income, setIncome] = useState("")
-  const [cadence, setCadence] = useState<"monthly" | "bimonthly">("monthly")
+  const [cadence, setCadence] = useState<OnboardingPayCadence>("monthly")
+  const [payDays, setPayDays] = useState<number[]>([1])
+  const [payDayOfWeek, setPayDayOfWeek] = useState(5)
+  const [lastPaydayAt, setLastPaydayAt] = useState(() => new Date().toISOString().split("T")[0]!)
+  const [estimatedAnnualIncome, setEstimatedAnnualIncome] = useState("")
 
-  // Envelopes
+  // Allocations
+  const [allocPhase, setAllocPhase] = useState<AllocPhase>("budget")
+  const [savingsGoalAmount, setSavingsGoalAmount] = useState(0)
+  const [savingsGoalPct, setSavingsGoalPct] = useState(10)
   const [envelopes, setEnvelopes] = useState<DraftEnvelope[]>(() => {
     const used = new Set<string>()
     const iconFor = (name: string) => {
@@ -200,6 +246,7 @@ export default function OnboardingPage() {
   function enterAllocations(envelopeList?: DraftEnvelope[]) {
     if (envelopeList) setEnvelopes(envelopeList)
     setActiveEnvIdx(null)
+    setAllocPhase("budget")
     setStep("allocations")
   }
 
@@ -229,8 +276,6 @@ export default function OnboardingPage() {
   const [restoredSession, setRestoredSession] = useState(false)
   /** After first encryption + settings fetch (avoids flashing Secure Your Data when keys already exist). */
   const [bootstrapped, setBootstrapped] = useState(false)
-  /** False until settings confirm the user still needs onboarding (blocks back-nav into a finished flow). */
-  const [onboardingAccessChecked, setOnboardingAccessChecked] = useState(false)
   const [hasExistingEncryption, setHasExistingEncryption] = useState(false)
   /** Shown when user already has transactions — safe escape if onboardingComplete was reset by mistake. */
   const [canSkipOnboarding, setCanSkipOnboarding] = useState(false)
@@ -264,7 +309,6 @@ export default function OnboardingPage() {
   const [refCodeInput, setRefCodeInput] = useState("")
   const [refValidating, setRefValidating] = useState(false)
   const [refError, setRefError] = useState<string | null>(null)
-  const [completeReferralOpen, setCompleteReferralOpen] = useState(false)
 
   const refreshEnvelopeUsage = useCallback(async () => {
     setEnvelopeUsageLoading(true)
@@ -323,7 +367,13 @@ export default function OnboardingPage() {
           })
         }
         if (saved.income) setIncome(saved.income)
+        if (saved.incomeMode) setIncomeMode(saved.incomeMode)
         if (saved.cadence) setCadence(saved.cadence)
+        if (Array.isArray(saved.payDays) && saved.payDays.length > 0) setPayDays(saved.payDays)
+        if (typeof saved.payDayOfWeek === "number") setPayDayOfWeek(saved.payDayOfWeek)
+        if (typeof saved.lastPaydayAt === "string") setLastPaydayAt(saved.lastPaydayAt)
+        if (saved.estimatedAnnualIncome) setEstimatedAnnualIncome(saved.estimatedAnnualIncome)
+        if (saved.allocPhase) setAllocPhase(saved.allocPhase)
         if (saved.envelopes?.length) setEnvelopes(
           saved.envelopes.map((e: { id?: string; allocationCadence?: string; monthlyAllotment?: number }) => {
             const raw = typeof e.monthlyAllotment === "number" ? e.monthlyAllotment : 0
@@ -346,12 +396,18 @@ export default function OnboardingPage() {
       sessionStorage.setItem(ONBOARDING_SESSION_STORAGE_KEY, JSON.stringify({
         step,
         income,
+        incomeMode,
         cadence,
+        payDays,
+        payDayOfWeek,
+        lastPaydayAt,
+        estimatedAnnualIncome,
+        allocPhase,
         envelopes,
         pendingReferral,
       }))
     } catch { /* storage full or unavailable */ }
-  }, [hydrated, step, income, cadence, envelopes, pendingReferral])
+  }, [hydrated, step, income, incomeMode, cadence, payDays, payDayOfWeek, lastPaydayAt, estimatedAnnualIncome, allocPhase, envelopes, pendingReferral])
 
   /** Clear chosen file + native input when navigating onto the import step (avoids stale File after back/forward or re-import). */
   useEffect(() => {
@@ -420,72 +476,6 @@ export default function OnboardingPage() {
     void tryApplyReferralFromCookie(parsed)
   }, [hydrated, pendingReferral?.code, tryApplyReferralFromCookie])
 
-  const applyReferralCodeFromInput = useCallback(async (): Promise<boolean> => {
-    const code = refCodeInput.trim()
-    if (!code) return false
-    setRefError(null)
-    setRefValidating(true)
-    try {
-      const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(code)}`)
-      if (!r.ok) {
-        setRefError("Could not validate that code. Try again.")
-        return false
-      }
-      let j: {
-        valid?: boolean
-        refereeTrialMonths?: 1 | 3
-        referrerOpportunityCostEnabled?: boolean
-      }
-      try {
-        j = (await r.json()) as typeof j
-      } catch {
-        setRefError("Could not validate that code. Try again.")
-        return false
-      }
-      if (!j.valid) {
-        setRefError("It looks like that code is invalid, expired, or already taken.")
-        return false
-      }
-      const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
-      const referrerOpportunityCostEnabled =
-        typeof j.referrerOpportunityCostEnabled === "boolean"
-          ? j.referrerOpportunityCostEnabled
-          : false
-      setPendingReferral({
-        code,
-        shareMethod: "direct",
-        refereeTrialMonths,
-        referrerOpportunityCostEnabled,
-      })
-      try {
-        document.cookie = `bitbudget_ref=${encodeURIComponent(`${code}:direct`)}; path=/; max-age=${86400 * 30}`
-      } catch {
-        /* ignore */
-      }
-      setCompleteReferralOpen(false)
-      return true
-    } catch {
-      setRefError("Could not validate that code. Try again.")
-      return false
-    } finally {
-      setRefValidating(false)
-    }
-  }, [refCodeInput])
-
-  /** Continue on referral step: apply typed code first, then advance or show validation error. */
-  const handleReferralStepContinue = useCallback(async () => {
-    if (pendingReferral) {
-      setStep("security")
-      return
-    }
-    if (refCodeInput.trim()) {
-      const ok = await applyReferralCodeFromInput()
-      if (ok) setStep("security")
-      return
-    }
-    setStep("security")
-  }, [pendingReferral, refCodeInput, applyReferralCodeFromInput])
-
   /** Backfill trial length and referrer OC for older sessionStorage blobs that only stored the code. */
   useEffect(() => {
     if (!hydrated || !pendingReferral?.code) return
@@ -520,37 +510,6 @@ export default function OnboardingPage() {
     }
   }, [hydrated, pendingReferral?.code, pendingReferral?.refereeTrialMonths, pendingReferral?.referrerOpportunityCostEnabled])
 
-  /** Browser back/forward cache can restore onboarding without re-running bootstrap — re-check access. */
-  useEffect(() => {
-    if (!hydrated) return
-    const onPageShow = (event: PageTransitionEvent) => {
-      if (!event.persisted) return
-      void (async () => {
-        try {
-          const res = await fetch("/api/user/settings")
-          if (res.status === 401 || res.status === 403) {
-            await signOut({ callbackUrl: "/auth" })
-            return
-          }
-          if (!res.ok) return
-          const data = (await res.json()) as { onboardingComplete?: boolean }
-          if (data.onboardingComplete !== true) return
-          try {
-            sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
-            sessionStorage.removeItem("onboardingSource")
-          } catch {
-            /* ignore */
-          }
-          router.replace("/")
-        } catch {
-          /* ignore */
-        }
-      })()
-    }
-    window.addEventListener("pageshow", onPageShow)
-    return () => window.removeEventListener("pageshow", onPageShow)
-  }, [hydrated, router])
-
   /** Extra step count for referees (avoid `document`/cookie in render — prevents SSR/client mismatch). */
   const referralBankQueued = !!pendingReferral?.code || step === "referral-bank"
 
@@ -564,7 +523,6 @@ export default function OnboardingPage() {
     let cancelled = false
 
     async function bootstrapOnboarding() {
-      let leaveOnboarding = false
       try {
         const [encRes, settingsRes] = await Promise.all([
           fetch("/api/user/encryption"),
@@ -577,26 +535,8 @@ export default function OnboardingPage() {
           settingsRes.status === 401 ||
           settingsRes.status === 403
         ) {
-          leaveOnboarding = true
           signOut({ callbackUrl: "/auth" })
           return
-        }
-
-        type SettingsPayload = { onboardingComplete?: boolean; transactionCount?: unknown }
-        let settings: SettingsPayload | null = null
-        if (settingsRes.ok) {
-          settings = (await settingsRes.json()) as SettingsPayload
-          if (settings.onboardingComplete === true) {
-            leaveOnboarding = true
-            try {
-              sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
-              sessionStorage.removeItem("onboardingSource")
-            } catch {
-              /* ignore */
-            }
-            router.replace("/")
-            return
-          }
         }
 
         type EncPayload = {
@@ -617,7 +557,8 @@ export default function OnboardingPage() {
         if (hasPendingNsec) setIsNsecFallback(true)
 
         let txCount = 0
-        if (settings) {
+        if (settingsRes.ok) {
+          const settings = (await settingsRes.json()) as { transactionCount?: unknown }
           txCount = typeof settings.transactionCount === "number" ? settings.transactionCount : 0
         }
         setCanSkipOnboarding(txCount >= 1)
@@ -696,10 +637,7 @@ export default function OnboardingPage() {
       } catch {
         /* continue */
       } finally {
-        if (!cancelled && !leaveOnboarding) {
-          setBootstrapped(true)
-          setOnboardingAccessChecked(true)
-        }
+        if (!cancelled) setBootstrapped(true)
       }
     }
 
@@ -707,7 +645,7 @@ export default function OnboardingPage() {
     return () => {
       cancelled = true
     }
-  }, [hydrated, router])
+  }, [hydrated])
 
   function referralPayloadForRedeem(): { code: string; shareMethod: string } | null {
     if (pendingReferral?.code) return pendingReferral
@@ -859,13 +797,53 @@ export default function OnboardingPage() {
     setLoading(true)
     try {
       const rawIncome = parseFloat(income) || 0
+      const annualEstimate = parseFloat(estimatedAnnualIncome) || 0
+      const regularMonthly =
+        incomeMode !== "irregular"
+          ? monthlyBudgetForAllocation(rawIncome, cadence)
+          : 0
+      const irregularMonthly =
+        incomeMode === "irregular" || incomeMode === "mix"
+          ? monthlyCapacityFromAnnualEstimate(annualEstimate)
+          : 0
+      const monthlyIncome = regularMonthly + irregularMonthly
+
+      let payCadence: string = cadence
+      if (incomeMode === "irregular") payCadence = "irregular"
+      else if (incomeMode === "mix") payCadence = "mixed"
+
+      const body: Record<string, unknown> = {
+        monthlyIncome,
+        payCadence,
+        estimatedAnnualIncome:
+          incomeMode === "irregular" || incomeMode === "mix"
+            ? annualEstimate > 0
+              ? annualEstimate
+              : null
+            : null,
+      }
+
+      if (incomeMode !== "irregular") {
+        if (cadence === "monthly" || cadence === "bimonthly") {
+          body.payDays = payDays
+          body.payDayOfWeek = null
+          body.lastPaydayAt = null
+        } else {
+          body.payDays = []
+          body.payDayOfWeek = payDayOfWeek
+          body.lastPaydayAt =
+            cadence === "biweekly" && lastPaydayAt ? `${lastPaydayAt}T12:00:00.000Z` : null
+        }
+      } else {
+        body.payDays = []
+        body.payDayOfWeek = null
+        body.lastPaydayAt = null
+      }
+
       await fetch("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          monthlyIncome: monthlyBudgetForAllocation(rawIncome, cadence),
-          payCadence: cadence,
-        }),
+        body: JSON.stringify(body),
       })
       setStep("envelopes")
     } finally {
@@ -1078,24 +1056,82 @@ export default function OnboardingPage() {
     }
   }
 
-  async function handleAllocationsSave() {
+  async function saveEnvelopeAllocations(): Promise<boolean> {
+    for (const env of envelopes) {
+      if (!env.id) continue
+      const res = await fetch("/api/envelopes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: env.id,
+          monthlyAllotment: env.monthlyAllotment,
+        }),
+      })
+      if (!res.ok) return false
+    }
+    return true
+  }
+
+  async function handleBudgetAllocationsContinue() {
     setLoading(true)
     try {
-      for (const env of envelopes) {
-        if (!env.id) continue
-        await fetch("/api/envelopes", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: env.id,
-            monthlyAllotment: env.monthlyAllotment,
-          }),
-        })
-      }
+      const ok = await saveEnvelopeAllocations()
+      if (!ok) return
+      const defaultGoal = Math.round((allocateMonthlyBudget * 0.1) / 25) * 25
+      setSavingsGoalAmount(defaultGoal)
+      setSavingsGoalPct(
+        allocateMonthlyBudget > 0
+          ? Math.round((defaultGoal / allocateMonthlyBudget) * 100)
+          : 10,
+      )
+      setAllocPhase("savings-goal")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function skipSavingsTracking() {
+    setLoading(true)
+    try {
+      await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          savingsExperience: SAVINGS_EXPERIENCE_DISMISSED,
+          sweepDefaultPolicy: SWEEP_POLICY_CARRY_FORWARD,
+        }),
+      })
+      setAllocPhase("budget")
       setStep(importResult !== null ? "complete" : "import")
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleSavingsGoalContinue() {
+    setLoading(true)
+    try {
+      await fetch("/api/user/savings-goal", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          periodKey: SAVINGS_GOAL_DEFAULT_PERIOD,
+          targetAmount: savingsGoalAmount,
+        }),
+      })
+      setAllocPhase("budget")
+      setStep("savings-game-plan")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleAllocationsSave() {
+    if (allocPhase === "savings-goal") {
+      await handleSavingsGoalContinue()
+      return
+    }
+    await handleBudgetAllocationsContinue()
   }
 
   function handleImport() {
@@ -1135,7 +1171,17 @@ export default function OnboardingPage() {
   }
 
   const totalAllocated = envelopes.reduce((s, e) => s + e.monthlyAllotment, 0)
-  const allocateMonthlyBudget = monthlyBudgetForAllocation(parseFloat(income) || 0, cadence)
+  const allocateMonthlyBudget = useMemo(() => {
+    const regular =
+      incomeMode !== "irregular"
+        ? monthlyBudgetForAllocation(parseFloat(income) || 0, cadence)
+        : 0
+    const irregular =
+      incomeMode === "irregular" || incomeMode === "mix"
+        ? monthlyCapacityFromAnnualEstimate(parseFloat(estimatedAnnualIncome) || 0)
+        : 0
+    return regular + irregular
+  }, [incomeMode, income, cadence, estimatedAnnualIncome])
   const savings = Math.max(0, allocateMonthlyBudget - totalAllocated)
   const savingsPct =
     allocateMonthlyBudget > 0 ? Math.round((savings / allocateMonthlyBudget) * 100) : 0
@@ -1172,21 +1218,9 @@ export default function OnboardingPage() {
     [allocateMonthlyBudget],
   )
 
-  const completeStepReferralCode =
-    step === "complete"
-      ? pendingReferral?.code ??
-        parseBitbudgetRefCookie(typeof document !== "undefined" ? document.cookie : "")?.code
-      : undefined
-  const hasReferralOnComplete = !!completeStepReferralCode
-
-  if (!hydrated || !onboardingAccessChecked) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
-        <DocumentFavicon href={opportunityCostEnabled ? "/icon.svg" : "/icon-vanilla.svg"} />
-        <Spinner className="h-8 w-8 text-[#F7931A]" />
-      </div>
-    )
-  }
+  const refereeTrialExplainerOnComplete =
+    step === "complete" &&
+    !!(pendingReferral?.code || (typeof document !== "undefined" && parseBitbudgetRefCookie(document.cookie)?.code))
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center p-6">
@@ -1207,7 +1241,7 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        <div className="bg-[#0D0D0D] rounded-2xl py-8 px-4 sm:p-8">
+        <div className="bg-[#0D0D0D] rounded-2xl p-8">
           {restoredSession && !isNostr && step !== "referral" && step !== "security" && step !== "complete" && step !== "referral-bank" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
@@ -1282,16 +1316,7 @@ export default function OnboardingPage() {
                   <div className="flex gap-2">
                     <Input
                       value={refCodeInput}
-                      onChange={e => {
-                        setRefCodeInput(e.target.value)
-                        if (refError) setRefError(null)
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === "Enter") {
-                          e.preventDefault()
-                          void handleReferralStepContinue()
-                        }
-                      }}
+                      onChange={e => setRefCodeInput(e.target.value)}
                       placeholder="Enter code"
                       className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] flex-1"
                     />
@@ -1301,7 +1326,43 @@ export default function OnboardingPage() {
                       disabled={refValidating || !refCodeInput.trim()}
                       className="shrink-0 border-[#333] bg-[#1A1A1A]"
                       onClick={() => {
-                        void applyReferralCodeFromInput()
+                        void (async () => {
+                          setRefError(null)
+                          setRefValidating(true)
+                          try {
+                            const r = await fetch(
+                              `/api/referral/validate?code=${encodeURIComponent(refCodeInput.trim())}`,
+                            )
+                            const j = (await r.json()) as {
+                              valid?: boolean
+                              refereeTrialMonths?: 1 | 3
+                              referrerOpportunityCostEnabled?: boolean
+                            }
+                            if (!j.valid) {
+                              setRefError("It looks like that code is invalid, expired, or has already been used.")
+                              return
+                            }
+                            const code = refCodeInput.trim()
+                            const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
+                            const referrerOpportunityCostEnabled =
+                              typeof j.referrerOpportunityCostEnabled === "boolean"
+                                ? j.referrerOpportunityCostEnabled
+                                : false
+                            setPendingReferral({
+                              code,
+                              shareMethod: "direct",
+                              refereeTrialMonths,
+                              referrerOpportunityCostEnabled,
+                            })
+                            try {
+                              document.cookie = `bitbudget_ref=${encodeURIComponent(`${code}:direct`)}; path=/; max-age=${86400 * 30}`
+                            } catch {
+                              /* ignore */
+                            }
+                          } finally {
+                            setRefValidating(false)
+                          }
+                        })()
                       }}
                     >
                       {refValidating ? "…" : "Apply"}
@@ -1313,24 +1374,11 @@ export default function OnboardingPage() {
               <div className="flex flex-col gap-3">
                 <button
                   type="button"
-                  disabled={refValidating}
-                  aria-busy={refValidating}
-                  onClick={() => {
-                    void handleReferralStepContinue()
-                  }}
-                  className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+                  onClick={() => setStep("security")}
+                  className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors flex items-center justify-center gap-2"
                 >
-                  {refValidating ? (
-                    <>
-                      <Spinner className="h-4 w-4" />
-                      Applying…
-                    </>
-                  ) : (
-                    <>
-                      Continue
-                      <ChevronRight className="h-4 w-4" />
-                    </>
-                  )}
+                  Continue
+                  <ChevronRight className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
@@ -1489,67 +1537,200 @@ export default function OnboardingPage() {
 
           {/* Income Step */}
           {step === "income" && (
-            <form onSubmit={e => { e.preventDefault(); if (income) handleIncomeSave() }} className="flex flex-col gap-6">
+            <form
+              onSubmit={e => {
+                e.preventDefault()
+                if (incomeMode === "irregular" || income) handleIncomeSave()
+              }}
+              className="flex flex-col gap-6"
+            >
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#22C55E]/10">
                   <DollarSign className="h-6 w-6 text-[#22C55E]" />
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your income</h2>
-                  <p className="text-sm text-muted-foreground">How much do you take home after taxes?</p>
+                  <p className="text-sm text-muted-foreground">Tell us how money arrives so we can fund envelopes on paydays</p>
                 </div>
               </div>
 
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                {"Can be an exact amount or an estimate. You can always adjust this later."}
-              </p>
+              <div className="flex rounded-lg bg-[#1A1A1A] p-1">
+                {(
+                  [
+                    { key: "regular" as const, label: "Regular paycheck" },
+                    { key: "irregular" as const, label: "Irregular only" },
+                    { key: "mix" as const, label: "Mix" },
+                  ] as const
+                ).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={incomeMode === key}
+                    onClick={() => setIncomeMode(key)}
+                    className={`flex-1 py-2.5 text-xs sm:text-sm font-medium rounded-md transition-colors ${
+                      incomeMode === key
+                        ? "bg-[#F7931A] text-[#0D0D0D]"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
 
               <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">
-                    Take-home pay after taxes (USD)
-                  </Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                    <Input
-                      type="number"
-                      value={income}
-                      onChange={e => setIncome(e.target.value)}
-                      placeholder="5,000"
-                      className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7 text-lg"
-                      min="0"
-                      step="any"
-                    />
-                  </div>
-                </div>
+                {(incomeMode === "regular" || incomeMode === "mix") && (
+                  <>
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-muted-foreground text-xs uppercase tracking-wider">
+                        After-Tax Paycheck (USD)
+                      </Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                        <Input
+                          type="number"
+                          value={income}
+                          onChange={e => setIncome(e.target.value)}
+                          placeholder="2,500"
+                          className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7 text-lg"
+                          min="0"
+                          step="any"
+                        />
+                      </div>
+                    </div>
 
-                <div className="flex flex-col gap-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Pay Frequency</Label>
-                  <div className="flex rounded-lg bg-[#1A1A1A] p-1">
-                    <button
-                      type="button"
-                      onClick={() => setCadence("monthly")}
-                      className={`flex-1 py-2.5 text-sm font-medium rounded-md transition-colors ${
-                        cadence === "monthly"
-                          ? "bg-[#F7931A] text-[#0D0D0D]"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Monthly
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCadence("bimonthly")}
-                      className={`flex-1 py-2.5 text-sm font-medium rounded-md transition-colors ${
-                        cadence === "bimonthly"
-                          ? "bg-[#F7931A] text-[#0D0D0D]"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Bi-Monthly
-                    </button>
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-muted-foreground text-xs uppercase tracking-wider">Pay frequency</Label>
+                      <div className="grid grid-cols-2 gap-1 rounded-lg bg-[#1A1A1A] p-1">
+                        {(
+                          [
+                            { key: "monthly" as const, label: "Monthly" },
+                            { key: "bimonthly" as const, label: "Bi-monthly" },
+                            { key: "weekly" as const, label: "Weekly" },
+                            { key: "biweekly" as const, label: "Bi-weekly" },
+                          ] as const
+                        ).map(({ key, label }) => (
+                          <button
+                            key={key}
+                            type="button"
+                            aria-pressed={cadence === key}
+                            onClick={() => {
+                              setCadence(key)
+                              if (key === "bimonthly" && payDays.length < 2) {
+                                setPayDays(prev => (prev.length >= 2 ? prev : [prev[0] ?? 1, 15]))
+                              }
+                            }}
+                            className={`py-2.5 text-sm font-medium rounded-md transition-colors ${
+                              cadence === key
+                                ? "bg-[#F7931A] text-[#0D0D0D]"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {(cadence === "monthly" || cadence === "bimonthly") && (
+                      <div className="flex flex-col gap-2">
+                        <Label className="text-muted-foreground text-xs uppercase tracking-wider">
+                          {cadence === "monthly" ? "Pay day of month" : "Pay days of month"}
+                        </Label>
+                        <div className="flex flex-wrap gap-2">
+                          {(cadence === "monthly" ? [0] : [0, 1]).map(slot => (
+                            <select
+                              key={slot}
+                              value={payDays[slot] ?? (slot === 0 ? 1 : 15)}
+                              onChange={e => {
+                                const val = Number(e.target.value)
+                                setPayDays(prev => {
+                                  const next = [...prev]
+                                  next[slot] = val
+                                  return next
+                                })
+                              }}
+                              className="bg-[#1A1A1A] border border-[#333] rounded-lg px-3 py-2 text-sm text-foreground"
+                              aria-label={cadence === "monthly" ? "Pay day of month" : `Pay day ${slot + 1}`}
+                            >
+                              {PAYDAY_DOM_OPTIONS.map(day => (
+                                <option key={day} value={day}>
+                                  {day === PAYDAY_LAST_OF_MONTH ? "Last day" : `${day}${day === 1 ? "st" : day === 2 ? "nd" : day === 3 ? "rd" : "th"}`}
+                                </option>
+                              ))}
+                            </select>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(cadence === "weekly" || cadence === "biweekly") && (
+                      <>
+                        <div className="flex flex-col gap-2">
+                          <Label className="text-muted-foreground text-xs uppercase tracking-wider">Pay day of week</Label>
+                          <div className="flex flex-wrap gap-1">
+                            {WEEKDAY_OPTIONS.map(({ value, label }) => (
+                              <button
+                                key={value}
+                                type="button"
+                                aria-pressed={payDayOfWeek === value}
+                                onClick={() => setPayDayOfWeek(value)}
+                                className={`px-3 py-2 text-xs font-medium rounded-md transition-colors ${
+                                  payDayOfWeek === value
+                                    ? "bg-[#F7931A] text-[#0D0D0D]"
+                                    : "bg-[#1A1A1A] text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {cadence === "biweekly" && (
+                          <div className="flex flex-col gap-2">
+                            <Label className="text-muted-foreground text-xs uppercase tracking-wider">
+                              Most recent payday
+                            </Label>
+                            <Input
+                              type="date"
+                              value={lastPaydayAt}
+                              onChange={e => setLastPaydayAt(e.target.value)}
+                              className="bg-[#1A1A1A] border-[#333] text-foreground"
+                            />
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+
+                {(incomeMode === "irregular" || incomeMode === "mix") && (
+                  <div className="flex flex-col gap-2">
+                    {incomeMode === "irregular" && (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        No regular paycheck? No problem — we&apos;ll learn your rhythm as transactions come in.
+                      </p>
+                    )}
+                    <Label className="text-muted-foreground text-xs uppercase tracking-wider">
+                      Estimated annual income (optional)
+                    </Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                      <Input
+                        type="number"
+                        value={estimatedAnnualIncome}
+                        onChange={e => setEstimatedAnnualIncome(e.target.value)}
+                        placeholder="60,000"
+                        className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7"
+                        min="0"
+                        step="any"
+                      />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Powers bounded allocation sliders in the next step. Skip if you&apos;re not sure yet.
+                    </p>
                   </div>
-                </div>
+                )}
               </div>
 
               <div className="flex gap-3">
@@ -1564,7 +1745,7 @@ export default function OnboardingPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || !income}
+                  disabled={loading || (incomeMode !== "irregular" && !income)}
                   className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {loading ? "Saving..." : "Continue"}
@@ -1889,6 +2070,74 @@ export default function OnboardingPage() {
                 }
               `}</style>
 
+              {allocPhase === "savings-goal" ? (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-xl" style={{ backgroundColor: `${SAVINGS_GOLD_ACCENT}22` }}>
+                      <Target className="h-6 w-6" style={{ color: SAVINGS_GOLD_ACCENT }} />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-foreground">Monthly savings goal</h2>
+                      <p className="text-sm text-muted-foreground">
+                        Most experts suggest saving 10–20% of income. You can change this anytime.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-[#252525] bg-[#1A1A1A] p-5 flex flex-col gap-4">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-sm text-muted-foreground">Target</span>
+                      <span className="text-2xl font-semibold" style={{ color: SAVINGS_GOLD_ACCENT }}>
+                        ${savingsGoalAmount.toLocaleString()}/mo
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={50}
+                      step={1}
+                      value={savingsGoalPct}
+                      aria-label="Savings goal percentage of monthly income"
+                      onChange={e => {
+                        const pct = Number(e.target.value)
+                        setSavingsGoalPct(pct)
+                        const raw = allocateMonthlyBudget > 0 ? (allocateMonthlyBudget * pct) / 100 : 0
+                        setSavingsGoalAmount(Math.round(raw / 25) * 25)
+                      }}
+                      className="w-full accent-[#D4AF37]"
+                    />
+                    <p className="text-xs text-muted-foreground text-center">{savingsGoalPct}% of monthly capacity</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => void skipSavingsTracking()}
+                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 mx-auto"
+                  >
+                    Not for me — skip Savings tracking
+                  </button>
+
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAllocPhase("budget")}
+                      className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
+                    >
+                      <ChevronLeft className="h-4 w-4" /> Back
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {loading ? "Saving..." : "Continue"}
+                      {!loading && <ChevronRight className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#3B82F6]/10">
                   <PieChart className="h-6 w-6 text-[#3B82F6]" />
@@ -1911,7 +2160,7 @@ export default function OnboardingPage() {
               {/* Stacked bar — sticky while scrolling envelope sliders */}
               {allocateMonthlyBudget > 0 && (
                 <div
-                  className="sticky top-0 z-20 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+                  className="sticky top-0 z-20 -mx-8 px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
                 >
                   <div className="flex flex-col gap-2">
                   <div className="flex h-10 w-full flex-row rounded-xl overflow-hidden bg-[#1A1A1A]">
@@ -2190,7 +2439,13 @@ export default function OnboardingPage() {
               </div>
 
               {savings === 0 && totalAllocated > 0 && (
-                <p className="text-xs text-amber-400/80 text-center">That piggybank is looking a bit empty :&apos;(</p>
+                <p className="text-xs text-amber-400/80 text-center">All income allocated — nothing goes to savings</p>
+              )}
+
+              {allocateMonthlyBudget === 0 && incomeMode === "irregular" && (
+                <p className="text-xs text-amber-400/90 text-center leading-relaxed">
+                  Without an income estimate, sliders are free-form. Add an annual estimate on the income step for bounded allocations.
+                </p>
               )}
 
               <div className="flex gap-3">
@@ -2210,12 +2465,60 @@ export default function OnboardingPage() {
                   {!loading && <ChevronRight className="h-4 w-4" />}
                 </button>
               </div>
+                </>
+              )}
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}
                 onSkip={skipOnboardingToDashboard}
               />
             </form>
+          )}
+
+          {/* Savings game plan affirmation */}
+          {step === "savings-game-plan" && (
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col items-center text-center gap-3 py-2">
+                <div className="p-4 rounded-full" style={{ backgroundColor: `${SAVINGS_GOLD_ACCENT}18` }}>
+                  <PiggyBank className="h-10 w-10" style={{ color: SAVINGS_GOLD_ACCENT }} />
+                </div>
+                <h2 className="text-2xl font-bold text-foreground">Your Savings game plan</h2>
+                <p className="text-3xl font-semibold text-foreground">
+                  You&apos;ll save{" "}
+                  <span style={{ color: SAVINGS_GOLD_ACCENT }}>
+                    ${Math.max(savingsGoalAmount, savings).toLocaleString()}
+                  </span>
+                  /month.
+                </p>
+                <p className="text-sm text-muted-foreground max-w-sm">
+                  In a year, that&apos;s{" "}
+                  <span className="text-foreground font-medium">
+                    ${(Math.max(savingsGoalAmount, savings) * 12).toLocaleString()}
+                  </span>
+                  {onboardingSource === "btc" && " — every dollar saved is a vote for your future."}
+                </p>
+                <p className="text-sm text-muted-foreground italic">Your future self thanks you.</p>
+              </div>
+
+              <p className="text-xs text-muted-foreground text-center leading-relaxed px-2">
+                We&apos;ll sweep leftover envelope balances to Savings on each payday — you can change this per-envelope anytime.
+              </p>
+
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => setStep(importResult !== null ? "complete" : "import")}
+                className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                Continue
+                <ChevronRight className="h-4 w-4" />
+              </button>
+              <OnboardingSkipBar
+                show={canSkipOnboarding && bootstrapped}
+                disabled={loading}
+                onSkip={skipOnboardingToDashboard}
+              />
+            </div>
           )}
 
           {/* Import Step */}
@@ -2255,7 +2558,7 @@ export default function OnboardingPage() {
               <div className="grid w-full min-w-0 grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => setStep("allocations")}
+                  onClick={() => setStep("savings-game-plan")}
                   className="min-w-0 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
                 >
                   <ChevronLeft className="h-4 w-4 shrink-0" /> Back
@@ -2288,72 +2591,35 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground text-center">
                 Your envelopes are ready and your data is secured.
               </p>
-              {hasReferralOnComplete ? (
-                <div className="w-full rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 text-sm text-[#86EFAC]">
-                  Referral code successfully applied!
+              {refereeTrialExplainerOnComplete ? (
+                <div className="w-full rounded-xl border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-4 py-3 text-left space-y-2">
+                  <p className="text-sm text-foreground font-medium">Your referral</p>
+                  <p className="text-sm text-muted-foreground">
+                    <strong className="text-foreground">
+                      {pendingReferral?.refereeTrialMonths === 1 || pendingReferral?.refereeTrialMonths === 3
+                        ? refereePremiumExperienceCarrot(pendingReferral.refereeTrialMonths)
+                        : REFEREE_PREMIUM_CARROT_FALLBACK}
+                    </strong>{" "}
+                    Next, you&apos;ll connect your bank in a dedicated step. Your premium trial only starts after a successful link—take your time
+                    exploring BitBudget first if you like.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Until you link a bank, Plan may show <strong className="text-foreground">Free</strong> — that&apos;s expected. Receipt inbox and SMS
+                    unlock when your trial starts.
+                  </p>
                 </div>
               ) : (
-                <Collapsible
-                  open={completeReferralOpen}
-                  onOpenChange={setCompleteReferralOpen}
-                  className="w-full max-w-sm space-y-3"
-                >
-                  <p className="text-xs text-muted-foreground text-center">
-                    Wait! Did you have a referral code?
-                  </p>
-                  <CollapsibleTrigger asChild>
-                    <button
-                      type="button"
-                      className="mx-auto block text-sm font-medium text-[#F7931A] hover:text-[#F7931A]/90 underline underline-offset-2 transition-colors"
-                      aria-expanded={completeReferralOpen}
-                    >
-                      Enter referral code
-                    </button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-2 pt-1">
-                    <Label htmlFor="complete-referral-code" className="text-muted-foreground text-xs uppercase tracking-wider">
-                      Code
-                    </Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="complete-referral-code"
-                        value={refCodeInput}
-                        onChange={e => {
-                          setRefCodeInput(e.target.value)
-                          if (refError) setRefError(null)
-                        }}
-                        placeholder="Enter code"
-                        className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] flex-1"
-                      />
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        disabled={refValidating || !refCodeInput.trim()}
-                        className="shrink-0 border-[#333] bg-[#1A1A1A]"
-                        onClick={() => {
-                          void applyReferralCodeFromInput()
-                        }}
-                      >
-                        {refValidating ? "…" : "Apply"}
-                      </Button>
-                    </div>
-                    {refError && (
-                      <div
-                        role="alert"
-                        className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
-                      >
-                        {refError}
-                      </div>
-                    )}
-                  </CollapsibleContent>
-                </Collapsible>
+                <p className="text-xs text-muted-foreground text-center max-w-sm">
+                  Invited by a friend? Use <strong className="text-foreground">Back</strong> to the referral step or open their invite link in
+                  this browser before you continue so your trial can apply.
+                </p>
               )}
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
               >
-                {loading ? "Finishing..." : hasReferralOnComplete ? "Continue" : "Go to Dashboard"}
+                {loading ? "Finishing..." : refereeTrialExplainerOnComplete ? "Continue" : "Go to Dashboard"}
               </button>
             </form>
           )}

@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { isReservedSavingsEnvelopeName, SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
+import { isReservedSavingsEnvelopeName, SYSTEM_ENVELOPE_ROLE_SAVINGS, SWEEP_POLICY_CAPPED, SWEEP_POLICY_CARRY_FORWARD, SWEEP_POLICY_RESET } from "@/lib/constants"
+
+const ALLOWED_SWEEP_POLICIES = new Set([
+  SWEEP_POLICY_RESET,
+  SWEEP_POLICY_CARRY_FORWARD,
+  SWEEP_POLICY_CAPPED,
+])
 
 /**
  * List envelopes for the signed-in user.
@@ -39,6 +45,9 @@ export async function GET(req: NextRequest) {
         icon: e.icon,
         archived: e.archived,
         systemRole: e.systemRole ?? null,
+        sweepPolicy: e.sweepPolicy ?? "reset",
+        sweepCapMultiplier:
+          e.sweepCapMultiplier != null ? Number(e.sweepCapMultiplier) : null,
         transactionCount: e._count.transactions,
         recurringCount: e._count.recurringTransactions,
       })),
@@ -59,6 +68,9 @@ export async function GET(req: NextRequest) {
       icon: e.icon,
       archived: e.archived,
       systemRole: e.systemRole ?? null,
+      sweepPolicy: e.sweepPolicy ?? "reset",
+      sweepCapMultiplier:
+        e.sweepCapMultiplier != null ? Number(e.sweepCapMultiplier) : null,
     })),
   )
 }
@@ -75,13 +87,9 @@ export async function POST(req: NextRequest) {
   }
   const trimmedName = name.trim()
 
-  const userLedger = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { ledgerFundingEnabled: true },
-  })
-  if (userLedger?.ledgerFundingEnabled && isReservedSavingsEnvelopeName(trimmedName)) {
+  if (isReservedSavingsEnvelopeName(trimmedName)) {
     return NextResponse.json(
-      { error: `"${trimmedName}" is reserved for ledger Savings.` },
+      { error: `"${trimmedName}" is reserved for the system Savings envelope.` },
       { status: 400 },
     )
   }
@@ -124,7 +132,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { id, name, monthlyAllotment, color, icon, archived } = await req.json()
+  const { id, name, monthlyAllotment, color, icon, archived, sweepPolicy, sweepCapMultiplier } = await req.json()
   if (!id) {
     return NextResponse.json({ error: "Envelope ID is required" }, { status: 400 })
   }
@@ -146,13 +154,9 @@ export async function PUT(req: NextRequest) {
         { status: 403 },
       )
     }
-    const userLedger = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { ledgerFundingEnabled: true },
-    })
-    if (userLedger?.ledgerFundingEnabled && isReservedSavingsEnvelopeName(name)) {
+    if (isReservedSavingsEnvelopeName(name)) {
       return NextResponse.json(
-        { error: `"${name.trim()}" is reserved for ledger Savings.` },
+        { error: `"${name.trim()}" is reserved for the system Savings envelope.` },
         { status: 400 },
       )
     }
@@ -173,6 +177,18 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  if (sweepPolicy !== undefined) {
+    if (typeof sweepPolicy !== "string" || !ALLOWED_SWEEP_POLICIES.has(sweepPolicy)) {
+      return NextResponse.json({ error: "Invalid sweepPolicy" }, { status: 400 })
+    }
+  }
+
+  if (sweepCapMultiplier !== undefined && sweepCapMultiplier !== null) {
+    if (typeof sweepCapMultiplier !== "number" || !Number.isFinite(sweepCapMultiplier) || sweepCapMultiplier <= 0) {
+      return NextResponse.json({ error: "sweepCapMultiplier must be a positive number or null" }, { status: 400 })
+    }
+  }
+
   let updated
   try {
     updated = await prisma.envelope.update({
@@ -183,6 +199,10 @@ export async function PUT(req: NextRequest) {
         ...(color !== undefined ? { color } : {}),
         ...(icon !== undefined ? { icon } : {}),
         ...(archived !== undefined ? { archived } : {}),
+        ...(sweepPolicy !== undefined ? { sweepPolicy } : {}),
+        ...(sweepCapMultiplier !== undefined
+          ? { sweepCapMultiplier: sweepCapMultiplier === null ? null : new Prisma.Decimal(sweepCapMultiplier) }
+          : {}),
       },
     })
   } catch (e) {
@@ -203,6 +223,9 @@ export async function PUT(req: NextRequest) {
     icon: updated.icon,
     archived: updated.archived,
     systemRole: updated.systemRole ?? null,
+    sweepPolicy: updated.sweepPolicy ?? "reset",
+    sweepCapMultiplier:
+      updated.sweepCapMultiplier != null ? Number(updated.sweepCapMultiplier) : null,
   })
 }
 

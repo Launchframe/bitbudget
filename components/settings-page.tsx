@@ -29,15 +29,14 @@ import {
   Link2,
   Settings2,
   Plug,
-  Landmark,
 } from "lucide-react"
 import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
 import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { SettingsReferralsCard } from "@/components/settings-referrals-card"
+import { SettingsSavingsCard } from "@/components/settings-savings-card"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
-import { Switch } from "@/components/ui/switch"
 
 type SettingsTab = "general" | "integrations" | "tags" | "payees" | "data"
 
@@ -73,7 +72,6 @@ export function SettingsPage() {
     setMonthlyIncome,
     setBtcDisplayUnit,
     setOpportunityCostEnabled,
-    setLedgerFundingEnabled,
     addTag,
     deleteTag,
     refreshData,
@@ -411,27 +409,8 @@ export function SettingsPage() {
         )}
       </div>
 
-      {/* Pay-yourself-first income (ledger funding) */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 rounded-lg bg-emerald-500/10">
-            <Landmark className="h-5 w-5 text-[#22C55E]" />
-          </div>
-          <h3 className="text-lg font-semibold text-foreground">Pay yourself first</h3>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">
-          Income shows up as one entry in your transaction list. What you have not assigned to envelopes stays in
-          Savings; envelopes are filled using the same budget mix you set under Allocations.
-        </p>
-        <div className="flex items-center justify-between gap-4 rounded-lg bg-[#1A1A1A] px-4 py-3">
-          <span className="text-sm text-foreground">Track income this way</span>
-          <Switch
-            checked={state.ledgerFundingEnabled}
-            onCheckedChange={(v) => void setLedgerFundingEnabled(Boolean(v))}
-            aria-label="Enable pay-yourself-first income tracking"
-          />
-        </div>
-      </div>
+      {/* Savings tracking */}
+      <SettingsSavingsCard />
 
       <SettingsReferralsCard />
 

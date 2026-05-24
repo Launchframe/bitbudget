@@ -83,46 +83,38 @@ export async function POST(req: NextRequest) {
       let server = await tx.envelope.findMany({ where: { userId } })
       let serverById = new Map(server.map(e => [e.id, e]))
 
-      const userSettings = await tx.user.findUnique({
-        where: { id: userId },
-        select: { ledgerFundingEnabled: true },
-      })
-      const ledgerOn = userSettings?.ledgerFundingEnabled ?? false
+      let systemSav = server.find(e => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)
+      const savingsDraft = normalized.find(
+        e =>
+          isReservedSavingsEnvelopeName(e.name) &&
+          e.id &&
+          serverById.has(e.id) &&
+          (!systemSav || e.id !== systemSav.id),
+      )
 
-      if (ledgerOn) {
-        let systemSav = server.find(e => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)
-        const savingsDraft = normalized.find(
-          e =>
-            isReservedSavingsEnvelopeName(e.name) &&
-            e.id &&
-            serverById.has(e.id) &&
-            (!systemSav || e.id !== systemSav.id),
+      if (systemSav && savingsDraft?.id && savingsDraft.id !== systemSav.id) {
+        await mergeEnvelopeRecords(tx, userId, savingsDraft.id, systemSav.id)
+        savingsDraft.id = systemSav.id
+        server = await tx.envelope.findMany({ where: { userId } })
+        serverById = new Map(server.map(e => [e.id, e]))
+        systemSav = server.find(e => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)
+      }
+
+      if (!systemSav) {
+        const lone = normalized.find(
+          e => isReservedSavingsEnvelopeName(e.name) && e.id && serverById.has(e.id),
         )
-
-        if (systemSav && savingsDraft?.id && savingsDraft.id !== systemSav.id) {
-          await mergeEnvelopeRecords(tx, userId, savingsDraft.id, systemSav.id)
-          savingsDraft.id = systemSav.id
+        if (lone?.id) {
+          await tx.envelope.update({
+            where: { id: lone.id },
+            data: {
+              systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
+              name: RESERVED_SAVINGS_ENVELOPE_NAME,
+              monthlyAllotment: 0,
+            },
+          })
           server = await tx.envelope.findMany({ where: { userId } })
           serverById = new Map(server.map(e => [e.id, e]))
-          systemSav = server.find(e => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)
-        }
-
-        if (!systemSav) {
-          const lone = normalized.find(
-            e => isReservedSavingsEnvelopeName(e.name) && e.id && serverById.has(e.id),
-          )
-          if (lone?.id) {
-            await tx.envelope.update({
-              where: { id: lone.id },
-              data: {
-                systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
-                name: RESERVED_SAVINGS_ENVELOPE_NAME,
-                monthlyAllotment: 0,
-              },
-            })
-            server = await tx.envelope.findMany({ where: { userId } })
-            serverById = new Map(server.map(e => [e.id, e]))
-          }
         }
       }
 
@@ -133,9 +125,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const systemSavId = ledgerOn
-        ? server.find(e => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)?.id
-        : undefined
+      const systemSavId = server.find(e => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)?.id
 
       const idsToDelete = server
         .filter(e => !draftIds.has(e.id) && (!systemSavId || e.id !== systemSavId))
@@ -176,7 +166,7 @@ export async function POST(req: NextRequest) {
       }
 
       for (const d of withIds) {
-        const isSystemSavings = ledgerOn && systemSavId !== undefined && d.id === systemSavId
+        const isSystemSavings = systemSavId !== undefined && d.id === systemSavId
         await tx.envelope.update({
           where: { id: d.id },
           data: isSystemSavings

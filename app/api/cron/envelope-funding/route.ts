@@ -1,6 +1,11 @@
 import { timingSafeEqual } from "crypto"
 import { NextRequest, NextResponse } from "next/server"
-import { processAllEnvelopeFunding } from "@/lib/envelope-funding"
+import { detectAchievementsForUser } from "@/lib/achievements"
+import { processEnvelopeFundingForUser } from "@/lib/envelope-funding"
+import { sweepDiscretionaryEnvelopesForUser } from "@/lib/envelope-sweep"
+import { isPaydayForUser, type PaydayUserFields } from "@/lib/payday-cadence"
+import { prisma } from "@/lib/db"
+import { closePreviousPeriodGoal, openCurrentPeriodGoal } from "@/lib/savings-goal-cron"
 
 function bearerMatches(secret: string, authHeader: string | null): boolean {
   const expected = Buffer.from(`Bearer ${secret}`, "utf8")
@@ -11,6 +16,70 @@ function bearerMatches(secret: string, authHeader: string | null): boolean {
   } catch {
     return false
   }
+}
+
+function usesPaydayCadence(user: Pick<PaydayUserFields, "payDays" | "payCadence">): boolean {
+  if (user.payDays.length > 0) return true
+  return user.payCadence === "weekly" || user.payCadence === "biweekly" || user.payCadence === "daily"
+}
+
+function isFundingDayForUser(user: PaydayUserFields, today: Date): boolean {
+  if (usesPaydayCadence(user)) return isPaydayForUser(user, today)
+  // Legacy monthly/bimonthly/daily: fundingPeriodKeyForDate dedupes within the period.
+  return true
+}
+
+export interface EnvelopeFundingCronResult {
+  usersProcessed: number
+  goalsClosed: number
+  goalsOpened: number
+  sweepTransactionsCreated: number
+  fundTransactionsCreated: number
+  achievementsDetected: number
+}
+
+/** Daily cron pipeline per user: close goal → open goal → sweep → fund → achievements. */
+export async function processEnvelopeFundingCron(asOf?: Date): Promise<EnvelopeFundingCronResult> {
+  const now = asOf ?? new Date()
+  const users = await prisma.user.findMany({
+    select: {
+      id: true,
+      payCadence: true,
+      payDays: true,
+      payDayOfWeek: true,
+      lastPaydayAt: true,
+    },
+  })
+
+  const result: EnvelopeFundingCronResult = {
+    usersProcessed: users.length,
+    goalsClosed: 0,
+    goalsOpened: 0,
+    sweepTransactionsCreated: 0,
+    fundTransactionsCreated: 0,
+    achievementsDetected: 0,
+  }
+
+  for (const u of users) {
+    if (await closePreviousPeriodGoal(u.id, now)) result.goalsClosed++
+    if (await openCurrentPeriodGoal(u.id, now)) result.goalsOpened++
+
+    const paydayUser: PaydayUserFields = {
+      payCadence: u.payCadence,
+      payDays: u.payDays,
+      payDayOfWeek: u.payDayOfWeek,
+      lastPaydayAt: u.lastPaydayAt,
+    }
+
+    if (isFundingDayForUser(paydayUser, now)) {
+      result.sweepTransactionsCreated += await sweepDiscretionaryEnvelopesForUser(u.id, now)
+      result.fundTransactionsCreated += await processEnvelopeFundingForUser(u.id, now)
+    }
+
+    result.achievementsDetected += await detectAchievementsForUser(u.id, now)
+  }
+
+  return result
 }
 
 export async function GET(req: NextRequest) {
@@ -24,8 +93,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const created = await processAllEnvelopeFunding()
-    return NextResponse.json({ processed: created })
+    const result = await processEnvelopeFundingCron()
+    return NextResponse.json(result)
   } catch (err) {
     console.error("[cron/envelope-funding] Error:", err)
     return NextResponse.json({ error: "Processing failed" }, { status: 500 })

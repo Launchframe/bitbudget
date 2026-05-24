@@ -111,16 +111,13 @@ export function EnvelopeDetailPage() {
     )
   }
 
-  const balance = getEnvelopeBalance(state.transactions, envelope.id, currentMonth, envelope.monthlyAllotment, {
-    ledgerFundingEnabled: state.ledgerFundingEnabled,
-  })
-  const isLedgerSavingsHub =
-    state.ledgerFundingEnabled && envelope.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS
+  const balance = getEnvelopeBalance(state.transactions, envelope.id, currentMonth)
+  const isSavingsHub = envelope.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS
   const percentage =
-    !isLedgerSavingsHub && envelope.monthlyAllotment > 0
+    !isSavingsHub && envelope.monthlyAllotment > 0
       ? Math.max(0, (balance / envelope.monthlyAllotment) * 100)
       : 0
-  const healthColor = isLedgerSavingsHub
+  const healthColor = isSavingsHub
     ? balance > 0
       ? "#22C55E"
       : balance < 0
@@ -156,13 +153,13 @@ export function EnvelopeDetailPage() {
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground uppercase tracking-wider">
-              {isLedgerSavingsHub ? "Balance" : "Remaining"}
+              {isSavingsHub ? "Balance" : "Remaining"}
             </span>
             <span className="text-lg font-semibold" style={{ color: healthColor }}>
               {formatUsd(balance)}
             </span>
           </div>
-          {!isLedgerSavingsHub && (
+          {!isSavingsHub && (
             <div className="flex-1 max-w-xs">
               <Progress
                 value={Math.min(100, percentage)}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useEffect, useRef } from "react"
+import { useMemo, useState, useSyncExternalStore } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
@@ -9,30 +9,41 @@ import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import {
-  cachedToClientTransaction,
-  getCachedByIds,
-  getMemo,
-  MEMO_KEYS,
-  setMemo,
-} from "@/lib/txn-cache"
+  getDashboardChartMode,
+  subscribeDashboardChartMode,
+} from "@/lib/dashboard-chart-mode"
+import { findSavingsEnvelope, isSavingsInflowCredit } from "@/lib/savings-ui-metrics"
+import { SAVINGS_EXPERIENCE_DISMISSED } from "@/lib/constants"
 
 import type { Transaction } from "@/lib/data"
 
 interface EnrichedTransaction extends Transaction {
-  /** USD value today of the BTC you could have bought with the spend (gross). */
   btcValueToday: number
-  /** Opportunity cost = btcValueToday − amount spent (see calculateOpportunityCost). */
   opportunityCost: number
   btcPriceAtTime: number
 }
 
 export function TopOpportunityCosts() {
-  const { activeTransactions, state, currentUserId, txnLoadPhase } = useApp()
+  const { activeTransactions, state } = useApp()
   const { calculateOpportunityCost, getPriceOnDate, currentPrice } = useBtcPrices()
   const [selectedTxn, setSelectedTxn] = useState<EnrichedTransaction | null>(null)
-  const [memoBootstrapTxns, setMemoBootstrapTxns] = useState<Transaction[]>([])
 
-  /** Rank by opportunity cost (delta), not gross value today — same ordering as memo top-100. */
+  const chartMode = useSyncExternalStore(
+    subscribeDashboardChartMode,
+    getDashboardChartMode,
+    () => "spending" as const,
+  )
+
+  const savingsEnvelope = useMemo(
+    () => findSavingsEnvelope(state.envelopes),
+    [state.envelopes],
+  )
+
+  const savingsMode =
+    chartMode === "savings" &&
+    state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED &&
+    savingsEnvelope != null
+
   const rankedExpenseOpportunity = useMemo(() => {
     const expenses = activeTransactions.filter((t) => t.type === "expense")
     return expenses
@@ -46,106 +57,44 @@ export function TopOpportunityCosts() {
       .sort((a, b) => b.opportunityCost - a.opportunityCost)
   }, [activeTransactions, calculateOpportunityCost, getPriceOnDate, currentPrice])
 
-  const topOcMemoIds = useMemo(
-    () => rankedExpenseOpportunity.slice(0, 100).map((x) => x.t.id),
-    [rankedExpenseOpportunity],
-  )
-
-  const lastPersistedOcIdsKey = useRef<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    if (!currentUserId || !state.opportunityCostEnabled) {
-      const clearId = setTimeout(() => {
-        if (!cancelled) setMemoBootstrapTxns([])
-      }, 0)
-      return () => {
-        cancelled = true
-        clearTimeout(clearId)
-      }
-    }
-    void (async () => {
-      try {
-        const ids = await getMemo<string[]>(currentUserId, MEMO_KEYS.topOCIds)
-        if (!ids?.length || cancelled) return
-        const cached = await getCachedByIds(currentUserId, ids.slice(0, 100))
-        if (cancelled) return
-        setMemoBootstrapTxns(cached.map(cachedToClientTransaction))
-      } catch (err) {
-        console.error("Failed to bootstrap top opportunity costs from cache", err)
-        setTimeout(() => {
-          if (!cancelled) setMemoBootstrapTxns([])
-        }, 0)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [currentUserId, state.opportunityCostEnabled])
-
-  useEffect(() => {
-    if (!currentUserId || !state.opportunityCostEnabled || txnLoadPhase !== "synced") return
-    const key = `${currentUserId}\u0000${topOcMemoIds.join("\u0001")}`
-    if (lastPersistedOcIdsKey.current === key) return
-    lastPersistedOcIdsKey.current = key
-    void setMemo(currentUserId, MEMO_KEYS.topOCIds, topOcMemoIds).catch((err) => {
-      console.error("Failed to persist top opportunity cost IDs memo", err)
-    })
-  }, [
-    currentUserId,
-    state.opportunityCostEnabled,
-    txnLoadPhase,
-    topOcMemoIds,
-  ])
-
-  const topTransactions = useMemo(() => {
-    const fromLive: EnrichedTransaction[] = rankedExpenseOpportunity
-      .slice(0, 10)
-      .map(({ t, btcValueToday, opportunityCost, btcPriceAtTime }) => ({
-        ...t,
-        btcValueToday,
-        opportunityCost,
-        btcPriceAtTime,
-      }))
-
-    if (txnLoadPhase === "synced" || memoBootstrapTxns.length === 0) {
-      return fromLive
-    }
-
-    const fromMemo: EnrichedTransaction[] = memoBootstrapTxns
-      .filter((t) => t.type === "expense")
+  const rankedSavingsInflows = useMemo(() => {
+    if (!savingsEnvelope) return []
+    return activeTransactions
+      .filter((t) => isSavingsInflowCredit(t, savingsEnvelope.id))
       .map((t) => {
         const btcPriceAtTime = getPriceOnDate(t.date)
         const btcValueToday =
           currentPrice && btcPriceAtTime > 0 ? (t.amount / btcPriceAtTime) * currentPrice : 0
-        return {
-          ...t,
-          btcValueToday,
-          opportunityCost: calculateOpportunityCost(t.amount, t.date),
-          btcPriceAtTime,
-        }
+        const opportunityCost = calculateOpportunityCost(t.amount, t.date)
+        return { t, btcValueToday, opportunityCost, btcPriceAtTime }
       })
-      .sort((a, b) => b.opportunityCost - a.opportunityCost)
-      .slice(0, 10)
+      .sort((a, b) => b.btcValueToday - a.btcValueToday)
+  }, [activeTransactions, savingsEnvelope, calculateOpportunityCost, getPriceOnDate, currentPrice])
 
-    return fromMemo.length > 0 ? fromMemo : fromLive
-  }, [
-    rankedExpenseOpportunity,
-    memoBootstrapTxns,
-    txnLoadPhase,
-    calculateOpportunityCost,
-    getPriceOnDate,
-    currentPrice,
-  ])
+  const topTransactions = useMemo((): EnrichedTransaction[] => {
+    const source = savingsMode ? rankedSavingsInflows : rankedExpenseOpportunity
+    return source.slice(0, 10).map(({ t, btcValueToday, opportunityCost, btcPriceAtTime }) => ({
+      ...t,
+      btcValueToday,
+      opportunityCost,
+      btcPriceAtTime,
+    }))
+  }, [savingsMode, rankedSavingsInflows, rankedExpenseOpportunity])
+
+  if (!state.opportunityCostEnabled && !savingsMode) {
+    return null
+  }
 
   return (
     <div className="bg-[#0D0D0D] rounded-2xl p-4 md:p-6">
       <div className="flex flex-col gap-1 mb-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground">Top Opportunity Costs</h2>
-        </div>
+        <h2 className="text-lg font-semibold text-foreground">
+          {savingsMode ? "Your biggest saves" : "Top Opportunity Costs"}
+        </h2>
         <p className="text-xs text-muted-foreground">
-          What each expense would be worth today if you&apos;d saved the money in BTC instead.
+          {savingsMode
+            ? "Income and credits to Savings ranked by BTC-equivalent value today."
+            : "What each expense would be worth today if you'd saved the money in BTC instead."}
         </p>
       </div>
 
@@ -156,11 +105,13 @@ export function TopOpportunityCosts() {
               <th className="hidden xs:table-cell pb-3 text-left font-medium pl-2 w-8">#</th>
               <th className="pb-3 text-left font-medium">Payee</th>
               <th className="pb-3 text-left font-medium hidden sm:table-cell">Date</th>
-              <th className="pb-3 text-right font-medium">Spent</th>
+              <th className="pb-3 text-right font-medium">{savingsMode ? "Saved" : "Spent"}</th>
               <th className="pb-3 text-right font-medium hidden md:table-cell">BTC Price</th>
               <th className="pb-3 text-right font-medium hidden lg:table-cell">{state.btcDisplayUnit === "btc" ? "BTC" : "Sats"} Equiv.</th>
               <th className="pb-3 text-right font-medium pr-2">BTC Value Today</th>
-              <th className="hidden sm:table-cell pb-3 text-right font-medium pr-2 rounded-r-xl">Opp. Cost</th>
+              {!savingsMode && (
+                <th className="hidden sm:table-cell pb-3 text-right font-medium pr-2 rounded-r-xl">Opp. Cost</th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -194,19 +145,21 @@ export function TopOpportunityCosts() {
                     {formatUsd(txn.btcPriceAtTime)}
                   </td>
                   <td className="py-3 text-right text-muted-foreground text-sm hidden lg:table-cell">
-                    {txn.btcPriceAtTime > 0
-                      ? <span className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}>
-                         <FormattedBtcAmount
-                            btcValue={txn.amount / txn.btcPriceAtTime}
-                            unit={state.btcDisplayUnit}
-                            displayUnit={true}
-                          />
-                        </span>
-                      : "—"}
+                    {txn.btcPriceAtTime > 0 ? (
+                      <span className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}>
+                        <FormattedBtcAmount
+                          btcValue={txn.amount / txn.btcPriceAtTime}
+                          unit={state.btcDisplayUnit}
+                          displayUnit={true}
+                        />
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </td>
-                  <td className="py-3 text-right">
+                  <td className={`py-3 text-right ${savingsMode ? "pr-2 rounded-r-xl" : ""}`}>
                     <div className="flex items-center justify-end gap-2">
-                      <span className={`text-sm font-semibold ${gained ? "text-[#F7931A]" : "text-[#22C55E]"}`}>
+                      <span className={`text-sm font-semibold ${gained ? "text-[#D4AF37]" : "text-[#22C55E]"}`}>
                         {formatUsd(txn.btcValueToday)}
                       </span>
                       {txn.btcValueToday > 0 && (
@@ -214,16 +167,20 @@ export function TopOpportunityCosts() {
                       )}
                     </div>
                   </td>
-                  <td className="py-3 text-right text-muted-foreground text-sm hidden sm:table-cell pr-2 rounded-r-xl">
-                    {formatUsd(txn.opportunityCost)}
-                  </td>
+                  {!savingsMode && (
+                    <td className="py-3 text-right text-muted-foreground text-sm hidden sm:table-cell pr-2 rounded-r-xl">
+                      {formatUsd(txn.opportunityCost)}
+                    </td>
+                  )}
                 </tr>
               )
             })}
             {topTransactions.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-muted-foreground text-sm">
-                  No expense transactions yet. Add one to see opportunity costs.
+                <td colSpan={savingsMode ? 7 : 8} className="py-8 text-center text-muted-foreground text-sm">
+                  {savingsMode
+                    ? "No Savings inflows yet. Add income to see your biggest saves."
+                    : "No expense transactions yet. Add one to see opportunity costs."}
                 </td>
               </tr>
             )}

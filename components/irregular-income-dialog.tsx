@@ -17,8 +17,13 @@ function todayIso(): string {
   return new Date().toISOString().split("T")[0]!
 }
 
-export function IrregularIncomeDialog() {
-  const { state, refreshData } = useApp()
+export function IrregularIncomeDialog({
+  triggerVariant = "icon",
+}: {
+  /** `icon` = compact toolbar button; `button` = labeled Settings-style button */
+  triggerVariant?: "icon" | "button"
+}) {
+  const { refreshData } = useApp()
   const [open, setOpen] = useState(false)
   const [amount, setAmount] = useState("")
   const [date, setDate] = useState(todayIso)
@@ -81,19 +86,30 @@ export function IrregularIncomeDialog() {
     }
   }, [amount, date, payee, notes, refreshData, handleOpenChange])
 
-  if (!state.ledgerFundingEnabled) return null
-
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333] text-muted-foreground hover:text-foreground hover:border-[#555] transition-colors"
-        title="Add extra income"
-        aria-label="Add extra income"
-      >
-        <Landmark className="h-4 w-4" />
-      </button>
+      {triggerVariant === "button" ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setOpen(true)}
+          className="border-[#333] hover:border-[#D4AF37]/50"
+        >
+          <Landmark className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+          Add extra income
+        </Button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333] text-muted-foreground hover:text-foreground hover:border-[#555] transition-colors"
+          title="Add extra income"
+          aria-label="Add extra income"
+        >
+          <Landmark className="h-4 w-4" />
+        </button>
+      )}
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-sm">

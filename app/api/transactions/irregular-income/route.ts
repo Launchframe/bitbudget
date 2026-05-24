@@ -51,20 +51,12 @@ export async function POST(req: NextRequest) {
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: {
-      ledgerFundingEnabled: true,
       monthlyIncome: true,
       publicKey: true,
     },
   })
 
-  if (!user?.ledgerFundingEnabled) {
-    return NextResponse.json(
-      { error: "Ledger funding must be enabled in Settings first." },
-      { status: 400 },
-    )
-  }
-
-  if (!Number.isFinite(user.monthlyIncome) || user.monthlyIncome <= 0) {
+  if (!Number.isFinite(user?.monthlyIncome) || (user?.monthlyIncome ?? 0) <= 0) {
     return NextResponse.json(
       { error: "Set a positive Monthly Income under allocations/settings before irregular income." },
       { status: 400 },
@@ -73,14 +65,13 @@ export async function POST(req: NextRequest) {
 
   const createdCount = await createIrregularIncomeBatch({
     userId: session.user.id,
-    publicKey: user.publicKey,
+    publicKey: user!.publicKey,
     grossUsd: amountNum,
     dateIso,
     displayPayee: payee.trim(),
     notesPlain: notesStr,
-    userLedger: {
-      ledgerFundingEnabled: user.ledgerFundingEnabled,
-      monthlyIncome: user.monthlyIncome,
+    userIncome: {
+      monthlyIncome: user!.monthlyIncome,
     },
   })
 

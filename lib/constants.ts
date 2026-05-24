@@ -21,6 +21,25 @@ export const LEDGER_INCOME_PAYEE_LABEL = "Income"
 /** Funding allocation legs use this plaintext label (hidden from main history). */
 export const LEDGER_ALLOCATION_PAYEE_LABEL = "Envelope allocation"
 
+export const SWEEP_POLICY_RESET = "reset"
+export const SWEEP_POLICY_CARRY_FORWARD = "carry_forward"
+export const SWEEP_POLICY_CAPPED = "capped"
+
+export const SAVINGS_EXPERIENCE_ENGAGED = "engaged"
+export const SAVINGS_EXPERIENCE_DISMISSED = "dismissed"
+
+/** Rolling fallback row in SavingsGoal when no per-month override exists. */
+export const SAVINGS_GOAL_DEFAULT_PERIOD = "default"
+
+/** Savings UI accent (distinct from Bitcoin orange #F7931A). */
+export const SAVINGS_GOLD_ACCENT = "#D4AF37"
+
+export const TX_SOURCE_INCOME_IMPORT = "income_import"
+export const TX_SOURCE_ENVELOPE_SWEEP = "envelope_sweep"
+
+export const ENVELOPE_FUNDING_BATCH_KIND_FUND = "fund"
+export const ENVELOPE_FUNDING_BATCH_KIND_SWEEP = "sweep"
+
 export function isReservedSavingsEnvelopeName(name: string): boolean {
   return name.trim().toLowerCase() === RESERVED_SAVINGS_ENVELOPE_NAME.toLowerCase()
 }

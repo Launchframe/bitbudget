@@ -1,13 +1,30 @@
+export type OnboardingPayCadence = "monthly" | "bimonthly" | "weekly" | "biweekly"
+
 /**
  * Monthly USD budget for envelope allocation during onboarding.
- * Bi-monthly pay (twice per month) is stored per paycheck in the income field; allocations are monthly, so ×2.
+ * Per-paycheck amounts are converted to a monthly equivalent for slider caps.
  */
 export function monthlyBudgetForAllocation(
   incomeParsed: number,
-  payCadence: "monthly" | "bimonthly",
+  payCadence: OnboardingPayCadence,
 ): number {
   if (!Number.isFinite(incomeParsed) || incomeParsed <= 0) return 0
-  return payCadence === "bimonthly" ? incomeParsed * 2 : incomeParsed
+  switch (payCadence) {
+    case "bimonthly":
+      return incomeParsed * 2
+    case "weekly":
+      return incomeParsed * (52 / 12)
+    case "biweekly":
+      return incomeParsed * (26 / 12)
+    default:
+      return incomeParsed
+  }
+}
+
+/** Monthly capacity when income is irregular-only or mixed with an annual estimate. */
+export function monthlyCapacityFromAnnualEstimate(estimatedAnnual: number): number {
+  if (!Number.isFinite(estimatedAnnual) || estimatedAnnual <= 0) return 0
+  return estimatedAnnual / 12
 }
 
 /**
