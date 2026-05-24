@@ -124,6 +124,9 @@ export async function POST(req: NextRequest) {
     icon: envelope.icon,
     archived: envelope.archived,
     systemRole: envelope.systemRole ?? null,
+    sweepPolicy: envelope.sweepPolicy ?? SWEEP_POLICY_RESET,
+    sweepCapMultiplier:
+      envelope.sweepCapMultiplier != null ? Number(envelope.sweepCapMultiplier) : null,
   }, { status: 201 })
 }
 

@@ -122,28 +122,29 @@ export async function netSavingsInflowForPeriod(
   const bounds = periodBoundsUtc(periodKey)
   if (!bounds) return 0
 
-  const creditRows = await prisma.transaction.findMany({
-    where: {
-      userId,
-      envelopeId: savingsEnvelopeId,
-      type: "credit",
-      source: { in: [...SAVINGS_INFLOW_SOURCES] },
-      date: { gte: bounds.start, lt: bounds.end },
-    },
-    select: { amount: true },
-  })
-  const outRows = await prisma.transaction.findMany({
-    where: {
-      userId,
-      envelopeId: savingsEnvelopeId,
-      type: "expense",
-      source: TX_SOURCE_FUNDING_OUT,
-      date: { gte: bounds.start, lt: bounds.end },
-    },
-    select: { amount: true },
-  })
+  const dateFilter = { gte: bounds.start, lt: bounds.end }
+  const base = { userId, envelopeId: savingsEnvelopeId, date: dateFilter }
 
-  const credits = creditRows.reduce((s, r) => s + r.amount, 0)
-  const out = outRows.reduce((s, r) => s + r.amount, 0)
-  return Math.round((credits - out) * 100) / 100
+  const [credits, out] = await Promise.all([
+    prisma.transaction.aggregate({
+      where: {
+        ...base,
+        type: "credit",
+        source: { in: [...SAVINGS_INFLOW_SOURCES] },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.transaction.aggregate({
+      where: {
+        ...base,
+        type: "expense",
+        source: TX_SOURCE_FUNDING_OUT,
+      },
+      _sum: { amount: true },
+    }),
+  ])
+
+  const creditSum = credits._sum.amount != null ? Number(credits._sum.amount) : 0
+  const outSum = out._sum.amount != null ? Number(out._sum.amount) : 0
+  return Math.round((creditSum - outSum) * 100) / 100
 }

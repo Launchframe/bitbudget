@@ -1,8 +1,10 @@
 import { timingSafeEqual } from "crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { detectAchievementsForUser } from "@/lib/achievements"
+import { fundingPeriodKeyForDate } from "@/lib/envelope-funding-period"
 import { processEnvelopeFundingForUser } from "@/lib/envelope-funding"
 import { sweepDiscretionaryEnvelopesForUser } from "@/lib/envelope-sweep"
+import { isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import { isPaydayForUser, usesPaydayCadence, type PaydayUserFields } from "@/lib/payday-cadence"
 import { prisma } from "@/lib/db"
 import { closePreviousPeriodGoal, openCurrentPeriodGoal } from "@/lib/savings-goal-cron"
@@ -20,8 +22,14 @@ function bearerMatches(secret: string, authHeader: string | null): boolean {
 
 function isFundingDayForUser(user: PaydayUserFields, today: Date): boolean {
   if (usesPaydayCadence(user)) return isPaydayForUser(user, today)
-  // Legacy monthly/bimonthly/daily: fundingPeriodKeyForDate dedupes within the period.
-  return true
+  // Legacy monthly/bimonthly/daily only; irregular/mixed have no period key — skip cron work.
+  return (
+    fundingPeriodKeyForDate({
+      payCadence: user.payCadence,
+      runDateUtc: today,
+      dailyCadenceAllowed: isDailyPayCadenceAllowed(),
+    }) != null
+  )
 }
 
 export interface EnvelopeFundingCronResult {
