@@ -577,6 +577,7 @@ export default function OnboardingPage() {
           settingsRes.status === 401 ||
           settingsRes.status === 403
         ) {
+          leaveOnboarding = true
           signOut({ callbackUrl: "/auth" })
           return
         }

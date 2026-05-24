@@ -5,6 +5,7 @@ import {
   canRedeemReferralInSettings,
   generateUserReferralCodeSegment,
   isValidOfferSlug,
+  isWithinRefereePostOnboardingRedeemWindow,
   normalizeOfferSlug,
   normalizeReferralCodeInput,
   refereePostOnboardingRedeemDeadline,
@@ -50,6 +51,30 @@ describe("referral code helpers", () => {
     expect(deadline?.getTime()).toBe(
       completed.getTime() + REFEREE_POST_ONBOARDING_REDEEM_DAYS * 86400000,
     )
+  })
+
+  it("isWithinRefereePostOnboardingRedeemWindow is inclusive at start, exclusive at deadline", () => {
+    const completed = new Date(Date.UTC(2026, 4, 1, 12, 0, 0))
+    const deadline = refereePostOnboardingRedeemDeadline(completed)!
+    expect(
+      isWithinRefereePostOnboardingRedeemWindow({
+        onboardingCompletedAt: completed,
+        now: completed,
+      }),
+    ).toBe(true)
+    expect(
+      isWithinRefereePostOnboardingRedeemWindow({
+        onboardingCompletedAt: completed,
+        now: new Date(deadline.getTime() - 1),
+      }),
+    ).toBe(true)
+    expect(
+      isWithinRefereePostOnboardingRedeemWindow({
+        onboardingCompletedAt: completed,
+        now: deadline,
+      }),
+    ).toBe(false)
+    expect(isWithinRefereePostOnboardingRedeemWindow({ onboardingCompletedAt: null })).toBe(false)
   })
 
   it("canRedeemReferralAsReferee allows onboarding and post-onboarding window", () => {
