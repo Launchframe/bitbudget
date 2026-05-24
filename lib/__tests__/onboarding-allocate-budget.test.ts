@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest"
-import { snapOnboardingAllocationToStep } from "../onboarding-allocate-budget"
+import {
+  savingsGoalPercentOfPaycheck,
+  snapOnboardingAllocationToStep,
+} from "../onboarding-allocate-budget"
+
+describe("savingsGoalPercentOfPaycheck", () => {
+  it("returns null when paycheck is missing or non-positive", () => {
+    expect(savingsGoalPercentOfPaycheck(500, 0)).toBeNull()
+    expect(savingsGoalPercentOfPaycheck(500, -100)).toBeNull()
+  })
+
+  it("expresses monthly goal as percent of one paycheck", () => {
+    expect(savingsGoalPercentOfPaycheck(6000, 6000)).toBe(100)
+    expect(savingsGoalPercentOfPaycheck(3000, 6000)).toBe(50)
+    expect(savingsGoalPercentOfPaycheck(6000, 3000)).toBe(200)
+  })
+})
 
 describe("snapOnboardingAllocationToStep", () => {
   it("uses midpoints step*i + step/2 (e.g. 25, 75) for nearest-50 buckets", () => {

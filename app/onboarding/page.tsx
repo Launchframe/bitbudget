@@ -50,6 +50,7 @@ import {
 import {
   monthlyBudgetForAllocation,
   monthlyCapacityFromAnnualEstimate,
+  savingsGoalPercentOfPaycheck,
   snapOnboardingAllocationToStep,
   type OnboardingPayCadence,
 } from "@/lib/onboarding-allocate-budget"
@@ -1182,6 +1183,10 @@ export default function OnboardingPage() {
         : 0
     return regular + irregular
   }, [incomeMode, income, cadence, estimatedAnnualIncome])
+  const savingsGoalPaycheckPct = useMemo(() => {
+    if (incomeMode === "irregular") return null
+    return savingsGoalPercentOfPaycheck(savingsGoalAmount, parseFloat(income) || 0)
+  }, [incomeMode, income, savingsGoalAmount])
   const savings = Math.max(0, allocateMonthlyBudget - totalAllocated)
   const savingsPct =
     allocateMonthlyBudget > 0 ? Math.round((savings / allocateMonthlyBudget) * 100) : 0
@@ -2077,9 +2082,9 @@ export default function OnboardingPage() {
                       <Target className="h-6 w-6" style={{ color: SAVINGS_GOLD_ACCENT }} />
                     </div>
                     <div>
-                      <h2 className="text-xl font-bold text-foreground">Monthly savings goal</h2>
+                      <h2 className="text-xl font-bold text-foreground">Pay yourself first</h2>
                       <p className="text-sm text-muted-foreground">
-                        Most experts suggest saving 10–20% of income. You can change this anytime.
+                        Let&apos;s set your first savings goal. 
                       </p>
                     </div>
                   </div>
@@ -2106,7 +2111,16 @@ export default function OnboardingPage() {
                       }}
                       className="w-full accent-[#D4AF37]"
                     />
-                    <p className="text-xs text-muted-foreground text-center">{savingsGoalPct}% of monthly capacity</p>
+                    <div className="flex flex-col gap-0.5 text-center">
+                      <p className="text-xs text-muted-foreground">
+                        {savingsGoalPct}% of monthly capacity
+                      </p>
+                      {savingsGoalPaycheckPct != null && (
+                        <p className="text-xs text-muted-foreground">
+                          {savingsGoalPaycheckPct}% of each paycheck
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   <button
@@ -2115,7 +2129,7 @@ export default function OnboardingPage() {
                     onClick={() => void skipSavingsTracking()}
                     className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 mx-auto"
                   >
-                    Not for me — skip Savings tracking
+                    Not for me — I&apos;ll stick to my budget
                   </button>
 
                   <div className="flex gap-3">

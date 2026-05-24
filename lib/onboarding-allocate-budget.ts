@@ -27,6 +27,16 @@ export function monthlyCapacityFromAnnualEstimate(estimatedAnnual: number): numb
   return estimatedAnnual / 12
 }
 
+/** Percent of one entered paycheck that a monthly savings goal represents; null when no paycheck. */
+export function savingsGoalPercentOfPaycheck(
+  savingsGoalMonthly: number,
+  paycheckAmount: number,
+): number | null {
+  if (!Number.isFinite(paycheckAmount) || paycheckAmount <= 0) return null
+  if (!Number.isFinite(savingsGoalMonthly) || savingsGoalMonthly < 0) return null
+  return Math.round((savingsGoalMonthly / paycheckAmount) * 100)
+}
+
 /**
  * Coarse step (USD) for Allocate Income: displayed $ / % and stacked bar update when the slider
  * crosses midpoints `step * i + step/2` (e.g. …, 25, 75, 125, … for $50 steps).
