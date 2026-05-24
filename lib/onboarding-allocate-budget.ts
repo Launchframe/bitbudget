@@ -43,6 +43,31 @@ export function savingsGoalPercentOfPaycheck(
  */
 export const ONBOARDING_ALLOCATE_SLIDER_STEP = 50
 
+/** Fine adjustment step for vertical allocation scrollers ($5 = 1/10 of coarse step). */
+export const ONBOARDING_ALLOCATE_FINE_STEP = ONBOARDING_ALLOCATE_SLIDER_STEP / 10
+
+/** Live UI amount while dragging — integer dollars, not $50 snap. */
+export function onboardingAllocationDisplayAmount(raw: number, max: number): number {
+  if (!Number.isFinite(max) || max <= 0) return 0
+  if (!Number.isFinite(raw)) return 0
+  return Math.min(max, Math.max(0, Math.round(raw)))
+}
+
+/** Nudge an allocation by fine steps, clamped to `[0, max]`. */
+export function nudgeOnboardingAllocationAmount(
+  current: number,
+  deltaSteps: number,
+  max: number,
+  fineStep: number = ONBOARDING_ALLOCATE_FINE_STEP,
+): number {
+  if (!Number.isFinite(max) || max <= 0) return 0
+  if (!Number.isFinite(current) || !Number.isFinite(deltaSteps) || !Number.isFinite(fineStep)) {
+    return Math.min(max, Math.max(0, Math.round(current)))
+  }
+  const step = fineStep > 0 ? fineStep : ONBOARDING_ALLOCATE_FINE_STEP
+  return Math.min(max, Math.max(0, Math.round(current + deltaSteps * step)))
+}
+
 /**
  * Starting slider range when onboarding has no income estimate.
  * Doubles (1000 → 2000 → 4000 → …) as the user allocates toward the current max.
@@ -280,6 +305,31 @@ export function onboardingSavingsGoalPercentOfCapacity(
   if (!Number.isFinite(capacity) || capacity <= 0) return 0
   if (!Number.isFinite(amount) || amount <= 0) return 0
   return Math.round((amount / capacity) * 100)
+}
+
+/** Slider max (% of capacity) — grows when the user types a goal above the default 50% cap. */
+export function onboardingSavingsGoalSliderMaxPct(
+  currentPct: number,
+  capacity: number,
+  goalAmount: number,
+): number {
+  const fromAmount = onboardingSavingsGoalPercentOfCapacity(goalAmount, capacity)
+  return Math.max(
+    ONBOARDING_SAVINGS_GOAL_SLIDER_MAX_PCT,
+    Number.isFinite(currentPct) ? currentPct : 0,
+    fromAmount,
+  )
+}
+
+export function onboardingSavingsGoalFromManualInput(
+  rawMonthly: number,
+  capacity: number,
+): { amount: number; pct: number } {
+  const amount = snapOnboardingSavingsGoalAmount(Math.max(0, rawMonthly))
+  return {
+    amount,
+    pct: onboardingSavingsGoalPercentOfCapacity(amount, capacity),
+  }
 }
 
 /**

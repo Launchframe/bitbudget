@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest"
 import {
   isUnboundedOnboardingAllocation,
+  nudgeOnboardingAllocationAmount,
   onboardingAllocationCapForRow,
+  onboardingAllocationDisplayAmount,
+  ONBOARDING_ALLOCATE_FINE_STEP,
   onboardingSliderMaxForRow,
   ONBOARDING_UNBOUNDED_INPUT_MAX,
   ONBOARDING_UNBOUNDED_SLIDER_FLOOR,
@@ -15,7 +18,9 @@ import {
   defaultOnboardingSavingsGoalAmount,
   onboardingSavingsGoalAmountFromPercent,
   onboardingSavingsGoalCapacity,
+  onboardingSavingsGoalFromManualInput,
   onboardingSavingsGoalPercentOfCapacity,
+  onboardingSavingsGoalSliderMaxPct,
   scaleOnboardingAllocationsToBudget,
   unboundedOnboardingSliderThumbPct,
   savingsGoalPercentOfPaycheck,
@@ -71,6 +76,18 @@ describe("onboarding savings goal defaults", () => {
   it("derives amount and percent from capacity", () => {
     expect(onboardingSavingsGoalAmountFromPercent(12_000, 10)).toBe(1_200)
     expect(onboardingSavingsGoalPercentOfCapacity(1_200, 12_000)).toBe(10)
+  })
+
+  it("extends slider max when manual goal exceeds 50% of capacity", () => {
+    expect(onboardingSavingsGoalSliderMaxPct(10, 12_000, 1_200)).toBe(50)
+    expect(onboardingSavingsGoalSliderMaxPct(10, 12_000, 7_200)).toBe(60)
+  })
+
+  it("derives amount and pct from manual entry", () => {
+    expect(onboardingSavingsGoalFromManualInput(7_225, 12_000)).toEqual({
+      amount: 7_225,
+      pct: 60,
+    })
   })
 })
 
@@ -155,6 +172,30 @@ describe("scaleOnboardingAllocationsToBudget", () => {
       2_000,
       3_000,
     ])
+  })
+})
+
+describe("nudgeOnboardingAllocationAmount", () => {
+  it("uses $5 fine steps by default", () => {
+    expect(ONBOARDING_ALLOCATE_FINE_STEP).toBe(5)
+    expect(nudgeOnboardingAllocationAmount(100, 1, 1_000)).toBe(105)
+    expect(nudgeOnboardingAllocationAmount(100, -1, 1_000)).toBe(95)
+  })
+
+  it("clamps to zero and max", () => {
+    expect(nudgeOnboardingAllocationAmount(2, -1, 1_000)).toBe(0)
+    expect(nudgeOnboardingAllocationAmount(998, 1, 1_000)).toBe(1_000)
+  })
+
+  it("supports multi-step nudges", () => {
+    expect(nudgeOnboardingAllocationAmount(100, 3, 1_000)).toBe(115)
+  })
+})
+
+describe("onboardingAllocationDisplayAmount", () => {
+  it("rounds and clamps without coarse snap", () => {
+    expect(onboardingAllocationDisplayAmount(127.4, 1_000)).toBe(127)
+    expect(onboardingAllocationDisplayAmount(1_500, 1_000)).toBe(1_000)
   })
 })
 

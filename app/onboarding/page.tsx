@@ -54,6 +54,7 @@ import {
   hasNsecOnboardingIntent,
   clearNsecOnboardingIntent,
 } from "@/lib/nostr-local-signer"
+import { OnboardingAllocFineScroller } from "@/components/onboarding-alloc-fine-scroller"
 import {
   applyUnboundedOnboardingSliderDrag,
   bumpUnboundedOnboardingSliderVisitedMax,
@@ -64,13 +65,19 @@ import {
   isUnboundedOnboardingAllocation,
   monthlyBudgetForAllocation,
   monthlyCapacityFromAnnualEstimate,
+  nudgeOnboardingAllocationAmount,
   onboardingAllocationCapForRow,
+  onboardingAllocationDisplayAmount,
+  ONBOARDING_ALLOCATE_FINE_STEP,
+  ONBOARDING_ALLOCATE_SLIDER_STEP,
   onboardingSavingsGoalAmountFromPercent,
   onboardingSavingsGoalCapacity,
+  onboardingSavingsGoalFromManualInput,
   onboardingSavingsGoalPercentOfCapacity,
+  onboardingSavingsGoalSliderMaxPct,
   scaleOnboardingAllocationsToBudget,
   ONBOARDING_SAVINGS_GOAL_DEFAULT_PCT,
-  ONBOARDING_SAVINGS_GOAL_SLIDER_MAX_PCT,
+  ONBOARDING_UNBOUNDED_INPUT_MAX,
   onboardingSliderMaxForRow,
   savingsGoalPercentOfPaycheck,
   snapOnboardingAllocationToStep,
@@ -248,7 +255,36 @@ export default function OnboardingPage() {
     idx: number
     raw: number
   } | null>(null)
+  /** Sync mirror of override — release/commit read this within the same pointer event as nudge. */
+  const allocSliderRawOverrideRef = useRef<{ idx: number; raw: number } | null>(null)
+  const syncAllocSliderRawOverride = useCallback(
+    (
+      update:
+        | { idx: number; raw: number }
+        | null
+        | ((
+            prev: { idx: number; raw: number } | null,
+          ) => { idx: number; raw: number } | null),
+    ) => {
+      if (typeof update === "function") {
+        setAllocSliderRawOverride(prev => {
+          const next = update(prev)
+          allocSliderRawOverrideRef.current = next
+          return next
+        })
+      } else {
+        allocSliderRawOverrideRef.current = update
+        setAllocSliderRawOverride(update)
+      }
+    },
+    [],
+  )
+  const allocSliderRawForRow = useCallback((rowIdx: number, fallback: number) => {
+    const override = allocSliderRawOverrideRef.current
+    return override?.idx === rowIdx ? override.raw : fallback
+  }, [])
   const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
+  const allocSliderRangeInputRefs = useRef<(HTMLInputElement | null)[]>([])
   const allocSliderPointerRef = useRef<{ pointerId: number; idx: number } | null>(null)
   const allocSliderDragSessionRef = useRef<{
     idx: number
@@ -1307,7 +1343,7 @@ export default function OnboardingPage() {
               Math.max(0, allocateMonthlyBudget - otherAllocated),
               allocateMonthlyBudget,
             ))
-      return snapOnboardingAllocationToStep(allocSliderRawOverride.raw, sliderMax)
+      return onboardingAllocationDisplayAmount(allocSliderRawOverride.raw, sliderMax)
     })
   }, [
     allocateMonthlyBudget,
@@ -1327,6 +1363,15 @@ export default function OnboardingPage() {
       ? Math.round((savingsDisplay / allocateMonthlyBudget) * 100)
       : 0
   const savingsGoalCapacity = onboardingSavingsGoalCapacity(allocateMonthlyBudget, totalAllocated)
+  const savingsGoalSliderMaxPct = useMemo(
+    () =>
+      onboardingSavingsGoalSliderMaxPct(
+        savingsGoalPct,
+        savingsGoalCapacity,
+        savingsGoalAmount,
+      ),
+    [savingsGoalAmount, savingsGoalCapacity, savingsGoalPct],
+  )
 
   /** Fit envelope totals when entering bounded allocation (e.g. unbounded → estimated income). */
   useEffect(() => {
@@ -1347,10 +1392,10 @@ export default function OnboardingPage() {
       return prev.map((e, i) => ({ ...e, monthlyAllotment: scaled[i] }))
     })
     if (didScale) {
-      setAllocSliderRawOverride(null)
+      syncAllocSliderRawOverride(null)
       setAllocSliderUnboundedVisitedMax({})
     }
-  }, [step, allocateMonthlyBudget])
+  }, [step, allocateMonthlyBudget, syncAllocSliderRawOverride])
 
   const pendingDeleteEnv =
     pendingDeleteEnvelopeIdx !== null ? envelopes[pendingDeleteEnvelopeIdx] : undefined
@@ -1370,11 +1415,18 @@ export default function OnboardingPage() {
    * Usually a no-op during drag (bucket updates on midpoint crossings); used on release/blur to clamp.
    */
   const commitOnboardingSliderSnap = useCallback(
-    (rowIdx: number, input: HTMLInputElement, pendingRaw?: number) => {
+    (
+      rowIdx: number,
+      input: HTMLInputElement | null,
+      pendingRaw?: number,
+      snapStep: number = ONBOARDING_ALLOCATE_SLIDER_STEP,
+    ) => {
       const parsed =
         pendingRaw != null && Number.isFinite(pendingRaw)
           ? pendingRaw
-          : parseInt(input.value, 10)
+          : input
+            ? parseInt(input.value, 10)
+            : 0
       const v = Number.isFinite(parsed) ? parsed : 0
       const lockedMax =
         allocSliderDragSessionRef.current?.idx === rowIdx
@@ -1400,22 +1452,29 @@ export default function OnboardingPage() {
               ),
             )
           : rowCap
-        const snapped = snapOnboardingAllocationToStep(Math.min(snapMax, v), snapMax)
+        const snapped = snapOnboardingAllocationToStep(Math.min(snapMax, v), snapMax, snapStep)
         return prev.map((en, i) => (i === rowIdx ? { ...en, monthlyAllotment: snapped } : en))
       })
-      setAllocSliderRawOverride(prev => (prev?.idx === rowIdx ? null : prev))
+      syncAllocSliderRawOverride(prev => (prev?.idx === rowIdx ? null : prev))
       allocSliderPointerRef.current = null
       allocSliderDragSessionRef.current = null
       setAllocSliderLockedMax(prev => (prev?.idx === rowIdx ? null : prev))
     },
-    [allocateMonthlyBudget, allocSliderLockedMax, allocSliderUnboundedVisitedMax],
+    [allocateMonthlyBudget, allocSliderLockedMax, allocSliderUnboundedVisitedMax, syncAllocSliderRawOverride],
   )
 
   const releaseAllocSliderRow = useCallback(
-    (rowIdx: number, input: HTMLInputElement, unbounded: boolean) => {
+    (
+      rowIdx: number,
+      input: HTMLInputElement | null,
+      unbounded: boolean,
+      snapStep: number = ONBOARDING_ALLOCATE_SLIDER_STEP,
+    ) => {
       const session = allocSliderDragSessionRef.current
       const pendingRaw =
-        allocSliderRawOverride?.idx === rowIdx ? allocSliderRawOverride.raw : undefined
+        allocSliderRawOverrideRef.current?.idx === rowIdx
+          ? allocSliderRawOverrideRef.current.raw
+          : undefined
       const lockedMax =
         session?.idx === rowIdx
           ? session.lockedMax
@@ -1423,7 +1482,9 @@ export default function OnboardingPage() {
             ? allocSliderLockedMax.max
             : null
 
-      commitOnboardingSliderSnap(rowIdx, input, pendingRaw)
+      if (input || pendingRaw != null) {
+        commitOnboardingSliderSnap(rowIdx, input, pendingRaw, snapStep)
+      }
 
       if (unbounded && lockedMax != null) {
         bumpUnboundedSliderVisitedMaxForRow(rowIdx, lockedMax)
@@ -1431,9 +1492,148 @@ export default function OnboardingPage() {
     },
     [
       allocSliderLockedMax,
-      allocSliderRawOverride,
       bumpUnboundedSliderVisitedMaxForRow,
       commitOnboardingSliderSnap,
+    ],
+  )
+
+  const beginAllocSliderGesture = useCallback(
+    (rowIdx: number, initialRaw: number, gestureMax: number) => {
+      if (isUnboundedOnboardingAllocation(allocateMonthlyBudget)) {
+        allocSliderDragSessionRef.current = {
+          idx: rowIdx,
+          lockedMax: gestureMax,
+          expandedFrom: new Set(),
+        }
+        setAllocSliderLockedMax({ idx: rowIdx, max: gestureMax })
+      } else {
+        allocSliderDragSessionRef.current = null
+        setAllocSliderLockedMax(prev => (prev?.idx === rowIdx ? null : prev))
+      }
+      syncAllocSliderRawOverride({ idx: rowIdx, raw: initialRaw })
+    },
+    [allocateMonthlyBudget, syncAllocSliderRawOverride],
+  )
+
+  const applyOnboardingAllocSliderValue = useCallback(
+    (
+      rowIdx: number,
+      parsedVal: number,
+      ctx: {
+        sliderMax: number
+        committedAllotment: number
+        isGestureActive: boolean
+        commitNow: boolean
+      },
+    ) => {
+      const session = allocSliderDragSessionRef.current
+      const prevRaw = allocSliderRawForRow(rowIdx, ctx.committedAllotment)
+      const isDraggingThisRow =
+        ctx.isGestureActive || allocSliderPointerRef.current?.idx === rowIdx
+      const activeMax =
+        isUnboundedOnboardingAllocation(allocateMonthlyBudget) && session?.idx === rowIdx
+          ? session.lockedMax
+          : ctx.sliderMax
+
+      let val = Math.max(0, parsedVal)
+
+      if (
+        isUnboundedOnboardingAllocation(allocateMonthlyBudget) &&
+        isDraggingThisRow &&
+        session?.idx === rowIdx
+      ) {
+        const drag = applyUnboundedOnboardingSliderDrag({
+          prevRaw,
+          val: parsedVal,
+          activeMax,
+          expandedFromMaxes: session.expandedFrom,
+        })
+        val = drag.val
+        session.lockedMax = drag.activeMax
+        session.expandedFrom = drag.expandedFromMaxes
+        if (drag.didExpand) {
+          setAllocSliderLockedMax({ idx: rowIdx, max: drag.activeMax })
+          bumpUnboundedSliderVisitedMaxForRow(rowIdx, drag.activeMax)
+        }
+      } else {
+        val = Math.min(activeMax, val)
+      }
+
+      if (isDraggingThisRow) {
+        syncAllocSliderRawOverride({ idx: rowIdx, raw: val })
+        if (!isUnboundedOnboardingAllocation(allocateMonthlyBudget)) {
+          const newBucket = snapOnboardingAllocationToStep(val, activeMax)
+          if (newBucket !== ctx.committedAllotment) {
+            setEnvelopes(prev => prev.map((en, i) =>
+              i === rowIdx ? { ...en, monthlyAllotment: newBucket } : en,
+            ))
+          }
+        }
+      } else if (ctx.commitNow) {
+        const newBucket = snapOnboardingAllocationToStep(val, activeMax)
+        if (newBucket !== ctx.committedAllotment) {
+          setEnvelopes(prev => prev.map((en, i) =>
+            i === rowIdx ? { ...en, monthlyAllotment: newBucket } : en,
+          ))
+        }
+      }
+    },
+    [
+      allocateMonthlyBudget,
+      allocSliderRawForRow,
+      bumpUnboundedSliderVisitedMaxForRow,
+      syncAllocSliderRawOverride,
+    ],
+  )
+
+  const nudgeAllocSliderRow = useCallback(
+    (
+      rowIdx: number,
+      deltaSteps: number,
+      ctx: { sliderMax: number; committedAllotment: number },
+    ) => {
+      const session = allocSliderDragSessionRef.current
+      const prevRaw = allocSliderRawForRow(rowIdx, ctx.committedAllotment)
+      const activeMax =
+        isUnboundedOnboardingAllocation(allocateMonthlyBudget) && session?.idx === rowIdx
+          ? session.lockedMax
+          : ctx.sliderMax
+
+      let parsedVal = nudgeOnboardingAllocationAmount(prevRaw, deltaSteps, activeMax)
+
+      if (
+        isUnboundedOnboardingAllocation(allocateMonthlyBudget) &&
+        session?.idx === rowIdx &&
+        deltaSteps > 0 &&
+        parsedVal >= activeMax &&
+        prevRaw >= activeMax - ONBOARDING_ALLOCATE_FINE_STEP
+      ) {
+        const drag = applyUnboundedOnboardingSliderDrag({
+          prevRaw: Math.max(0, activeMax - ONBOARDING_ALLOCATE_FINE_STEP),
+          val: activeMax,
+          activeMax: session.lockedMax,
+          expandedFromMaxes: session.expandedFrom,
+        })
+        session.lockedMax = drag.activeMax
+        session.expandedFrom = drag.expandedFromMaxes
+        if (drag.didExpand) {
+          setAllocSliderLockedMax({ idx: rowIdx, max: drag.activeMax })
+          bumpUnboundedSliderVisitedMaxForRow(rowIdx, drag.activeMax)
+          parsedVal = nudgeOnboardingAllocationAmount(prevRaw, deltaSteps, drag.activeMax)
+        }
+      }
+
+      applyOnboardingAllocSliderValue(rowIdx, parsedVal, {
+        ...ctx,
+        isGestureActive: true,
+        commitNow: false,
+      })
+    },
+    [
+      allocateMonthlyBudget,
+      allocSliderRawForRow,
+      applyOnboardingAllocSliderValue,
+      bumpUnboundedSliderVisitedMaxForRow,
     ],
   )
 
@@ -2331,7 +2531,7 @@ export default function OnboardingPage() {
                     <input
                       type="range"
                       min={0}
-                      max={ONBOARDING_SAVINGS_GOAL_SLIDER_MAX_PCT}
+                      max={savingsGoalSliderMaxPct}
                       step={1}
                       value={savingsGoalPct}
                       aria-label={
@@ -2349,16 +2549,47 @@ export default function OnboardingPage() {
                       className="w-full accent-[#D4AF37]"
                     />
                     <div className="flex flex-col gap-0.5 text-center">
-                      <p className="text-xs text-muted-foreground">
-                        {unboundedAlloc
-                          ? `${savingsGoalPct}% of estimated monthly spend`
-                          : `${savingsGoalPct}% of monthly capacity`}
-                      </p>
+                      {savingsGoalCapacity > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {unboundedAlloc
+                            ? `${savingsGoalPct}% of estimated monthly spend`
+                            : `${savingsGoalPct}% of monthly capacity`}
+                        </p>
+                      )}
                       {savingsGoalPaycheckPct != null && (
                         <p className="text-xs text-muted-foreground">
                           {savingsGoalPaycheckPct}% of each paycheck
                         </p>
                       )}
+                    </div>
+                    <div className="flex items-center justify-center gap-1.5 pt-1">
+                      <label htmlFor="onboarding-savings-goal-amount" className="sr-only">
+                        Monthly savings goal amount
+                      </label>
+                      <span className="text-xs text-muted-foreground">$</span>
+                      <input
+                        id="onboarding-savings-goal-amount"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        value={savingsGoalAmount > 0 ? String(Math.round(savingsGoalAmount)) : ""}
+                        onChange={e => {
+                          const monthly = monthlyFromDigitOnlyInput(
+                            e.target.value,
+                            "monthly",
+                            ONBOARDING_UNBOUNDED_INPUT_MAX,
+                          )
+                          const { amount, pct } = onboardingSavingsGoalFromManualInput(
+                            monthly,
+                            savingsGoalCapacity,
+                          )
+                          setSavingsGoalAmount(amount)
+                          setSavingsGoalPct(pct)
+                        }}
+                        placeholder="0"
+                        className="w-28 bg-transparent border-b border-[#333] text-center text-foreground text-sm font-semibold py-0.5 focus:outline-none focus:border-[#D4AF37] transition-colors"
+                      />
+                      <span className="text-xs text-muted-foreground">/mo</span>
                     </div>
                   </div>
 
@@ -2546,7 +2777,7 @@ export default function OnboardingPage() {
                       : env.monthlyAllotment
                   const rowAllotmentForDisplay =
                     allocSliderRawOverride?.idx === idx
-                      ? snapOnboardingAllocationToStep(allocSliderRawOverride.raw, sliderMax)
+                      ? onboardingAllocationDisplayAmount(allocSliderRawOverride.raw, sliderMax)
                       : env.monthlyAllotment
                   const pct =
                     allocateMonthlyBudget > 0
@@ -2620,7 +2851,7 @@ export default function OnboardingPage() {
                               env.allocationCadence ?? "monthly",
                             )}
                             onChange={e => {
-                              setAllocSliderRawOverride(prev =>
+                              syncAllocSliderRawOverride(prev =>
                                 prev?.idx === idx ? null : prev,
                               )
                               clearUnboundedSliderVisitedMaxForRow(idx)
@@ -2637,7 +2868,7 @@ export default function OnboardingPage() {
                             value={env.allocationCadence ?? "monthly"}
                             onChange={e => {
                               const newCadence = e.target.value as "weekly" | "biweekly" | "monthly"
-                              setAllocSliderRawOverride(prev =>
+                              syncAllocSliderRawOverride(prev =>
                                 prev?.idx === idx ? null : prev,
                               )
                               clearUnboundedSliderVisitedMaxForRow(idx)
@@ -2673,9 +2904,11 @@ export default function OnboardingPage() {
                         </div>
                       </div>
 
+                      <div className="flex min-w-0 items-center gap-2">
                       <input
                         type="range"
-                        className="alloc-slider"
+                        ref={el => { allocSliderRangeInputRefs.current[idx] = el }}
+                        className="alloc-slider min-w-0 flex-1"
                         min={0}
                         max={Math.max(0, sliderMax)}
                         step={1}
@@ -2684,56 +2917,12 @@ export default function OnboardingPage() {
                         onChange={e => {
                           const rawParsed = parseInt(e.target.value, 10)
                           const parsedVal = Number.isFinite(rawParsed) ? Math.max(0, rawParsed) : 0
-                          const prevRaw =
-                            allocSliderRawOverride?.idx === idx
-                              ? allocSliderRawOverride.raw
-                              : env.monthlyAllotment
-                          const isDraggingThisRow = allocSliderPointerRef.current?.idx === idx
-                          const session = allocSliderDragSessionRef.current
-                          const activeMax =
-                            unboundedAlloc && session?.idx === idx
-                              ? session.lockedMax
-                              : sliderMax
-                          let val = parsedVal
-
-                          if (unboundedAlloc && isDraggingThisRow && session?.idx === idx) {
-                            const drag = applyUnboundedOnboardingSliderDrag({
-                              prevRaw,
-                              val: parsedVal,
-                              activeMax,
-                              expandedFromMaxes: session.expandedFrom,
-                            })
-                            val = drag.val
-                            session.lockedMax = drag.activeMax
-                            session.expandedFrom = drag.expandedFromMaxes
-                            if (drag.didExpand) {
-                              setAllocSliderLockedMax({ idx, max: drag.activeMax })
-                              bumpUnboundedSliderVisitedMaxForRow(idx, drag.activeMax)
-                            }
-                          } else {
-                            val = Math.min(activeMax, parsedVal)
-                          }
-
-                          if (isDraggingThisRow) {
-                            setAllocSliderRawOverride({ idx, raw: val })
-                            // Bounded: live-update bar + savings on $50 bucket crossings.
-                            // Unbounded: defer commit until release (avoids slider runaway).
-                            if (!unboundedAlloc) {
-                              const newBucket = snapOnboardingAllocationToStep(val, activeMax)
-                              if (newBucket !== env.monthlyAllotment) {
-                                setEnvelopes(prev => prev.map((en, i) =>
-                                  i === idx ? { ...en, monthlyAllotment: newBucket } : en,
-                                ))
-                              }
-                            }
-                          } else {
-                            const newBucket = snapOnboardingAllocationToStep(val, activeMax)
-                            if (newBucket !== env.monthlyAllotment) {
-                              setEnvelopes(prev => prev.map((en, i) =>
-                                i === idx ? { ...en, monthlyAllotment: newBucket } : en,
-                              ))
-                            }
-                          }
+                          applyOnboardingAllocSliderValue(idx, parsedVal, {
+                            sliderMax,
+                            committedAllotment: env.monthlyAllotment,
+                            isGestureActive: allocSliderPointerRef.current?.idx === idx,
+                            commitNow: allocSliderPointerRef.current?.idx !== idx,
+                          })
                         }}
                         onPointerDown={e => {
                           const gestureMax = unboundedAlloc
@@ -2746,22 +2935,11 @@ export default function OnboardingPage() {
                                 savings,
                                 allocateMonthlyBudget,
                               )
-                          if (unboundedAlloc) {
-                            allocSliderDragSessionRef.current = {
-                              idx,
-                              lockedMax: gestureMax,
-                              expandedFrom: new Set(),
-                            }
-                            setAllocSliderLockedMax({ idx, max: gestureMax })
-                          } else {
-                            allocSliderDragSessionRef.current = null
-                            setAllocSliderLockedMax(prev => (prev?.idx === idx ? null : prev))
-                          }
                           const rawInit = parseInt(e.currentTarget.value, 10)
                           const init = Number.isFinite(rawInit)
                             ? Math.min(gestureMax, Math.max(0, rawInit))
                             : 0
-                          setAllocSliderRawOverride({ idx, raw: init })
+                          beginAllocSliderGesture(idx, init, gestureMax)
                           allocSliderPointerRef.current = { pointerId: e.pointerId, idx }
                           try {
                             e.currentTarget.setPointerCapture(e.pointerId)
@@ -2804,6 +2982,44 @@ export default function OnboardingPage() {
                           "--slider-pct": `${sliderPct}%`,
                         } as React.CSSProperties}
                       />
+                      <OnboardingAllocFineScroller
+                        accentColor={env.color}
+                        ariaLabel={`Fine adjust ${env.name} monthly allotment`}
+                        onGestureStart={() => {
+                          setActiveEnvIdx(idx)
+                          const gestureMax = unboundedAlloc
+                            ? unboundedOnboardingSliderMaxForGestureWithVisited(
+                                env.monthlyAllotment,
+                                allocSliderUnboundedVisitedMax[idx],
+                              )
+                            : onboardingSliderMaxForRow(
+                                env.monthlyAllotment,
+                                savings,
+                                allocateMonthlyBudget,
+                              )
+                          const currentRaw = allocSliderRawForRow(idx, env.monthlyAllotment)
+                          beginAllocSliderGesture(
+                            idx,
+                            Math.min(gestureMax, Math.max(0, currentRaw)),
+                            gestureMax,
+                          )
+                        }}
+                        onNudge={deltaSteps => {
+                          nudgeAllocSliderRow(idx, deltaSteps, {
+                            sliderMax,
+                            committedAllotment: env.monthlyAllotment,
+                          })
+                        }}
+                        onGestureEnd={() => {
+                          releaseAllocSliderRow(
+                            idx,
+                            allocSliderRangeInputRefs.current[idx],
+                            unboundedAlloc,
+                            ONBOARDING_ALLOCATE_FINE_STEP,
+                          )
+                        }}
+                      />
+                      </div>
                       {env.allocationCadence !== "monthly" && rowAllotmentForDisplay > 0 && (
                         <span className="text-[10px] text-muted-foreground mt-0.5">
                           = ${Math.round(rowAllotmentForDisplay).toLocaleString()}/mo
