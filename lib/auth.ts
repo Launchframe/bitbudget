@@ -103,7 +103,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (user) {
         token.id = user.id
         token.picture = user.image ?? undefined
-        void ensureSystemSavingsEnvelope(user.id).catch(() => {})
+        if (typeof user.id === "string") {
+          void ensureSystemSavingsEnvelope(user.id).catch(() => {})
+        }
       }
       return token
     },
