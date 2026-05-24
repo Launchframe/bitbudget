@@ -192,4 +192,14 @@ describe("fetchNostrProfile", () => {
     expect(profile).toEqual({})
     expect(mockClose).toHaveBeenCalled()
   })
+
+  it("returns {} when pool.get never resolves (timeout)", async () => {
+    vi.useFakeTimers()
+    mockGet.mockImplementation(() => new Promise(() => {}))
+    const profilePromise = fetchNostrProfile(pk, 50)
+    await vi.advanceTimersByTimeAsync(50)
+    await expect(profilePromise).resolves.toEqual({})
+    expect(mockClose).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
 })

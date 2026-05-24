@@ -50,12 +50,13 @@ export class NostrExtensionTimeoutError extends Error {
 
 /** Reject when `promise` does not settle within `timeoutMs` (clears hung extension calls). */
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new NostrExtensionTimeoutError()), timeoutMs)
-    }),
-  ])
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new NostrExtensionTimeoutError()), timeoutMs)
+  })
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  })
 }
 
 /** Normalize hex or npub from a NIP-07 extension to lowercase hex. */
@@ -221,13 +222,14 @@ export async function fetchNostrProfile(
   timeoutMs = 4000,
 ): Promise<NostrProfile> {
   let pool: NostrPool | undefined
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
   try {
     const { SimplePool } = await import("nostr-tools/pool")
     pool = new SimplePool() as NostrPool
     const event = await Promise.race([
       pool.get(RELAYS, { kinds: [0], authors: [pubkey] }),
       new Promise<null>((resolve) => {
-        setTimeout(() => resolve(null), timeoutMs)
+        timeoutId = setTimeout(() => resolve(null), timeoutMs)
       }),
     ])
     if (!event?.content) return {}
@@ -239,6 +241,7 @@ export async function fetchNostrProfile(
   } catch {
     return {}
   } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
     if (pool) {
       try {
         pool.close(RELAYS)

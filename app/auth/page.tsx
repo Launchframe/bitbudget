@@ -247,15 +247,18 @@ export default function AuthPage() {
       }
 
       const rawPubkey = await withTimeout(nostrExt.getPublicKey(), NOSTR_EXTENSION_TIMEOUT_MS)
+      const pubkey = normalizeHexPubkey(rawPubkey)
       const template = buildAuthEventTemplate(window.location.origin)
       const signed = await withTimeout(
-        nostrExt.signEvent({ ...template, pubkey: rawPubkey }),
+        nostrExt.signEvent({ ...template, pubkey }),
         NOSTR_EXTENSION_TIMEOUT_MS,
       )
-      const pubkey = normalizeHexPubkey(String((signed as { pubkey?: string }).pubkey ?? rawPubkey))
+      const signedPubkey = normalizeHexPubkey(
+        String((signed as { pubkey?: string }).pubkey ?? pubkey),
+      )
 
       const result = await signIn("nostr", {
-        pubkey,
+        pubkey: signedPubkey,
         event: JSON.stringify(signed),
         profileName: "",
         profileImage: "",
@@ -267,10 +270,7 @@ export default function AuthPage() {
         return
       }
 
-      // Profile is optional — do not block login on relay fetches.
-      void fetchNostrProfile(pubkey).catch(() => ({}))
-
-      try { sessionStorage.setItem("nostr-login", pubkey) } catch { /* SSR guard */ }
+      try { sessionStorage.setItem("nostr-login", signedPubkey) } catch { /* SSR guard */ }
       router.push("/")
       router.refresh()
       return
