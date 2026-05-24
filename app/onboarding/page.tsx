@@ -19,6 +19,13 @@ import {
 } from "@/lib/envelope-icons"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
+import {
+  ONBOARDING_HINT_REFERRAL_BANK,
+  ONBOARDING_HINT_REFERRAL_COMPLETE,
+  ONBOARDING_HINT_SAVINGS_GOAL,
+  ONBOARDING_HINT_SAVINGS_SWEEP,
+  OnboardingDismissibleHint,
+} from "@/components/onboarding-dismissible-hint"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -184,6 +191,15 @@ export default function OnboardingPage() {
 
   // Allocations
   const [allocPhase, setAllocPhase] = useState<AllocPhase>("budget")
+  const [dismissedOnboardingHints, setDismissedOnboardingHints] = useState<Set<string>>(() => new Set())
+  const dismissOnboardingHint = useCallback((hintId: string) => {
+    setDismissedOnboardingHints(prev => {
+      if (prev.has(hintId)) return prev
+      const next = new Set(prev)
+      next.add(hintId)
+      return next
+    })
+  }, [])
   const [savingsGoalAmount, setSavingsGoalAmount] = useState(0)
   const [savingsGoalPct, setSavingsGoalPct] = useState(10)
   const [envelopes, setEnvelopes] = useState<DraftEnvelope[]>(() => {
@@ -382,6 +398,27 @@ export default function OnboardingPage() {
         if (typeof saved.lastPaydayAt === "string") setLastPaydayAt(saved.lastPaydayAt)
         if (saved.estimatedAnnualIncome) setEstimatedAnnualIncome(saved.estimatedAnnualIncome)
         if (saved.allocPhase) setAllocPhase(saved.allocPhase)
+        if (typeof saved.savingsGoalAmount === "number") {
+          setSavingsGoalAmount(saved.savingsGoalAmount)
+        } else if (saved.allocPhase === "savings-goal") {
+          const regular =
+            saved.incomeMode !== "irregular"
+              ? monthlyBudgetForAllocation(parseFloat(saved.income) || 0, saved.cadence ?? "monthly")
+              : 0
+          const irregular =
+            saved.incomeMode === "irregular" || saved.incomeMode === "mix"
+              ? monthlyCapacityFromAnnualEstimate(parseFloat(saved.estimatedAnnualIncome) || 0)
+              : 0
+          const budget = regular + irregular
+          const defaultGoal = Math.round((budget * 0.1) / 25) * 25
+          setSavingsGoalAmount(defaultGoal)
+          setSavingsGoalPct(
+            budget > 0 ? Math.round((defaultGoal / budget) * 100) : 10,
+          )
+        }
+        if (typeof saved.savingsGoalPct === "number") {
+          setSavingsGoalPct(saved.savingsGoalPct)
+        }
         if (saved.envelopes?.length) setEnvelopes(
           saved.envelopes.map((e: { id?: string; allocationCadence?: string; monthlyAllotment?: number }) => {
             const raw = typeof e.monthlyAllotment === "number" ? e.monthlyAllotment : 0
@@ -411,11 +448,13 @@ export default function OnboardingPage() {
         lastPaydayAt,
         estimatedAnnualIncome,
         allocPhase,
+        savingsGoalAmount,
+        savingsGoalPct,
         envelopes,
         pendingReferral,
       }))
     } catch { /* storage full or unavailable */ }
-  }, [hydrated, step, income, incomeMode, cadence, payDays, payDayOfWeek, lastPaydayAt, estimatedAnnualIncome, allocPhase, envelopes, pendingReferral])
+  }, [hydrated, step, income, incomeMode, cadence, payDays, payDayOfWeek, lastPaydayAt, estimatedAnnualIncome, allocPhase, savingsGoalAmount, savingsGoalPct, envelopes, pendingReferral])
 
   /** Clear chosen file + native input when navigating onto the import step (avoids stale File after back/forward or re-import). */
   useEffect(() => {
@@ -1562,7 +1601,7 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your income</h2>
-                  <p className="text-sm text-muted-foreground">Tell us how money arrives so we can fund envelopes on paydays</p>
+                  <p className="text-sm text-muted-foreground">Tell us how money arrives so your budget refills on your actual paydays</p>
                 </div>
               </div>
 
@@ -1570,8 +1609,8 @@ export default function OnboardingPage() {
                 {(
                   [
                     { key: "regular" as const, label: "Regular paycheck" },
-                    { key: "irregular" as const, label: "Irregular only" },
-                    { key: "mix" as const, label: "Mix" },
+                    { key: "irregular" as const, label: "No regular income" },
+                    { key: "mix" as const, label: "Mixed timing" },
                   ] as const
                 ).map(({ key, label }) => (
                   <button
@@ -2089,12 +2128,30 @@ export default function OnboardingPage() {
                       <Target className="h-6 w-6" style={{ color: SAVINGS_GOLD_ACCENT }} />
                     </div>
                     <div>
-                      <h2 className="text-xl font-bold text-foreground">Pay yourself first</h2>
+                      <h2 className="text-xl font-bold text-foreground">Your savings goal</h2>
                       <p className="text-sm text-muted-foreground">
-                        Let&apos;s set your first savings goal. 
+                        Pay yourself first. Let&apos;s set your first monthly savings goal.
                       </p>
                     </div>
                   </div>
+
+                  <OnboardingDismissibleHint
+                    hintId={ONBOARDING_HINT_SAVINGS_GOAL}
+                    dismissed={dismissedOnboardingHints.has(ONBOARDING_HINT_SAVINGS_GOAL)}
+                    onDismiss={dismissOnboardingHint}
+                    className="border bg-transparent"
+                    style={{
+                      borderColor: `${SAVINGS_GOLD_ACCENT}44`,
+                      backgroundColor: `${SAVINGS_GOLD_ACCENT}14`,
+                    }}
+                  >
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      BitBudget is a full ledger-style budgeting app. Your income goes right into Savings, and then Savings is drawn down to cover expenses and to fill your envelopes each month.
+                    </p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      Pick a ballpark target for now. You can adjust it anytime as your budget takes shape.
+                    </p>
+                  </OnboardingDismissibleHint>
 
                   <div className="rounded-xl border border-[#252525] bg-[#1A1A1A] p-5 flex flex-col gap-4">
                     <div className="flex items-baseline justify-between gap-3">
@@ -2171,9 +2228,6 @@ export default function OnboardingPage() {
                       ${allocateMonthlyBudget.toLocaleString()}
                     </span>{" "}
                     of income each month? 
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    You can always adjust this later.
                   </p>
                 </div>
               </div>
@@ -2549,9 +2603,16 @@ export default function OnboardingPage() {
                 <p className="text-sm text-muted-foreground italic">Your future self thanks you.</p>
               </div>
 
-              <p className="text-xs text-muted-foreground text-center leading-relaxed px-2">
-                We&apos;ll sweep leftover envelope balances to Savings on each payday — you can change this per-envelope anytime.
-              </p>
+              <OnboardingDismissibleHint
+                hintId={ONBOARDING_HINT_SAVINGS_SWEEP}
+                dismissed={dismissedOnboardingHints.has(ONBOARDING_HINT_SAVINGS_SWEEP)}
+                onDismiss={dismissOnboardingHint}
+                className="border border-[#252525] bg-[#1A1A1A]/60"
+              >
+                <p className="text-xs text-muted-foreground text-center leading-relaxed">
+                  We&apos;ll sweep leftover envelope balances to Savings on each payday — you can change this per-envelope anytime.
+                </p>
+              </OnboardingDismissibleHint>
 
               <button
                 type="button"
@@ -2641,7 +2702,12 @@ export default function OnboardingPage() {
                 Your envelopes are ready and your data is secured.
               </p>
               {refereeTrialExplainerOnComplete ? (
-                <div className="w-full rounded-xl border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-4 py-3 text-left space-y-2">
+                <OnboardingDismissibleHint
+                  hintId={ONBOARDING_HINT_REFERRAL_COMPLETE}
+                  dismissed={dismissedOnboardingHints.has(ONBOARDING_HINT_REFERRAL_COMPLETE)}
+                  onDismiss={dismissOnboardingHint}
+                  className="w-full text-left"
+                >
                   <p className="text-sm text-foreground font-medium">Your referral</p>
                   <p className="text-sm text-muted-foreground">
                     <strong className="text-foreground">
@@ -2656,7 +2722,7 @@ export default function OnboardingPage() {
                     Until you link a bank, Plan may show <strong className="text-foreground">Free</strong> — that&apos;s expected. Receipt inbox and SMS
                     unlock when your trial starts.
                   </p>
-                </div>
+                </OnboardingDismissibleHint>
               ) : (
                 <p className="text-xs text-muted-foreground text-center max-w-sm">
                   Invited by a friend? Use <strong className="text-foreground">Back</strong> to the referral step or open their invite link in
@@ -2687,7 +2753,11 @@ export default function OnboardingPage() {
                   </p>
                 </div>
               </div>
-              <div className="rounded-xl border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-4 py-3 space-y-2">
+              <OnboardingDismissibleHint
+                hintId={ONBOARDING_HINT_REFERRAL_BANK}
+                dismissed={dismissedOnboardingHints.has(ONBOARDING_HINT_REFERRAL_BANK)}
+                onDismiss={dismissOnboardingHint}
+              >
                 <p className="text-sm text-muted-foreground">
                   <strong className="text-foreground">
                     {pendingReferral?.refereeTrialMonths === 1 || pendingReferral?.refereeTrialMonths === 3
@@ -2699,7 +2769,7 @@ export default function OnboardingPage() {
                   Your premium trial clock starts only after your first successful bank link. You can also connect anytime under Settings →
                   Integrations.
                 </p>
-              </div>
+              </OnboardingDismissibleHint>
               <div className="flex flex-col items-stretch gap-2">
                 <p className="text-xs text-muted-foreground text-center">Bank sync (Plaid)</p>
                 <div className="flex justify-center">
