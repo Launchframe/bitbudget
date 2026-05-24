@@ -53,6 +53,18 @@ export function onboardingAllocationDisplayAmount(raw: number, max: number): num
   return Math.min(max, Math.max(0, Math.round(raw)))
 }
 
+/** Dollar field / stack bar while a slider override is active. */
+export function onboardingOverrideDisplayAmount(
+  raw: number,
+  max: number,
+  gesture: "coarse" | "fine",
+): number {
+  if (gesture === "fine") {
+    return onboardingAllocationDisplayAmount(raw, max)
+  }
+  return snapOnboardingAllocationToStep(raw, max, ONBOARDING_ALLOCATE_SLIDER_STEP)
+}
+
 /** Nudge an allocation by fine steps, clamped to `[0, max]`. */
 export function nudgeOnboardingAllocationAmount(
   current: number,

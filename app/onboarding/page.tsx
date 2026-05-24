@@ -69,6 +69,7 @@ import {
   nudgeOnboardingAllocationAmount,
   onboardingAllocationCapForRow,
   onboardingAllocationDisplayAmount,
+  onboardingOverrideDisplayAmount,
   ONBOARDING_ALLOCATE_FINE_STEP,
   ONBOARDING_ALLOCATE_SLIDER_STEP,
   onboardingSavingsGoalAmountFromPercent,
@@ -291,6 +292,8 @@ export default function OnboardingPage() {
   const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
   const allocSliderRangeInputRefs = useRef<(HTMLInputElement | null)[]>([])
   const allocSliderPointerRef = useRef<{ pointerId: number; idx: number } | null>(null)
+  /** Coarse horizontal slider vs fine scroller — controls snap step and live display. */
+  const allocSliderGestureKindRef = useRef<"coarse" | "fine" | null>(null)
   const allocSliderDragSessionRef = useRef<{
     idx: number
     lockedMax: number
@@ -1368,7 +1371,11 @@ export default function OnboardingPage() {
               Math.max(0, allocateMonthlyBudget - otherAllocated),
               allocateMonthlyBudget,
             ))
-      return onboardingAllocationDisplayAmount(allocSliderRawOverride.raw, sliderMax)
+      return onboardingOverrideDisplayAmount(
+        allocSliderRawOverride.raw,
+        sliderMax,
+        allocSliderGestureKindRef.current === "fine" ? "fine" : "coarse",
+      )
     })
   }, [
     allocateMonthlyBudget,
@@ -1482,6 +1489,7 @@ export default function OnboardingPage() {
       })
       syncAllocSliderRawOverride(prev => (prev?.idx === rowIdx ? null : prev))
       allocSliderPointerRef.current = null
+      allocSliderGestureKindRef.current = null
       allocSliderDragSessionRef.current = null
       setAllocSliderLockedMax(prev => (prev?.idx === rowIdx ? null : prev))
     },
@@ -1493,9 +1501,12 @@ export default function OnboardingPage() {
       rowIdx: number,
       input: HTMLInputElement | null,
       unbounded: boolean,
-      snapStep: number = ONBOARDING_ALLOCATE_SLIDER_STEP,
     ) => {
       const session = allocSliderDragSessionRef.current
+      const snapStep =
+        allocSliderGestureKindRef.current === "fine"
+          ? ONBOARDING_ALLOCATE_FINE_STEP
+          : ONBOARDING_ALLOCATE_SLIDER_STEP
       const pendingRaw =
         allocSliderRawOverrideRef.current?.idx === rowIdx
           ? allocSliderRawOverrideRef.current.raw
@@ -2809,7 +2820,11 @@ export default function OnboardingPage() {
                       : env.monthlyAllotment
                   const rowAllotmentForDisplay =
                     allocSliderRawOverride?.idx === idx
-                      ? onboardingAllocationDisplayAmount(allocSliderRawOverride.raw, sliderMax)
+                      ? onboardingOverrideDisplayAmount(
+                          allocSliderRawOverride.raw,
+                          sliderMax,
+                          allocSliderGestureKindRef.current === "fine" ? "fine" : "coarse",
+                        )
                       : env.monthlyAllotment
                   const pct =
                     allocateMonthlyBudget > 0
@@ -2972,6 +2987,7 @@ export default function OnboardingPage() {
                             ? Math.min(gestureMax, Math.max(0, rawInit))
                             : 0
                           beginAllocSliderGesture(idx, init, gestureMax)
+                          allocSliderGestureKindRef.current = "coarse"
                           allocSliderPointerRef.current = { pointerId: e.pointerId, idx }
                           try {
                             e.currentTarget.setPointerCapture(e.pointerId)
@@ -3019,6 +3035,7 @@ export default function OnboardingPage() {
                         ariaLabel={`Fine adjust ${env.name} monthly allotment`}
                         onGestureStart={() => {
                           setActiveEnvIdx(idx)
+                          allocSliderGestureKindRef.current = "fine"
                           const gestureMax = unboundedAlloc
                             ? unboundedOnboardingSliderMaxForGestureWithVisited(
                                 env.monthlyAllotment,
@@ -3047,7 +3064,6 @@ export default function OnboardingPage() {
                             idx,
                             allocSliderRangeInputRefs.current[idx],
                             unboundedAlloc,
-                            ONBOARDING_ALLOCATE_FINE_STEP,
                           )
                         }}
                       />

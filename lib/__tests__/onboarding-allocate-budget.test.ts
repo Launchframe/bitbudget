@@ -4,6 +4,7 @@ import {
   nudgeOnboardingAllocationAmount,
   onboardingAllocationCapForRow,
   onboardingAllocationDisplayAmount,
+  onboardingOverrideDisplayAmount,
   ONBOARDING_ALLOCATE_FINE_STEP,
   onboardingSliderMaxForRow,
   ONBOARDING_UNBOUNDED_INPUT_MAX,
@@ -196,6 +197,17 @@ describe("onboardingAllocationDisplayAmount", () => {
   it("rounds and clamps without coarse snap", () => {
     expect(onboardingAllocationDisplayAmount(127.4, 1_000)).toBe(127)
     expect(onboardingAllocationDisplayAmount(1_500, 1_000)).toBe(1_000)
+  })
+})
+
+describe("onboardingOverrideDisplayAmount", () => {
+  it("uses $50 buckets for coarse horizontal drags", () => {
+    expect(onboardingOverrideDisplayAmount(127, 1_000, "coarse")).toBe(150)
+    expect(onboardingOverrideDisplayAmount(124, 1_000, "coarse")).toBe(100)
+  })
+
+  it("uses integer dollars for fine scroller drags", () => {
+    expect(onboardingOverrideDisplayAmount(127, 1_000, "fine")).toBe(127)
   })
 })
 
