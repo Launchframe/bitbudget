@@ -634,7 +634,7 @@ export function CSVImportDialog({
             {result && result.newEnvelopes.length > 0 && (
               <div className="w-full rounded-lg bg-[#F7931A]/10 border border-[#F7931A]/20 px-4 py-3 text-sm">
                 <p className="text-foreground text-sm font-medium">
-                  You have new envelopes to set up.
+                  You have new envelopes to set up. Would you like to go back and configure them?
                 </p>
               </div>
             )}

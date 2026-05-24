@@ -202,6 +202,10 @@ interface AppContextValue {
   hasPremiumFeatures: boolean
   /** Referred user who has not linked a bank yet — Plaid allowed; other premium features locked until activation. */
   refereePendingBankLink: boolean
+  /** True when this account has ever redeemed a referral code as the referee. */
+  referralRefereeRedeemed: boolean
+  /** True when Settings may show post-onboarding referral code entry (7-day window). */
+  referralRefereeCanRedeem: boolean
   /** Trial length (months) for this referee while bank link is pending; from referrer billing tier. */
   referralRefereeTrialMonths: 1 | 3 | null
   premiumTrialUntilIso: string | null
@@ -365,6 +369,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [premiumGratisUntilIso, setPremiumGratisUntilIso] = useState<string | null>(null)
   const [referralSummary, setReferralSummary] = useState<ReferralSummaryState | null>(null)
   const [refereePendingBankLink, setRefereePendingBankLink] = useState(false)
+  const [referralRefereeRedeemed, setReferralRefereeRedeemed] = useState(false)
+  const [referralRefereeCanRedeem, setReferralRefereeCanRedeem] = useState(false)
   const [referralRefereeTrialMonths, setReferralRefereeTrialMonths] = useState<1 | 3 | null>(null)
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const [recurringTransactions, setRecurringTransactions] = useState<RecurringTransaction[]>([])
@@ -560,6 +566,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       )
       setRefereePendingBankLink(
         (settings as { referralRefereePendingBankLink?: unknown }).referralRefereePendingBankLink === true,
+      )
+      setReferralRefereeRedeemed(
+        (settings as { referralRefereeRedeemed?: unknown }).referralRefereeRedeemed === true,
+      )
+      setReferralRefereeCanRedeem(
+        (settings as { referralRefereeCanRedeem?: unknown }).referralRefereeCanRedeem === true,
       )
       const trm = (settings as { referralRefereeTrialMonths?: unknown }).referralRefereeTrialMonths
       setReferralRefereeTrialMonths(trm === 1 || trm === 3 ? trm : null)
@@ -1475,6 +1487,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         effectiveTier,
         hasPremiumFeatures: effectiveTier !== "free",
         refereePendingBankLink,
+        referralRefereeRedeemed,
+        referralRefereeCanRedeem,
         referralRefereeTrialMonths,
         premiumTrialUntilIso,
         premiumGratisUntilIso,

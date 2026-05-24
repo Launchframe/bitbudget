@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest"
 import {
   addMonthsUtc,
+  canRedeemReferralAsReferee,
+  canRedeemReferralInSettings,
   generateUserReferralCodeSegment,
   isValidOfferSlug,
+  isWithinRefereePostOnboardingRedeemWindow,
   normalizeOfferSlug,
   normalizeReferralCodeInput,
+  refereePostOnboardingRedeemDeadline,
+  REFEREE_POST_ONBOARDING_REDEEM_DAYS,
 } from "@/lib/referral"
 
 describe("referral code helpers", () => {
@@ -38,5 +43,101 @@ describe("referral code helpers", () => {
     const end = addMonthsUtc(start, 3)
     expect(end.getUTCMonth()).toBe(3)
     expect(end.getUTCDate()).toBe(15)
+  })
+
+  it("refereePostOnboardingRedeemDeadline adds configured days", () => {
+    const completed = new Date(Date.UTC(2026, 4, 1, 12, 0, 0))
+    const deadline = refereePostOnboardingRedeemDeadline(completed)
+    expect(deadline?.getTime()).toBe(
+      completed.getTime() + REFEREE_POST_ONBOARDING_REDEEM_DAYS * 86400000,
+    )
+  })
+
+  it("isWithinRefereePostOnboardingRedeemWindow is inclusive at start, exclusive at deadline", () => {
+    const completed = new Date(Date.UTC(2026, 4, 1, 12, 0, 0))
+    const deadline = refereePostOnboardingRedeemDeadline(completed)!
+    expect(
+      isWithinRefereePostOnboardingRedeemWindow({
+        onboardingCompletedAt: completed,
+        now: completed,
+      }),
+    ).toBe(true)
+    expect(
+      isWithinRefereePostOnboardingRedeemWindow({
+        onboardingCompletedAt: completed,
+        now: new Date(deadline.getTime() - 1),
+      }),
+    ).toBe(true)
+    expect(
+      isWithinRefereePostOnboardingRedeemWindow({
+        onboardingCompletedAt: completed,
+        now: deadline,
+      }),
+    ).toBe(false)
+    expect(isWithinRefereePostOnboardingRedeemWindow({ onboardingCompletedAt: null })).toBe(false)
+  })
+
+  it("canRedeemReferralAsReferee allows onboarding and post-onboarding window", () => {
+    const completed = new Date(Date.UTC(2026, 4, 1, 12, 0, 0))
+    expect(
+      canRedeemReferralAsReferee({
+        onboardingComplete: false,
+        onboardingCompletedAt: null,
+        alreadyRedeemed: false,
+        now: completed,
+      }),
+    ).toBe(true)
+    expect(
+      canRedeemReferralAsReferee({
+        onboardingComplete: true,
+        onboardingCompletedAt: completed,
+        alreadyRedeemed: false,
+        now: new Date(completed.getTime() + 6 * 86400000),
+      }),
+    ).toBe(true)
+    expect(
+      canRedeemReferralAsReferee({
+        onboardingComplete: true,
+        onboardingCompletedAt: completed,
+        alreadyRedeemed: false,
+        now: new Date(completed.getTime() + 7 * 86400000),
+      }),
+    ).toBe(false)
+    expect(
+      canRedeemReferralAsReferee({
+        onboardingComplete: true,
+        onboardingCompletedAt: completed,
+        alreadyRedeemed: true,
+        now: completed,
+      }),
+    ).toBe(false)
+    expect(
+      canRedeemReferralAsReferee({
+        onboardingComplete: true,
+        onboardingCompletedAt: null,
+        alreadyRedeemed: false,
+        now: new Date(),
+      }),
+    ).toBe(false)
+  })
+
+  it("canRedeemReferralInSettings requires finished onboarding", () => {
+    const completed = new Date(Date.UTC(2026, 4, 1, 12, 0, 0))
+    expect(
+      canRedeemReferralInSettings({
+        onboardingComplete: false,
+        onboardingCompletedAt: null,
+        alreadyRedeemed: false,
+        now: completed,
+      }),
+    ).toBe(false)
+    expect(
+      canRedeemReferralInSettings({
+        onboardingComplete: true,
+        onboardingCompletedAt: completed,
+        alreadyRedeemed: false,
+        now: new Date(completed.getTime() + 6 * 86400000),
+      }),
+    ).toBe(true)
   })
 })

@@ -63,6 +63,7 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 - **Commands:** `pnpm exec playwright install` once per machine (CI installs Chromium automatically). Run `pnpm test:e2e` (or `pnpm test:e2e:ui`). Locally Playwright runs `next build` then `next start` on port **3100** by default (see `playwright.config.ts`) so it does not fight `next dev`’s `.next/dev/lock` — **GitHub Actions** runs **`pnpm exec next build`** as its own workflow step (clear failure logs) and sets **`PW_WEBSERVER_SKIP_BUILD`** so Playwright only runs **`next start`** — **avoid running `pnpm test:e2e` while `pnpm dev` is building/watching the same tree**, or override `PW_WEBSERVER_COMMAND` (e.g. `PW_WEBSERVER_COMMAND="pnpm dev"` on port `PW_SERVER_PORT` after stopping the other dev). **`config.webServer` uses stdout/stderr `pipe`** so `next build` / `next start` logs appear in the test runner (Playwright does not forward `inherit` for web servers). Use **`PW_WEBSERVER_STDIO=ignore`** to silence them; **`DEBUG=pw:webserver`** adds Playwright web-server debug logs. If you see “Process from config.webServer was not able to start”, check `.env`/`.env.local` for **`DATABASE_URL`** (global setup), **`AUTH_SECRET`** (≥32 chars), and **`DATABASE_URL_UNPOOLED`** per CI; confirm nothing else is bound to **`PW_SERVER_PORT`** (default **3100**). The server runs with `E2E_TEST=true` so `/api/auth/send-code` accepts fixed OTPs for addresses ending in `@bitbudget.test` (see `app/api/auth/send-code/route.ts`), and `lib/notify.ts` skips all outbound email/Nostr DMs so referral and cron-style notifications do not hit real inboxes. **Never set `E2E_TEST` in production.**
 - **Database:** E2E requires PostgreSQL (`DATABASE_URL` and `DATABASE_URL_UNPOOLED`; `AUTH_SECRET` ≥ 32 chars). Global setup runs `prisma migrate deploy` and reseeds referral fixtures (`e2e/seed-referral-e2e.ts`) plus recurring QA fixtures (`e2e/seed-recurring-e2e.ts`).
 - **Manual recurring QA:** See [docs/testing/recurring-qa.md](docs/testing/recurring-qa.md) (staging DB bump, `pnpm qa:recurring:bump`, and the checklist). **`pnpm test`** includes `lib/__tests__/recurring.test.ts`; **`e2e/recurring.lifecycle.spec.ts`** covers a signed-in `@bitbudget.test` user with a due seeded rule.
+- **Local referral code (manual QA):** When asked for a referral code for local/staging testing, run **`pnpm referral:admin-code`** (`scripts/print-admin-referral-code.ts`). It ensures a valid user referral code owned by the earliest `createdAt` admin (reuses an active unused code or creates one via `ensureUserReferralCode`). Prints the code on **stdout** (owner line on stderr); capture with `CODE=$(pnpm referral:admin-code 2>/dev/null)`. Requires **`DATABASE_URL`**. If no admin exists, promote one with **`ADMIN_EMAILS`** + **`pnpm db:seed-admin`** first.
 - **Maintenance:** When you change referral rules, Plaid activation, onboarding gates, auth email flow, **transaction dialog prefill / payee canonicalization**, or manual entry UX, **update or extend the Playwright specs and seed constants** so CI keeps enforcing the product contract. Treat failing e2e the same as failing unit tests.
 - **Pull requests:** **`pnpm lint`, `pnpm test`, and `pnpm test:e2e` should all pass** before a change is considered ready to merge (unless a PR explicitly documents an exception and follow-up).
 
@@ -200,7 +201,7 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 
 - **Commit often.** Each logical unit of work (a bug fix, a feature slice, a refactor) gets its own commit. Don't batch unrelated changes.
 - **Commit messages** should be concise and describe the "what" and "why": `fix(receipts): validate file type from magic bytes, not Content-Type` or `feat: add vanilla "Your Expenses" chart for non-OC users`.
-- **When Andrew says a code change "looks good" or otherwise approves the work, push the committed changes to the upstream branch.**
+- **When the maintainer says a code change "looks good" or otherwise approves the work, push the committed changes to the upstream branch.**
 - **Do not continue work directly on non-feature branches.** If the current branch is not a feature branch (for example `main`, a release branch, or another shared integration branch), create a feature branch from the tip of `main` before committing/pushing.
 - **After pushing a feature branch, ensure a PR exists.** If there is no open PR for the branch, open one against `main`.
 - **Keep PR descriptions current.** If newly pushed changes are not described in the PR body, update the PR description to explain what changed and how it fits the broader purpose of the branch.
@@ -209,6 +210,18 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 - **PR descriptions** should have a Summary (bullet points of what changed) and a Test Plan (checkboxes).
 - **Never force-push to main.**
 - **Database migrations** should be committed alongside the schema change and the code that uses the new field.
+
+### Addressing open PR review comments
+
+When a maintainer asks the agent to address open comments on a PR:
+
+1. **Evaluate accuracy** — Read each comment in context and decide whether the concern is valid.
+2. **Decide on a fix** — Implement a code change when warranted; skip changes when the comment is incorrect or already handled (document why).
+3. **Reply on the thread** — Post a brief reply on behalf of the maintainer: what was fixed, or why no change is needed. Keep replies factual and concise.
+4. **Commit and push** — Land valid fixes on the PR branch with tests/lint as appropriate; push so CI runs on the updated branch.
+5. **Leave threads unresolved** — Do **not** resolve review threads. The maintainer will groom and resolve them after review.
+
+Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not call `resolveReviewThread` unless the maintainer explicitly asks to resolve threads.
 
 ## Common Pitfalls
 

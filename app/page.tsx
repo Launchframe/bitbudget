@@ -40,25 +40,26 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
           signOut({ callbackUrl: "/auth" })
           return
         }
-        if (res.ok) {
-          const data = await res.json()
-          if (!data.onboardingComplete) {
-            try {
-              if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("onboardingSource") !== "btc") {
-                sessionStorage.setItem("onboardingSource", "vanilla")
-              }
-            } catch {
-              /* ignore */
+        if (!res.ok) {
+          // Session may be valid while settings fails (e.g. schema/client mismatch).
+          // Sign out to avoid / ↔ /auth redirect loop with middleware.
+          signOut({ callbackUrl: "/auth?error=Configuration" })
+          return
+        }
+        const data = await res.json()
+        if (!data.onboardingComplete) {
+          try {
+            if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("onboardingSource") !== "btc") {
+              sessionStorage.setItem("onboardingSource", "vanilla")
             }
-            router.replace("/onboarding")
-            return
+          } catch {
+            /* ignore */
           }
-        } else {
-          router.replace("/auth")
+          router.replace("/onboarding")
           return
         }
       } catch {
-        router.replace("/auth")
+        signOut({ callbackUrl: "/auth?error=Configuration" })
         return
       }
       setChecking(false)

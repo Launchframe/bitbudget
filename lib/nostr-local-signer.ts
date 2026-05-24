@@ -38,6 +38,46 @@ export function buildAuthEventTemplate(origin: string): AuthEventTemplate {
   }
 }
 
+/** Default wait for extension getPublicKey / signEvent (some policies never resolve). */
+export const NOSTR_EXTENSION_TIMEOUT_MS = 10_000
+
+export class NostrExtensionTimeoutError extends Error {
+  constructor() {
+    super("NOSTR_EXTENSION_TIMEOUT")
+    this.name = "NostrExtensionTimeoutError"
+  }
+}
+
+/** Reject when `promise` does not settle within `timeoutMs` (clears hung extension calls). */
+export function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new NostrExtensionTimeoutError()), timeoutMs)
+  })
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  })
+}
+
+/** Normalize hex or npub from a NIP-07 extension to lowercase hex. */
+export function normalizeHexPubkey(value: string): string {
+  const trimmed = value.trim()
+  if (/^[0-9a-f]{64}$/i.test(trimmed)) {
+    return trimmed.toLowerCase()
+  }
+  if (/^npub1/i.test(trimmed)) {
+    const decoded = decode(trimmed.toLowerCase())
+    if (decoded.type !== "npub" || typeof decoded.data !== "string") {
+      throw new Error("Invalid Nostr public key from extension")
+    }
+    if (!/^[0-9a-f]{64}$/i.test(decoded.data)) {
+      throw new Error("Invalid Nostr public key from extension")
+    }
+    return decoded.data.toLowerCase()
+  }
+  throw new Error("Invalid Nostr public key from extension")
+}
+
 export interface DecodedNsecResult {
   secretKey: Uint8Array
   pubkey: string
@@ -177,12 +217,21 @@ export function hasNsecOnboardingIntent(): boolean {
  * Fetch kind-0 profile metadata for a pubkey from relays.
  * Returns `name` (from display_name or name) and `image` (from picture).
  */
-export async function fetchNostrProfile(pubkey: string): Promise<NostrProfile> {
+export async function fetchNostrProfile(
+  pubkey: string,
+  timeoutMs = 4000,
+): Promise<NostrProfile> {
   let pool: NostrPool | undefined
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
   try {
     const { SimplePool } = await import("nostr-tools/pool")
     pool = new SimplePool() as NostrPool
-    const event = await pool.get(RELAYS, { kinds: [0], authors: [pubkey] })
+    const event = await Promise.race([
+      pool.get(RELAYS, { kinds: [0], authors: [pubkey] }),
+      new Promise<null>((resolve) => {
+        timeoutId = setTimeout(() => resolve(null), timeoutMs)
+      }),
+    ])
     if (!event?.content) return {}
     const meta = JSON.parse(event.content) as Record<string, string>
     return {
@@ -192,6 +241,7 @@ export async function fetchNostrProfile(pubkey: string): Promise<NostrProfile> {
   } catch {
     return {}
   } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
     if (pool) {
       try {
         pool.close(RELAYS)

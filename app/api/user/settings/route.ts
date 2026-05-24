@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { referralStatsForUser } from "@/lib/referral"
+import { canRedeemReferralInSettings, referralStatsForUser } from "@/lib/referral"
 import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
@@ -37,6 +37,7 @@ export async function GET() {
       monthlyIncome: true,
       payCadence: true,
       onboardingComplete: true,
+      onboardingCompletedAt: true,
       btcDisplayUnit: true,
       opportunityCostEnabled: true,
       nostrPubkey: true,
@@ -57,7 +58,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { _count, premiumGratisUntil, premiumTrialUntil, ...rest } = user
+  const { _count, premiumGratisUntil, premiumTrialUntil, onboardingCompletedAt, ...rest } = user
   const effectiveTier = resolveEffectiveTier({
     subscriptionTier: user.subscriptionTier,
     premiumGratisUntil,
@@ -73,6 +74,13 @@ export async function GET() {
     isRefereePendingBankLink && refereeReferralRow?.referrer
       ? refereeTrialMonthsForReferrerSubscription(refereeReferralRow.referrer.subscriptionTier)
       : null
+
+  const referralRefereeRedeemed = !!refereeReferralRow
+  const referralRefereeCanRedeem = canRedeemReferralInSettings({
+    onboardingComplete: user.onboardingComplete,
+    onboardingCompletedAt,
+    alreadyRedeemed: referralRefereeRedeemed,
+  })
 
   let referralPayload: Record<string, unknown> | null = null
   if (user.onboardingComplete) {
@@ -106,6 +114,8 @@ export async function GET() {
     effectiveTier,
     transactionCount: _count.transactions,
     referralRefereePendingBankLink: isRefereePendingBankLink,
+    referralRefereeRedeemed,
+    referralRefereeCanRedeem,
     referralRefereeTrialMonths,
     referral: referralPayload,
   })
@@ -130,11 +140,28 @@ export async function PUT(req: NextRequest) {
 
   // Never allow encryptedPrivacyKey / privacyKeySalt via this route — use POST /api/user/encryption
   // (guarded) so existing keys cannot be clobbered by mistake or a buggy client.
+  let prevUser: { onboardingComplete: boolean; onboardingCompletedAt: Date | null } | null = null
+  if (body.onboardingComplete === true) {
+    prevUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { onboardingComplete: true, onboardingCompletedAt: true },
+    })
+  }
+
   const data: Record<string, unknown> = {}
   for (const field of ALLOWED_SETTINGS_PUT_FIELDS) {
     if (body[field] !== undefined) {
       data[field] = body[field]
     }
+  }
+
+  if (
+    body.onboardingComplete === true &&
+    prevUser &&
+    !prevUser.onboardingComplete &&
+    prevUser.onboardingCompletedAt == null
+  ) {
+    data.onboardingCompletedAt = new Date()
   }
 
   if (Object.keys(data).length === 0) {

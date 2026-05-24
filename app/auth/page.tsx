@@ -9,12 +9,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft, HelpCircle, ChevronLeft, ChevronRight, X } from "lucide-react"
 import {
-  decodeNsec,
-  signAuthEvent,
-  fetchNostrProfile,
   buildAuthEventTemplate,
-  setPendingNsec,
+  decodeNsec,
+  fetchNostrProfile,
+  normalizeHexPubkey,
+  NostrExtensionTimeoutError,
+  NOSTR_EXTENSION_TIMEOUT_MS,
   setNsecOnboardingIntent,
+  setPendingNsec,
+  signAuthEvent,
+  withTimeout,
 } from "@/lib/nostr-local-signer"
 import { authErrorMessage } from "@/lib/auth-errors"
 import { usePlatform, type PlatformOS } from "@/lib/platform-context"
@@ -242,27 +246,34 @@ export default function AuthPage() {
         return
       }
 
-      const pubkey = await nostrExt.getPublicKey()
-      const event = { ...buildAuthEventTemplate(window.location.origin), pubkey }
-      const signed = await nostrExt.signEvent(event)
-
-      const profile = await fetchNostrProfile(pubkey)
+      const rawPubkey = await withTimeout(nostrExt.getPublicKey(), NOSTR_EXTENSION_TIMEOUT_MS)
+      const pubkey = normalizeHexPubkey(rawPubkey)
+      const template = buildAuthEventTemplate(window.location.origin)
+      const signed = await withTimeout(
+        nostrExt.signEvent({ ...template, pubkey }),
+        NOSTR_EXTENSION_TIMEOUT_MS,
+      )
+      const signedPubkey = normalizeHexPubkey(
+        String((signed as { pubkey?: string }).pubkey ?? pubkey),
+      )
 
       const result = await signIn("nostr", {
-        pubkey,
+        pubkey: signedPubkey,
         event: JSON.stringify(signed),
-        profileName: profile.name ?? "",
-        profileImage: profile.image ?? "",
+        profileName: "",
+        profileImage: "",
         redirect: false,
       })
 
       if (result?.error) {
         setError(`Nostr authentication failed: ${result.error}`)
-      } else {
-        try { sessionStorage.setItem("nostr-login", pubkey) } catch { /* SSR guard */ }
-        router.push("/")
-        router.refresh()
+        return
       }
+
+      try { sessionStorage.setItem("nostr-login", signedPubkey) } catch { /* SSR guard */ }
+      router.push("/")
+      router.refresh()
+      return
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       const lower = msg.toLowerCase()
@@ -273,16 +284,22 @@ export default function AuthPage() {
       const isRejection =
         lower.includes("reject") ||
         lower.includes("denied") ||
-        lower.includes("cancel")
+        lower.includes("cancel") ||
+        lower.includes("block")
       const isNoAccount =
         lower.includes("no private key") ||
         lower.includes("not available") ||
         lower.includes("no accounts")
 
-      if (isRejection) {
-        const host = typeof window !== "undefined" ? window.location.host : "this site"
+      const host = typeof window !== "undefined" ? window.location.host : "this site"
+
+      if (err instanceof NostrExtensionTimeoutError) {
         setError(
-          `You declined the request. Click Continue with Nostr again when you\u2019re ready to approve it, or go into your extension settings and approve ${host}`,
+          `Your Nostr extension did not respond within ${NOSTR_EXTENSION_TIMEOUT_MS / 1000}s. Check that ${host} is allowed and approve both the pubkey and sign prompts.`,
+        )
+      } else if (isRejection) {
+        setError(
+          `You declined the request. Click Continue with Nostr again when you\u2019re ready to approve it, or allow ${host} in your extension settings.`,
         )
       } else if (lower.includes("nos2x")) {
         setError("nos2x needs to be set up first. Open the nos2x extension, add or import a private key, then try logging in again.")
@@ -415,7 +432,11 @@ export default function AuthPage() {
                 className="flex items-center justify-center gap-3 w-full py-3 px-4 bg-[#8B5CF6] text-white rounded-xl font-semibold text-sm hover:bg-[#8B5CF6]/90 transition-colors disabled:opacity-50"
               >
                 <Zap className="h-5 w-5" />
-                {nostrAvailable ? "Continue with Nostr" : "Continue with Nostr Extension"}
+                {loading
+                  ? "Connecting…"
+                  : nostrAvailable
+                    ? "Continue with Nostr"
+                    : "Continue with Nostr Extension"}
               </button>
 
               <button
