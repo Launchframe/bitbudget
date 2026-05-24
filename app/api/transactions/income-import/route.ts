@@ -68,18 +68,29 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  if (!Number.isFinite(user?.monthlyIncome) || (user?.monthlyIncome ?? 0) <= 0) {
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  if (!Number.isFinite(user.monthlyIncome) || user.monthlyIncome <= 0) {
     return NextResponse.json(
       { error: "Set a positive Monthly Income before importing income." },
       { status: 400 },
     )
   }
 
+  if (typeof user.publicKey !== "string" || user.publicKey.trim() === "") {
+    return NextResponse.json(
+      { error: "Encryption is not configured." },
+      { status: 400 },
+    )
+  }
+
   const created = await processIncomeImport({
     userId: session.user.id,
-    publicKey: user!.publicKey,
-    monthlyIncome: user!.monthlyIncome,
-    payDays: user!.payDays,
+    publicKey: user.publicKey,
+    monthlyIncome: user.monthlyIncome,
+    payDays: user.payDays,
     entries,
   })
 
