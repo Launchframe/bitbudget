@@ -17,8 +17,10 @@ vi.mock("nostr-tools/pool", () => ({
 import {
   buildAuthEventTemplate,
   decodeNsec,
+  NostrExtensionTimeoutError,
   signAuthEvent,
   fetchNostrProfile,
+  withTimeout,
   type AuthEventTemplate,
 } from "../nostr-local-signer"
 
@@ -136,6 +138,18 @@ describe("signAuthEvent", () => {
     const b = signAuthEvent(secretKey, "https://b.com")
     expect(a.id).not.toBe(b.id)
     expect(a.sig).not.toBe(b.sig)
+  })
+})
+
+describe("withTimeout", () => {
+  it("resolves when promise settles first", async () => {
+    await expect(withTimeout(Promise.resolve("ok"), 50)).resolves.toBe("ok")
+  })
+
+  it("rejects with NostrExtensionTimeoutError when promise hangs", async () => {
+    await expect(
+      withTimeout(new Promise<string>(() => {}), 20),
+    ).rejects.toBeInstanceOf(NostrExtensionTimeoutError)
   })
 })
 

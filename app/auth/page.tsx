@@ -9,12 +9,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft, HelpCircle, ChevronLeft, ChevronRight, X } from "lucide-react"
 import {
-  decodeNsec,
-  signAuthEvent,
-  fetchNostrProfile,
   buildAuthEventTemplate,
-  setPendingNsec,
+  decodeNsec,
+  fetchNostrProfile,
+  NostrExtensionTimeoutError,
+  NOSTR_EXTENSION_TIMEOUT_MS,
   setNsecOnboardingIntent,
+  setPendingNsec,
+  signAuthEvent,
+  withTimeout,
 } from "@/lib/nostr-local-signer"
 import { authErrorMessage } from "@/lib/auth-errors"
 import { usePlatform, type PlatformOS } from "@/lib/platform-context"
@@ -242,9 +245,9 @@ export default function AuthPage() {
         return
       }
 
-      const pubkey = await nostrExt.getPublicKey()
+      const pubkey = await withTimeout(nostrExt.getPublicKey(), NOSTR_EXTENSION_TIMEOUT_MS)
       const event = { ...buildAuthEventTemplate(window.location.origin), pubkey }
-      const signed = await nostrExt.signEvent(event)
+      const signed = await withTimeout(nostrExt.signEvent(event), NOSTR_EXTENSION_TIMEOUT_MS)
 
       const profile = await fetchNostrProfile(pubkey)
 
@@ -273,16 +276,22 @@ export default function AuthPage() {
       const isRejection =
         lower.includes("reject") ||
         lower.includes("denied") ||
-        lower.includes("cancel")
+        lower.includes("cancel") ||
+        lower.includes("block")
       const isNoAccount =
         lower.includes("no private key") ||
         lower.includes("not available") ||
         lower.includes("no accounts")
 
-      if (isRejection) {
-        const host = typeof window !== "undefined" ? window.location.host : "this site"
+      const host = typeof window !== "undefined" ? window.location.host : "this site"
+
+      if (err instanceof NostrExtensionTimeoutError) {
         setError(
-          `You declined the request. Click Continue with Nostr again when you\u2019re ready to approve it, or go into your extension settings and approve ${host}`,
+          `Your Nostr extension did not respond. If ${host} is set to reject in your extension, allow BitBudget and try again.`,
+        )
+      } else if (isRejection) {
+        setError(
+          `You declined the request. Click Continue with Nostr again when you\u2019re ready to approve it, or allow ${host} in your extension settings.`,
         )
       } else if (lower.includes("nos2x")) {
         setError("nos2x needs to be set up first. Open the nos2x extension, add or import a private key, then try logging in again.")
@@ -415,7 +424,11 @@ export default function AuthPage() {
                 className="flex items-center justify-center gap-3 w-full py-3 px-4 bg-[#8B5CF6] text-white rounded-xl font-semibold text-sm hover:bg-[#8B5CF6]/90 transition-colors disabled:opacity-50"
               >
                 <Zap className="h-5 w-5" />
-                {nostrAvailable ? "Continue with Nostr" : "Continue with Nostr Extension"}
+                {loading
+                  ? "Connecting…"
+                  : nostrAvailable
+                    ? "Continue with Nostr"
+                    : "Continue with Nostr Extension"}
               </button>
 
               <button

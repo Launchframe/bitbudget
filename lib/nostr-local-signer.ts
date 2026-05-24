@@ -38,6 +38,26 @@ export function buildAuthEventTemplate(origin: string): AuthEventTemplate {
   }
 }
 
+/** Default wait for extension getPublicKey / signEvent (some REJECT policies never resolve). */
+export const NOSTR_EXTENSION_TIMEOUT_MS = 10_000
+
+export class NostrExtensionTimeoutError extends Error {
+  constructor() {
+    super("NOSTR_EXTENSION_TIMEOUT")
+    this.name = "NostrExtensionTimeoutError"
+  }
+}
+
+/** Reject when `promise` does not settle within `timeoutMs` (clears hung extension calls). */
+export function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new NostrExtensionTimeoutError()), timeoutMs)
+    }),
+  ])
+}
+
 export interface DecodedNsecResult {
   secretKey: Uint8Array
   pubkey: string
@@ -177,12 +197,20 @@ export function hasNsecOnboardingIntent(): boolean {
  * Fetch kind-0 profile metadata for a pubkey from relays.
  * Returns `name` (from display_name or name) and `image` (from picture).
  */
-export async function fetchNostrProfile(pubkey: string): Promise<NostrProfile> {
+export async function fetchNostrProfile(
+  pubkey: string,
+  timeoutMs = 4000,
+): Promise<NostrProfile> {
   let pool: NostrPool | undefined
   try {
     const { SimplePool } = await import("nostr-tools/pool")
     pool = new SimplePool() as NostrPool
-    const event = await pool.get(RELAYS, { kinds: [0], authors: [pubkey] })
+    const event = await Promise.race([
+      pool.get(RELAYS, { kinds: [0], authors: [pubkey] }),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), timeoutMs)
+      }),
+    ])
     if (!event?.content) return {}
     const meta = JSON.parse(event.content) as Record<string, string>
     return {
