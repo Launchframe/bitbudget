@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { webcrypto } from "node:crypto"
 import { beforeAll, beforeEach, describe, it, expect, vi } from "vitest"
-import { generateSecretKey } from "nostr-tools"
-import { nsecEncode } from "nostr-tools/nip19"
+import { generateSecretKey, getPublicKey } from "nostr-tools"
+import { nsecEncode, npubEncode } from "nostr-tools/nip19"
 
 const mockGet = vi.fn()
 const mockClose = vi.fn()
@@ -17,8 +17,11 @@ vi.mock("nostr-tools/pool", () => ({
 import {
   buildAuthEventTemplate,
   decodeNsec,
-  signAuthEvent,
   fetchNostrProfile,
+  normalizeHexPubkey,
+  NostrExtensionTimeoutError,
+  signAuthEvent,
+  withTimeout,
   type AuthEventTemplate,
 } from "../nostr-local-signer"
 
@@ -139,6 +142,31 @@ describe("signAuthEvent", () => {
   })
 })
 
+describe("withTimeout", () => {
+  it("resolves when promise settles first", async () => {
+    await expect(withTimeout(Promise.resolve("ok"), 50)).resolves.toBe("ok")
+  })
+
+  it("rejects with NostrExtensionTimeoutError when promise hangs", async () => {
+    await expect(
+      withTimeout(new Promise<string>(() => {}), 20),
+    ).rejects.toBeInstanceOf(NostrExtensionTimeoutError)
+  })
+})
+
+describe("normalizeHexPubkey", () => {
+  it("lowercases hex pubkeys", () => {
+    expect(normalizeHexPubkey("A".repeat(64))).toBe("a".repeat(64))
+  })
+
+  it("decodes npub to hex", () => {
+    const sk = generateSecretKey()
+    const hex = getPublicKey(sk)
+    const npub = npubEncode(hex)
+    expect(normalizeHexPubkey(npub)).toBe(hex)
+  })
+})
+
 describe("fetchNostrProfile", () => {
   const pk = "0".repeat(64)
 
@@ -163,5 +191,18 @@ describe("fetchNostrProfile", () => {
     const profile = await fetchNostrProfile(pk)
     expect(profile).toEqual({})
     expect(mockClose).toHaveBeenCalled()
+  })
+
+  it("returns {} when pool.get never resolves (timeout)", async () => {
+    vi.useFakeTimers()
+    try {
+      mockGet.mockImplementation(() => new Promise(() => {}))
+      const profilePromise = fetchNostrProfile(pk, 50)
+      await vi.advanceTimersByTimeAsync(50)
+      await expect(profilePromise).resolves.toEqual({})
+      expect(mockClose).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
