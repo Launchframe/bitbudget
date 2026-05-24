@@ -55,7 +55,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
       async authorize(credentials) {
         if (!credentials?.pubkey || !credentials?.event) return null
-        const pubkey = credentials.pubkey as string
+        const pubkey = (credentials.pubkey as string).trim().toLowerCase()
         const eventStr = credentials.event as string
         const profileName = (credentials.profileName as string) || ""
         const profileImage = (credentials.profileImage as string) || ""
@@ -65,7 +65,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           const event = JSON.parse(eventStr)
           const isValid = verifyEvent(event)
           if (!isValid) return null
-          if (event.pubkey !== pubkey) return null
+          if (typeof event.pubkey !== "string" || event.pubkey.toLowerCase() !== pubkey) return null
 
           let user = await prisma.user.findUnique({ where: { nostrPubkey: pubkey } })
           if (!user) {

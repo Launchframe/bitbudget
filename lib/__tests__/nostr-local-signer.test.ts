@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { webcrypto } from "node:crypto"
 import { beforeAll, beforeEach, describe, it, expect, vi } from "vitest"
-import { generateSecretKey } from "nostr-tools"
-import { nsecEncode } from "nostr-tools/nip19"
+import { generateSecretKey, getPublicKey } from "nostr-tools"
+import { nsecEncode, npubEncode } from "nostr-tools/nip19"
 
 const mockGet = vi.fn()
 const mockClose = vi.fn()
@@ -17,9 +17,10 @@ vi.mock("nostr-tools/pool", () => ({
 import {
   buildAuthEventTemplate,
   decodeNsec,
+  fetchNostrProfile,
+  normalizeHexPubkey,
   NostrExtensionTimeoutError,
   signAuthEvent,
-  fetchNostrProfile,
   withTimeout,
   type AuthEventTemplate,
 } from "../nostr-local-signer"
@@ -150,6 +151,19 @@ describe("withTimeout", () => {
     await expect(
       withTimeout(new Promise<string>(() => {}), 20),
     ).rejects.toBeInstanceOf(NostrExtensionTimeoutError)
+  })
+})
+
+describe("normalizeHexPubkey", () => {
+  it("lowercases hex pubkeys", () => {
+    expect(normalizeHexPubkey("A".repeat(64))).toBe("a".repeat(64))
+  })
+
+  it("decodes npub to hex", () => {
+    const sk = generateSecretKey()
+    const hex = getPublicKey(sk)
+    const npub = npubEncode(hex)
+    expect(normalizeHexPubkey(npub)).toBe(hex)
   })
 })
 

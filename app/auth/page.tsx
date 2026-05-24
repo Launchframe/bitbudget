@@ -12,6 +12,7 @@ import {
   buildAuthEventTemplate,
   decodeNsec,
   fetchNostrProfile,
+  normalizeHexPubkey,
   NostrExtensionTimeoutError,
   NOSTR_EXTENSION_TIMEOUT_MS,
   setNsecOnboardingIntent,
@@ -245,27 +246,34 @@ export default function AuthPage() {
         return
       }
 
-      const pubkey = await withTimeout(nostrExt.getPublicKey(), NOSTR_EXTENSION_TIMEOUT_MS)
-      const event = { ...buildAuthEventTemplate(window.location.origin), pubkey }
-      const signed = await withTimeout(nostrExt.signEvent(event), NOSTR_EXTENSION_TIMEOUT_MS)
-
-      const profile = await fetchNostrProfile(pubkey)
+      const rawPubkey = await withTimeout(nostrExt.getPublicKey(), NOSTR_EXTENSION_TIMEOUT_MS)
+      const template = buildAuthEventTemplate(window.location.origin)
+      const signed = await withTimeout(
+        nostrExt.signEvent({ ...template, pubkey: rawPubkey }),
+        NOSTR_EXTENSION_TIMEOUT_MS,
+      )
+      const pubkey = normalizeHexPubkey(String((signed as { pubkey?: string }).pubkey ?? rawPubkey))
 
       const result = await signIn("nostr", {
         pubkey,
         event: JSON.stringify(signed),
-        profileName: profile.name ?? "",
-        profileImage: profile.image ?? "",
+        profileName: "",
+        profileImage: "",
         redirect: false,
       })
 
       if (result?.error) {
         setError(`Nostr authentication failed: ${result.error}`)
-      } else {
-        try { sessionStorage.setItem("nostr-login", pubkey) } catch { /* SSR guard */ }
-        router.push("/")
-        router.refresh()
+        return
       }
+
+      // Profile is optional — do not block login on relay fetches.
+      void fetchNostrProfile(pubkey).catch(() => ({}))
+
+      try { sessionStorage.setItem("nostr-login", pubkey) } catch { /* SSR guard */ }
+      router.push("/")
+      router.refresh()
+      return
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       const lower = msg.toLowerCase()
@@ -287,7 +295,7 @@ export default function AuthPage() {
 
       if (err instanceof NostrExtensionTimeoutError) {
         setError(
-          `Your Nostr extension did not respond. If ${host} is set to reject in your extension, allow BitBudget and try again.`,
+          `Your Nostr extension did not respond within ${NOSTR_EXTENSION_TIMEOUT_MS / 1000}s. Check that ${host} is allowed and approve both the pubkey and sign prompts.`,
         )
       } else if (isRejection) {
         setError(

@@ -38,7 +38,7 @@ export function buildAuthEventTemplate(origin: string): AuthEventTemplate {
   }
 }
 
-/** Default wait for extension getPublicKey / signEvent (some REJECT policies never resolve). */
+/** Default wait for extension getPublicKey / signEvent (some policies never resolve). */
 export const NOSTR_EXTENSION_TIMEOUT_MS = 10_000
 
 export class NostrExtensionTimeoutError extends Error {
@@ -56,6 +56,25 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<
       setTimeout(() => reject(new NostrExtensionTimeoutError()), timeoutMs)
     }),
   ])
+}
+
+/** Normalize hex or npub from a NIP-07 extension to lowercase hex. */
+export function normalizeHexPubkey(value: string): string {
+  const trimmed = value.trim()
+  if (/^[0-9a-f]{64}$/i.test(trimmed)) {
+    return trimmed.toLowerCase()
+  }
+  if (/^npub1/i.test(trimmed)) {
+    const decoded = decode(trimmed.toLowerCase())
+    if (decoded.type !== "npub" || typeof decoded.data !== "string") {
+      throw new Error("Invalid Nostr public key from extension")
+    }
+    if (!/^[0-9a-f]{64}$/i.test(decoded.data)) {
+      throw new Error("Invalid Nostr public key from extension")
+    }
+    return decoded.data.toLowerCase()
+  }
+  throw new Error("Invalid Nostr public key from extension")
 }
 
 export interface DecodedNsecResult {
