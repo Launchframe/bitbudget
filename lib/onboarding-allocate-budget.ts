@@ -43,21 +43,38 @@ export function savingsGoalPercentOfPaycheck(
  */
 export const ONBOARDING_ALLOCATE_SLIDER_STEP = 50
 
-/** Per-envelope monthly cap when onboarding has no income estimate (free-form allocation). */
-export const ONBOARDING_UNBOUNDED_ALLOC_MAX = 50_000
+/**
+ * Starting slider range when onboarding has no income estimate.
+ * Expands in bands as the user allocates higher amounts.
+ */
+export const ONBOARDING_UNBOUNDED_SLIDER_FLOOR = 50_000
+
+/** Max typed monthly allotment per envelope in unbounded onboarding (matches Decimal(12, 2)). */
+export const ONBOARDING_UNBOUNDED_INPUT_MAX = 9_999_999
+
+/** @deprecated Use ONBOARDING_UNBOUNDED_SLIDER_FLOOR or ONBOARDING_UNBOUNDED_INPUT_MAX. */
+export const ONBOARDING_UNBOUNDED_ALLOC_MAX = ONBOARDING_UNBOUNDED_SLIDER_FLOOR
 
 /** True when the user skipped income estimates — allocations are not capped to a monthly total. */
 export function isUnboundedOnboardingAllocation(monthlyBudget: number): boolean {
   return !Number.isFinite(monthlyBudget) || monthlyBudget <= 0
 }
 
-/** Slider `max` for one envelope row (bounded = allotment + remaining pool; unbounded = fixed cap). */
+/**
+ * Slider `max` for one envelope row.
+ * Bounded: allotment + remaining pool. Unbounded: expands above the current allotment.
+ */
 export function onboardingSliderMaxForRow(
   monthlyAllotment: number,
   savingsRemaining: number,
   monthlyBudget: number,
 ): number {
-  if (isUnboundedOnboardingAllocation(monthlyBudget)) return ONBOARDING_UNBOUNDED_ALLOC_MAX
+  if (isUnboundedOnboardingAllocation(monthlyBudget)) {
+    const amt = Math.max(0, monthlyAllotment)
+    const headroom = ONBOARDING_ALLOCATE_SLIDER_STEP
+    const band = ONBOARDING_UNBOUNDED_SLIDER_FLOOR
+    return Math.max(band, Math.ceil((amt + headroom) / band) * band)
+  }
   return monthlyAllotment + savingsRemaining
 }
 
@@ -66,7 +83,7 @@ export function onboardingAllocationCapForRow(
   monthlyBudget: number,
   otherRowsAllocatedMonthly: number,
 ): number {
-  if (isUnboundedOnboardingAllocation(monthlyBudget)) return ONBOARDING_UNBOUNDED_ALLOC_MAX
+  if (isUnboundedOnboardingAllocation(monthlyBudget)) return ONBOARDING_UNBOUNDED_INPUT_MAX
   return Math.max(0, monthlyBudget - otherRowsAllocatedMonthly)
 }
 

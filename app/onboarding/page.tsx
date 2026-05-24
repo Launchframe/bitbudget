@@ -236,13 +236,7 @@ export default function OnboardingPage() {
     raw: number
   } | null>(null)
   const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
-  const allocSliderPointerRef = useRef<{
-    pointerId: number
-    startX: number
-    startY: number
-    captured: boolean
-    idx: number
-  } | null>(null)
+  const allocSliderPointerRef = useRef<{ pointerId: number; idx: number } | null>(null)
 
   /** Append one draft envelope from trimmed name (shared by Add button and Continue). */
   function appendDraftEnvelope(prev: DraftEnvelope[], rawName: string): DraftEnvelope[] {
@@ -1266,6 +1260,8 @@ export default function OnboardingPage() {
         const snapped = snapOnboardingAllocationToStep(v, maxForRow)
         return prev.map((en, i) => (i === rowIdx ? { ...en, monthlyAllotment: snapped } : en))
       })
+      setAllocSliderRawOverride(prev => (prev?.idx === rowIdx ? null : prev))
+      allocSliderPointerRef.current = null
     },
     [allocateMonthlyBudget],
   )
@@ -2341,9 +2337,13 @@ export default function OnboardingPage() {
                     allocateMonthlyBudget,
                     totalAllocated - env.monthlyAllotment,
                   )
+                  const rowAllotmentForDisplay =
+                    allocSliderRawOverride?.idx === idx
+                      ? snapOnboardingAllocationToStep(allocSliderRawOverride.raw, rowCap)
+                      : env.monthlyAllotment
                   const pct =
                     allocateMonthlyBudget > 0
-                      ? Math.round((env.monthlyAllotment / allocateMonthlyBudget) * 100)
+                      ? Math.round((rowAllotmentForDisplay / allocateMonthlyBudget) * 100)
                       : 0
                   const sliderValueClamped =
                     sliderMax <= 0
@@ -2391,7 +2391,7 @@ export default function OnboardingPage() {
                             inputMode="numeric"
                             autoComplete="off"
                             value={cadenceDisplayInteger(
-                              env.monthlyAllotment,
+                              rowAllotmentForDisplay,
                               env.allocationCadence ?? "monthly",
                             )}
                             onChange={e => {
@@ -2460,11 +2460,15 @@ export default function OnboardingPage() {
                             ? Math.min(sliderMax, Math.max(0, rawParsed))
                             : 0
                           setAllocSliderRawOverride({ idx, raw: val })
-                          const newBucket = snapOnboardingAllocationToStep(val, sliderMax)
-                          if (newBucket !== env.monthlyAllotment) {
-                            setEnvelopes(prev => prev.map((en, i) =>
-                              i === idx ? { ...en, monthlyAllotment: newBucket } : en,
-                            ))
+                          // Commit allotment only after release — mid-drag envelope updates re-render
+                          // the controlled slider and drop pointer capture (especially unbounded mode).
+                          if (allocSliderPointerRef.current?.idx !== idx) {
+                            const newBucket = snapOnboardingAllocationToStep(val, sliderMax)
+                            if (newBucket !== env.monthlyAllotment) {
+                              setEnvelopes(prev => prev.map((en, i) =>
+                                i === idx ? { ...en, monthlyAllotment: newBucket } : en,
+                              ))
+                            }
                           }
                         }}
                         onPointerDown={e => {
@@ -2473,52 +2477,31 @@ export default function OnboardingPage() {
                             ? Math.min(sliderMax, Math.max(0, rawInit))
                             : 0
                           setAllocSliderRawOverride({ idx, raw: init })
-                          allocSliderPointerRef.current = {
-                            pointerId: e.pointerId,
-                            startX: e.clientX,
-                            startY: e.clientY,
-                            captured: false,
-                            idx,
-                          }
-                        }}
-                        onPointerMove={e => {
-                          const drag = allocSliderPointerRef.current
-                          if (!drag || drag.idx !== idx || drag.pointerId !== e.pointerId || drag.captured) {
-                            return
-                          }
-                          const dx = Math.abs(e.clientX - drag.startX)
-                          const dy = Math.abs(e.clientY - drag.startY)
-                          if (dx > dy && dx > 6) {
-                            drag.captured = true
-                            try {
-                              e.currentTarget.setPointerCapture(e.pointerId)
-                            } catch {
-                              /* noop */
-                            }
+                          allocSliderPointerRef.current = { pointerId: e.pointerId, idx }
+                          try {
+                            e.currentTarget.setPointerCapture(e.pointerId)
+                          } catch {
+                            /* noop */
                           }
                         }}
                         onPointerUp={e => {
-                          const drag = allocSliderPointerRef.current
-                          if (drag?.captured && drag.pointerId === e.pointerId) {
+                          if (allocSliderPointerRef.current?.pointerId === e.pointerId) {
                             try {
                               e.currentTarget.releasePointerCapture(e.pointerId)
                             } catch {
                               /* noop */
                             }
                           }
-                          allocSliderPointerRef.current = null
                           commitOnboardingSliderSnap(idx, e.currentTarget)
                         }}
                         onPointerCancel={e => {
-                          const drag = allocSliderPointerRef.current
-                          if (drag?.captured && drag.pointerId === e.pointerId) {
+                          if (allocSliderPointerRef.current?.pointerId === e.pointerId) {
                             try {
                               e.currentTarget.releasePointerCapture(e.pointerId)
                             } catch {
                               /* noop */
                             }
                           }
-                          allocSliderPointerRef.current = null
                           commitOnboardingSliderSnap(idx, e.currentTarget)
                         }}
                         onBlur={e => {
@@ -2530,9 +2513,9 @@ export default function OnboardingPage() {
                           "--slider-pct": `${sliderPct}%`,
                         } as React.CSSProperties}
                       />
-                      {env.allocationCadence !== "monthly" && env.monthlyAllotment > 0 && (
+                      {env.allocationCadence !== "monthly" && rowAllotmentForDisplay > 0 && (
                         <span className="text-[10px] text-muted-foreground mt-0.5">
-                          = ${Math.round(env.monthlyAllotment).toLocaleString()}/mo
+                          = ${Math.round(rowAllotmentForDisplay).toLocaleString()}/mo
                         </span>
                       )}
                     </div>

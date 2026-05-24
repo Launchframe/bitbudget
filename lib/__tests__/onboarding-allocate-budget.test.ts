@@ -3,7 +3,8 @@ import {
   isUnboundedOnboardingAllocation,
   onboardingAllocationCapForRow,
   onboardingSliderMaxForRow,
-  ONBOARDING_UNBOUNDED_ALLOC_MAX,
+  ONBOARDING_UNBOUNDED_INPUT_MAX,
+  ONBOARDING_UNBOUNDED_SLIDER_FLOOR,
   savingsGoalPercentOfPaycheck,
   snapOnboardingAllocationToStep,
 } from "../onboarding-allocate-budget"
@@ -11,8 +12,13 @@ import {
 describe("onboarding allocation caps", () => {
   it("treats zero monthly budget as unbounded", () => {
     expect(isUnboundedOnboardingAllocation(0)).toBe(true)
-    expect(onboardingSliderMaxForRow(0, 0, 0)).toBe(ONBOARDING_UNBOUNDED_ALLOC_MAX)
-    expect(onboardingAllocationCapForRow(0, 5000)).toBe(ONBOARDING_UNBOUNDED_ALLOC_MAX)
+    expect(onboardingSliderMaxForRow(0, 0, 0)).toBe(ONBOARDING_UNBOUNDED_SLIDER_FLOOR)
+    expect(onboardingAllocationCapForRow(0, 5000)).toBe(ONBOARDING_UNBOUNDED_INPUT_MAX)
+  })
+
+  it("expands unbounded slider max as allotment grows", () => {
+    expect(onboardingSliderMaxForRow(50_000, 0, 0)).toBe(100_000)
+    expect(onboardingSliderMaxForRow(100_000, 0, 0)).toBe(150_000)
   })
 
   it("uses remaining pool when monthly budget is set", () => {
