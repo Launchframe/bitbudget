@@ -210,6 +210,15 @@ export async function redeemReferralCode(args: {
     }
   }
 
+  if (validation.codeRow.ownerId === args.refereeId) {
+    return {
+      ok: false,
+      status: 400,
+      code: "self_referral",
+      message: "You cannot redeem your own referral code",
+    }
+  }
+
   const refereeUser = await prisma.user.findUnique({
     where: { id: args.refereeId },
     select: { onboardingComplete: true, onboardingCompletedAt: true },
@@ -228,15 +237,6 @@ export async function redeemReferralCode(args: {
       status: 410,
       code: "redeem_window_closed",
       message: "Referral codes can only be applied within 7 days of finishing onboarding",
-    }
-  }
-
-  if (validation.codeRow.ownerId === args.refereeId) {
-    return {
-      ok: false,
-      status: 400,
-      code: "self_referral",
-      message: "You cannot redeem your own referral code",
     }
   }
 
