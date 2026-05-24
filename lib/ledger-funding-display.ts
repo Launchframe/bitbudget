@@ -35,6 +35,7 @@ export function displayPayeeForTransaction(
   txn: Transaction,
   transactions: readonly Transaction[],
 ): string {
+  if (txn.isDecrypted === false) return txn.payee
   if (txn.source === "envelope_funding_in") {
     const income = incomeTransactionForBatch(transactions, txn.fundingBatchId)
     const src = incomeSourceLabel(income)

@@ -51,6 +51,29 @@ describe("ledger-funding-display", () => {
     expect(displayPayeeForTransaction(rows[1]!, rows)).toBe("From Income · Freelance")
   })
 
+  it("does not derive funding leg labels when session is locked", () => {
+    const batch = "batch-1"
+    const rows = [
+      txn({
+        id: "inc",
+        envelopeId: "sav",
+        source: "paycheck",
+        fundingBatchId: batch,
+        payee: "(encrypted)",
+        isDecrypted: false,
+      }),
+      txn({
+        id: "leg",
+        envelopeId: "rent",
+        source: "envelope_funding_in",
+        fundingBatchId: batch,
+        payee: "(encrypted)",
+        isDecrypted: false,
+      }),
+    ]
+    expect(displayPayeeForTransaction(rows[1]!, rows)).toBe("(encrypted)")
+  })
+
   it("detects funding legs", () => {
     expect(isEnvelopeFundingLeg({ source: "envelope_funding_in" })).toBe(true)
     expect(isEnvelopeFundingLeg({ source: "manual" })).toBe(false)

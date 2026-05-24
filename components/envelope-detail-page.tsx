@@ -12,6 +12,7 @@ import {
   transactionMatchesTypeFilter,
   type TransactionListTypeFilter,
 } from "@/lib/ledger-funding-display"
+import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { Progress } from "@/components/ui/progress"
@@ -251,7 +252,10 @@ export function EnvelopeDetailPage() {
               {paginatedTransactions.map((txn) => {
                 const opCost = calculateOpportunityCost(txn.amount, txn.date)
                 const isHighlighted = txn.id === highlightTransactionId
-                const payeeLabel = displayPayeeForTransaction(txn, state.transactions)
+                const payeeLabel =
+                  txn.isDecrypted === false
+                    ? null
+                    : displayPayeeForTransaction(txn, state.transactions)
                 return (
                   <tr
                     key={txn.id}
@@ -264,7 +268,11 @@ export function EnvelopeDetailPage() {
                     </td>
                     <td className="py-3.5 px-4 text-sm font-medium text-foreground">
                       <span className="flex items-center gap-1.5">
-                        {payeeLabel}
+                        {txn.isDecrypted === false ? (
+                          <span className="text-muted-foreground italic">{ENCRYPTED_DISPLAY}</span>
+                        ) : (
+                          payeeLabel
+                        )}
                         {txn.recurringId && (
                           <span title="Recurring transaction"><Repeat className="h-3 w-3 text-muted-foreground shrink-0" /></span>
                         )}
