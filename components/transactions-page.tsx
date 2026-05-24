@@ -498,7 +498,7 @@ export function TransactionsPage() {
         )}
         {savingsOnlyFilter && (
           <p className="text-xs text-muted-foreground px-1" role="status">
-            Showing your Savings ledger — credits in, allocation legs out.
+            Showing Savings transactions only — some entries move money into other envelopes.
           </p>
         )}
         {!historyReady && hasActiveFilter && (
