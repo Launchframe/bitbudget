@@ -10,6 +10,9 @@ import {
   unboundedOnboardingSliderMaxForGesture,
   unboundedOnboardingSliderNextBand,
   applyUnboundedOnboardingSliderDrag,
+  bumpUnboundedOnboardingSliderVisitedMax,
+  unboundedOnboardingSliderMaxForGestureWithVisited,
+  unboundedOnboardingSliderVisitedMax,
   defaultOnboardingSavingsGoalAmount,
   onboardingSavingsGoalAmountFromPercent,
   onboardingSavingsGoalCapacity,
@@ -107,6 +110,29 @@ describe("applyUnboundedOnboardingSliderDrag", () => {
     expect(result.didExpand).toBe(true)
     expect(result.activeMax).toBe(4_000)
     expect(result.val).toBe(2_000)
+  })
+})
+
+describe("unboundedOnboardingSliderVisitedMax", () => {
+  it("defaults to the floor or allotment, whichever is larger", () => {
+    expect(unboundedOnboardingSliderVisitedMax(undefined, 0)).toBe(1_000)
+    expect(unboundedOnboardingSliderVisitedMax(undefined, 1_200)).toBe(1_200)
+  })
+
+  it("never shrinks below a previously visited max", () => {
+    expect(unboundedOnboardingSliderVisitedMax(2_000, 800)).toBe(2_000)
+    expect(unboundedOnboardingSliderVisitedMax(2_000, 1_200)).toBe(2_000)
+  })
+
+  it("grows when the candidate exceeds the current visited max", () => {
+    expect(bumpUnboundedOnboardingSliderVisitedMax(2_000, 4_000)).toBe(4_000)
+    expect(bumpUnboundedOnboardingSliderVisitedMax(undefined, 2_000)).toBe(2_000)
+  })
+
+  it("uses visited max for gesture headroom without shrinking", () => {
+    expect(unboundedOnboardingSliderMaxForGestureWithVisited(800, 2_000)).toBe(2_000)
+    expect(unboundedOnboardingSliderMaxForGestureWithVisited(1_200, 2_000)).toBe(2_000)
+    expect(unboundedOnboardingSliderMaxForGestureWithVisited(1_200, undefined)).toBe(2_000)
   })
 })
 

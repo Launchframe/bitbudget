@@ -175,6 +175,39 @@ export function unboundedOnboardingSliderMax(monthlyAllotment: number): number {
   return unboundedOnboardingSliderMaxAtRest(monthlyAllotment)
 }
 
+/** Expand-only max for unbounded onboarding sliders — never shrinks during the session. */
+export function unboundedOnboardingSliderVisitedMax(
+  visitedMax: number | undefined | null,
+  monthlyAllotment: number,
+): number {
+  const allotment = Math.max(0, monthlyAllotment)
+  const atLeastAllotment = Math.max(ONBOARDING_UNBOUNDED_SLIDER_FLOOR, allotment)
+  if (visitedMax == null || !Number.isFinite(visitedMax) || visitedMax <= 0) {
+    return atLeastAllotment
+  }
+  return Math.max(visitedMax, atLeastAllotment)
+}
+
+export function bumpUnboundedOnboardingSliderVisitedMax(
+  visitedMax: number | undefined | null,
+  candidate: number,
+): number {
+  const floor = ONBOARDING_UNBOUNDED_SLIDER_FLOOR
+  const next = Math.max(visitedMax ?? floor, candidate, floor)
+  return Math.min(next, ONBOARDING_UNBOUNDED_INPUT_MAX)
+}
+
+/**
+ * Slider max for one drag gesture — at least the session visited max, plus one doubling band headroom.
+ */
+export function unboundedOnboardingSliderMaxForGestureWithVisited(
+  monthlyAllotment: number,
+  visitedMax: number | undefined | null,
+): number {
+  const visited = unboundedOnboardingSliderVisitedMax(visitedMax, monthlyAllotment)
+  return Math.max(unboundedOnboardingSliderMaxForGesture(monthlyAllotment), visited)
+}
+
 /**
  * Slider `max` for one envelope row at rest.
  * Bounded: allotment + remaining pool. Unbounded: tight max so thumb stays at the right edge.
