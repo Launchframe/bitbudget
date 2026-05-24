@@ -220,3 +220,34 @@ Deleting an envelope **archives** it (`archived: true`). Archived envelopes and 
 - **`colSpan` mismatch** — when conditionally rendering table columns (e.g. hiding BTC columns in vanilla mode), update the empty-state row's `colSpan` accordingly.
 - **`react-hooks/set-state-in-effect`** — don’t call `setState` synchronously inside `useEffect` / `useLayoutEffect`; it triggers lint and risks extra renders or cascading updates. See **React effects and `setState`** under Code Conventions for patterns (derive during render, defer with `requestAnimationFrame` / `setTimeout(0)`, refs).
 - **Resetting `onboardingComplete` for users who already have `encryptedPrivacyKey`** — never rely on onboarding to rotate keys. `PUT /api/user/settings` must not accept `encryptedPrivacyKey` / `privacyKeySalt`. Prefer **Skip onboarding** and correct step routing; corrupt keys need a **recovery** path, not a silent `POST` overwrite.
+
+## Cursor Cloud specific instructions
+
+### Services overview
+
+| Service | How to run | Notes |
+|---------|-----------|-------|
+| PostgreSQL | `sudo pg_ctlcluster 16 main start` | Required. Must be running before dev server or tests. |
+| Next.js dev server | `pnpm dev` | Runs on port 3000. |
+| Unit tests | `pnpm test` | Vitest; no DB required. |
+| Lint | `pnpm lint` | ESLint with `--max-warnings 0`. |
+| E2E tests | `pnpm test:e2e` | Requires PostgreSQL + Playwright browsers. Builds and runs on port 3100. Do not run while `pnpm dev` is active (lock conflict). |
+
+### Environment setup
+
+- **PostgreSQL** is required but not Docker-based. Install via `apt-get install postgresql postgresql-client` and start with `sudo pg_ctlcluster 16 main start` (no systemd in Cloud VMs).
+- **Prisma CLI** reads `.env` (not `.env.local`). A symlink `.env -> .env.local` resolves this. The update script creates the symlink if missing.
+- **`.env.local`** must contain at minimum: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`. For E2E testing, also add `E2E_TEST="true"` and `E2E_EMAIL_CODE="424242"`.
+- After `pnpm install`, run `prisma migrate deploy` (not `prisma migrate dev`, which prompts interactively) to apply pending migrations non-interactively.
+
+### Testing with E2E mode
+
+- Set `E2E_TEST="true"` and `E2E_EMAIL_CODE="424242"` in `.env.local` to enable fixed OTP login for `@bitbudget.test` email addresses. This also suppresses outbound email/Nostr DM notifications.
+- Playwright e2e global setup runs `prisma migrate deploy` and seeds fixtures automatically.
+- Install Playwright browsers once with `pnpm exec playwright install --with-deps chromium`.
+
+### Gotchas
+
+- The `pnpm install` postinstall hook runs `prisma generate` automatically, so no separate generate step is needed after install.
+- `pnpm.onlyBuiltDependencies` in `package.json` handles native dependency build approvals non-interactively — do not run `pnpm approve-builds`.
+- The Next.js dev server hot-reloads code changes but does **not** pick up new `.env.local` values without a restart.
