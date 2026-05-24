@@ -104,6 +104,8 @@ If `GMAIL_USER` / `GMAIL_APP_PASSWORD` are unset, `lib/email.ts` **logs OTP and 
 
 If `BITBUDGET_NOSTR_NSEC` is unset, `sendNostrDm` logs a warning and returns `false` (no throw).
 
+**MVP default:** Leave `BITBUDGET_NOSTR_RELAYS` unset (built-in clearnet relays) or set a short list of well-known public relays. That is sufficient for product notifications today.
+
 ### CI / E2E only
 
 | Variable | Where | Description |
@@ -174,6 +176,91 @@ BITBUDGET_NOSTR_RELAYS="wss://relay.damus.io,wss://nos.lol"
 - `pnpm test` mocks email/Nostr; no live network.
 - `pnpm test:e2e` sets `E2E_TEST=true` in `playwright.config.ts` so `lib/notify.ts` never sends outbound mail/DMs.
 - Do **not** add `E2E_TEST` to `.env.local` while manually testing real SMTP or DMs.
+
+---
+
+## Tor-only relays (post-MVP)
+
+Running your **own** relay reachable only over Tor (hidden service, no public DNS listing) fits a strong threat model: the publish endpoint is not advertised on the open internet, and casual relay crawlers never index it. **That mode is not supported by the current codebase** and is **not required for MVP**. Ship Nostr DMs via well-known public `wss://` relays until you add Tor-aware publishing.
+
+### What the app does today
+
+| Capability | Supported? | Notes |
+|------------|------------|--------|
+| Publish kind 4 DMs to clearnet relays | Yes | `lib/nostr-dm.ts` → `SimplePool.publish()` |
+| Publish to `wss://….onion` via Tor | **No** | No SOCKS/Tor integration |
+| Subscribe / receive events on a relay | **No** | Server never listens for inbound Nostr |
+| Vercel serverless → Tor network | **No** | No Tor daemon or proxy in that runtime |
+
+Outbound Nostr is **publish-only**. Users read DMs in their own client (Damus, Amethyst, etc.) from whatever relays that client uses. BitBudget does not run a relay and does not ingest replies.
+
+### Why Tor-only URLs fail today
+
+`BITBUDGET_NOSTR_RELAYS` is passed straight into `nostr-tools` `SimplePool`, which opens a normal WebSocket:
+
+- **Node (API routes, cron):** needs a Tor SOCKS proxy (e.g. `127.0.0.1:9050`) and a WebSocket client configured with `socks-proxy-agent` (or similar). None of that exists in this repo.
+- **Vercel / typical PaaS:** cannot reach `.onion` hosts; no local Tor process.
+- **Browser (`fetchNostrProfile`):** uses hardcoded clearnet relays in `lib/nostr-local-signer.ts`; the web app cannot open `.onion` WebSockets without Tor Browser and code changes.
+
+Setting `BITBUDGET_NOSTR_RELAYS=wss://yourrelay.onion` on a standard deploy will usually produce `[nostr-dm] publish failed` in logs.
+
+### MVP: public relays (recommended)
+
+For launch, configure only:
+
+```bash
+BITBUDGET_NOSTR_NSEC="nsec1…"   # dedicated service key, per environment
+# Optional; omit to use defaults in lib/nostr-dm.ts:
+# BITBUDGET_NOSTR_RELAYS="wss://relay.damus.io,wss://nos.lol,wss://relay.nostr.band"
+```
+
+`pool.publish` uses `Promise.any` — one successful relay is enough. Public relays improve deliverability because many clients already read them.
+
+### Post-MVP: Tor relay threat model (operator view)
+
+**Goals Tor-only relaying can help with:**
+
+- Hide **your** relay’s hostname from public DNS and relay directory scrapers.
+- Reduce correlation between “BitBudget notification infrastructure” and a trivially discoverable domain.
+- Keep publish traffic off default public relays if policy or jurisdiction matters.
+
+**What Tor does *not* solve by itself:**
+
+- Users must still **read** from a relay that holds the event. If you publish only to a Tor-only relay, recipients need a Tor-capable Nostr client pointed at that relay (or you also publish to clearnet relays — see hybrid below).
+- The service `nsec` still identifies the **publisher** on Nostr; Tor hides the relay host, not the cryptographic author.
+- Login/signing still goes through the user’s extension and its relay set unless you change those flows separately.
+
+### Post-MVP: implementation sketch
+
+When you prioritize Tor support, plan a **self-hosted publisher** (not Vercel-only):
+
+1. **Tor on the host** — `tor` with SOCKS on `127.0.0.1:9050` (or `9150` for Tor Browser bundle style).
+2. **SOCKS-aware WebSocket** — e.g. `ws` + `socks-proxy-agent` with `socks5h://127.0.0.1:9050` so `.onion` hostnames resolve through Tor; wire into `nostr-tools` via `useWebSocketImplementation` (see [nostr-tools pool docs](https://github.com/nbd-wtf/nostr-tools)).
+3. **Relay URL** — hidden service v3, e.g. `wss://abc123….onion` (TLS on onion is relay-specific; follow your relay software’s docs).
+4. **Optional dual publish** — publish to your Tor relay **and** one public relay during migration so users on clearnet-only clients still receive DMs:
+   ```bash
+   BITBUDGET_NOSTR_RELAYS="wss://yourhidden.onion,wss://nos.lol"
+   ```
+   Only works once Tor WebSocket plumbing exists on that host.
+5. **Profile metadata** — `fetchNostrProfile` today ignores `BITBUDGET_NOSTR_RELAYS`; Tor-only profile hosting would need the same SOCKS WebSocket work or a clearnet mirror for kind 0.
+
+**Inbound / “receive” on Tor:** Not planned in the current product. Adding it would mean long-lived subscriptions, event storage, and NIP handling on your infrastructure — separate from outbound DMs.
+
+### Operator checklist (future Tor publisher)
+
+- [ ] Relay hidden service stable; `wss` endpoint tested with `nak` or a Tor SOCKS client **from the same network path as the app**
+- [ ] Dedicated notification `nsec`; never reused as a user login key
+- [ ] Publisher runs on host with Tor (VM, container with sidecar Tor, or bare metal) — not serverless-only
+- [ ] Document which relay(s) users must add in their Nostr client if you skip dual publish
+- [ ] Monitor publish failures; fallback relay in env if Tor path is down
+
+### Troubleshooting (Tor)
+
+| Symptom | Cause | MVP workaround |
+|---------|--------|----------------|
+| `publish failed` to `.onion` | No Tor/SOCKS on app host | Use public relays in `BITBUDGET_NOSTR_RELAYS` or unset |
+| User never sees DM | Client not on your Tor relay | Dual-publish to a public relay, or document client relay config |
+| Works on laptop, fails in prod | Vercel cannot use Tor | Run publisher on Tor-capable infra |
 
 ---
 

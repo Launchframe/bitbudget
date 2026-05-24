@@ -48,7 +48,9 @@ Product notifications (referrals, premium trial/gratis reminders, notification-e
 
 **Preview vs production:** Use separate databases, Gmail senders, and Nostr service `nsec` values per environment; set `NEXTAUTH_URL` to each deploy’s canonical HTTPS origin so unsubscribe links work. Full checklist in the doc above.
 
-**Agents:** When helping developers set up outbound messaging, walk through [docs/outbound-messaging.md](docs/outbound-messaging.md) in order (local → preview → production). Do not put service `nsec` or app passwords in client code, logs, or PR descriptions.
+**Nostr relays (MVP):** Publish DMs through default or well-known **public** clearnet relays (`BITBUDGET_NOSTR_RELAYS` optional). **Tor-only / `.onion` relays are not supported** in code today (no SOCKS/Tor WebSocket); they are documented as post-MVP for operators who want a non-discoverable relay — see [Tor-only relays (post-MVP)](docs/outbound-messaging.md#tor-only-relays-post-mvp).
+
+**Agents:** When helping developers set up outbound messaging, walk through [docs/outbound-messaging.md](docs/outbound-messaging.md) in order (local → preview → production). Do not put service `nsec` or app passwords in client code, logs, or PR descriptions. Do not promise Tor relay publish on Vercel without custom Tor-capable infrastructure.
 
 ## Tech Stack
 
