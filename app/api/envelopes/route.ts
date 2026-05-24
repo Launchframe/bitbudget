@@ -165,6 +165,12 @@ export async function PUT(req: NextRequest) {
         { status: 403 },
       )
     }
+    if (monthlyAllotment !== undefined) {
+      return NextResponse.json(
+        { error: "The system Savings envelope allotment cannot be changed." },
+        { status: 403 },
+      )
+    }
   }
 
   let updated

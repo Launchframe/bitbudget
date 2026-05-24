@@ -115,8 +115,21 @@ export function EnvelopeDetailPage() {
   })
   const isLedgerSavingsHub =
     state.ledgerFundingEnabled && envelope.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS
-  const percentage = envelope.monthlyAllotment > 0 ? Math.max(0, (balance / envelope.monthlyAllotment) * 100) : 0
-  const healthColor = percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
+  const percentage =
+    !isLedgerSavingsHub && envelope.monthlyAllotment > 0
+      ? Math.max(0, (balance / envelope.monthlyAllotment) * 100)
+      : 0
+  const healthColor = isLedgerSavingsHub
+    ? balance > 0
+      ? "#22C55E"
+      : balance < 0
+        ? "#EF4444"
+        : "#A3A3A3"
+    : percentage > 25
+      ? "#22C55E"
+      : percentage > 10
+        ? "#EAB308"
+        : "#EF4444"
 
   return (
     <div className="flex flex-col gap-6">
@@ -148,16 +161,18 @@ export function EnvelopeDetailPage() {
               {formatUsd(balance)}
             </span>
           </div>
-          <div className="flex-1 max-w-xs">
-            <Progress
-              value={Math.min(100, percentage)}
-              className="h-2.5"
-              style={{
-                // @ts-expect-error - CSS custom properties
-                "--progress-color": healthColor,
-              }}
-            />
-          </div>
+          {!isLedgerSavingsHub && (
+            <div className="flex-1 max-w-xs">
+              <Progress
+                value={Math.min(100, percentage)}
+                className="h-2.5"
+                style={{
+                  // @ts-expect-error - CSS custom properties
+                  "--progress-color": healthColor,
+                }}
+              />
+            </div>
+          )}
         </div>
       </div>
 

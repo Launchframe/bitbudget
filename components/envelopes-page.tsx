@@ -247,9 +247,23 @@ export function EnvelopesPage() {
           const balance = getEnvelopeBalance(state.transactions, env.id, currentMonth, env.monthlyAllotment, {
             ledgerFundingEnabled: state.ledgerFundingEnabled,
           })
-          const percentage = env.monthlyAllotment > 0 ? Math.max(0, (balance / env.monthlyAllotment) * 100) : 0
-          const healthColor = percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
           const protectSystem = env.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS
+          const isLedgerSavingsHub = protectSystem && state.ledgerFundingEnabled
+          const percentage =
+            !isLedgerSavingsHub && env.monthlyAllotment > 0
+              ? Math.max(0, (balance / env.monthlyAllotment) * 100)
+              : 0
+          const healthColor = isLedgerSavingsHub
+            ? balance > 0
+              ? "#22C55E"
+              : balance < 0
+                ? "#EF4444"
+                : "#A3A3A3"
+            : percentage > 25
+              ? "#22C55E"
+              : percentage > 10
+                ? "#EAB308"
+                : "#EF4444"
           return (
             <div
               key={env.id}
@@ -282,15 +296,17 @@ export function EnvelopesPage() {
                       {protectSystem && state.ledgerFundingEnabled ? " balance" : " left"}
                     </span>
                   </div>
-                  <Progress
-                    value={Math.min(100, percentage)}
-                    markerPct={monthMarkerPct}
-                    className="h-2"
-                    style={{
-                      // @ts-expect-error - CSS custom properties
-                      "--progress-color": healthColor,
-                    }}
-                  />
+                  {!isLedgerSavingsHub && (
+                    <Progress
+                      value={Math.min(100, percentage)}
+                      markerPct={monthMarkerPct}
+                      className="h-2"
+                      style={{
+                        // @ts-expect-error - CSS custom properties
+                        "--progress-color": healthColor,
+                      }}
+                    />
+                  )}
                 </div>
               </button>
 
