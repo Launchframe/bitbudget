@@ -10,6 +10,7 @@ import {
   unboundedOnboardingSliderMaxForGesture,
   unboundedOnboardingSliderNextBand,
   applyUnboundedOnboardingSliderDrag,
+  unboundedOnboardingSliderThumbPct,
   savingsGoalPercentOfPaycheck,
   snapOnboardingAllocationToStep,
 } from "../onboarding-allocate-budget"
@@ -85,6 +86,16 @@ describe("applyUnboundedOnboardingSliderDrag", () => {
     expect(result.didExpand).toBe(true)
     expect(result.activeMax).toBe(4_000)
     expect(result.val).toBe(2_000)
+  })
+})
+
+describe("unboundedOnboardingSliderThumbPct", () => {
+  it("keeps the thumb at the right edge when pinned after a band expands", () => {
+    expect(unboundedOnboardingSliderThumbPct(1_000, 2_000, new Set([1_000]))).toBe(100)
+  })
+
+  it("uses proportional position between expanded bands", () => {
+    expect(unboundedOnboardingSliderThumbPct(1_500, 2_000, new Set([1_000]))).toBe(75)
   })
 })
 

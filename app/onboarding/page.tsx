@@ -56,6 +56,7 @@ import {
 } from "@/lib/nostr-local-signer"
 import {
   applyUnboundedOnboardingSliderDrag,
+  unboundedOnboardingSliderThumbPct,
   isUnboundedOnboardingAllocation,
   monthlyBudgetForAllocation,
   monthlyCapacityFromAnnualEstimate,
@@ -1244,6 +1245,9 @@ export default function OnboardingPage() {
   const savings = Math.max(0, allocateMonthlyBudget - totalAllocated)
   const savingsPct =
     allocateMonthlyBudget > 0 ? Math.round((savings / allocateMonthlyBudget) * 100) : 0
+  const unboundedAlloc = isUnboundedOnboardingAllocation(allocateMonthlyBudget)
+  const showAllocStackBar = allocateMonthlyBudget > 0 || totalAllocated > 0
+  const allocStackBarTotal = allocateMonthlyBudget > 0 ? allocateMonthlyBudget : totalAllocated
 
   const pendingDeleteEnv =
     pendingDeleteEnvelopeIdx !== null ? envelopes[pendingDeleteEnvelopeIdx] : undefined
@@ -2255,7 +2259,7 @@ export default function OnboardingPage() {
 
               {/* Stacked bar + sliders — scrollable on small screens so Continue stays reachable */}
               <div className="flex min-w-0 flex-col gap-4 max-md:max-h-[calc(100dvh-13rem)] max-md:overflow-x-hidden max-md:overflow-y-auto max-md:overscroll-y-contain max-md:[-webkit-overflow-scrolling:touch]">
-              {allocateMonthlyBudget > 0 && (
+              {showAllocStackBar && (
                 <div
                   className="sticky top-0 z-20 max-md:mx-0 max-md:px-0 -mx-8 px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
                 >
@@ -2263,8 +2267,15 @@ export default function OnboardingPage() {
                   <div className="flex h-10 w-full flex-row rounded-xl overflow-hidden bg-[#1A1A1A]">
                     {envelopes.map((env, idx) => {
                       if (env.monthlyAllotment <= 0) return null
-                      const pct = (env.monthlyAllotment / allocateMonthlyBudget) * 100
+                      const pct =
+                        allocStackBarTotal > 0
+                          ? (env.monthlyAllotment / allocStackBarTotal) * 100
+                          : 0
                       const amt = Math.round(env.monthlyAllotment)
+                      const sharePct =
+                        unboundedAlloc && totalAllocated > 0
+                          ? Math.round((env.monthlyAllotment / totalAllocated) * 100)
+                          : Math.round(pct)
                       return (
                         <Tooltip key={idx} delayDuration={200}>
                           <TooltipTrigger asChild>
@@ -2302,13 +2313,13 @@ export default function OnboardingPage() {
                             <p className="text-sm font-semibold leading-tight">{env.name}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">
                               ${amt.toLocaleString()}/mo allocated
-                              <span className="text-muted-foreground/80"> · {Math.round(pct)}%</span>
+                              <span className="text-muted-foreground/80"> · {sharePct}%</span>
                             </p>
                           </TooltipContent>
                         </Tooltip>
                       )
                     })}
-                    {savings > 0 && (
+                    {!unboundedAlloc && savings > 0 && (
                       <Tooltip delayDuration={200}>
                         <TooltipTrigger asChild>
                           <button
@@ -2340,10 +2351,20 @@ export default function OnboardingPage() {
                     )}
                   </div>
                   <div className="flex items-center justify-between text-xs text-muted-foreground px-1 transition-[color] duration-300">
-                    <span className="tabular-nums">
-                      ${totalAllocated.toLocaleString()} allocated
-                    </span>
-                    <span className="tabular-nums">${allocateMonthlyBudget.toLocaleString()} monthly budget</span>
+                    {unboundedAlloc ? (
+                      <span className="tabular-nums mx-auto">
+                        ${totalAllocated.toLocaleString()} estimated monthly spend
+                      </span>
+                    ) : (
+                      <>
+                        <span className="tabular-nums">
+                          ${totalAllocated.toLocaleString()} allocated
+                        </span>
+                        <span className="tabular-nums">
+                          ${allocateMonthlyBudget.toLocaleString()} monthly budget
+                        </span>
+                      </>
+                    )}
                   </div>
                   </div>
                 </div>
@@ -2382,7 +2403,30 @@ export default function OnboardingPage() {
                             Math.max(0, Math.round(allocSliderRawOverride.raw)),
                           )
                         : Math.min(sliderMax, Math.max(0, Math.round(env.monthlyAllotment)))
-                  const sliderPct = sliderMax > 0 ? (sliderValueClamped / sliderMax) * 100 : 0
+                  const dragSession =
+                    allocSliderDragSessionRef.current?.idx === idx
+                      ? allocSliderDragSessionRef.current
+                      : null
+                  const isPinnedAtExpandedCeiling =
+                    isUnboundedOnboardingAllocation(allocateMonthlyBudget) &&
+                    allocSliderRawOverride?.idx === idx &&
+                    dragSession != null &&
+                    dragSession.expandedFrom.has(sliderValueClamped) &&
+                    sliderValueClamped < sliderMax
+                  const rangeInputValue = isPinnedAtExpandedCeiling
+                    ? sliderMax
+                    : sliderValueClamped
+                  const sliderPct =
+                    isUnboundedOnboardingAllocation(allocateMonthlyBudget) &&
+                    allocSliderRawOverride?.idx === idx
+                      ? unboundedOnboardingSliderThumbPct(
+                          sliderValueClamped,
+                          sliderMax,
+                          dragSession?.expandedFrom,
+                        )
+                      : sliderMax > 0
+                        ? (sliderValueClamped / sliderMax) * 100
+                        : 0
 
                   return (
                     <div
@@ -2480,7 +2524,7 @@ export default function OnboardingPage() {
                         min={0}
                         max={Math.max(0, sliderMax)}
                         step={1}
-                        value={sliderValueClamped}
+                        value={rangeInputValue}
                         aria-label={`${env.name} monthly allotment`}
                         onChange={e => {
                           const rawParsed = parseInt(e.target.value, 10)
@@ -2608,7 +2652,7 @@ export default function OnboardingPage() {
                 })}
               </div>
 
-              {/* Implicit Savings row */}
+              {!unboundedAlloc && (
               <div className="flex items-center gap-3 p-3 rounded-xl bg-[#1A1A1A]/60 border border-[#1F1F1F]">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-[#22C55E]/10">
                   <PiggyBank className="h-4 w-4 text-[#22C55E]" />
@@ -2619,8 +2663,9 @@ export default function OnboardingPage() {
                   <span className="text-xs text-muted-foreground w-10 text-right">{savingsPct}%</span>
                 </div>
               </div>
+              )}
 
-              {savings === 0 && totalAllocated > 0 && !(allocateMonthlyBudget === 0 && incomeMode === "irregular") && (
+              {savings === 0 && totalAllocated > 0 && !unboundedAlloc && (
                 <p className="text-xs text-amber-400/80 text-center">All income allocated — nothing goes to savings</p>
               )}
               </div>

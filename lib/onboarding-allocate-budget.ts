@@ -141,6 +141,25 @@ export function applyUnboundedOnboardingSliderDrag(
   return { val: Math.min(activeMax, val), activeMax, expandedFromMaxes, didExpand: false }
 }
 
+/** Thumb % for an unbounded slider — stays at the right edge when pinned after a band expands. */
+export function unboundedOnboardingSliderThumbPct(
+  val: number,
+  sliderMax: number,
+  expandedFromMaxes: ReadonlySet<number> | null | undefined,
+): number {
+  if (!Number.isFinite(sliderMax) || sliderMax <= 0) return 0
+  const clamped = Math.min(sliderMax, Math.max(0, val))
+  if (
+    expandedFromMaxes &&
+    expandedFromMaxes.size > 0 &&
+    expandedFromMaxes.has(clamped) &&
+    clamped < sliderMax
+  ) {
+    return 100
+  }
+  return (clamped / sliderMax) * 100
+}
+
 /**
  * Slider max when the user is not dragging — keeps the thumb at the right edge
  * for the committed value instead of expanding to the next doubling band.
