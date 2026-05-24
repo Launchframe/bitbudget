@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { canRedeemReferralAsPostOnboardingReferee, referralStatsForUser } from "@/lib/referral"
+import { canRedeemReferralInSettings, referralStatsForUser } from "@/lib/referral"
 import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
@@ -76,7 +76,7 @@ export async function GET() {
       : null
 
   const referralRefereeRedeemed = !!refereeReferralRow
-  const referralRefereeCanRedeem = canRedeemReferralAsPostOnboardingReferee({
+  const referralRefereeCanRedeem = canRedeemReferralInSettings({
     onboardingComplete: user.onboardingComplete,
     onboardingCompletedAt: user.onboardingCompletedAt,
     alreadyRedeemed: referralRefereeRedeemed,

@@ -146,6 +146,8 @@ export function SettingsReferralsCard() {
       }
       setRefCodeInput("")
       await refreshData()
+    } catch {
+      setRefRedeemError("Could not apply referral code")
     } finally {
       setRefRedeeming(false)
     }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   addMonthsUtc,
-  canRedeemReferralAsPostOnboardingReferee,
+  canRedeemReferralAsReferee,
+  canRedeemReferralInSettings,
   generateUserReferralCodeSegment,
   isValidOfferSlug,
   normalizeOfferSlug,
@@ -51,10 +52,10 @@ describe("referral code helpers", () => {
     )
   })
 
-  it("canRedeemReferralAsPostOnboardingReferee respects onboarding window", () => {
+  it("canRedeemReferralAsReferee allows onboarding and post-onboarding window", () => {
     const completed = new Date(Date.UTC(2026, 4, 1, 12, 0, 0))
     expect(
-      canRedeemReferralAsPostOnboardingReferee({
+      canRedeemReferralAsReferee({
         onboardingComplete: false,
         onboardingCompletedAt: null,
         alreadyRedeemed: false,
@@ -62,7 +63,7 @@ describe("referral code helpers", () => {
       }),
     ).toBe(true)
     expect(
-      canRedeemReferralAsPostOnboardingReferee({
+      canRedeemReferralAsReferee({
         onboardingComplete: true,
         onboardingCompletedAt: completed,
         alreadyRedeemed: false,
@@ -70,7 +71,7 @@ describe("referral code helpers", () => {
       }),
     ).toBe(true)
     expect(
-      canRedeemReferralAsPostOnboardingReferee({
+      canRedeemReferralAsReferee({
         onboardingComplete: true,
         onboardingCompletedAt: completed,
         alreadyRedeemed: false,
@@ -78,7 +79,7 @@ describe("referral code helpers", () => {
       }),
     ).toBe(false)
     expect(
-      canRedeemReferralAsPostOnboardingReferee({
+      canRedeemReferralAsReferee({
         onboardingComplete: true,
         onboardingCompletedAt: completed,
         alreadyRedeemed: true,
@@ -86,12 +87,32 @@ describe("referral code helpers", () => {
       }),
     ).toBe(false)
     expect(
-      canRedeemReferralAsPostOnboardingReferee({
+      canRedeemReferralAsReferee({
         onboardingComplete: true,
         onboardingCompletedAt: null,
         alreadyRedeemed: false,
         now: new Date(),
       }),
     ).toBe(false)
+  })
+
+  it("canRedeemReferralInSettings requires finished onboarding", () => {
+    const completed = new Date(Date.UTC(2026, 4, 1, 12, 0, 0))
+    expect(
+      canRedeemReferralInSettings({
+        onboardingComplete: false,
+        onboardingCompletedAt: null,
+        alreadyRedeemed: false,
+        now: completed,
+      }),
+    ).toBe(false)
+    expect(
+      canRedeemReferralInSettings({
+        onboardingComplete: true,
+        onboardingCompletedAt: completed,
+        alreadyRedeemed: false,
+        now: new Date(completed.getTime() + 6 * 86400000),
+      }),
+    ).toBe(true)
   })
 })

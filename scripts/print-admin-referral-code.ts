@@ -18,8 +18,9 @@ async function main() {
   })
 
   if (!admin) {
-    console.error("No admin user found (role = admin). Set one via ADMIN_EMAILS + pnpm db:seed-admin.")
-    process.exit(1)
+    throw new Error(
+      "No admin user found (role = admin). Set one via ADMIN_EMAILS + pnpm db:seed-admin.",
+    )
   }
 
   const row = await ensureUserReferralCode(admin.id)

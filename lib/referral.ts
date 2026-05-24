@@ -51,8 +51,17 @@ export function refereePostOnboardingRedeemDeadline(onboardingCompletedAt: Date 
   return new Date(onboardingCompletedAt.getTime() + REFEREE_POST_ONBOARDING_REDEEM_DAYS * 86400000)
 }
 
-/** Post-onboarding Settings redeem; during onboarding (`onboardingComplete` false) redeem stays allowed. */
-export function canRedeemReferralAsPostOnboardingReferee(args: {
+export function isWithinRefereePostOnboardingRedeemWindow(args: {
+  onboardingCompletedAt: Date | null
+  now?: Date
+}): boolean {
+  const deadline = refereePostOnboardingRedeemDeadline(args.onboardingCompletedAt)
+  if (!deadline) return false
+  return (args.now ?? new Date()) < deadline
+}
+
+/** Redeem API: allowed during onboarding or within the post-onboarding window. */
+export function canRedeemReferralAsReferee(args: {
   onboardingComplete: boolean
   onboardingCompletedAt: Date | null
   alreadyRedeemed: boolean
@@ -60,9 +69,24 @@ export function canRedeemReferralAsPostOnboardingReferee(args: {
 }): boolean {
   if (args.alreadyRedeemed) return false
   if (!args.onboardingComplete) return true
-  const deadline = refereePostOnboardingRedeemDeadline(args.onboardingCompletedAt)
-  if (!deadline) return false
-  return (args.now ?? new Date()) < deadline
+  return isWithinRefereePostOnboardingRedeemWindow({
+    onboardingCompletedAt: args.onboardingCompletedAt,
+    now: args.now,
+  })
+}
+
+/** Settings UI: only after onboarding, within the post-onboarding window. */
+export function canRedeemReferralInSettings(args: {
+  onboardingComplete: boolean
+  onboardingCompletedAt: Date | null
+  alreadyRedeemed: boolean
+  now?: Date
+}): boolean {
+  if (args.alreadyRedeemed || !args.onboardingComplete) return false
+  return isWithinRefereePostOnboardingRedeemWindow({
+    onboardingCompletedAt: args.onboardingCompletedAt,
+    now: args.now,
+  })
 }
 
 export type ValidateReferralCodeResult =
@@ -225,7 +249,7 @@ export async function redeemReferralCode(args: {
   })
   if (
     refereeUser &&
-    !canRedeemReferralAsPostOnboardingReferee({
+    !canRedeemReferralAsReferee({
       onboardingComplete: refereeUser.onboardingComplete,
       onboardingCompletedAt: refereeUser.onboardingCompletedAt,
       alreadyRedeemed: false,
