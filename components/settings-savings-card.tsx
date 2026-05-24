@@ -84,7 +84,7 @@ function WhySavingsExplainer({ defaultOpen = false }: { defaultOpen?: boolean })
           We believe in the core financial principle of paying yourself first. Tracking your savings is a core facet of this mode of thinking, and gives you a true ledger of your finances.
         </p>
         <p>
-          That is why BitBudget tracks expenses as a ledger. Your money does not appear just so it can be spent — your income is what recharges your Savings. Envelopes are spending buckets; filling them necessarily draws down on your Savings.
+          That's why BitBudget tracks expenses as a ledger. Your money doesn't "appear" just so it can be spent - your income is what recharges your Savings. Envelopes are spending buckets. filling them necessarily draws down on your Savings.
         </p>
         <p>
           Study after study shows that people who think of their money as savings rather than a paycheck are significantly more likely to keep to a consistent budget. Savings Tracking is designed to do just that, and to encourage you every step of the way.

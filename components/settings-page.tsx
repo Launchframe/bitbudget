@@ -29,6 +29,7 @@ import {
   Link2,
   Settings2,
   Plug,
+  PiggyBank,
 } from "lucide-react"
 import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
 import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
@@ -36,12 +37,14 @@ import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { SettingsReferralsCard } from "@/components/settings-referrals-card"
 import { SettingsSavingsCard } from "@/components/settings-savings-card"
+import { IncomeImporterCard } from "@/components/income-importer-dialog"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
 
-type SettingsTab = "general" | "integrations" | "tags" | "payees" | "data"
+type SettingsTab = "general" | "savings" | "integrations" | "tags" | "payees" | "data"
 
 const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
   general: "general",
+  savings: "savings-tracking",
   integrations: "integrations",
   tags: "tags",
   payees: "payee-mappings",
@@ -50,6 +53,8 @@ const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
 
 const SETTINGS_TAB_FROM_SLUG: Record<string, SettingsTab> = {
   general: "general",
+  savings: "savings",
+  "savings-tracking": "savings",
   integrations: "integrations",
   tags: "tags",
   payees: "payees",
@@ -111,6 +116,9 @@ export function SettingsPage() {
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       } else if (t === "integrations") {
         selectSettingsTab("integrations", "replace")
+        sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      } else if (t === "savings" || t === "savings-tracking") {
+        selectSettingsTab("savings", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       }
     } catch {
@@ -312,15 +320,23 @@ export function SettingsPage() {
     e.target.value = ""
   }
 
-  const tabIconClass = (tab: SettingsTab) =>
-    `h-3.5 w-3.5 shrink-0 ${settingsTab === tab ? "text-btc-orange" : "text-muted-foreground"}`
+  const tabIconClass = (tab: SettingsTab) => {
+    const active = settingsTab === tab
+    if (active && tab === "savings") return "h-3.5 w-3.5 shrink-0 text-[#D4AF37]"
+    return `h-3.5 w-3.5 shrink-0 ${active ? "text-btc-orange" : "text-muted-foreground"}`
+  }
 
-  const tabButtonClass = (tab: SettingsTab) =>
-    `flex items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors ${
-      settingsTab === tab
+  const tabButtonClass = (tab: SettingsTab) => {
+    const active = settingsTab === tab
+    if (active && tab === "savings") {
+      return "flex items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors bg-[#1A1A1A] text-[#D4AF37] border border-[#D4AF37]/25"
+    }
+    return `flex items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors ${
+      active
         ? "bg-[#1A1A1A] text-[#F7931A] border border-[#F7931A]/20"
         : "text-muted-foreground hover:text-foreground hover:bg-[#111111]"
     }`
+  }
 
   const generalSection = (
     <>
@@ -409,9 +425,6 @@ export function SettingsPage() {
         )}
       </div>
 
-      {/* Savings tracking */}
-      <SettingsSavingsCard />
-
       <SettingsReferralsCard />
 
       {/* Opportunity cost + BTC display: premium-only (free users keep landing/onboarding defaults) */}
@@ -498,6 +511,13 @@ export function SettingsPage() {
           )}
         </>
       )}
+    </>
+  )
+
+  const savingsSection = (
+    <>
+      <SettingsSavingsCard />
+      <IncomeImporterCard />
     </>
   )
 
@@ -899,6 +919,10 @@ export function SettingsPage() {
                 <Settings2 className={tabIconClass("general")} aria-hidden />
                 <span>General</span>
               </button>
+              <button type="button" onClick={() => selectSettingsTab("savings")} className={tabButtonClass("savings")}>
+                <PiggyBank className={tabIconClass("savings")} aria-hidden />
+                <span>Savings tracking</span>
+              </button>
               <button type="button" onClick={() => selectSettingsTab("integrations")} className={tabButtonClass("integrations")}>
                 <Plug className={tabIconClass("integrations")} aria-hidden />
                 <span>Integrations</span>
@@ -921,6 +945,7 @@ export function SettingsPage() {
 
         <div className="flex flex-col gap-6">
           {settingsTab === "general" && generalSection}
+          {settingsTab === "savings" && savingsSection}
           {settingsTab === "integrations" && integrationsSection}
           {settingsTab === "tags" && tagsSection}
           {settingsTab === "payees" && <PayeeMappingsSettings />}
