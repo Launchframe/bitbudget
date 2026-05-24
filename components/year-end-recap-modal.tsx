@@ -44,6 +44,14 @@ export function YearEndRecapModal() {
     return sum / inYear.length
   }, [closedGoals, recapYear])
 
+  const achievementsInRecapYear = useMemo(
+    () =>
+      achievements
+        .filter((a) => a.earnedAt.startsWith(String(recapYear)))
+        .slice(0, 5),
+    [achievements, recapYear],
+  )
+
   const stats = useMemo(
     () =>
       aggregateYearEndRecap({
@@ -161,9 +169,9 @@ export function YearEndRecapModal() {
           )}
         </dl>
 
-        {achievements.length > 0 && (
+        {achievementsInRecapYear.length > 0 && (
           <div className="flex flex-wrap gap-2" aria-label="Achievements earned last year">
-            {achievements.slice(0, 5).map((a) => (
+            {achievementsInRecapYear.map((a) => (
               <span
                 key={a.code}
                 className="text-[10px] px-2 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/30"

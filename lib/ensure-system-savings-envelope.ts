@@ -34,7 +34,7 @@ async function promoteEnvelopeToSystemSavings(
 
 /**
  * Ensure system Savings envelope exists (idempotent). Un-archives a legacy Savings-named row if needed.
- * Pass `tx` to participate in a caller transaction (e.g. settings enable + user row update).
+ * Pass `tx` to participate in a caller transaction (e.g. income import or sweep batch).
  */
 export async function ensureSystemSavingsEnvelope(
   userId: string,

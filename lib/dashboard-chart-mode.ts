@@ -19,10 +19,13 @@ export function setDashboardChartMode(mode: DashboardChartMode): void {
 export function subscribeDashboardChartMode(onChange: () => void): () => void {
   if (typeof window === "undefined") return () => {}
   const handler = () => onChange()
+  const storageHandler = (e: StorageEvent) => {
+    if (e.key === DASHBOARD_CHART_MODE_KEY) onChange()
+  }
   window.addEventListener(MODE_EVENT, handler)
-  window.addEventListener("storage", handler)
+  window.addEventListener("storage", storageHandler)
   return () => {
     window.removeEventListener(MODE_EVENT, handler)
-    window.removeEventListener("storage", handler)
+    window.removeEventListener("storage", storageHandler)
   }
 }
