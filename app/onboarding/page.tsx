@@ -1192,7 +1192,7 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        <div className="bg-[#0D0D0D] rounded-2xl p-8">
+        <div className="bg-[#0D0D0D] rounded-2xl py-8 px-4 sm:p-8">
           {restoredSession && !isNostr && step !== "referral" && step !== "security" && step !== "complete" && step !== "referral-bank" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
@@ -1874,7 +1874,7 @@ export default function OnboardingPage() {
               {/* Stacked bar — sticky while scrolling envelope sliders */}
               {allocateMonthlyBudget > 0 && (
                 <div
-                  className="sticky top-0 z-20 -mx-8 px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+                  className="sticky top-0 z-20 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
                 >
                   <div className="flex flex-col gap-2">
                   <div className="flex h-10 w-full flex-row rounded-xl overflow-hidden bg-[#1A1A1A]">
