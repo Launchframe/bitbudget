@@ -1,11 +1,10 @@
 import { prisma } from "@/lib/db"
+import { TX_SOURCE_ENVELOPE_SWEEP, TX_SOURCE_INCOME_IMPORT } from "@/lib/constants"
 import {
-  TX_SOURCE_ENVELOPE_SWEEP,
   TX_SOURCE_FUNDING_OUT,
-  TX_SOURCE_INCOME_IMPORT,
   TX_SOURCE_IRREGULAR_INCOME,
-} from "@/lib/constants"
-import { TX_SOURCE_PAYCHECK } from "@/lib/envelope-funding"
+  TX_SOURCE_PAYCHECK,
+} from "@/lib/envelope-funding"
 
 export function monthKeyFromDate(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`

@@ -66,7 +66,7 @@ export function YearEndRecapModal() {
   )
 
   const loadData = useCallback(async () => {
-    const from = `${recapYear - 1}-01`
+    const from = `${recapYear}-01`
     const to = `${recapYear}-12`
     const [goalsRes, achRes] = await Promise.all([
       fetch(`/api/user/savings-goals?from=${from}&to=${to}`),

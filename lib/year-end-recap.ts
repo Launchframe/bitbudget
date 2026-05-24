@@ -1,4 +1,9 @@
-import type { SavingsGoal } from "@prisma/client"
+type RecapGoalRow = {
+  periodKey: string
+  actualSavedAmount: number | null
+  achievedGoal: boolean | null
+  closedAt: Date | null
+}
 
 export interface YearEndRecapStats {
   year: number
@@ -12,12 +17,12 @@ export interface YearEndRecapStats {
 
 export function aggregateYearEndRecap(params: {
   year: number
-  closedGoals: Array<
-    Pick<SavingsGoal, "periodKey" | "actualSavedAmount" | "achievedGoal" | "closedAt">
-  >
+  closedGoals: RecapGoalRow[]
   achievementsInYear: number
   currentSavingsBalance: number
   monthlySaveRate: number
+  /** UTC anchor for 2030 projection; defaults to now (matches current balance). */
+  asOf?: Date
 }): YearEndRecapStats {
   const yearPrefix = `${params.year}-`
   const inYear = params.closedGoals.filter(
@@ -53,7 +58,11 @@ export function aggregateYearEndRecap(params: {
   const rate = params.monthlySaveRate
   let projection2030: number | null = null
   if (rate > 0) {
-    const monthsTo2030 = Math.max(0, (2030 - params.year) * 12)
+    const asOf = params.asOf ?? new Date()
+    const monthsTo2030 = Math.max(
+      0,
+      (2030 - asOf.getUTCFullYear()) * 12 - asOf.getUTCMonth(),
+    )
     projection2030 = Math.round((params.currentSavingsBalance + rate * monthsTo2030) * 100) / 100
   }
 

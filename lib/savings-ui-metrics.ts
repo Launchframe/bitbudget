@@ -3,7 +3,7 @@ import {
   SYSTEM_ENVELOPE_ROLE_SAVINGS,
 } from "@/lib/constants"
 import type { Envelope, Transaction } from "@/lib/data"
-import { getEnvelopeBalance, getEnvelopeBalanceAllTime, getMonthKey } from "@/lib/data"
+import { getCurrentMonthKey, getEnvelopeBalance, getEnvelopeBalanceAllTime, getMonthKey } from "@/lib/data"
 
 export const SAVINGS_INFLOW_SOURCES = new Set([
   "paycheck",
@@ -19,9 +19,14 @@ export function findSavingsEnvelope(envelopes: readonly Envelope[]): Envelope | 
 export function savingsBalance(
   transactions: readonly Transaction[],
   savingsEnvelope: Envelope | undefined,
+  monthKey = getCurrentMonthKey(),
 ): number {
   if (!savingsEnvelope) return 0
-  return getEnvelopeBalanceAllTime(transactions as Transaction[], savingsEnvelope.id)
+  return getEnvelopeBalance(
+    transactions as Transaction[],
+    savingsEnvelope.id,
+    monthKey,
+  )
 }
 
 export function sumRemainingDiscretionary(
@@ -67,8 +72,8 @@ export function avgMonthlySpendLastNMonths(
   const now = new Date()
   const monthKeys = new Set<string>()
   for (let i = 0; i < months; i++) {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))
-    monthKeys.add(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`)
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    monthKeys.add(getMonthKey(d.toISOString().split("T")[0]!))
   }
 
   const byMonth = new Map<string, number>()
