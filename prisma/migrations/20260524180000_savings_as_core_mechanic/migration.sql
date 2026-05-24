@@ -76,3 +76,6 @@ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
+
+-- AlterTable
+ALTER TABLE "SavingsGoal" ALTER COLUMN "updatedAt" DROP DEFAULT;

@@ -4,7 +4,6 @@ import Credentials from "next-auth/providers/credentials"
 import Google from "next-auth/providers/google"
 import GitHub from "next-auth/providers/github"
 import { prisma } from "@/lib/db"
-import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -104,7 +103,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.id = user.id
         token.picture = user.image ?? undefined
         if (typeof user.id === "string") {
-          void ensureSystemSavingsEnvelope(user.id).catch(() => {})
+          void import("@/lib/ensure-system-savings-envelope")
+            .then(({ ensureSystemSavingsEnvelope }) => ensureSystemSavingsEnvelope(user.id as string))
+            .catch(() => {})
         }
       }
       return token

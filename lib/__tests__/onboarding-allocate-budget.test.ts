@@ -1,8 +1,26 @@
 import { describe, expect, it } from "vitest"
 import {
+  isUnboundedOnboardingAllocation,
+  onboardingAllocationCapForRow,
+  onboardingSliderMaxForRow,
+  ONBOARDING_UNBOUNDED_ALLOC_MAX,
   savingsGoalPercentOfPaycheck,
   snapOnboardingAllocationToStep,
 } from "../onboarding-allocate-budget"
+
+describe("onboarding allocation caps", () => {
+  it("treats zero monthly budget as unbounded", () => {
+    expect(isUnboundedOnboardingAllocation(0)).toBe(true)
+    expect(onboardingSliderMaxForRow(0, 0, 0)).toBe(ONBOARDING_UNBOUNDED_ALLOC_MAX)
+    expect(onboardingAllocationCapForRow(0, 5000)).toBe(ONBOARDING_UNBOUNDED_ALLOC_MAX)
+  })
+
+  it("uses remaining pool when monthly budget is set", () => {
+    expect(isUnboundedOnboardingAllocation(2400)).toBe(false)
+    expect(onboardingSliderMaxForRow(600, 1800, 2400)).toBe(2400)
+    expect(onboardingAllocationCapForRow(2400, 600)).toBe(1800)
+  })
+})
 
 describe("savingsGoalPercentOfPaycheck", () => {
   it("returns null when paycheck is missing or non-positive", () => {

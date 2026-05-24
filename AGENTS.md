@@ -89,6 +89,13 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 - `app/page.tsx` is the shell: `OnboardingGate → AppProvider → EncryptionGate → BtcPriceProvider → layout`.
 - When changing interactive UI, keep accessibility state and labels current: update `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-pressed`, `aria-selected`, and related screen-reader text alongside visible labels and control state.
 
+### User-facing copy
+- **Write for people, not engineers.** Labels, hints, empty states, errors, onboarding steps, and settings help must use plain language anyone can understand on first read.
+- **Do not expose implementation vocabulary** in the UI: avoid terms like “bounded sliders,” “ledger,” “allocation legs,” “capacity,” “batch,” “ciphertext,” “envelope funding,” API field names, or other internal mechanic names unless the product explicitly teaches that term (e.g. “envelope” as a budgeting concept users already chose).
+- **Explain outcomes, not plumbing.** Say what the app will do for the user (“We’ll use this to build a rough budget”) rather than how the code works (“Powers bounded allocation sliders”).
+- **Keep tone calm and optional where fields are optional.** Make it clear they can skip or change things later without jargon or pressure.
+- **Technical accuracy belongs in code comments, AGENTS.md, and PRs** — not in strings users see in the app.
+
 ### State Management
 - `AppContext` (`lib/app-context.tsx`) is the single source of truth for app state. It holds transactions, envelopes, tags, user settings, encryption state, and navigation.
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.

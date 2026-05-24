@@ -57,6 +57,8 @@ import {
 import {
   monthlyBudgetForAllocation,
   monthlyCapacityFromAnnualEstimate,
+  onboardingAllocationCapForRow,
+  onboardingSliderMaxForRow,
   savingsGoalPercentOfPaycheck,
   snapOnboardingAllocationToStep,
   type OnboardingPayCadence,
@@ -1259,9 +1261,8 @@ export default function OnboardingPage() {
       const raw = parseInt(input.value, 10)
       const v = Number.isFinite(raw) ? raw : 0
       setEnvelopes(prev => {
-        const maxForRow =
-          allocateMonthlyBudget -
-          prev.reduce((s, x, j) => s + (j === rowIdx ? 0 : x.monthlyAllotment), 0)
+        const otherAllocated = prev.reduce((s, x, j) => s + (j === rowIdx ? 0 : x.monthlyAllotment), 0)
+        const maxForRow = onboardingAllocationCapForRow(allocateMonthlyBudget, otherAllocated)
         const snapped = snapOnboardingAllocationToStep(v, maxForRow)
         return prev.map((en, i) => (i === rowIdx ? { ...en, monthlyAllotment: snapped } : en))
       })
@@ -1778,7 +1779,7 @@ export default function OnboardingPage() {
                       />
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      Powers bounded allocation sliders in the next step. Skip if you&apos;re not sure yet.
+                      We will use this to help build a rough budget for you. You can leave this blank if you are not sure.
                     </p>
                   </div>
                 )}
@@ -2331,7 +2332,15 @@ export default function OnboardingPage() {
               {/* Per-envelope slider rows */}
               <div className="flex min-w-0 flex-col gap-4">
                 {envelopes.map((env, idx) => {
-                  const sliderMax = env.monthlyAllotment + savings
+                  const sliderMax = onboardingSliderMaxForRow(
+                    env.monthlyAllotment,
+                    savings,
+                    allocateMonthlyBudget,
+                  )
+                  const rowCap = onboardingAllocationCapForRow(
+                    allocateMonthlyBudget,
+                    totalAllocated - env.monthlyAllotment,
+                  )
                   const pct =
                     allocateMonthlyBudget > 0
                       ? Math.round((env.monthlyAllotment / allocateMonthlyBudget) * 100)
@@ -2390,7 +2399,7 @@ export default function OnboardingPage() {
                                 prev?.idx === idx ? null : prev,
                               )
                               const cadence = (env.allocationCadence ?? "monthly") as AllocationCadence
-                              const monthly = monthlyFromDigitOnlyInput(e.target.value, cadence, sliderMax)
+                              const monthly = monthlyFromDigitOnlyInput(e.target.value, cadence, rowCap)
                               setEnvelopes(prev => prev.map((en, i) =>
                                 i === idx ? { ...en, monthlyAllotment: monthly } : en,
                               ))
@@ -2413,7 +2422,10 @@ export default function OnboardingPage() {
                                 let newMonthly = toMonthly(displayAmount, newCadence)
                                 const rowTotal = prev.reduce((s, x) => s + x.monthlyAllotment, 0)
                                 const otherAllocated = rowTotal - en.monthlyAllotment
-                                const maxMonthly = Math.max(0, allocateMonthlyBudget - otherAllocated)
+                                const maxMonthly = onboardingAllocationCapForRow(
+                                  allocateMonthlyBudget,
+                                  otherAllocated,
+                                )
                                 newMonthly = Math.round(
                                   Math.min(maxMonthly, Math.max(0, newMonthly)),
                                 )
@@ -2546,7 +2558,7 @@ export default function OnboardingPage() {
 
               {allocateMonthlyBudget === 0 && incomeMode === "irregular" && (
                 <p className="text-xs text-amber-400/90 text-center leading-relaxed">
-                  Without an income estimate, sliders are free-form. Add an annual estimate on the income step for bounded allocations.
+                  Without an income estimate, set any amounts you like. Add an annual estimate on the income step if you want us to keep the total within a monthly budget.
                 </p>
               )}
               </div>
