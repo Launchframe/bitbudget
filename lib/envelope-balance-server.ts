@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db"
+import type { Prisma } from "@prisma/client"
 import { TX_SOURCE_ENVELOPE_SWEEP, TX_SOURCE_INCOME_IMPORT } from "@/lib/constants"
 import {
   TX_SOURCE_FUNDING_OUT,
@@ -17,21 +18,30 @@ const SAVINGS_INFLOW_SOURCES = [
   TX_SOURCE_ENVELOPE_SWEEP,
 ] as const
 
+async function envelopeBalanceFromAggregates(
+  where: Prisma.TransactionWhereInput,
+): Promise<number> {
+  const [credits, expenses] = await Promise.all([
+    prisma.transaction.aggregate({
+      where: { ...where, type: "credit" },
+      _sum: { amount: true },
+    }),
+    prisma.transaction.aggregate({
+      where: { ...where, type: "expense" },
+      _sum: { amount: true },
+    }),
+  ])
+  const creditSum = credits._sum.amount != null ? Number(credits._sum.amount) : 0
+  const expenseSum = expenses._sum.amount != null ? Number(expenses._sum.amount) : 0
+  return Math.round((creditSum - expenseSum) * 100) / 100
+}
+
 /** Sum credits minus expenses for all transactions on an envelope (Savings hub balance). */
 export async function savingsEnvelopeBalanceAllTime(
   userId: string,
   envelopeId: string,
 ): Promise<number> {
-  const rows = await prisma.transaction.findMany({
-    where: { userId, envelopeId },
-    select: { amount: true, type: true },
-  })
-  let balance = 0
-  for (const row of rows) {
-    if (row.type === "credit") balance += row.amount
-    else balance -= row.amount
-  }
-  return Math.round(balance * 100) / 100
+  return envelopeBalanceFromAggregates({ userId, envelopeId })
 }
 
 /** Envelope balance before a UTC instant (half-open: date < beforeExclusive). */
@@ -40,16 +50,11 @@ export async function savingsEnvelopeBalanceBefore(
   envelopeId: string,
   beforeExclusive: Date,
 ): Promise<number> {
-  const rows = await prisma.transaction.findMany({
-    where: { userId, envelopeId, date: { lt: beforeExclusive } },
-    select: { amount: true, type: true },
+  return envelopeBalanceFromAggregates({
+    userId,
+    envelopeId,
+    date: { lt: beforeExclusive },
   })
-  let balance = 0
-  for (const row of rows) {
-    if (row.type === "credit") balance += row.amount
-    else balance -= row.amount
-  }
-  return Math.round(balance * 100) / 100
 }
 
 /** Month-scoped balances for many envelopes in one query. */
@@ -65,17 +70,19 @@ export async function envelopeBalancesForMonthBatch(
   const bounds = periodBoundsUtc(monthKey)
   if (!bounds) return result
 
-  const rows = await prisma.transaction.findMany({
+  const rows = await prisma.transaction.groupBy({
+    by: ["envelopeId", "type"],
     where: {
       userId,
       envelopeId: { in: [...envelopeIds] },
       date: { gte: bounds.start, lt: bounds.end },
     },
-    select: { envelopeId: true, amount: true, type: true },
+    _sum: { amount: true },
   })
   for (const row of rows) {
     const cur = result.get(row.envelopeId) ?? 0
-    const delta = row.type === "credit" ? row.amount : -row.amount
+    const sum = row._sum.amount != null ? Number(row._sum.amount) : 0
+    const delta = row.type === "credit" ? sum : -sum
     result.set(row.envelopeId, cur + delta)
   }
   for (const [id, value] of result) {

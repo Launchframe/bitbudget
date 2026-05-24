@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { isReservedSavingsEnvelopeName, SYSTEM_ENVELOPE_ROLE_SAVINGS, SWEEP_POLICY_CAPPED, SWEEP_POLICY_CARRY_FORWARD, SWEEP_POLICY_RESET } from "@/lib/constants"
+import { validateDecimal4_2Positive } from "@/lib/decimal-validation"
 
 const ALLOWED_SWEEP_POLICIES = new Set([
   SWEEP_POLICY_RESET,
@@ -183,9 +184,19 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  if (sweepCapMultiplier !== undefined && sweepCapMultiplier !== null) {
-    if (typeof sweepCapMultiplier !== "number" || !Number.isFinite(sweepCapMultiplier) || sweepCapMultiplier <= 0) {
-      return NextResponse.json({ error: "sweepCapMultiplier must be a positive number or null" }, { status: 400 })
+  let normalizedSweepCap: number | null | undefined
+  if (sweepCapMultiplier !== undefined) {
+    if (sweepCapMultiplier === null) {
+      normalizedSweepCap = null
+    } else {
+      if (typeof sweepCapMultiplier !== "number" || !Number.isFinite(sweepCapMultiplier)) {
+        return NextResponse.json({ error: "sweepCapMultiplier must be a positive number or null" }, { status: 400 })
+      }
+      const validated = validateDecimal4_2Positive(sweepCapMultiplier, "sweepCapMultiplier")
+      if (!validated.ok) {
+        return NextResponse.json({ error: validated.error }, { status: 400 })
+      }
+      normalizedSweepCap = validated.value
     }
   }
 
@@ -200,8 +211,11 @@ export async function PUT(req: NextRequest) {
         ...(icon !== undefined ? { icon } : {}),
         ...(archived !== undefined ? { archived } : {}),
         ...(sweepPolicy !== undefined ? { sweepPolicy } : {}),
-        ...(sweepCapMultiplier !== undefined
-          ? { sweepCapMultiplier: sweepCapMultiplier === null ? null : new Prisma.Decimal(sweepCapMultiplier) }
+        ...(normalizedSweepCap !== undefined
+          ? {
+              sweepCapMultiplier:
+                normalizedSweepCap === null ? null : new Prisma.Decimal(normalizedSweepCap),
+            }
           : {}),
       },
     })

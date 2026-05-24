@@ -7,6 +7,14 @@ import { formatPeriodKeyLabel } from "@/lib/savings-ui-metrics"
 
 const GOAL_HIT_SEEN_KEY = "bitbudget-goal-hit-seen"
 
+function recentAchievedGoalsRange(): { from: string; to: string } {
+  const now = new Date()
+  const to = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`
+  const fromDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 23, 1))
+  const from = `${fromDate.getUTCFullYear()}-${String(fromDate.getUTCMonth() + 1).padStart(2, "0")}`
+  return { from, to }
+}
+
 export function GoalHitCelebration() {
   const { state } = useApp()
   const [message, setMessage] = useState<string | null>(null)
@@ -15,11 +23,16 @@ export function GoalHitCelebration() {
     if (state.savingsExperience === SAVINGS_EXPERIENCE_DISMISSED) return
 
     let cancelled = false
+    let dismissTimer: number | undefined
+
     void (async () => {
       try {
-        const res = await fetch("/api/user/savings-goals?from=2020-01&to=2099-12")
+        const { from, to } = recentAchievedGoalsRange()
+        const res = await fetch(`/api/user/savings-goals?from=${from}&to=${to}`)
         if (!res.ok || cancelled) return
-        const body = (await res.json()) as { goals?: Array<{ periodKey: string; achievedGoal?: boolean | null; closedAt?: string | null }> }
+        const body = (await res.json()) as {
+          goals?: Array<{ periodKey: string; achievedGoal?: boolean | null; closedAt?: string | null }>
+        }
         const closed = (body.goals ?? []).filter((g) => g.closedAt && g.achievedGoal)
         if (closed.length === 0) return
         closed.sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""))
@@ -27,16 +40,19 @@ export function GoalHitCelebration() {
         const seenKey = `${GOAL_HIT_SEEN_KEY}-${latest.periodKey}`
         if (localStorage.getItem(seenKey)) return
         localStorage.setItem(seenKey, "1")
-        if (!cancelled) {
-          setMessage(`You hit ${formatPeriodKeyLabel(latest.periodKey)}. Future you is grinning.`)
-          setTimeout(() => setMessage(null), 6000)
-        }
+        if (cancelled) return
+        setMessage(`You hit ${formatPeriodKeyLabel(latest.periodKey)}. Future you is grinning.`)
+        dismissTimer = window.setTimeout(() => {
+          if (!cancelled) setMessage(null)
+        }, 6000)
       } catch {
         // ignore
       }
     })()
+
     return () => {
       cancelled = true
+      if (dismissTimer !== undefined) window.clearTimeout(dismissTimer)
     }
   }, [state.savingsExperience])
 

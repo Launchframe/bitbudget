@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
 import {
+  currentMonthKeyUtc,
+  currentYearUtc,
   EXISTING_INCOME_SOURCES,
   INCOME_IMPORT_PAYEE_DEFAULT,
   parseIncomePeriodKey,
@@ -38,15 +40,6 @@ interface IncomeImporterDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-function currentMonthKey(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
-}
-
-function currentYearKey(): string {
-  return String(new Date().getFullYear())
-}
-
 function monthLabel(periodKey: string): string {
   const parsed = parseIncomePeriodKey(periodKey)
   if (!parsed || parsed.kind !== "month") return periodKey
@@ -62,8 +55,8 @@ function buildPeriodKeys(mode: ImportMode, anchor: string): string[] {
   const [y, m] = anchor.split("-").map(Number)
   const keys: string[] = []
   for (let i = -2; i <= 0; i++) {
-    const d = new Date(y, m - 1 + i, 1)
-    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`)
+    const d = new Date(Date.UTC(y, m - 1 + i, 1))
+    keys.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`)
   }
   return keys
 }
@@ -73,14 +66,14 @@ function stepAnchor(mode: ImportMode, anchor: string, delta: number): string {
     return String(Number(anchor) + delta)
   }
   const [y, m] = anchor.split("-").map(Number)
-  const d = new Date(y, m - 1 + delta, 1)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1))
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
 }
 
 export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialogProps) {
   const { activeTransactions, refreshData } = useApp()
   const [mode, setMode] = useState<ImportMode>("monthly")
-  const [anchor, setAnchor] = useState(mode === "monthly" ? currentMonthKey() : currentYearKey())
+  const [anchor, setAnchor] = useState(mode === "monthly" ? currentMonthKeyUtc() : String(currentYearUtc()))
   const [stepIndex, setStepIndex] = useState(0)
   const [rows, setRows] = useState<PeriodRow[]>([])
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -150,7 +143,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
 
   const handleModeChange = (next: ImportMode) => {
     setMode(next)
-    setAnchor(next === "monthly" ? currentMonthKey() : currentYearKey())
+    setAnchor(next === "monthly" ? currentMonthKeyUtc() : String(currentYearUtc()))
     setStepIndex(0)
   }
 

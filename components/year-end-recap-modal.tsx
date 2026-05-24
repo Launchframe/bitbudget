@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
 import { SAVINGS_EXPERIENCE_DISMISSED } from "@/lib/constants"
-import { ACHIEVEMENT_LABELS } from "@/lib/savings-ui-metrics"
+import { ACHIEVEMENT_LABELS, findSavingsEnvelope, savingsBalance } from "@/lib/savings-ui-metrics"
 import {
   aggregateYearEndRecap,
   shouldShowYearEndRecap,
@@ -33,12 +33,8 @@ export function YearEndRecapModal() {
 
   const recapYear = useMemo(() => shouldShowYearEndRecap().recapYear, [])
 
-  const savingsBalance = useMemo(() => {
-    const savings = state.envelopes.find((e) => e.systemRole === "savings" && !e.archived)
-    if (!savings) return 0
-    return activeTransactions
-      .filter((t) => t.envelopeId === savings.id)
-      .reduce((bal, t) => bal + (t.type === "credit" ? t.amount : -t.amount), 0)
+  const savingsBal = useMemo(() => {
+    return savingsBalance(activeTransactions, findSavingsEnvelope(state.envelopes))
   }, [activeTransactions, state.envelopes])
 
   const monthlySaveRate = useMemo(() => {
@@ -59,10 +55,10 @@ export function YearEndRecapModal() {
           closedAt: g.closedAt ? new Date(g.closedAt) : null,
         })),
         achievementsInYear: achievements.filter((a) => a.earnedAt.startsWith(String(recapYear))).length,
-        currentSavingsBalance: savingsBalance,
+        currentSavingsBalance: savingsBal,
         monthlySaveRate,
       }),
-    [recapYear, closedGoals, achievements, savingsBalance, monthlySaveRate],
+    [recapYear, closedGoals, achievements, savingsBal, monthlySaveRate],
   )
 
   const loadData = useCallback(async () => {

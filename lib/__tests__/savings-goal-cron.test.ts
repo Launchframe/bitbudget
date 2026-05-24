@@ -17,6 +17,8 @@ vi.mock("@/lib/db", () => ({
     },
     transaction: {
       findMany: vi.fn(),
+      aggregate: vi.fn(),
+      groupBy: vi.fn(),
     },
   },
 }))
@@ -83,6 +85,7 @@ describe("closePreviousPeriodGoal", () => {
     vi.mocked(prisma.savingsGoal.findUnique).mockReset()
     vi.mocked(prisma.savingsGoal.update).mockReset()
     vi.mocked(prisma.transaction.findMany).mockReset()
+    vi.mocked(prisma.transaction.aggregate).mockReset()
   })
 
   it("closes prior month with snapshot fields", async () => {
@@ -95,22 +98,24 @@ describe("closePreviousPeriodGoal", () => {
       closedAt: null,
     } as never)
 
+    vi.mocked(prisma.transaction.aggregate).mockImplementation(async (args) => {
+      const where = args?.where as { type?: string; date?: { lt?: Date; gte?: Date } }
+      if (where.type === "credit" && where.date && "lt" in where.date) {
+        return { _sum: { amount: 1200 } } as never
+      }
+      if (where.type === "expense" && where.date && "lt" in where.date) {
+        return { _sum: { amount: 0 } } as never
+      }
+      return { _sum: { amount: 0 } } as never
+    })
+
     vi.mocked(prisma.transaction.findMany).mockImplementation(async (args) => {
-      const where = args?.where as {
-        type?: string
-        date?: { lt?: Date; gte?: Date }
-      }
-      if (where.date && "lt" in where.date && !("gte" in where.date)) {
-        return [{ amount: 1200, type: "credit" }] as never
-      }
+      const where = args?.where as { type?: string; date?: { gte?: Date } }
       if (where.date && "gte" in where.date) {
         if (where.type === "credit") return [{ amount: 500 }] as never
         return [{ amount: 100 }] as never
       }
-      return [
-        { amount: 1200, type: "credit" },
-        { amount: 0, type: "expense" },
-      ] as never
+      return [] as never
     })
 
     const closed = await closePreviousPeriodGoal("u1", new Date(Date.UTC(2026, 4, 1)))
@@ -146,6 +151,7 @@ describe("openCurrentPeriodGoal", () => {
     vi.mocked(prisma.user.findUnique).mockReset()
     vi.mocked(prisma.envelope.findFirst).mockReset()
     vi.mocked(prisma.transaction.findMany).mockReset()
+    vi.mocked(prisma.transaction.aggregate).mockReset()
     vi.mocked(resolveSavingsGoalTarget).mockReset()
   })
 
@@ -162,7 +168,11 @@ describe("openCurrentPeriodGoal", () => {
     vi.mocked(prisma.savingsGoal.findUnique).mockResolvedValue(null)
     vi.mocked(prisma.user.findUnique).mockResolvedValue({ createdAt: new Date(Date.UTC(2026, 4, 1)) } as never)
     vi.mocked(prisma.envelope.findFirst).mockResolvedValue({ id: "sav-1" } as never)
-    vi.mocked(prisma.transaction.findMany).mockResolvedValue([{ amount: 800, type: "credit" }] as never)
+    vi.mocked(prisma.transaction.aggregate).mockImplementation(async (args) => {
+      const type = (args?.where as { type?: string })?.type
+      if (type === "credit") return { _sum: { amount: 800 } } as never
+      return { _sum: { amount: 0 } } as never
+    })
     vi.mocked(resolveSavingsGoalTarget).mockResolvedValue(250)
 
     const opened = await openCurrentPeriodGoal("u1", new Date(Date.UTC(2026, 4, 3)))
@@ -187,7 +197,7 @@ describe("openCurrentPeriodGoal", () => {
     } as never)
     vi.mocked(prisma.user.findUnique).mockResolvedValue({ createdAt: new Date(Date.UTC(2026, 4, 1)) } as never)
     vi.mocked(prisma.envelope.findFirst).mockResolvedValue({ id: "sav-1" } as never)
-    vi.mocked(prisma.transaction.findMany).mockResolvedValue([] as never)
+    vi.mocked(prisma.transaction.aggregate).mockResolvedValue({ _sum: { amount: 0 } } as never)
 
     expect(await openCurrentPeriodGoal("u1", new Date(Date.UTC(2026, 4, 3)))).toBe(true)
     expect(resolveSavingsGoalTarget).not.toHaveBeenCalled()

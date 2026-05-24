@@ -9,6 +9,7 @@ import {
   resolveSavingsGoalTarget,
   savingsGoalEditability,
 } from "@/lib/savings-goal"
+import { validateDecimal12_2 } from "@/lib/decimal-validation"
 
 const PERIOD_KEY_RE = /^\d{4}-\d{2}$/
 
@@ -155,9 +156,11 @@ export async function PUT(req: NextRequest) {
   }
 
   const amountNum = typeof targetAmount === "number" ? targetAmount : Number(targetAmount)
-  if (!Number.isFinite(amountNum) || amountNum < 0) {
-    return NextResponse.json({ error: "targetAmount must be a non-negative number" }, { status: 400 })
+  const validatedAmount = validateDecimal12_2(amountNum, "targetAmount")
+  if (!validatedAmount.ok) {
+    return NextResponse.json({ error: validatedAmount.error }, { status: 400 })
   }
+  const roundedAmount = validatedAmount.value
 
   const userId = session.user.id
   const now = new Date()
@@ -171,7 +174,7 @@ export async function PUT(req: NextRequest) {
     if (editability === "closed") {
       return NextResponse.json({ error: "Savings goal for this period is closed", code: "SAVINGS_GOAL_CLOSED" }, { status: 409 })
     }
-    if (editability === "upward_only" && amountNum <= Number(existing.targetAmount)) {
+    if (editability === "upward_only" && roundedAmount <= Number(existing.targetAmount)) {
       return NextResponse.json(
         { error: "Grace period expired; only upward edits are allowed", code: "SAVINGS_GOAL_GRACE_EXPIRED" },
         { status: 409 },
@@ -180,7 +183,7 @@ export async function PUT(req: NextRequest) {
 
     const updated = await prisma.savingsGoal.update({
       where: { userId_periodKey: { userId, periodKey } },
-      data: { targetAmount: new Prisma.Decimal(amountNum) },
+      data: { targetAmount: new Prisma.Decimal(roundedAmount) },
     })
 
     return NextResponse.json(
@@ -205,7 +208,7 @@ export async function PUT(req: NextRequest) {
     data: {
       userId,
       periodKey,
-      targetAmount: new Prisma.Decimal(amountNum),
+      targetAmount: new Prisma.Decimal(roundedAmount),
       graceEndsAt,
     },
   })
