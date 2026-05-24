@@ -61,8 +61,6 @@ export async function GET() {
       receiptInboxToken: true,
       name: true,
       email: true,
-      notificationEmail: true,
-      notificationEmailVerified: true,
       nostrDmEnabled: true,
       emailFeatureUpdates: true,
       emailFeedbackRequests: true,
@@ -86,7 +84,6 @@ export async function GET() {
     premiumGratisUntil,
     premiumTrialUntil,
     onboardingCompletedAt,
-    notificationEmailVerified,
     ...rest
   } = user
   const effectiveTier = resolveEffectiveTier({
@@ -140,7 +137,6 @@ export async function GET() {
   return NextResponse.json({
     ...rest,
     emailPreferences: emailPreferencesFromUser(rest),
-    notificationEmailVerified: notificationEmailVerified?.toISOString() ?? null,
     premiumGratisUntil: premiumGratisUntil?.toISOString() ?? null,
     premiumTrialUntil: premiumTrialUntil?.toISOString() ?? null,
     effectiveTier,

@@ -25,7 +25,7 @@ import {
   userAllowsCommunicationEmail,
 } from "@/lib/communication-preferences"
 import {
-  outboundNotificationEmail,
+  outboundNotificationEmails,
   userAllowsNostrDm,
 } from "@/lib/notification-contact"
 
@@ -51,18 +51,16 @@ export function userContactLabel(u: {
 async function dispatchToUser(
   user: {
     email: string | null
-    notificationEmail?: string | null
-    notificationEmailVerified?: Date | null
+    notificationEmails?: { email: string; verifiedAt: Date }[]
     nostrPubkey: string | null
     nostrDmEnabled?: boolean | null
   },
   emailFn: (to: string) => Promise<void>,
   dmFn: () => Promise<void>,
 ): Promise<void> {
-  const email = outboundNotificationEmail(user)
-  if (email) {
-    await emailFn(email)
-    return
+  const emails = outboundNotificationEmails(user)
+  for (const to of emails) {
+    await emailFn(to)
   }
   if (userAllowsNostrDm(user)) {
     await dmFn()
@@ -71,8 +69,7 @@ async function dispatchToUser(
 
 type PreferenceAwareUser = {
   email: string | null
-  notificationEmail?: string | null
-  notificationEmailVerified?: Date | null
+  notificationEmails?: { email: string; verifiedAt: Date }[]
   nostrPubkey: string | null
   nostrDmEnabled?: boolean | null
   emailUnsubscribeToken: string | null
@@ -80,8 +77,7 @@ type PreferenceAwareUser = {
 
 const COMMUNICATION_EMAIL_SELECT = {
   email: true,
-  notificationEmail: true,
-  notificationEmailVerified: true,
+  notificationEmails: { select: { email: true, verifiedAt: true } },
   nostrPubkey: true,
   nostrDmEnabled: true,
   emailFeatureUpdates: true,
@@ -101,11 +97,12 @@ async function dispatchPreferenceEmailToUser(
   ) => Promise<void>,
   dmFn: () => Promise<void>,
 ): Promise<void> {
-  const email = outboundNotificationEmail(user)
-  if (email) {
-    if (!userAllowsCommunicationEmail(user, category)) return
-    await emailFn(email, { category, unsubscribeToken: user.emailUnsubscribeToken })
-    return
+  const emails = outboundNotificationEmails(user)
+  if (emails.length > 0 && userAllowsCommunicationEmail(user, category)) {
+    const options = { category, unsubscribeToken: user.emailUnsubscribeToken }
+    for (const to of emails) {
+      await emailFn(to, options)
+    }
   }
   if (userAllowsNostrDm(user)) {
     await dmFn()

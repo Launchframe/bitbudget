@@ -78,8 +78,7 @@ describe("notify — communication preferences", () => {
     const { prisma } = await import("@/lib/db")
     vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
       email: "user@example.com",
-      notificationEmail: null,
-      notificationEmailVerified: null,
+      notificationEmails: [],
       nostrPubkey: null,
       nostrDmEnabled: false,
       emailFeatureUpdates: false,
@@ -100,8 +99,7 @@ describe("notify — communication preferences", () => {
     const { prisma } = await import("@/lib/db")
     vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
       email: "user@example.com",
-      notificationEmail: null,
-      notificationEmailVerified: null,
+      notificationEmails: [],
       nostrPubkey: null,
       nostrDmEnabled: false,
       emailFeatureUpdates: true,
@@ -122,13 +120,12 @@ describe("notify — communication preferences", () => {
     )
   })
 
-  it("sends nostr DM only when opted in and no email channel", async () => {
+  it("sends nostr DM when opted in even without email", async () => {
     const { prisma } = await import("@/lib/db")
     const { sendReferralAcceptedDm } = await import("@/lib/nostr-dm")
     vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
       email: null,
-      notificationEmail: null,
-      notificationEmailVerified: null,
+      notificationEmails: [],
       nostrPubkey: "b".repeat(64),
       nostrDmEnabled: true,
       emailFeatureUpdates: true,
@@ -146,13 +143,48 @@ describe("notify — communication preferences", () => {
     expect(sendReferralAcceptedDm).toHaveBeenCalled()
   })
 
+  it("sends both email and nostr DM when both channels are enabled", async () => {
+    const { prisma } = await import("@/lib/db")
+    const { sendReferralAcceptedDm } = await import("@/lib/nostr-dm")
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: null,
+      notificationEmails: [
+        { email: "notify@example.com", verifiedAt: new Date() },
+        { email: "alt@example.com", verifiedAt: new Date() },
+      ],
+      nostrPubkey: "b".repeat(64),
+      nostrDmEnabled: true,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyReferralAccepted } = await import("../notify")
+    await notifyReferralAccepted({ referrerId: "r1", refereeName: "Ref" })
+
+    expect(sendReferralAcceptedEmail).toHaveBeenCalledTimes(2)
+    expect(sendReferralAcceptedEmail).toHaveBeenCalledWith(
+      "notify@example.com",
+      "Ref",
+      { category: "feature_updates", unsubscribeToken: "tok" },
+    )
+    expect(sendReferralAcceptedEmail).toHaveBeenCalledWith(
+      "alt@example.com",
+      "Ref",
+      { category: "feature_updates", unsubscribeToken: "tok" },
+    )
+    expect(sendReferralAcceptedDm).toHaveBeenCalled()
+  })
+
   it("does not send nostr DM without opt-in", async () => {
     const { prisma } = await import("@/lib/db")
     const { sendReferralAcceptedDm } = await import("@/lib/nostr-dm")
     vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
       email: null,
-      notificationEmail: null,
-      notificationEmailVerified: null,
+      notificationEmails: [{ email: "notify@example.com", verifiedAt: new Date() }],
       nostrPubkey: "b".repeat(64),
       nostrDmEnabled: false,
       emailFeatureUpdates: true,
@@ -166,7 +198,7 @@ describe("notify — communication preferences", () => {
     const { notifyReferralAccepted } = await import("../notify")
     await notifyReferralAccepted({ referrerId: "r1", refereeName: "Ref" })
 
-    expect(sendReferralAcceptedEmail).not.toHaveBeenCalled()
+    expect(sendReferralAcceptedEmail).toHaveBeenCalledTimes(1)
     expect(sendReferralAcceptedDm).not.toHaveBeenCalled()
   })
 })

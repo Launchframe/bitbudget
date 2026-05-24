@@ -3,11 +3,11 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import {
   NotificationEmailLinkError,
+  listUserNotificationEmails,
   sendNotificationEmailLinkCode,
   unlinkNotificationEmail,
   verifyNotificationEmailLink,
 } from "@/lib/notification-email-link"
-import { isNotificationEmailVerified } from "@/lib/notification-contact"
 
 function errorResponse(err: unknown) {
   if (err instanceof NotificationEmailLinkError) {
@@ -15,6 +15,16 @@ function errorResponse(err: unknown) {
   }
   console.error("notification-email error:", err)
   return NextResponse.json({ error: "Request failed" }, { status: 500 })
+}
+
+function serializeEmails(
+  rows: { id: string; email: string; verifiedAt: Date }[],
+) {
+  return rows.map((r) => ({
+    id: r.id,
+    email: r.email,
+    verifiedAt: r.verifiedAt.toISOString(),
+  }))
 }
 
 export async function GET() {
@@ -27,8 +37,6 @@ export async function GET() {
     where: { id: session.user.id },
     select: {
       email: true,
-      notificationEmail: true,
-      notificationEmailVerified: true,
       nostrPubkey: true,
       nostrDmEnabled: true,
     },
@@ -37,10 +45,11 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  const notificationEmails = await listUserNotificationEmails(session.user.id)
+
   return NextResponse.json({
     loginEmail: user.email,
-    notificationEmail: user.notificationEmail,
-    notificationEmailVerified: isNotificationEmailVerified(user.notificationEmailVerified),
+    notificationEmails: serializeEmails(notificationEmails),
     nostrPubkey: user.nostrPubkey,
     nostrDmEnabled: user.nostrDmEnabled,
   })
@@ -85,14 +94,32 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  let target: string | null = req.nextUrl.searchParams.get("email")?.trim()
+    ?? req.nextUrl.searchParams.get("id")?.trim()
+    ?? null
+
+  if (!target) {
+    try {
+      const body = (await req.json()) as { email?: unknown; id?: unknown }
+      if (typeof body.id === "string") target = body.id.trim()
+      else if (typeof body.email === "string") target = body.email.trim()
+    } catch {
+      /* empty body is fine when query params were used */
+    }
+  }
+
+  if (!target) {
+    return NextResponse.json({ error: "email or id is required" }, { status: 400 })
+  }
+
   try {
-    const result = await unlinkNotificationEmail(session.user.id)
+    const result = await unlinkNotificationEmail(session.user.id, target)
     return NextResponse.json(result)
   } catch (err) {
     return errorResponse(err)

@@ -44,9 +44,6 @@ model User {
   emailRenewalReminders     Boolean @default(true)
   emailImportAlerts         Boolean @default(true)
   emailUnsubscribeToken     String?  @unique @default(cuid())
-  // Notifications-only email (verified); separate from login email for Nostr-only users.
-  notificationEmail         String?
-  notificationEmailVerified DateTime?
   nostrDmEnabled            Boolean  @default(false)
   subscriptionTier String @default("free")
   // Set when a free user taps Upgrade to Premium (checkout not yet available).
@@ -79,6 +76,20 @@ model User {
   referralReceived    Referral?      @relation("ReferralReceived")
   survey              Survey?
   referredByCode      ReferralCode?  @relation("ReferredByCode", fields: [referredByCodeId], references: [id], onDelete: SetNull)
+  notificationEmails  UserNotificationEmail[]
+}
+
+model UserNotificationEmail {
+  id         String   @id @default(cuid())
+  userId     String
+  email      String
+  verifiedAt DateTime
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, email])
+  @@index([userId])
 }
 
 model ReferralCode {

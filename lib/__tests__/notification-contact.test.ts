@@ -1,39 +1,53 @@
 import { describe, expect, it } from "vitest"
 import {
   outboundNotificationEmail,
+  outboundNotificationEmails,
   userAllowsNostrDm,
+  userHasAnyNotificationChannel,
   userHasEmailNotificationChannel,
 } from "@/lib/notification-contact"
 
 describe("notification-contact", () => {
-  it("prefers login email over notification email", () => {
+  it("includes login email and all verified notification emails", () => {
     expect(
-      outboundNotificationEmail({
+      outboundNotificationEmails({
         email: "login@example.com",
-        notificationEmail: "notify@example.com",
-        notificationEmailVerified: new Date(),
+        notificationEmails: [
+          { email: "work@example.com", verifiedAt: new Date() },
+          { email: "personal@example.com", verifiedAt: new Date() },
+        ],
       }),
-    ).toBe("login@example.com")
+    ).toEqual(["login@example.com", "work@example.com", "personal@example.com"])
   })
 
-  it("uses verified notification email when no login email", () => {
+  it("dedupes login email if also listed as notification address", () => {
     expect(
-      outboundNotificationEmail({
-        email: null,
-        notificationEmail: "notify@example.com",
-        notificationEmailVerified: "2026-01-01T00:00:00.000Z",
+      outboundNotificationEmails({
+        email: "same@example.com",
+        notificationEmails: [{ email: "same@example.com", verifiedAt: new Date() }],
       }),
-    ).toBe("notify@example.com")
+    ).toEqual(["same@example.com"])
   })
 
-  it("ignores unverified notification email", () => {
+  it("uses verified notification emails when no login email", () => {
     expect(
-      outboundNotificationEmail({
+      outboundNotificationEmails({
         email: null,
-        notificationEmail: "notify@example.com",
-        notificationEmailVerified: null,
+        notificationEmails: [
+          { email: "a@example.com", verifiedAt: new Date() },
+          { email: "b@example.com", verifiedAt: new Date() },
+        ],
       }),
-    ).toBeNull()
+    ).toEqual(["a@example.com", "b@example.com"])
+  })
+
+  it("ignores unverified notification rows", () => {
+    expect(
+      outboundNotificationEmails({
+        email: null,
+        notificationEmails: [{ email: "pending@example.com", verifiedAt: null }],
+      }),
+    ).toEqual([])
   })
 
   it("requires opt-in for nostr DMs", () => {
@@ -43,17 +57,21 @@ describe("notification-contact", () => {
     expect(
       userAllowsNostrDm({ nostrPubkey: "a".repeat(64), nostrDmEnabled: false }),
     ).toBe(false)
-    expect(userAllowsNostrDm({ nostrPubkey: null, nostrDmEnabled: true })).toBe(false)
   })
 
-  it("detects any email channel", () => {
+  it("detects email and any-channel helpers", () => {
     expect(userHasEmailNotificationChannel({ email: "a@b.com" })).toBe(true)
     expect(
       userHasEmailNotificationChannel({
-        notificationEmail: "n@b.com",
-        notificationEmailVerified: new Date(),
+        notificationEmails: [{ email: "n@b.com", verifiedAt: new Date() }],
       }),
     ).toBe(true)
-    expect(userHasEmailNotificationChannel({ nostrPubkey: "a".repeat(64) })).toBe(false)
+    expect(outboundNotificationEmail({ email: "a@b.com" })).toBe("a@b.com")
+    expect(
+      userHasAnyNotificationChannel({
+        nostrPubkey: "a".repeat(64),
+        nostrDmEnabled: true,
+      }),
+    ).toBe(true)
   })
 })

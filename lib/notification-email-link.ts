@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db"
 import { sendNotificationEmailVerificationCode } from "@/lib/email"
-import { normalizeNotificationEmail } from "@/lib/notification-contact"
+import {
+  MAX_NOTIFICATION_EMAILS_PER_USER,
+  normalizeNotificationEmail,
+} from "@/lib/notification-contact"
 
 const RATE_LIMIT_MS = 60_000
 const CODE_TTL_MS = 10 * 60_000
@@ -34,6 +37,14 @@ async function assertEmailAvailableForNotifications(userId: string, normalizedEm
   }
 }
 
+export async function listUserNotificationEmails(userId: string) {
+  return prisma.userNotificationEmail.findMany({
+    where: { userId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, email: true, verifiedAt: true },
+  })
+}
+
 export async function sendNotificationEmailLinkCode(userId: string, email: string) {
   const normalizedEmail = normalizeNotificationEmail(email)
   if (!normalizedEmail || !normalizedEmail.includes("@")) {
@@ -42,7 +53,10 @@ export async function sendNotificationEmailLinkCode(userId: string, email: strin
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { email: true },
+    select: {
+      email: true,
+      _count: { select: { notificationEmails: true } },
+    },
   })
   if (!user) {
     throw new NotificationEmailLinkError("UNAUTHORIZED", "Unauthorized", 401)
@@ -50,7 +64,26 @@ export async function sendNotificationEmailLinkCode(userId: string, email: strin
   if (user.email?.toLowerCase() === normalizedEmail) {
     throw new NotificationEmailLinkError(
       "ALREADY_LOGIN_EMAIL",
-      "That is already your sign-in email. Notifications will be sent there.",
+      "That is already your sign-in email. Notifications are already sent there.",
+    )
+  }
+
+  const existing = await prisma.userNotificationEmail.findUnique({
+    where: { userId_email: { userId, email: normalizedEmail } },
+    select: { id: true },
+  })
+  if (existing) {
+    throw new NotificationEmailLinkError(
+      "ALREADY_LINKED",
+      "That address is already linked for notifications.",
+    )
+  }
+
+  if (user._count.notificationEmails >= MAX_NOTIFICATION_EMAILS_PER_USER) {
+    throw new NotificationEmailLinkError(
+      "LIMIT_REACHED",
+      `You can link up to ${MAX_NOTIFICATION_EMAILS_PER_USER} notification email addresses.`,
+      400,
     )
   }
 
@@ -116,6 +149,23 @@ export async function verifyNotificationEmailLink(userId: string, email: string,
 
   await assertEmailAvailableForNotifications(userId, normalizedEmail)
 
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      email: true,
+      _count: { select: { notificationEmails: true } },
+    },
+  })
+  if (!user) {
+    throw new NotificationEmailLinkError("UNAUTHORIZED", "Unauthorized", 401)
+  }
+  if (user.email?.toLowerCase() === normalizedEmail) {
+    throw new NotificationEmailLinkError(
+      "ALREADY_LOGIN_EMAIL",
+      "That is already your sign-in email.",
+    )
+  }
+
   const record = await prisma.emailCode.findFirst({
     where: { email: normalizedEmail, code: trimmedCode, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
@@ -124,32 +174,69 @@ export async function verifyNotificationEmailLink(userId: string, email: string,
     throw new NotificationEmailLinkError("INVALID_CODE", "Invalid or expired code")
   }
 
-  const user = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      notificationEmail: normalizedEmail,
-      notificationEmailVerified: new Date(),
+  const existing = await prisma.userNotificationEmail.findUnique({
+    where: { userId_email: { userId, email: normalizedEmail } },
+    select: { id: true },
+  })
+  if (!existing && user._count.notificationEmails >= MAX_NOTIFICATION_EMAILS_PER_USER) {
+    throw new NotificationEmailLinkError(
+      "LIMIT_REACHED",
+      `You can link up to ${MAX_NOTIFICATION_EMAILS_PER_USER} notification email addresses.`,
+      400,
+    )
+  }
+
+  const row = await prisma.userNotificationEmail.upsert({
+    where: { userId_email: { userId, email: normalizedEmail } },
+    create: {
+      userId,
+      email: normalizedEmail,
+      verifiedAt: new Date(),
     },
-    select: {
-      notificationEmail: true,
-      notificationEmailVerified: true,
-    },
+    update: { verifiedAt: new Date() },
+    select: { id: true, email: true, verifiedAt: true },
   })
   await prisma.emailCode.deleteMany({ where: { email: normalizedEmail } })
 
+  const notificationEmails = await listUserNotificationEmails(userId)
   return {
-    notificationEmail: user.notificationEmail,
-    notificationEmailVerified: user.notificationEmailVerified?.toISOString() ?? null,
+    email: row,
+    notificationEmails: notificationEmails.map((r) => ({
+      id: r.id,
+      email: r.email,
+      verifiedAt: r.verifiedAt.toISOString(),
+    })),
   }
 }
 
-export async function unlinkNotificationEmail(userId: string) {
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      notificationEmail: null,
-      notificationEmailVerified: null,
-    },
+export async function unlinkNotificationEmail(userId: string, emailOrId: string) {
+  const trimmed = emailOrId.trim()
+  if (!trimmed) {
+    throw new NotificationEmailLinkError("INVALID_TARGET", "Email or id is required")
+  }
+
+  const byId = await prisma.userNotificationEmail.findFirst({
+    where: { id: trimmed, userId },
+    select: { id: true },
   })
-  return { notificationEmail: null, notificationEmailVerified: null }
+  if (byId) {
+    await prisma.userNotificationEmail.delete({ where: { id: byId.id } })
+  } else {
+    const normalizedEmail = normalizeNotificationEmail(trimmed)
+    const deleted = await prisma.userNotificationEmail.deleteMany({
+      where: { userId, email: normalizedEmail },
+    })
+    if (deleted.count === 0) {
+      throw new NotificationEmailLinkError("NOT_FOUND", "Notification email not found", 404)
+    }
+  }
+
+  const notificationEmails = await listUserNotificationEmails(userId)
+  return {
+    notificationEmails: notificationEmails.map((r) => ({
+      id: r.id,
+      email: r.email,
+      verifiedAt: r.verifiedAt.toISOString(),
+    })),
+  }
 }

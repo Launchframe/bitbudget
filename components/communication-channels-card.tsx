@@ -1,22 +1,27 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { AlertCircle, CheckCircle2, Loader2, Mail, Zap } from "lucide-react"
+import { AlertCircle, CheckCircle2, Loader2, Mail, Trash2, Zap } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { MAX_NOTIFICATION_EMAILS_PER_USER } from "@/lib/notification-contact"
+
+type NotificationEmailEntry = {
+  id: string
+  email: string
+  verifiedAt: string
+}
 
 type ContactState = {
   loginEmail: string | null
-  notificationEmail: string | null
-  notificationEmailVerified: boolean
+  notificationEmails: NotificationEmailEntry[]
   nostrPubkey: string | null
   nostrDmEnabled: boolean
 }
 
 const EMPTY: ContactState = {
   loginEmail: null,
-  notificationEmail: null,
-  notificationEmailVerified: false,
+  notificationEmails: [],
   nostrPubkey: null,
   nostrDmEnabled: false,
 }
@@ -48,7 +53,6 @@ export function CommunicationChannelsCard() {
       if (!res.ok) throw new Error(await readJsonError(res, "Failed to load notification settings"))
       const data = (await res.json()) as ContactState
       setContact(data)
-      setEmail(current => (data.notificationEmail && !current ? data.notificationEmail : current))
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load notification settings")
     } finally {
@@ -95,6 +99,7 @@ export function CommunicationChannelsCard() {
       if (!res.ok) throw new Error(await readJsonError(res, "Failed to verify email"))
       setCode("")
       setCodeSent(false)
+      setEmail("")
       setSuccess("Notification email verified.")
       await loadContact()
     } catch (err) {
@@ -104,16 +109,17 @@ export function CommunicationChannelsCard() {
     }
   }
 
-  async function removeNotificationEmail() {
-    setAction("unlink")
+  async function removeNotificationEmail(target: NotificationEmailEntry) {
+    setAction(`unlink-${target.id}`)
     setError(null)
     setSuccess(null)
     try {
-      const res = await fetch("/api/user/notification-email", { method: "DELETE" })
+      const res = await fetch(
+        `/api/user/notification-email?id=${encodeURIComponent(target.id)}`,
+        { method: "DELETE" },
+      )
       if (!res.ok) throw new Error(await readJsonError(res, "Failed to remove email"))
-      setEmail("")
-      setCodeSent(false)
-      setSuccess("Notification email removed.")
+      setSuccess(`Removed ${target.email}.`)
       await loadContact()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove email")
@@ -139,14 +145,10 @@ export function CommunicationChannelsCard() {
   }
 
   const hasLoginEmail = Boolean(contact.loginEmail?.trim())
-  const hasVerifiedNotificationEmail =
-    Boolean(contact.notificationEmail?.trim()) && contact.notificationEmailVerified
-  const showNotificationEmailForm = !hasLoginEmail
-  const outboundEmail = hasLoginEmail
-    ? contact.loginEmail
-    : hasVerifiedNotificationEmail
-      ? contact.notificationEmail
-      : null
+  const linkedCount = contact.notificationEmails.length
+  const atEmailLimit = linkedCount >= MAX_NOTIFICATION_EMAILS_PER_USER
+  const hasAnyEmailChannel = hasLoginEmail || linkedCount > 0
+  const canAddEmail = !atEmailLimit
 
   return (
     <div className="p-6 bg-[#0D0D0D] rounded-2xl">
@@ -157,7 +159,8 @@ export function CommunicationChannelsCard() {
         <div>
           <h3 className="text-lg font-semibold text-foreground">How we reach you</h3>
           <p className="text-sm text-muted-foreground">
-            Choose email and/or Nostr for product updates and reminders. This is separate from how you sign in.
+            Add one or more notification emails and/or enable Nostr DMs. These channels are independent from how you
+            sign in.
           </p>
         </div>
       </div>
@@ -188,35 +191,47 @@ export function CommunicationChannelsCard() {
                 <Mail className="h-4 w-4" aria-hidden />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h4 className="text-sm font-semibold text-foreground">Email notifications</h4>
-                  {outboundEmail && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
-                      <CheckCircle2 className="h-3 w-3" aria-hidden />
-                      Active
-                    </span>
-                  )}
-                </div>
-                {hasLoginEmail ? (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Messages go to your sign-in address <span className="text-foreground">{contact.loginEmail}</span>.
-                    Linking a different email for notifications only is available when you sign in with Nostr only.
-                  </p>
-                ) : hasVerifiedNotificationEmail ? (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Verified for notifications at{" "}
-                    <span className="text-foreground">{contact.notificationEmail}</span>. This address is not used to
-                    sign in.
-                  </p>
-                ) : (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Add and verify an email to receive updates without using email to log in.
-                  </p>
-                )}
+                <h4 className="text-sm font-semibold text-foreground">Email notifications</h4>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {hasLoginEmail
+                    ? "Your sign-in address always receives notifications. You can add more verified addresses below."
+                    : "Verify one or more addresses to receive email updates without using email to sign in."}
+                </p>
               </div>
             </div>
 
-            {showNotificationEmailForm && !hasVerifiedNotificationEmail && (
+            <ul className="mt-4 flex flex-col gap-2">
+              {hasLoginEmail && (
+                <li className="flex items-center justify-between gap-3 rounded-lg border border-[#1F1F1F] bg-[#0D0D0D] px-3 py-2 text-sm">
+                  <span className="truncate text-foreground">{contact.loginEmail}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">Sign-in email</span>
+                </li>
+              )}
+              {contact.notificationEmails.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-[#1F1F1F] bg-[#0D0D0D] px-3 py-2 text-sm"
+                >
+                  <span className="truncate text-foreground">{entry.email}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeNotificationEmail(entry)}
+                    disabled={action === `unlink-${entry.id}`}
+                    className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-red-400 disabled:opacity-50"
+                    aria-label={`Remove ${entry.email}`}
+                  >
+                    {action === `unlink-${entry.id}` ? (
+                      <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                    ) : (
+                      <Trash2 className="h-3 w-3" aria-hidden />
+                    )}
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            {canAddEmail && (
               <form
                 className="mt-4 flex flex-col gap-3"
                 onSubmit={codeSent ? verifyEmail : sendCode}
@@ -225,7 +240,7 @@ export function CommunicationChannelsCard() {
                   type="email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  placeholder="you@example.com"
+                  placeholder="Add another email address"
                   aria-label="Notification email address"
                   disabled={codeSent}
                   required
@@ -250,20 +265,14 @@ export function CommunicationChannelsCard() {
                   {(action === "send-code" || action === "verify") && (
                     <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                   )}
-                  {codeSent ? "Verify notification email" : "Send verification code"}
+                  {codeSent ? "Verify and add email" : "Send verification code"}
                 </button>
               </form>
             )}
-
-            {showNotificationEmailForm && hasVerifiedNotificationEmail && (
-              <button
-                type="button"
-                onClick={removeNotificationEmail}
-                disabled={action === "unlink"}
-                className="mt-4 text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
-              >
-                {action === "unlink" ? "Removing..." : "Remove notification email"}
-              </button>
+            {atEmailLimit && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                You have reached the maximum of {MAX_NOTIFICATION_EMAILS_PER_USER} linked notification addresses.
+              </p>
             )}
           </div>
 
@@ -277,9 +286,11 @@ export function CommunicationChannelsCard() {
                   <div>
                     <h4 className="text-sm font-semibold text-foreground">Nostr direct messages</h4>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Receive BitBudget updates as encrypted DMs to{" "}
-                      <span className="font-mono text-foreground">{shortPubkey(contact.nostrPubkey)}</span> when you do
-                      not have email notifications enabled.
+                      Also receive BitBudget updates as encrypted DMs to{" "}
+                      <span className="font-mono text-foreground">{shortPubkey(contact.nostrPubkey)}</span>
+                      {hasAnyEmailChannel
+                        ? ", in addition to your email notification addresses."
+                        : "."}
                     </p>
                   </div>
                 </div>
@@ -290,9 +301,9 @@ export function CommunicationChannelsCard() {
                   className="mt-0.5 data-[state=checked]:bg-[#F7931A]"
                 />
               </div>
-              {!outboundEmail && !contact.nostrDmEnabled && (
+              {!hasAnyEmailChannel && !contact.nostrDmEnabled && (
                 <p className="mt-3 text-xs text-muted-foreground">
-                  Enable Nostr DMs here, or verify a notification email above, so BitBudget can reach you.
+                  Add a verified notification email, enable Nostr DMs, or both so BitBudget can reach you.
                 </p>
               )}
             </div>
