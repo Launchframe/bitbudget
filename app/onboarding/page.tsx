@@ -2138,7 +2138,7 @@ export default function OnboardingPage() {
               </div>
 
               {savings === 0 && totalAllocated > 0 && (
-                <p className="text-xs text-amber-400/80 text-center">That piggybank is looking a bit empty :'(</p>
+                <p className="text-xs text-amber-400/80 text-center">That piggybank is looking a bit empty :&apos;(</p>
               )}
 
               <div className="flex gap-3">

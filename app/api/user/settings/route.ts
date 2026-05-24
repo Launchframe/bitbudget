@@ -140,11 +140,25 @@ export async function PUT(req: NextRequest) {
 
   // Never allow encryptedPrivacyKey / privacyKeySalt via this route — use POST /api/user/encryption
   // (guarded) so existing keys cannot be clobbered by mistake or a buggy client.
+  const prevUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { onboardingComplete: true, onboardingCompletedAt: true },
+  })
+
   const data: Record<string, unknown> = {}
   for (const field of ALLOWED_SETTINGS_PUT_FIELDS) {
     if (body[field] !== undefined) {
       data[field] = body[field]
     }
+  }
+
+  if (
+    body.onboardingComplete === true &&
+    prevUser &&
+    !prevUser.onboardingComplete &&
+    prevUser.onboardingCompletedAt == null
+  ) {
+    data.onboardingCompletedAt = new Date()
   }
 
   if (Object.keys(data).length === 0) {

@@ -172,6 +172,9 @@ export function SettingsReferralsCard() {
             connect your bank.
           </p>
           <div className="space-y-2">
+            <Label htmlFor="settings-referral-code" className="text-muted-foreground text-xs uppercase tracking-wider">
+              Code
+            </Label>
             <div className="flex gap-2">
               <Input
                 id="settings-referral-code"
