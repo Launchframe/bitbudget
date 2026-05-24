@@ -19,14 +19,9 @@ export function findSavingsEnvelope(envelopes: readonly Envelope[]): Envelope | 
 export function savingsBalance(
   transactions: readonly Transaction[],
   savingsEnvelope: Envelope | undefined,
-  monthKey = getCurrentMonthKey(),
 ): number {
   if (!savingsEnvelope) return 0
-  return getEnvelopeBalance(
-    transactions as Transaction[],
-    savingsEnvelope.id,
-    monthKey,
-  )
+  return getEnvelopeBalanceAllTime(transactions as Transaction[], savingsEnvelope.id)
 }
 
 export function sumRemainingDiscretionary(
