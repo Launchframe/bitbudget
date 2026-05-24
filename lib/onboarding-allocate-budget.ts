@@ -283,6 +283,50 @@ export function onboardingSavingsGoalPercentOfCapacity(
 }
 
 /**
+ * Scale envelope allotments proportionally to fit a bounded monthly budget.
+ * Used when onboarding transitions from unbounded (no income estimate) to bounded.
+ * No-op when unbounded, already within budget, or total is zero.
+ */
+export function scaleOnboardingAllocationsToBudget(
+  monthlyAllotments: readonly number[],
+  monthlyBudget: number,
+): number[] {
+  if (isUnboundedOnboardingAllocation(monthlyBudget)) {
+    return monthlyAllotments.map(a => Math.max(0, Math.round(a)))
+  }
+  const amounts = monthlyAllotments.map(a => Math.max(0, a))
+  const total = amounts.reduce((s, a) => s + a, 0)
+  if (total <= monthlyBudget) {
+    return amounts.map(a => Math.round(a))
+  }
+  if (total <= 0) {
+    return amounts.map(() => 0)
+  }
+
+  const factor = monthlyBudget / total
+  let scaled = amounts.map(a => snapOnboardingAllocationToStep(a * factor, monthlyBudget))
+  let sum = scaled.reduce((s, a) => s + a, 0)
+
+  if (sum > monthlyBudget) {
+    const trimFactor = monthlyBudget / sum
+    scaled = scaled.map(a => snapOnboardingAllocationToStep(a * trimFactor, monthlyBudget))
+    sum = scaled.reduce((s, a) => s + a, 0)
+  }
+
+  while (sum > monthlyBudget) {
+    let maxIdx = 0
+    for (let i = 1; i < scaled.length; i++) {
+      if (scaled[i] > scaled[maxIdx]) maxIdx = i
+    }
+    if (scaled[maxIdx] <= 0) break
+    scaled[maxIdx] = Math.max(0, scaled[maxIdx] - ONBOARDING_ALLOCATE_SLIDER_STEP)
+    sum -= ONBOARDING_ALLOCATE_SLIDER_STEP
+  }
+
+  return scaled
+}
+
+/**
  * Round `raw` to the nearest `step` (default $50), clamp to `[0, max]`.
  * After rounding, clamp again so values like 997 stay at 997 when nearest step is 1000.
  */

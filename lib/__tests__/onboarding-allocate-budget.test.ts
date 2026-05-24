@@ -17,6 +17,7 @@ import {
   onboardingSavingsGoalAmountFromPercent,
   onboardingSavingsGoalCapacity,
   onboardingSavingsGoalPercentOfCapacity,
+  scaleOnboardingAllocationsToBudget,
   unboundedOnboardingSliderThumbPct,
   savingsGoalPercentOfPaycheck,
   snapOnboardingAllocationToStep,
@@ -133,6 +134,28 @@ describe("unboundedOnboardingSliderVisitedMax", () => {
     expect(unboundedOnboardingSliderMaxForGestureWithVisited(800, 2_000)).toBe(2_000)
     expect(unboundedOnboardingSliderMaxForGestureWithVisited(1_200, 2_000)).toBe(2_000)
     expect(unboundedOnboardingSliderMaxForGestureWithVisited(1_200, undefined)).toBe(2_000)
+  })
+})
+
+describe("scaleOnboardingAllocationsToBudget", () => {
+  it("preserves proportional shares when scaling down to a bounded budget", () => {
+    expect(scaleOnboardingAllocationsToBudget([5_000, 2_000, 3_000], 3_000)).toEqual([
+      1_500,
+      600,
+      900,
+    ])
+  })
+
+  it("leaves allotments unchanged when already within budget", () => {
+    expect(scaleOnboardingAllocationsToBudget([500, 300, 200], 3_000)).toEqual([500, 300, 200])
+  })
+
+  it("does not scale when budget is unbounded", () => {
+    expect(scaleOnboardingAllocationsToBudget([5_000, 2_000, 3_000], 0)).toEqual([
+      5_000,
+      2_000,
+      3_000,
+    ])
   })
 })
 

@@ -68,6 +68,7 @@ import {
   onboardingSavingsGoalAmountFromPercent,
   onboardingSavingsGoalCapacity,
   onboardingSavingsGoalPercentOfCapacity,
+  scaleOnboardingAllocationsToBudget,
   ONBOARDING_SAVINGS_GOAL_DEFAULT_PCT,
   ONBOARDING_SAVINGS_GOAL_SLIDER_MAX_PCT,
   onboardingSliderMaxForRow,
@@ -1328,6 +1329,30 @@ export default function OnboardingPage() {
       ? Math.round((savingsDisplay / allocateMonthlyBudget) * 100)
       : 0
   const savingsGoalCapacity = onboardingSavingsGoalCapacity(allocateMonthlyBudget, totalAllocated)
+
+  /** Fit envelope totals when entering bounded allocation (e.g. unbounded → estimated income). */
+  useEffect(() => {
+    if (step !== "allocations") return
+    if (isUnboundedOnboardingAllocation(allocateMonthlyBudget)) return
+
+    let didScale = false
+    setEnvelopes(prev => {
+      const total = prev.reduce((s, e) => s + e.monthlyAllotment, 0)
+      if (total <= allocateMonthlyBudget) return prev
+
+      const scaled = scaleOnboardingAllocationsToBudget(
+        prev.map(e => e.monthlyAllotment),
+        allocateMonthlyBudget,
+      )
+      if (scaled.every((a, i) => a === prev[i].monthlyAllotment)) return prev
+      didScale = true
+      return prev.map((e, i) => ({ ...e, monthlyAllotment: scaled[i] }))
+    })
+    if (didScale) {
+      setAllocSliderRawOverride(null)
+      setAllocSliderUnboundedVisitedMax({})
+    }
+  }, [step, allocateMonthlyBudget])
 
   const pendingDeleteEnv =
     pendingDeleteEnvelopeIdx !== null ? envelopes[pendingDeleteEnvelopeIdx] : undefined
