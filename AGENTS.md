@@ -96,7 +96,8 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 - **Database:** E2E requires PostgreSQL (`DATABASE_URL` and `DATABASE_URL_UNPOOLED`; `AUTH_SECRET` ≥ 32 chars). Global setup runs `prisma migrate deploy` and reseeds referral fixtures (`e2e/seed-referral-e2e.ts`) plus recurring QA fixtures (`e2e/seed-recurring-e2e.ts`).
 - **Manual recurring QA:** See [docs/testing/recurring-qa.md](docs/testing/recurring-qa.md) (staging DB bump, `pnpm qa:recurring:bump`, and the checklist). **`pnpm test`** includes `lib/__tests__/recurring.test.ts`; **`e2e/recurring.lifecycle.spec.ts`** covers a signed-in `@bitbudget.test` user with a due seeded rule.
 - **Local referral code (manual QA):** When asked for a referral code for local/staging testing, run **`pnpm referral:admin-code`** (`scripts/print-admin-referral-code.ts`). It ensures a valid user referral code owned by the earliest `createdAt` admin (reuses an active unused code or creates one via `ensureUserReferralCode`). Prints the code on **stdout** (owner line on stderr); capture with `CODE=$(pnpm referral:admin-code 2>/dev/null)`. Requires **`DATABASE_URL`**. If no admin exists, promote one with **`ADMIN_EMAILS`** + **`pnpm db:seed-admin`** first.
-- **Maintenance:** When you change referral rules, Plaid activation, onboarding gates, auth email flow, **transaction dialog prefill / payee canonicalization**, or manual entry UX, **update or extend the Playwright specs and seed constants** so CI keeps enforcing the product contract. Treat failing e2e the same as failing unit tests.
+- **Maintenance:** When you change referral rules, Plaid activation, onboarding gates, auth email flow, **transaction dialog prefill / payee canonicalization**, manual entry UX, or **layout/navigation on core pages** (settings tabs, mobile nav, onboarding steps), **update or extend the Playwright specs and seed constants** so CI keeps enforcing the product contract. Treat failing e2e the same as failing unit tests.
+- **Responsive checks:** Playwright runs at a desktop viewport by default. For layout-heavy UI changes, **manually verify at 390px and 320px** (DevTools device mode) before merge; add or extend e2e viewport coverage when a regression has happened or the layout contract is easy to assert (e.g. no document scroll width exceeding viewport on settings).
 - **Pull requests:** **`pnpm lint`, `pnpm test`, and `pnpm test:e2e` should all pass** before a change is considered ready to merge (unless a PR explicitly documents an exception and follow-up).
 
 ## Code Conventions
@@ -150,7 +151,35 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 - **Savings gold accent:** `SAVINGS_GOLD_ACCENT` (`#D4AF37` in `lib/constants.ts`) — use sparingly for Savings hero card border, pinned Savings filter pill, savings-mode chart lines, and Savings dashboard tile highlights. Distinct from Bitcoin orange.
 - Success/credit color: `#22C55E`. Blue accent: `#3B82F6`.
 - BTC numeric values use `font-ibm-plex-mono` class for monospace rendering.
-- Mobile-first responsive design. Use Tailwind breakpoints (`sm:`, `md:`, `lg:`).
+- **Mobile-first responsive design is required**, not optional. Default styles target narrow viewports; use Tailwind breakpoints (`sm:`, `md:`, `lg:`) to enhance layout on larger screens. Most signed-in users reach the app on phones — a page that only looks correct on desktop is a bug.
+
+### Responsive UI (mobile-first)
+
+Treat horizontal overflow, clipped controls, and fixed-width layouts on small screens as **release-blocking UI defects**, on par with broken auth or data loss flows.
+
+**Design defaults**
+- Start from ~390px width (iPhone 12/13/14 class). Also sanity-check ~320px (small Android) and tablet widths before calling UI work done.
+- Prefer stacked layouts (`flex-col`) on mobile; switch to side-by-side (`sm:flex-row`, `lg:grid-cols-…`) only when there is room.
+- Use tighter padding on small screens (`p-4 sm:p-6`, `px-3 md:px-6`) so cards and forms retain usable inner width.
+- Full-width CTAs on mobile (`w-full sm:w-auto`) when a button sits beside descriptive copy on larger breakpoints.
+- Long text (emails, referral URLs, monospace addresses) must wrap or truncate: `min-w-0`, `break-all`, or `truncate` on the text node — never rely on the parent growing wider than the viewport.
+
+**Flex / grid overflow (common bug class)**
+- Flex and grid children default to `min-width: auto`, which prevents shrinking below content size and causes **page-level horizontal overflow** even when a child has `overflow-x-auto`.
+- Any column inside the app shell or a page grid that should shrink with the viewport needs **`min-w-0`** (and usually `w-full max-w-full`). The main content column in `app/page.tsx` already sets this — new page roots and nested layout wrappers must continue the chain.
+- **`overflow-x-auto` only works inside a bounded width.** If the scroll container’s ancestors can grow with content, the row expands the whole page instead of scrolling internally. Fix by constraining ancestors (`min-w-0 max-w-full`) or by changing mobile layout (e.g. vertical tab lists instead of a horizontal chip row).
+- Horizontal nav/tab rows on mobile: either **stack vertically**, or put `overflow-x-auto` on a **`min-w-0`** wrapper with **`shrink-0`** items. Do not assume five labeled buttons fit in one row below `sm` (~640px).
+- Side-by-side rows with an input + button should stack on narrow screens (`flex-col sm:flex-row`) when the pair would crowd the line.
+
+**Shell & shared layout**
+- Below `md`, navigation is **`MobileNav`** (bottom bar) + **`Header`**; the sidebar is hidden. Pages must not depend on desktop-only chrome for core actions.
+- Dialogs and sheets: use responsive max widths (`max-w-[min(96vw,…)]`, `sm:max-w-lg`) and scrollable bodies (`max-h-[…] overflow-y-auto`) so content fits short viewports.
+- Data tables may scroll horizontally inside a **`overflow-x-auto`** wrapper scoped to the table — not by widening the entire page. Update empty-state `colSpan` when columns are conditionally hidden.
+
+**Before finishing UI work**
+- Resize the browser (or DevTools device mode) to **390px and 320px** on every touched screen, dialog, and banner — including Settings, onboarding steps, and modals.
+- Confirm there is **no horizontal page scroll** (content clipped on the right is the usual symptom).
+- If you fix a responsive regression, note the viewport(s) checked in the PR test plan.
 
 ### Marketing routes & `bitbudget_visited`
 - **`/welcome`** and **`/landing`** are public for everyone (including logged-in users). Middleware must not redirect authenticated users away from them.
@@ -324,3 +353,6 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **`colSpan` mismatch** — when conditionally rendering table columns (e.g. hiding BTC columns in vanilla mode), update the empty-state row's `colSpan` accordingly.
 - **`react-hooks/set-state-in-effect`** — don’t call `setState` synchronously inside `useEffect` / `useLayoutEffect`; it triggers lint and risks extra renders or cascading updates. See **React effects and `setState`** under Code Conventions for patterns (derive during render, defer with `requestAnimationFrame` / `setTimeout(0)`, refs).
 - **Resetting `onboardingComplete` for users who already have `encryptedPrivacyKey`** — never rely on onboarding to rotate keys. `PUT /api/user/settings` must not accept `encryptedPrivacyKey` / `privacyKeySalt`. Prefer **Skip onboarding** and correct step routing; corrupt keys need a **recovery** path, not a silent `POST` overwrite.
+- **Missing `min-w-0` in flex/grid layouts** — a child row (tabs, toolbars, input+button pairs) expands the page horizontally on phones. Add `min-w-0 w-full max-w-full` down the layout chain, or stack on mobile. **`overflow-x-auto` without a bounded parent does not fix this.**
+- **Desktop-first breakpoints** — building a wide horizontal layout by default and only wrapping at `lg`/`md` often breaks between 320–640px. Default to mobile layout; enhance upward with `sm:` / `md:` / `lg:`.
+- **Fixed padding and min-widths on cards** — uniform `p-6` plus wide inner flex rows can clip buttons and text on 390px-wide screens. Use responsive padding and `flex-col sm:flex-row` for compound controls.
