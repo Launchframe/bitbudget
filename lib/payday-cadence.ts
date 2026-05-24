@@ -11,6 +11,12 @@ export interface PaydayUserFields {
   lastPaydayAt: Date | null
 }
 
+/** True when funding/sweep should use explicit pay days or weekly/biweekly/daily cadence. */
+export function usesPaydayCadence(user: Pick<PaydayUserFields, "payDays" | "payCadence">): boolean {
+  if (user.payDays.length > 0) return true
+  return user.payCadence === "weekly" || user.payCadence === "biweekly" || user.payCadence === "daily"
+}
+
 export const PAYDAY_LAST_OF_MONTH = 32
 
 function effectiveDom(year: number, monthIndex: number, day: number): number {

@@ -18,7 +18,6 @@ import {
   type SavingsGoalRow,
 } from "@/lib/savings-ui-metrics"
 import { IrregularIncomeDialog } from "@/components/irregular-income-dialog"
-import { IncomeImporterButton } from "@/components/income-importer-dialog"
 import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
 import { Input } from "@/components/ui/input"
@@ -82,12 +81,13 @@ function WhySavingsExplainer({ defaultOpen = false }: { defaultOpen?: boolean })
       </CollapsibleTrigger>
       <CollapsibleContent className="pt-3 text-sm text-muted-foreground space-y-2 px-1">
         <p>
-          Pay yourself first: every paycheck lands in Savings before your envelopes are filled. What you do not spend
-          stays saved — leftover envelope balances can sweep back to Savings on payday.
+          We believe in the core financial principle of paying yourself first. Tracking your savings is a core facet of this mode of thinking, and gives you a true ledger of your finances.
         </p>
         <p>
-          Savings is the hub of your budget ledger. Envelopes are spending buckets; Savings is where unspent money
-          accumulates and where goals measure real progress.
+          That is why BitBudget tracks expenses as a ledger. Your money does not appear just so it can be spent — your income is what recharges your Savings. Envelopes are spending buckets; filling them necessarily draws down on your Savings.
+        </p>
+        <p>
+          Study after study shows that people who think of their money as savings rather than a paycheck are significantly more likely to keep to a consistent budget. Savings Tracking is designed to do just that, and to encourage you every step of the way.
         </p>
       </CollapsibleContent>
     </Collapsible>
@@ -323,7 +323,8 @@ export function SettingsSavingsCard() {
       </div>
 
       <p className="text-sm text-muted-foreground mb-4">
-        Pay yourself first — income lands in Savings, then envelopes are filled from your budget mix.
+        You deserve to pay yourself first. Your income goes directly to Savings, and then Savings are distributed to fill your envelopes
+        at the start of each month.
         Turn tracking off to hide goals, streaks, and the Savings hero card while keeping the underlying ledger.
       </p>
 
@@ -597,7 +598,6 @@ export function SettingsSavingsCard() {
 
           <div className="flex flex-wrap items-center gap-2">
             <IrregularIncomeDialog triggerVariant="button" />
-            <IncomeImporterButton />
           </div>
 
           <WhySavingsExplainer />

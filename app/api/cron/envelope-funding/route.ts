@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { detectAchievementsForUser } from "@/lib/achievements"
 import { processEnvelopeFundingForUser } from "@/lib/envelope-funding"
 import { sweepDiscretionaryEnvelopesForUser } from "@/lib/envelope-sweep"
-import { isPaydayForUser, type PaydayUserFields } from "@/lib/payday-cadence"
+import { isPaydayForUser, usesPaydayCadence, type PaydayUserFields } from "@/lib/payday-cadence"
 import { prisma } from "@/lib/db"
 import { closePreviousPeriodGoal, openCurrentPeriodGoal } from "@/lib/savings-goal-cron"
 
@@ -16,11 +16,6 @@ function bearerMatches(secret: string, authHeader: string | null): boolean {
   } catch {
     return false
   }
-}
-
-function usesPaydayCadence(user: Pick<PaydayUserFields, "payDays" | "payCadence">): boolean {
-  if (user.payDays.length > 0) return true
-  return user.payCadence === "weekly" || user.payCadence === "biweekly" || user.payCadence === "daily"
 }
 
 function isFundingDayForUser(user: PaydayUserFields, today: Date): boolean {

@@ -210,6 +210,31 @@ export interface ProcessIncomeImportInput {
   entries: IncomeImportEntry[]
 }
 
+async function prefetchBtcPricesForImportEntries(
+  entries: IncomeImportEntry[],
+  payDay: number,
+): Promise<Map<string, number | null>> {
+  const dateIsos = new Set<string>()
+  for (const entry of entries) {
+    const amount = Math.round(entry.amount * 100) / 100
+    if (!Number.isFinite(amount) || amount <= 0) continue
+    const parsed = parseIncomePeriodKey(entry.periodKey)
+    if (!parsed) continue
+    const splitCount = parsed.kind === "year" ? Math.max(1, entry.splitCount ?? 1) : 1
+    for (const dateIso of distributeImportDates({ periodKey: entry.periodKey, payDay, splitCount })) {
+      dateIsos.add(dateIso)
+    }
+  }
+
+  const prices = new Map<string, number | null>()
+  await Promise.all(
+    [...dateIsos].map(async (dateIso) => {
+      prices.set(dateIso, await getBtcPriceForDate(dateIso))
+    }),
+  )
+  return prices
+}
+
 /** Import historical or future income entries. Returns transactions created. */
 export async function processIncomeImport(input: ProcessIncomeImportInput): Promise<number> {
   const pk = input.publicKey?.trim()
@@ -243,6 +268,7 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
 
   const now = new Date()
   let totalCreated = 0
+  const btcPrices = await prefetchBtcPricesForImportEntries(input.entries, payDay)
 
   await prisma.$transaction(async (tx) => {
     for (const entry of input.entries) {
@@ -292,7 +318,7 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
         const sliceAmount = amounts[i] ?? 0
         if (sliceAmount <= 0) continue
 
-        const btcPrice = await getBtcPriceForDate(dateIso)
+        const btcPrice = btcPrices.get(dateIso) ?? null
         const fundingDate = new Date(`${dateIso}T12:00:00.000Z`)
 
         await tx.transaction.create({

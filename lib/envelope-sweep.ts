@@ -18,6 +18,7 @@ import { isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import {
   isPaydayForUser,
   sweepPeriodKeyForPayday,
+  usesPaydayCadence,
   type PaydayUserFields,
 } from "@/lib/payday-cadence"
 import { encryptFieldForUser } from "@/lib/server-encrypt"
@@ -63,11 +64,6 @@ export function sweepAmountForEnvelope(params: {
   }
 
   return 0
-}
-
-function usesPaydayCadence(user: Pick<PaydayUserFields, "payDays" | "payCadence">): boolean {
-  if (user.payDays.length > 0) return true
-  return user.payCadence === "weekly" || user.payCadence === "biweekly" || user.payCadence === "daily"
 }
 
 function sweepPeriodKeyForUser(user: PaydayUserFields, runDateUtc: Date): string | null {

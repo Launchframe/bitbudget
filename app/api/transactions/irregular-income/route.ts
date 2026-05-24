@@ -56,7 +56,18 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  if (!Number.isFinite(user?.monthlyIncome) || (user?.monthlyIncome ?? 0) <= 0) {
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  if (!user.publicKey?.trim()) {
+    return NextResponse.json(
+      { error: "Encryption keys are not configured for this account." },
+      { status: 400 },
+    )
+  }
+
+  if (!Number.isFinite(user.monthlyIncome) || user.monthlyIncome <= 0) {
     return NextResponse.json(
       { error: "Set a positive Monthly Income under allocations/settings before irregular income." },
       { status: 400 },
@@ -65,13 +76,13 @@ export async function POST(req: NextRequest) {
 
   const createdCount = await createIrregularIncomeBatch({
     userId: session.user.id,
-    publicKey: user!.publicKey,
+    publicKey: user.publicKey,
     grossUsd: amountNum,
     dateIso,
     displayPayee: payee.trim(),
     notesPlain: notesStr,
     userIncome: {
-      monthlyIncome: user!.monthlyIncome,
+      monthlyIncome: user.monthlyIncome,
     },
   })
 

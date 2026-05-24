@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useCallback, useSyncExternalStore } from "react"
+import { useMemo, useState, useCallback, useSyncExternalStore, useEffect } from "react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Legend } from "recharts"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
@@ -12,7 +12,7 @@ import {
   subscribeDashboardChartMode,
   type DashboardChartMode,
 } from "@/lib/dashboard-chart-mode"
-import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
+import { SAVINGS_GOLD_ACCENT, SAVINGS_EXPERIENCE_DISMISSED } from "@/lib/constants"
 // Shared tick rules (incl. short spans / 5Y imported history) live in `lib/chart-x-axis-format.ts`.
 import { formatExpenseChartXAxisTick } from "@/lib/chart-x-axis-format"
 import { BarChart3 } from "lucide-react"
@@ -110,6 +110,16 @@ export function OpportunityCostChart() {
     [state.envelopes],
   )
 
+  const savingsChartEnabled =
+    state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED && savingsEnvelope != null
+  const effectiveChartMode: ChartMode = savingsChartEnabled ? chartMode : "spending"
+
+  useEffect(() => {
+    if (!savingsChartEnabled && chartMode === "savings") {
+      setDashboardChartMode("spending")
+    }
+  }, [savingsChartEnabled, chartMode])
+
   const hasAnyExpenses = useMemo(
     () => activeTransactions.some((t) => t.type === "expense"),
     [activeTransactions],
@@ -179,7 +189,7 @@ export function OpportunityCostChart() {
   }, [ocEnabled, activeTransactions, currentPrice, priceHistory, getPriceOnDate, startDate])
 
   const savingsOcData = useMemo(() => {
-    if (!ocEnabled || chartMode !== "savings") return []
+    if (!ocEnabled || effectiveChartMode !== "savings") return []
     if (!savingsEnvelope || !currentPrice || activeTransactions.length === 0 || priceHistory.length === 0) {
       return []
     }
@@ -237,7 +247,7 @@ export function OpportunityCostChart() {
     }
 
     return points
-  }, [ocEnabled, chartMode, activeTransactions, savingsEnvelope, currentPrice, priceHistory, getPriceOnDate, startDate])
+  }, [ocEnabled, effectiveChartMode, activeTransactions, savingsEnvelope, currentPrice, priceHistory, getPriceOnDate, startDate])
 
   // Vanilla data — cumulative spent only, no BTC prices required
   const vanillaData = useMemo(() => {
@@ -264,7 +274,7 @@ export function OpportunityCostChart() {
   }, [ocEnabled, activeTransactions, startDate])
 
   const savingsVanillaData = useMemo(() => {
-    if (ocEnabled || chartMode !== "savings" || !savingsEnvelope) return []
+    if (ocEnabled || effectiveChartMode !== "savings" || !savingsEnvelope) return []
 
     const credits = activeTransactions
       .filter(
@@ -288,10 +298,10 @@ export function OpportunityCostChart() {
       cumUsd += dailyUsd.get(day)!
       return { date: day, spent: Math.round(cumUsd), btcValue: 0 }
     })
-  }, [ocEnabled, chartMode, activeTransactions, savingsEnvelope, startDate])
+  }, [ocEnabled, effectiveChartMode, activeTransactions, savingsEnvelope, startDate])
 
   const filteredData =
-    chartMode === "savings"
+    effectiveChartMode === "savings"
       ? ocEnabled
         ? savingsOcData
         : savingsVanillaData
@@ -329,7 +339,7 @@ export function OpportunityCostChart() {
   }, [filteredData, ocEnabled])
 
   const title =
-    chartMode === "savings"
+    effectiveChartMode === "savings"
       ? ocEnabled
         ? "Cumulative Savings"
         : "Your savings"
@@ -338,7 +348,7 @@ export function OpportunityCostChart() {
         : "Your expenses"
 
   const emptyMessage =
-    chartMode === "savings"
+    effectiveChartMode === "savings"
       ? activeTransactions.length === 0
         ? "Add transactions to see your savings trends."
         : !hasAnySavingsInflows
@@ -350,9 +360,9 @@ export function OpportunityCostChart() {
           ? "No expense transactions to display."
           : "No expense transactions in this timeframe."
 
-  const spentLabel = chartMode === "savings" ? "Saved" : "Spent"
-  const btcLineName = chartMode === "savings" ? "Equivalent BTC Savings" : "Equivalent BTC Savings"
-  const areaStroke = chartMode === "savings" ? SAVINGS_GOLD_ACCENT : "#888"
+  const spentLabel = effectiveChartMode === "savings" ? "Saved" : "Spent"
+  const btcLineName = effectiveChartMode === "savings" ? "Equivalent BTC Savings" : "Equivalent BTC Savings"
+  const areaStroke = effectiveChartMode === "savings" ? SAVINGS_GOLD_ACCENT : "#888"
 
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
@@ -361,30 +371,38 @@ export function OpportunityCostChart() {
           <h2 className="text-xl font-semibold text-foreground">{title}</h2>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 bg-[#1A1A1A] rounded-lg p-1">
-              <button
-                type="button"
-                onClick={() => setChartMode("spending")}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  chartMode === "spending"
-                    ? "bg-[#F7931A] text-[#0D0D0D]"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+            {savingsChartEnabled && (
+              <div
+                className="flex items-center gap-1 bg-[#1A1A1A] rounded-lg p-1"
+                role="group"
+                aria-label="Chart mode"
               >
-                Spending
-              </button>
-              <button
-                type="button"
-                onClick={() => setChartMode("savings")}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  chartMode === "savings"
-                    ? "bg-[#D4AF37] text-[#0D0D0D]"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Savings
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setChartMode("spending")}
+                  aria-pressed={effectiveChartMode === "spending"}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    effectiveChartMode === "spending"
+                      ? "bg-[#F7931A] text-[#0D0D0D]"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Spending
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartMode("savings")}
+                  aria-pressed={effectiveChartMode === "savings"}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    effectiveChartMode === "savings"
+                      ? "bg-[#D4AF37] text-[#0D0D0D]"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Savings
+                </button>
+              </div>
+            )}
 
           {spread && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
@@ -522,7 +540,7 @@ export function OpportunityCostChart() {
               <Area
                 type="monotone"
                 dataKey="spent"
-                name={chartMode === "savings" ? "Cumulative Saved (USD)" : "Cumulative Spent (USD)"}
+                name={effectiveChartMode === "savings" ? "Cumulative Saved (USD)" : "Cumulative Spent (USD)"}
                 stroke={areaStroke}
                 strokeWidth={2}
                 fillOpacity={1}
@@ -533,7 +551,7 @@ export function OpportunityCostChart() {
                   type="monotone"
                   dataKey="btcValue"
                   name={btcLineName}
-                  stroke={chartMode === "savings" ? SAVINGS_GOLD_ACCENT : "#F7931A"}
+                  stroke={effectiveChartMode === "savings" ? SAVINGS_GOLD_ACCENT : "#F7931A"}
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#colorBtcValue)"

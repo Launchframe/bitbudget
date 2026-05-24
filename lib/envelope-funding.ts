@@ -18,6 +18,7 @@ import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 import {
   fundingPeriodKeyForPayday,
   isPaydayForUser,
+  usesPaydayCadence,
   type PaydayUserFields,
 } from "@/lib/payday-cadence"
 import { encryptFieldForUser } from "@/lib/server-encrypt"
@@ -33,11 +34,6 @@ export const TX_SOURCE_FUNDING_OUT = "envelope_funding_out"
 export const TX_SOURCE_FUNDING_IN = "envelope_funding_in"
 
 const EMPTY_TAGS = "[]"
-
-function usesPaydayCadence(user: Pick<PaydayUserFields, "payDays" | "payCadence">): boolean {
-  if (user.payDays.length > 0) return true
-  return user.payCadence === "weekly" || user.payCadence === "biweekly" || user.payCadence === "daily"
-}
 
 function fundingPeriodKeyForUser(
   user: PaydayUserFields,

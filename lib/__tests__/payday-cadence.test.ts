@@ -5,6 +5,7 @@ import {
   isPaydayForUser,
   PAYDAY_LAST_OF_MONTH,
   sweepPeriodKeyForPayday,
+  usesPaydayCadence,
   type PaydayUserFields,
 } from "../payday-cadence"
 
@@ -78,5 +79,14 @@ describe("payday-cadence", () => {
     const run = new Date(Date.UTC(2026, 4, 15))
     expect(fundingPeriodKeyForPayday(user(), run)).toBe("fund-2026-05-15")
     expect(sweepPeriodKeyForPayday(user(), run)).toBe("sweep-2026-05-15")
+  })
+
+  it("usesPaydayCadence is true when payDays configured or cadence is weekly/biweekly/daily", () => {
+    expect(usesPaydayCadence(user())).toBe(false)
+    expect(usesPaydayCadence(user({ payDays: [1, 15] }))).toBe(true)
+    expect(usesPaydayCadence(user({ payCadence: "weekly" }))).toBe(true)
+    expect(usesPaydayCadence(user({ payCadence: "biweekly" }))).toBe(true)
+    expect(usesPaydayCadence(user({ payCadence: "daily" }))).toBe(true)
+    expect(usesPaydayCadence(user({ payCadence: "monthly" }))).toBe(false)
   })
 })
