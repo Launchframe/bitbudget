@@ -1469,7 +1469,9 @@ export default function OnboardingPage() {
 
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Regular Income (USD)</Label>
+                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">
+                    Take-home pay after taxes (USD)
+                  </Label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
                     <Input

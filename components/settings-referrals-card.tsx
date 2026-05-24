@@ -191,11 +191,19 @@ export function SettingsReferralsCard() {
                 variant="secondary"
                 disabled={refRedeeming || !refCodeInput.trim()}
                 className="shrink-0 border-[#333] bg-[#0D0D0D]"
+                aria-busy={refRedeeming}
                 onClick={() => {
                   void handleRedeemReferralCode()
                 }}
               >
-                {refRedeeming ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
+                {refRedeeming ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    <span className="sr-only">Applying referral code</span>
+                  </>
+                ) : (
+                  "Apply"
+                )}
               </Button>
             </div>
             {refRedeemError && (

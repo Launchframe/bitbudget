@@ -85,5 +85,13 @@ describe("referral code helpers", () => {
         now: completed,
       }),
     ).toBe(false)
+    expect(
+      canRedeemReferralAsPostOnboardingReferee({
+        onboardingComplete: true,
+        onboardingCompletedAt: null,
+        alreadyRedeemed: false,
+        now: new Date(),
+      }),
+    ).toBe(false)
   })
 })
