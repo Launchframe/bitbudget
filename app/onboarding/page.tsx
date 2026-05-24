@@ -427,10 +427,20 @@ export default function OnboardingPage() {
     setRefValidating(true)
     try {
       const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(code)}`)
-      const j = (await r.json()) as {
+      if (!r.ok) {
+        setRefError("Could not validate that code. Try again.")
+        return false
+      }
+      let j: {
         valid?: boolean
         refereeTrialMonths?: 1 | 3
         referrerOpportunityCostEnabled?: boolean
+      }
+      try {
+        j = (await r.json()) as typeof j
+      } catch {
+        setRefError("Could not validate that code. Try again.")
+        return false
       }
       if (!j.valid) {
         setRefError("It looks like that code is invalid, expired, or already taken.")
@@ -454,6 +464,9 @@ export default function OnboardingPage() {
       }
       setCompleteReferralOpen(false)
       return true
+    } catch {
+      setRefError("Could not validate that code. Try again.")
+      return false
     } finally {
       setRefValidating(false)
     }
