@@ -20,6 +20,7 @@ import {
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import {
+  ONBOARDING_HINT_ENVELOPES,
   ONBOARDING_HINT_REFERRAL_BANK,
   ONBOARDING_HINT_REFERRAL_COMPLETE,
   ONBOARDING_HINT_SAVINGS_GOAL,
@@ -1660,7 +1661,7 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        <div className="bg-[#0D0D0D] rounded-2xl p-8">
+        <div className="bg-[#0D0D0D] rounded-2xl p-2">
           {restoredSession && !isNostr && step !== "referral" && step !== "security" && step !== "complete" && step !== "referral-bank" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
@@ -1986,7 +1987,7 @@ export default function OnboardingPage() {
                     type="button"
                     aria-pressed={incomeMode === key}
                     onClick={() => setIncomeMode(key)}
-                    className={`flex-1 py-2.5 text-xs sm:text-sm font-medium rounded-md transition-colors ${
+                    className={`flex-1 py-2.5 px-2 text-xs sm:text-sm font-medium rounded-md transition-colors ${
                       incomeMode === key
                         ? "bg-[#F7931A] text-[#0D0D0D]"
                         : "text-muted-foreground hover:text-foreground"
@@ -2194,13 +2195,20 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your envelopes</h2>
-                  <p className="text-sm text-muted-foreground">Create your spending categories — you&apos;ll set budget amounts in the next step</p>
+                  <p className="text-sm text-muted-foreground">These are your spending categories. Add as many or as few as you like - but we recommend not having more than 10 to 12.</p>
                 </div>
               </div>
 
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Add envelopes for each area you spend money on. Don&apos;t worry about amounts yet — the next step lets you allocate your income across these envelopes. Anything you don&apos;t allocate automatically goes into <span className="text-[#22C55E] font-medium">Savings</span>.
-              </p>
+              <OnboardingDismissibleHint
+                hintId={ONBOARDING_HINT_ENVELOPES}
+                dismissed={dismissedOnboardingHints.has(ONBOARDING_HINT_ENVELOPES)}
+                onDismiss={dismissOnboardingHint}
+                className="border border-[#252525] bg-[#1A1A1A]/60"
+              >
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Add envelopes for each area you spend money on. Don&apos;t worry about amounts yet — the next step lets you allocate your income across these envelopes.
+                </p>
+              </OnboardingDismissibleHint>
 
               <div className="flex flex-col gap-2">
                 {envelopes.map((env, idx) => {
@@ -3107,7 +3115,7 @@ export default function OnboardingPage() {
                 className="border border-[#252525] bg-[#1A1A1A]/60"
               >
                 <p className="text-xs text-muted-foreground text-center leading-relaxed">
-                  We&apos;ll sweep leftover envelope balances to Savings on each payday — you can change this per-envelope anytime.
+                  We&apos;ll sweep leftover envelope balances to Savings on each payday — you can change this in Settings anytime.
                 </p>
               </OnboardingDismissibleHint>
 

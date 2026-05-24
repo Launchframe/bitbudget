@@ -4,6 +4,7 @@ import { X } from "lucide-react"
 import type { CSSProperties, ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
+export const ONBOARDING_HINT_ENVELOPES = "envelopes"
 export const ONBOARDING_HINT_SAVINGS_GOAL = "savings-goal"
 export const ONBOARDING_HINT_SAVINGS_SWEEP = "savings-sweep"
 export const ONBOARDING_HINT_REFERRAL_COMPLETE = "referral-complete"
