@@ -1282,8 +1282,6 @@ export default function OnboardingPage() {
     return savingsGoalPercentOfPaycheck(savingsGoalAmount, parseFloat(income) || 0)
   }, [incomeMode, income, savingsGoalAmount])
   const savings = Math.max(0, allocateMonthlyBudget - totalAllocated)
-  const savingsPct =
-    allocateMonthlyBudget > 0 ? Math.round((savings / allocateMonthlyBudget) * 100) : 0
   const unboundedAlloc = isUnboundedOnboardingAllocation(allocateMonthlyBudget)
   /** Live stack-bar / savings display while a slider is mid-drag (unbounded defers envelope commits). */
   const envelopeDisplayAllotments = useMemo((): number[] => {
@@ -1410,7 +1408,7 @@ export default function OnboardingPage() {
       allocSliderDragSessionRef.current = null
       setAllocSliderLockedMax(prev => (prev?.idx === rowIdx ? null : prev))
     },
-    [allocateMonthlyBudget, allocSliderUnboundedVisitedMax],
+    [allocateMonthlyBudget, allocSliderLockedMax, allocSliderUnboundedVisitedMax],
   )
 
   const releaseAllocSliderRow = useCallback(

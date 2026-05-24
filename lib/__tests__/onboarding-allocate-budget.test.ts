@@ -6,7 +6,6 @@ import {
   ONBOARDING_UNBOUNDED_INPUT_MAX,
   ONBOARDING_UNBOUNDED_SLIDER_FLOOR,
   unboundedOnboardingSliderMaxAtRest,
-  unboundedOnboardingSliderMaxDragging,
   unboundedOnboardingSliderMaxForGesture,
   unboundedOnboardingSliderNextBand,
   applyUnboundedOnboardingSliderDrag,
