@@ -68,7 +68,6 @@ import {
   monthlyCapacityFromAnnualEstimate,
   nudgeOnboardingAllocationAmount,
   onboardingAllocationCapForRow,
-  onboardingAllocationDisplayAmount,
   onboardingOverrideDisplayAmount,
   ONBOARDING_ALLOCATE_FINE_STEP,
   ONBOARDING_ALLOCATE_SLIDER_STEP,
@@ -181,7 +180,8 @@ function OnboardingSkipBar({
   return (
     <div className="mt-6 pt-4 border-t border-[#1F1F1F]">
       <p className="text-xs text-muted-foreground text-center mb-2">
-        Already have data in BitBudget? Exit onboarding and return to your dashboard without changing settings here.
+        If you do not have more transactions you want to import, you can{" "}
+        <span className="font-bold">skip ahead to finish onboarding</span>.
       </p>
       <button
         type="button"
@@ -189,7 +189,7 @@ function OnboardingSkipBar({
         onClick={onSkip}
         className="w-full py-2.5 text-sm font-medium text-muted-foreground border border-[#333] rounded-xl hover:bg-[#1A1A1A] hover:text-foreground transition-colors disabled:opacity-50"
       >
-        Skip onboarding — go to dashboard
+        Skip
       </button>
     </div>
   )
@@ -385,7 +385,6 @@ export default function OnboardingPage() {
   const [hasExistingEncryption, setHasExistingEncryption] = useState(false)
   /** Shown when user already has transactions — safe escape if onboardingComplete was reset by mistake. */
   const [canSkipOnboarding, setCanSkipOnboarding] = useState(false)
-  const [skipOnboardingError, setSkipOnboardingError] = useState<string | null>(null)
   const [envelopeStepError, setEnvelopeStepError] = useState<string | null>(null)
   /** Server-side tx / recurring counts per envelope id — used for delete confirmation copy. */
   const [envelopeUsageById, setEnvelopeUsageById] = useState<
@@ -846,33 +845,9 @@ export default function OnboardingPage() {
     router.refresh()
   }
 
-  async function skipOnboardingToDashboard() {
-    setSkipOnboardingError(null)
-    setLoading(true)
-    try {
-      const res = await fetch("/api/user/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ onboardingComplete: true, opportunityCostEnabled }),
-      })
-      if (res.status === 401 || res.status === 403) {
-        await signOut({ callbackUrl: "/auth" })
-        return
-      }
-      if (!res.ok) {
-        setSkipOnboardingError("Could not save settings. Try again or sign out and back in.")
-        return
-      }
-      const hadReferralCode = !!referralPayloadForRedeem()?.code
-      const redeemOk = await redeemPendingReferralIfAny()
-      if (hadReferralCode && redeemOk) {
-        setStep("referral-bank")
-        return
-      }
-      finishOnboardingExit()
-    } finally {
-      setLoading(false)
-    }
+  function skipOnboardingToComplete() {
+    setImportDialogOpen(false)
+    setStep("complete")
   }
 
   async function handleSecuritySetup() {
@@ -1690,12 +1665,6 @@ export default function OnboardingPage() {
 
         <Progress value={progress} className="h-1.5" />
 
-        {skipOnboardingError && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-            {skipOnboardingError}
-          </div>
-        )}
-
         <div className="bg-[#0D0D0D] rounded-2xl p-2">
           {restoredSession && !isNostr && step !== "referral" && step !== "security" && step !== "complete" && step !== "referral-bank" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
@@ -1704,7 +1673,7 @@ export default function OnboardingPage() {
                 <p className="text-sm text-[#93C5FD] leading-snug">
                   Your progress was restored.
                   {hasExistingEncryption && bootstrapped
-                    ? " Your account already has encryption — use Skip onboarding to return to the app and unlock with your existing passphrase."
+                    ? " Your account already has encryption — use Skip to jump to the final onboarding step, then continue to your dashboard."
                     : " Don\u2019t remember your passphrase?"}
                 </p>
                 {bootstrapped && !hasExistingEncryption && (
@@ -1899,7 +1868,7 @@ export default function OnboardingPage() {
                 <OnboardingSkipBar
                   show={canSkipOnboarding}
                   disabled={loading}
-                  onSkip={skipOnboardingToDashboard}
+                  onSkip={skipOnboardingToComplete}
                 />
               </div>
             )
@@ -1984,7 +1953,7 @@ export default function OnboardingPage() {
                 <OnboardingSkipBar
                   show={canSkipOnboarding}
                   disabled={loading}
-                  onSkip={skipOnboardingToDashboard}
+                  onSkip={skipOnboardingToComplete}
                 />
               </form>
             ) : null
@@ -2210,7 +2179,7 @@ export default function OnboardingPage() {
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}
-                onSkip={skipOnboardingToDashboard}
+                onSkip={skipOnboardingToComplete}
               />
             </form>
           )}
@@ -2458,7 +2427,7 @@ export default function OnboardingPage() {
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}
-                onSkip={skipOnboardingToDashboard}
+                onSkip={skipOnboardingToComplete}
               />
             </form>
           )}
@@ -3118,7 +3087,7 @@ export default function OnboardingPage() {
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}
-                onSkip={skipOnboardingToDashboard}
+                onSkip={skipOnboardingToComplete}
               />
             </form>
           )}
@@ -3171,7 +3140,7 @@ export default function OnboardingPage() {
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}
-                onSkip={skipOnboardingToDashboard}
+                onSkip={skipOnboardingToComplete}
               />
             </div>
           )}
@@ -3229,7 +3198,7 @@ export default function OnboardingPage() {
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}
-                onSkip={skipOnboardingToDashboard}
+                onSkip={skipOnboardingToComplete}
               />
             </form>
           )}
