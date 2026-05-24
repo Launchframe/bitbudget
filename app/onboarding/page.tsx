@@ -85,6 +85,10 @@ import {
   type OnboardingPayCadence,
 } from "@/lib/onboarding-allocate-budget"
 import {
+  isOnboardingDraftBudgetEnvelope,
+  withoutSystemSavingsEnvelope,
+} from "@/lib/onboarding-draft-envelopes"
+import {
   PAYDAY_LAST_OF_MONTH,
 } from "@/lib/payday-cadence"
 import {
@@ -320,7 +324,7 @@ export default function OnboardingPage() {
   /** Append one draft envelope from trimmed name (shared by Add button and Continue). */
   function appendDraftEnvelope(prev: DraftEnvelope[], rawName: string): DraftEnvelope[] {
     const trimmed = rawName.trim()
-    if (!trimmed) return prev
+    if (!trimmed || !isOnboardingDraftBudgetEnvelope({ name: trimmed })) return prev
     const usedColors = new Set(prev.map(e => e.color))
     const nextColor = ENVELOPE_COLORS.find(c => !usedColors.has(c))
       ?? ENVELOPE_COLORS[prev.length % ENVELOPE_COLORS.length]
@@ -503,17 +507,22 @@ export default function OnboardingPage() {
         if (typeof saved.savingsGoalPct === "number") {
           setSavingsGoalPct(saved.savingsGoalPct)
         }
-        if (saved.envelopes?.length) setEnvelopes(
-          saved.envelopes.map((e: { id?: string; allocationCadence?: string; monthlyAllotment?: number }) => {
-            const raw = typeof e.monthlyAllotment === "number" ? e.monthlyAllotment : 0
-            return {
-              ...e,
-              id: typeof e.id === "string" && e.id.length > 0 ? e.id : undefined,
-              allocationCadence: e.allocationCadence ?? "monthly",
-              monthlyAllotment: Math.round(raw / 5) * 5,
-            }
-          })
-        )
+        if (saved.envelopes?.length) {
+          setEnvelopes(
+            withoutSystemSavingsEnvelope(
+              saved.envelopes.map((e: { id?: string; allocationCadence?: string; monthlyAllotment?: number; name?: string }) => {
+                const raw = typeof e.monthlyAllotment === "number" ? e.monthlyAllotment : 0
+                return {
+                  ...e,
+                  name: typeof e.name === "string" ? e.name : "",
+                  id: typeof e.id === "string" && e.id.length > 0 ? e.id : undefined,
+                  allocationCadence: e.allocationCadence ?? "monthly",
+                  monthlyAllotment: Math.round(raw / 5) * 5,
+                }
+              }),
+            ),
+          )
+        }
       }
     } catch { /* ignore corrupt data */ }
     setHydrated(true)
@@ -539,6 +548,16 @@ export default function OnboardingPage() {
       }))
     } catch { /* storage full or unavailable */ }
   }, [hydrated, step, income, incomeMode, cadence, payDays, payDayOfWeek, lastPaydayAt, estimatedAnnualIncome, allocPhase, savingsGoalAmount, savingsGoalPct, envelopes, pendingReferral])
+
+  /** Drop system Savings if it leaked into draft state (server bootstrap or session restore). */
+  useEffect(() => {
+    if (!hydrated) return
+    if (step !== "envelopes" && step !== "allocations") return
+    setEnvelopes(prev => {
+      const filtered = withoutSystemSavingsEnvelope(prev)
+      return filtered.length === prev.length ? prev : filtered
+    })
+  }, [hydrated, step])
 
   /** Clear chosen file + native input when navigating onto the import step (avoids stale File after back/forward or re-import). */
   useEffect(() => {
@@ -1060,6 +1079,7 @@ export default function OnboardingPage() {
       icon: string | null
       monthlyAllotment: number
       archived: boolean
+      systemRole: string | null
     }>
     try {
       const parsed: unknown = await res.json()
@@ -1071,18 +1091,19 @@ export default function OnboardingPage() {
         icon: string | null
         monthlyAllotment: number
         archived: boolean
+        systemRole: string | null
       }>
     } catch {
       return false
     }
-    const active = all.filter(e => !e.archived)
+    const active = all.filter(e => !e.archived && isOnboardingDraftBudgetEnvelope(e))
 
     setEnvelopes(prev => {
       const seenIds = new Set<string>()
       const out: DraftEnvelope[] = []
 
       for (const p of prev) {
-        if (!p.id) continue
+        if (!p.id || !isOnboardingDraftBudgetEnvelope(p)) continue
         const se = active.find(e => e.id === p.id)
         if (!se) continue
         seenIds.add(se.id)
@@ -1114,9 +1135,9 @@ export default function OnboardingPage() {
   }
 
   async function handleEnvelopesSave() {
-    let list = envelopes
+    let list = withoutSystemSavingsEnvelope(envelopes)
     if (newEnvName.trim()) {
-      list = appendDraftEnvelope(envelopes, newEnvName)
+      list = appendDraftEnvelope(list, newEnvName)
       setEnvelopes(list)
       setNewEnvName("")
     }
@@ -1171,16 +1192,19 @@ export default function OnboardingPage() {
           color: string
           icon: string | null
           monthlyAllotment: number
+          systemRole?: string | null
         }>
       }
-      const merged: DraftEnvelope[] = data.envelopes.map((se, i) => ({
-        id: se.id,
-        name: se.name,
-        color: se.color,
-        icon: listForSync[i]?.icon ?? se.icon ?? pickEnvelopeIconForName(se.name, []),
-        monthlyAllotment: listForSync[i]?.monthlyAllotment ?? se.monthlyAllotment,
-        allocationCadence: listForSync[i]?.allocationCadence ?? "monthly",
-      }))
+      const merged: DraftEnvelope[] = withoutSystemSavingsEnvelope(
+        data.envelopes.map((se, i) => ({
+          id: se.id,
+          name: se.name,
+          color: se.color,
+          icon: listForSync[i]?.icon ?? se.icon ?? pickEnvelopeIconForName(se.name, []),
+          monthlyAllotment: listForSync[i]?.monthlyAllotment ?? se.monthlyAllotment,
+          allocationCadence: listForSync[i]?.allocationCadence ?? "monthly",
+        })),
+      )
       enterAllocations(merged)
     } finally {
       setLoading(false)
@@ -1189,7 +1213,7 @@ export default function OnboardingPage() {
 
   async function saveEnvelopeAllocations(): Promise<boolean> {
     for (const env of envelopes) {
-      if (!env.id) continue
+      if (!env.id || !isOnboardingDraftBudgetEnvelope(env)) continue
       const res = await fetch("/api/envelopes", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -2255,7 +2279,7 @@ export default function OnboardingPage() {
                                 const duplicate = prev.some(
                                   (o, j) => j !== idx && o.name.toLowerCase() === t.toLowerCase(),
                                 )
-                                if (!t || duplicate) {
+                                if (!t || duplicate || !isOnboardingDraftBudgetEnvelope({ name: t })) {
                                   return {
                                     ...e,
                                     name: revertedName,
