@@ -55,12 +55,15 @@ import {
   clearNsecOnboardingIntent,
 } from "@/lib/nostr-local-signer"
 import {
+  applyUnboundedOnboardingSliderDrag,
+  isUnboundedOnboardingAllocation,
   monthlyBudgetForAllocation,
   monthlyCapacityFromAnnualEstimate,
   onboardingAllocationCapForRow,
   onboardingSliderMaxForRow,
   savingsGoalPercentOfPaycheck,
   snapOnboardingAllocationToStep,
+  unboundedOnboardingSliderMaxForGesture,
   type OnboardingPayCadence,
 } from "@/lib/onboarding-allocate-budget"
 import {
@@ -237,6 +240,15 @@ export default function OnboardingPage() {
   } | null>(null)
   const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
   const allocSliderPointerRef = useRef<{ pointerId: number; idx: number } | null>(null)
+  const allocSliderDragSessionRef = useRef<{
+    idx: number
+    lockedMax: number
+    expandedFrom: Set<number>
+  } | null>(null)
+  const [allocSliderLockedMax, setAllocSliderLockedMax] = useState<{ idx: number; max: number } | null>(
+    null,
+  )
+  const allocSliderSkipBlurCommitRef = useRef<number | null>(null)
 
   /** Append one draft envelope from trimmed name (shared by Add button and Continue). */
   function appendDraftEnvelope(prev: DraftEnvelope[], rawName: string): DraftEnvelope[] {
@@ -1251,17 +1263,33 @@ export default function OnboardingPage() {
    * Usually a no-op during drag (bucket updates on midpoint crossings); used on release/blur to clamp.
    */
   const commitOnboardingSliderSnap = useCallback(
-    (rowIdx: number, input: HTMLInputElement) => {
-      const raw = parseInt(input.value, 10)
-      const v = Number.isFinite(raw) ? raw : 0
+    (rowIdx: number, input: HTMLInputElement, pendingRaw?: number) => {
+      const parsed =
+        pendingRaw != null && Number.isFinite(pendingRaw)
+          ? pendingRaw
+          : parseInt(input.value, 10)
+      const v = Number.isFinite(parsed) ? parsed : 0
+      const lockedMax =
+        allocSliderDragSessionRef.current?.idx === rowIdx
+          ? allocSliderDragSessionRef.current.lockedMax
+          : allocSliderLockedMax?.idx === rowIdx
+            ? allocSliderLockedMax.max
+            : null
       setEnvelopes(prev => {
+        const row = prev[rowIdx]
+        if (!row) return prev
         const otherAllocated = prev.reduce((s, x, j) => s + (j === rowIdx ? 0 : x.monthlyAllotment), 0)
-        const maxForRow = onboardingAllocationCapForRow(allocateMonthlyBudget, otherAllocated)
-        const snapped = snapOnboardingAllocationToStep(v, maxForRow)
+        const rowCap = onboardingAllocationCapForRow(allocateMonthlyBudget, otherAllocated)
+        const snapMax = isUnboundedOnboardingAllocation(allocateMonthlyBudget)
+          ? lockedMax ?? unboundedOnboardingSliderMaxForGesture(row.monthlyAllotment)
+          : rowCap
+        const snapped = snapOnboardingAllocationToStep(Math.min(snapMax, v), snapMax)
         return prev.map((en, i) => (i === rowIdx ? { ...en, monthlyAllotment: snapped } : en))
       })
       setAllocSliderRawOverride(prev => (prev?.idx === rowIdx ? null : prev))
       allocSliderPointerRef.current = null
+      allocSliderDragSessionRef.current = null
+      setAllocSliderLockedMax(prev => (prev?.idx === rowIdx ? null : prev))
     },
     [allocateMonthlyBudget],
   )
@@ -2220,11 +2248,7 @@ export default function OnboardingPage() {
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your budget</h2>
                   <p className="text-sm text-muted-foreground">
-                    How do you use your{" "}
-                    <span className="text-foreground font-medium">
-                      ${allocateMonthlyBudget.toLocaleString()}
-                    </span>{" "}
-                    of income each month? 
+                      What would you estimate you spend in each of these categories each month?
                   </p>
                 </div>
               </div>
@@ -2328,18 +2352,22 @@ export default function OnboardingPage() {
               {/* Per-envelope slider rows */}
               <div className="flex min-w-0 flex-col gap-4">
                 {envelopes.map((env, idx) => {
-                  const sliderMax = onboardingSliderMaxForRow(
-                    env.monthlyAllotment,
-                    savings,
-                    allocateMonthlyBudget,
-                  )
+                  const lockedGestureMax =
+                    allocSliderLockedMax?.idx === idx ? allocSliderLockedMax.max : null
+                  const sliderMax =
+                    lockedGestureMax ??
+                    onboardingSliderMaxForRow(
+                      env.monthlyAllotment,
+                      savings,
+                      allocateMonthlyBudget,
+                    )
                   const rowCap = onboardingAllocationCapForRow(
                     allocateMonthlyBudget,
                     totalAllocated - env.monthlyAllotment,
                   )
                   const rowAllotmentForDisplay =
                     allocSliderRawOverride?.idx === idx
-                      ? snapOnboardingAllocationToStep(allocSliderRawOverride.raw, rowCap)
+                      ? snapOnboardingAllocationToStep(allocSliderRawOverride.raw, sliderMax)
                       : env.monthlyAllotment
                   const pct =
                     allocateMonthlyBudget > 0
@@ -2456,14 +2484,44 @@ export default function OnboardingPage() {
                         aria-label={`${env.name} monthly allotment`}
                         onChange={e => {
                           const rawParsed = parseInt(e.target.value, 10)
-                          const val = Number.isFinite(rawParsed)
-                            ? Math.min(sliderMax, Math.max(0, rawParsed))
-                            : 0
+                          const parsedVal = Number.isFinite(rawParsed) ? Math.max(0, rawParsed) : 0
+                          const prevRaw =
+                            allocSliderRawOverride?.idx === idx
+                              ? allocSliderRawOverride.raw
+                              : env.monthlyAllotment
+                          const session = allocSliderDragSessionRef.current
+                          const activeMax =
+                            session?.idx === idx
+                              ? session.lockedMax
+                              : sliderMax
+                          let val = parsedVal
+
+                          if (
+                            isUnboundedOnboardingAllocation(allocateMonthlyBudget) &&
+                            allocSliderPointerRef.current?.idx === idx &&
+                            session?.idx === idx
+                          ) {
+                            const drag = applyUnboundedOnboardingSliderDrag({
+                              prevRaw,
+                              val: parsedVal,
+                              activeMax,
+                              expandedFromMaxes: session.expandedFrom,
+                            })
+                            val = drag.val
+                            session.lockedMax = drag.activeMax
+                            session.expandedFrom = drag.expandedFromMaxes
+                            if (drag.didExpand) {
+                              setAllocSliderLockedMax({ idx, max: drag.activeMax })
+                            }
+                          } else {
+                            val = Math.min(activeMax, parsedVal)
+                          }
+
                           setAllocSliderRawOverride({ idx, raw: val })
                           // Commit allotment only after release — mid-drag envelope updates re-render
                           // the controlled slider and drop pointer capture (especially unbounded mode).
                           if (allocSliderPointerRef.current?.idx !== idx) {
-                            const newBucket = snapOnboardingAllocationToStep(val, sliderMax)
+                            const newBucket = snapOnboardingAllocationToStep(val, activeMax)
                             if (newBucket !== env.monthlyAllotment) {
                               setEnvelopes(prev => prev.map((en, i) =>
                                 i === idx ? { ...en, monthlyAllotment: newBucket } : en,
@@ -2472,9 +2530,22 @@ export default function OnboardingPage() {
                           }
                         }}
                         onPointerDown={e => {
+                          const gestureMax = isUnboundedOnboardingAllocation(allocateMonthlyBudget)
+                            ? unboundedOnboardingSliderMaxForGesture(env.monthlyAllotment)
+                            : onboardingSliderMaxForRow(
+                                env.monthlyAllotment,
+                                savings,
+                                allocateMonthlyBudget,
+                              )
+                          allocSliderDragSessionRef.current = {
+                            idx,
+                            lockedMax: gestureMax,
+                            expandedFrom: new Set(),
+                          }
+                          setAllocSliderLockedMax({ idx, max: gestureMax })
                           const rawInit = parseInt(e.currentTarget.value, 10)
                           const init = Number.isFinite(rawInit)
-                            ? Math.min(sliderMax, Math.max(0, rawInit))
+                            ? Math.min(gestureMax, Math.max(0, rawInit))
                             : 0
                           setAllocSliderRawOverride({ idx, raw: init })
                           allocSliderPointerRef.current = { pointerId: e.pointerId, idx }
@@ -2492,7 +2563,12 @@ export default function OnboardingPage() {
                               /* noop */
                             }
                           }
-                          commitOnboardingSliderSnap(idx, e.currentTarget)
+                          const pendingRaw =
+                            allocSliderRawOverride?.idx === idx
+                              ? allocSliderRawOverride.raw
+                              : undefined
+                          commitOnboardingSliderSnap(idx, e.currentTarget, pendingRaw)
+                          allocSliderSkipBlurCommitRef.current = idx
                         }}
                         onPointerCancel={e => {
                           if (allocSliderPointerRef.current?.pointerId === e.pointerId) {
@@ -2502,9 +2578,18 @@ export default function OnboardingPage() {
                               /* noop */
                             }
                           }
-                          commitOnboardingSliderSnap(idx, e.currentTarget)
+                          const pendingRaw =
+                            allocSliderRawOverride?.idx === idx
+                              ? allocSliderRawOverride.raw
+                              : undefined
+                          commitOnboardingSliderSnap(idx, e.currentTarget, pendingRaw)
+                          allocSliderSkipBlurCommitRef.current = idx
                         }}
                         onBlur={e => {
+                          if (allocSliderSkipBlurCommitRef.current === idx) {
+                            allocSliderSkipBlurCommitRef.current = null
+                            return
+                          }
                           commitOnboardingSliderSnap(idx, e.currentTarget)
                         }}
                         onFocus={() => setActiveEnvIdx(idx)}
@@ -2535,14 +2620,8 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
-              {savings === 0 && totalAllocated > 0 && (
+              {savings === 0 && totalAllocated > 0 && !(allocateMonthlyBudget === 0 && incomeMode === "irregular") && (
                 <p className="text-xs text-amber-400/80 text-center">All income allocated — nothing goes to savings</p>
-              )}
-
-              {allocateMonthlyBudget === 0 && incomeMode === "irregular" && (
-                <p className="text-xs text-amber-400/90 text-center leading-relaxed">
-                  Without an income estimate, set any amounts you like. Add an annual estimate on the income step if you want us to keep the total within a monthly budget.
-                </p>
               )}
               </div>
 
