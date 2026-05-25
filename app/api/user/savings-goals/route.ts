@@ -12,12 +12,6 @@ function parsePeriodRange(from: string | null, to: string | null): { from: strin
   return { from, to }
 }
 
-function currentPeriodKeyUtc(now = new Date()): string {
-  const y = now.getUTCFullYear()
-  const m = now.getUTCMonth() + 1
-  return `${y}-${String(m).padStart(2, "0")}`
-}
-
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
@@ -37,7 +31,6 @@ export async function GET(req: NextRequest) {
 
   const userId = session.user.id
   const now = new Date()
-  const currentPeriod = currentPeriodKeyUtc(now)
 
   const rows = await prisma.savingsGoal.findMany({
     where: {
@@ -47,52 +40,21 @@ export async function GET(req: NextRequest) {
     orderBy: { periodKey: "asc" },
   })
 
-  const closed = rows.filter(r => r.closedAt != null)
-  const openInRange = rows.filter(r => r.closedAt == null)
-
-  let currentOpen = openInRange.find(r => r.periodKey === currentPeriod) ?? null
-  if (!currentOpen && currentPeriod >= range.from && currentPeriod <= range.to) {
-    currentOpen = await prisma.savingsGoal.findUnique({
-      where: { userId_periodKey: { userId, periodKey: currentPeriod } },
-    })
-  }
-
-  const goals = [
-    ...closed.map(row => ({
-      periodKey: row.periodKey,
-      targetAmount: Number(row.targetAmount),
-      editability: savingsGoalEditability(row, now),
-      graceEndsAt: row.graceEndsAt?.toISOString() ?? null,
-      closedAt: row.closedAt?.toISOString() ?? null,
-      startBalance: decimalToNumber(row.startBalance),
-      endBalance: decimalToNumber(row.endBalance),
-      actualSavedAmount: decimalToNumber(row.actualSavedAmount),
-      netSavingsInflow: decimalToNumber(row.netSavingsInflow),
-      achievedGoal: row.achievedGoal,
-      progressPct: decimalToNumber(row.progressPct),
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-    })),
-    ...(currentOpen && currentOpen.closedAt == null
-      ? [
-          {
-            periodKey: currentOpen.periodKey,
-            targetAmount: Number(currentOpen.targetAmount),
-            editability: savingsGoalEditability(currentOpen, now),
-            graceEndsAt: currentOpen.graceEndsAt?.toISOString() ?? null,
-            closedAt: null,
-            startBalance: decimalToNumber(currentOpen.startBalance),
-            endBalance: decimalToNumber(currentOpen.endBalance),
-            actualSavedAmount: decimalToNumber(currentOpen.actualSavedAmount),
-            netSavingsInflow: decimalToNumber(currentOpen.netSavingsInflow),
-            achievedGoal: currentOpen.achievedGoal,
-            progressPct: decimalToNumber(currentOpen.progressPct),
-            createdAt: currentOpen.createdAt.toISOString(),
-            updatedAt: currentOpen.updatedAt.toISOString(),
-          },
-        ]
-      : []),
-  ]
+  const goals = rows.map(row => ({
+    periodKey: row.periodKey,
+    targetAmount: Number(row.targetAmount),
+    editability: savingsGoalEditability(row, now),
+    graceEndsAt: row.graceEndsAt?.toISOString() ?? null,
+    closedAt: row.closedAt?.toISOString() ?? null,
+    startBalance: decimalToNumber(row.startBalance),
+    endBalance: decimalToNumber(row.endBalance),
+    actualSavedAmount: decimalToNumber(row.actualSavedAmount),
+    netSavingsInflow: decimalToNumber(row.netSavingsInflow),
+    achievedGoal: row.achievedGoal,
+    progressPct: decimalToNumber(row.progressPct),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }))
 
   return NextResponse.json({ goals })
 }

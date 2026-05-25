@@ -189,6 +189,34 @@ describe("openCurrentPeriodGoal", () => {
     )
   })
 
+  it("uses balance as of period start, not all-time, when opening mid-month", async () => {
+    vi.mocked(prisma.savingsGoal.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      createdAt: new Date(Date.UTC(2026, 3, 1)),
+    } as never)
+    vi.mocked(prisma.envelope.findFirst).mockResolvedValue({ id: "sav-1" } as never)
+    vi.mocked(prisma.transaction.aggregate).mockImplementation(async (args) => {
+      const where = args?.where as { type?: string; date?: { lt?: Date } }
+      if (where.type === "credit" && where.date?.lt) {
+        const lt = where.date.lt.getTime()
+        const mayStart = Date.UTC(2026, 4, 1)
+        return { _sum: { amount: lt <= mayStart ? 500 : 900 } } as never
+      }
+      return { _sum: { amount: 0 } } as never
+    })
+    vi.mocked(resolveSavingsGoalTarget).mockResolvedValue(250)
+
+    await openCurrentPeriodGoal("u1", new Date(Date.UTC(2026, 4, 15)))
+
+    expect(prisma.savingsGoal.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          startBalance: new Prisma.Decimal(500),
+        }),
+      }),
+    )
+  })
+
   it("preserves explicit override target when finalizing pre-created row", async () => {
     vi.mocked(prisma.savingsGoal.findUnique).mockResolvedValue({
       id: "g-new",

@@ -4,7 +4,6 @@ import {
   monthKeyFromDate,
   netSavingsInflowForPeriod,
   periodBoundsUtc,
-  savingsEnvelopeBalanceAllTime,
   savingsEnvelopeBalanceBefore,
 } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
@@ -114,7 +113,11 @@ export async function openCurrentPeriodGoal(userId: string, todayUtc?: Date): Pr
   })
   if (!savings) return false
 
-  const startBalance = await savingsEnvelopeBalanceAllTime(userId, savings.id)
+  const [y, m] = periodKey.split("-").map(Number)
+  const periodStart = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0))
+  const baseInstant =
+    periodStart.getTime() > user.createdAt.getTime() ? periodStart : user.createdAt
+  const startBalance = await savingsEnvelopeBalanceBefore(userId, savings.id, baseInstant)
   const targetAmount =
     existing != null
       ? Number(existing.targetAmount)
