@@ -23,7 +23,7 @@ describe("envelope-sweep", () => {
     expect(resolveSweepCapMultiplier(null, new Prisma.Decimal(1.25))).toBe(1.25)
   })
 
-  it("sweepAmountForEnvelope reset sweeps full positive balance", () => {
+  it("sweepAmountForEnvelope reset keeps up to 1.0× allotment (same as capped at 1.0)", () => {
     expect(
       sweepAmountForEnvelope({
         balance: 42.5,
@@ -31,7 +31,15 @@ describe("envelope-sweep", () => {
         monthlyAllotment: 100,
         capMultiplier: 1.5,
       }),
-    ).toBe(42.5)
+    ).toBe(0)
+    expect(
+      sweepAmountForEnvelope({
+        balance: 150,
+        policy: SWEEP_POLICY_RESET,
+        monthlyAllotment: 100,
+        capMultiplier: 1.5,
+      }),
+    ).toBe(50)
   })
 
   it("sweepAmountForEnvelope carry_forward skips", () => {

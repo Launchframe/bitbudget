@@ -310,7 +310,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
                 </div>
                 {mode === "annual" && (
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="import-split">Synthetic paychecks</Label>
+                    <Label htmlFor="import-split">Across how many paychecks?</Label>
                     <Input
                       id="import-split"
                       type="number"

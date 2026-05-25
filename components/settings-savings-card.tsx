@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import { formatUsd, getCurrentMonthKey } from "@/lib/data"
+import { formatUsd, getCurrentMonthKey, getEnvelopeBalance } from "@/lib/data"
 import {
   SAVINGS_EXPERIENCE_DISMISSED,
   SAVINGS_EXPERIENCE_ENGAGED,
@@ -17,6 +17,11 @@ import {
   formatPeriodKeyLabel,
   type SavingsGoalRow,
 } from "@/lib/savings-ui-metrics"
+import {
+  buildSweepPolicyHint,
+  pickSweepExampleEnvelope,
+  type SweepPolicy,
+} from "@/lib/sweep-policy-hints"
 import { IrregularIncomeDialog } from "@/components/irregular-income-dialog"
 import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
@@ -40,11 +45,10 @@ import {
 import {
   ChevronDown,
   Flame,
+  Info,
   Landmark,
   Loader2,
 } from "lucide-react"
-
-type SweepPolicy = typeof SWEEP_POLICY_RESET | typeof SWEEP_POLICY_CARRY_FORWARD | typeof SWEEP_POLICY_CAPPED
 
 const SWEEP_POLICY_LABELS: Record<SweepPolicy, string> = {
   [SWEEP_POLICY_RESET]: "Reset each payday",
@@ -95,7 +99,7 @@ function WhySavingsExplainer({ defaultOpen = false }: { defaultOpen?: boolean })
 }
 
 export function SettingsSavingsCard() {
-  const { state, discretionaryEnvelopes, setSavingsExperience, editEnvelope } = useApp()
+  const { state, discretionaryEnvelopes, activeTransactions, setSavingsExperience, editEnvelope } = useApp()
 
   const engaged = state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED
   const monthKey = getCurrentMonthKey()
@@ -187,6 +191,24 @@ export function SettingsSavingsCard() {
   const rowForPeriod = useCallback(
     (periodKey: string): SavingsGoalRow | undefined => goalRows.find((g) => g.periodKey === periodKey),
     [goalRows],
+  )
+
+  const sweepExampleEnvelope = useMemo(
+    () =>
+      pickSweepExampleEnvelope(discretionaryEnvelopes, (id) =>
+        getEnvelopeBalance(activeTransactions, id, monthKey),
+      ),
+    [discretionaryEnvelopes, activeTransactions, monthKey],
+  )
+
+  const sweepPolicyHint = useMemo(
+    () =>
+      buildSweepPolicyHint({
+        policy: sweepDefaultPolicy,
+        capMultiplier: sweepCapMultiplier,
+        example: sweepExampleEnvelope,
+      }),
+    [sweepDefaultPolicy, sweepCapMultiplier, sweepExampleEnvelope],
   )
 
   const saveDefaultGoal = async () => {
@@ -400,7 +422,7 @@ export function SettingsSavingsCard() {
                 className="bg-[#D4AF37] text-[#0D0D0D] hover:bg-[#D4AF37]/90 ml-auto"
                 onClick={() => void saveDefaultGoal()}
               >
-                {defaultGoalSaving ? "Saving…" : "Save default"}
+                {defaultGoalSaving ? "Saving…" : "Save"}
               </Button>
             </div>
             {defaultGoalError && (
@@ -504,94 +526,129 @@ export function SettingsSavingsCard() {
           </div>
 
           <div className="rounded-lg bg-[#1A1A1A] p-4 space-y-4">
-            <h4 className="text-sm font-medium text-foreground">Sweep policy</h4>
-            <p className="text-xs text-muted-foreground">
-              On each payday, leftover envelope balances can sweep into Savings. Choose a default for new envelopes;
-              override per envelope below.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {(Object.keys(SWEEP_POLICY_LABELS) as SweepPolicy[]).map((policy) => (
-                <button
-                  key={policy}
-                  type="button"
-                  disabled={sweepSaving}
-                  onClick={() => void saveSweepDefaults(policy)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                    sweepDefaultPolicy === policy
-                      ? "text-[#0D0D0D]"
-                      : "text-muted-foreground hover:text-foreground bg-[#0D0D0D]"
-                  }`}
-                  style={
-                    sweepDefaultPolicy === policy
-                      ? { backgroundColor: SAVINGS_GOLD_ACCENT }
-                      : undefined
-                  }
-                >
-                  {SWEEP_POLICY_LABELS[policy]}
-                </button>
-              ))}
+            <div>
+              <h4 className="text-sm font-medium text-foreground">Sweep policy</h4>
+              <p className="text-xs text-muted-foreground mt-1">
+                On each payday, leftover envelope balances can move into Savings. Set a default for new envelopes;
+                override individual envelopes below.
+              </p>
             </div>
-            {sweepDefaultPolicy === SWEEP_POLICY_CAPPED && (
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">Cap multiplier</span>
-                <Input
-                  type="number"
-                  min={0.1}
-                  step={0.1}
-                  value={sweepCapMultiplier}
-                  onChange={(e) => setSweepCapMultiplier(parseFloat(e.target.value) || 1.5)}
-                  onBlur={() => void saveSweepDefaults(SWEEP_POLICY_CAPPED, sweepCapMultiplier)}
-                  className="bg-[#0D0D0D] border-[#333] h-8 w-24"
-                  aria-label="Default sweep cap multiplier"
-                />
-                <span className="text-xs text-muted-foreground">× monthly allotment</span>
+
+            <div className="rounded-lg bg-[#0D0D0D] border border-[#222] p-4 space-y-3">
+              <div>
+                <h5 className="text-sm font-medium text-foreground">Default behavior</h5>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Applies to new envelopes and any envelope using the default policy.
+                </p>
               </div>
-            )}
+
+              <div
+                className="flex flex-wrap gap-2"
+                role="group"
+                aria-label="Default sweep behavior"
+                aria-describedby="sweep-default-hint"
+              >
+                {(Object.keys(SWEEP_POLICY_LABELS) as SweepPolicy[]).map((policy) => (
+                  <button
+                    key={policy}
+                    type="button"
+                    disabled={sweepSaving}
+                    aria-pressed={sweepDefaultPolicy === policy}
+                    onClick={() => void saveSweepDefaults(policy)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      sweepDefaultPolicy === policy
+                        ? "text-[#0D0D0D]"
+                        : "text-muted-foreground hover:text-foreground bg-[#1A1A1A]"
+                    }`}
+                    style={
+                      sweepDefaultPolicy === policy
+                        ? { backgroundColor: SAVINGS_GOLD_ACCENT }
+                        : undefined
+                    }
+                  >
+                    {SWEEP_POLICY_LABELS[policy]}
+                  </button>
+                ))}
+              </div>
+
+              <div
+                id="sweep-default-hint"
+                className="flex items-start gap-3 p-3 rounded-xl bg-[#D4AF37]/10 border border-[#D4AF37]/20"
+              >
+                <Info className="h-4 w-4 shrink-0 mt-0.5" style={{ color: SAVINGS_GOLD_ACCENT }} aria-hidden />
+                <div className="text-sm leading-snug min-w-0">
+                  <p className="text-foreground">{sweepPolicyHint.description}</p>
+                  {sweepPolicyHint.example && (
+                    <p className="text-muted-foreground mt-2">{sweepPolicyHint.example}</p>
+                  )}
+                </div>
+              </div>
+
+              {sweepDefaultPolicy === SWEEP_POLICY_CAPPED && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Cap multiplier</span>
+                  <Input
+                    type="number"
+                    min={0.1}
+                    step={0.1}
+                    value={sweepCapMultiplier}
+                    onChange={(e) => setSweepCapMultiplier(parseFloat(e.target.value) || 1.5)}
+                    onBlur={() => void saveSweepDefaults(SWEEP_POLICY_CAPPED, sweepCapMultiplier)}
+                    className="bg-[#1A1A1A] border-[#333] h-8 w-24"
+                    aria-label="Default sweep cap multiplier"
+                  />
+                  <span className="text-xs text-muted-foreground">× monthly allotment</span>
+                </div>
+              )}
+            </div>
 
             {discretionaryEnvelopes.length > 0 && (
-              <div className="overflow-x-auto rounded-lg border border-[#222]">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[#222] text-left text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">Envelope</th>
-                      <th className="px-3 py-2 font-medium">Policy</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {discretionaryEnvelopes.map((env) => {
-                      const effectivePolicy = (env.sweepPolicy ?? SWEEP_POLICY_RESET) as SweepPolicy
-                      return (
-                        <tr key={env.id} className="border-b border-[#222] last:border-0">
-                          <td className="px-3 py-2 text-foreground">{env.name}</td>
-                          <td className="px-3 py-2">
-                            <select
-                              value={effectivePolicy}
-                              onChange={(e) => {
-                                const v = e.target.value as SweepPolicy
-                                void saveEnvelopeSweep(env.id, v, env.sweepCapMultiplier ?? sweepCapMultiplier)
-                              }}
-                              className="bg-[#0D0D0D] border border-[#333] rounded-md px-2 py-1 text-xs text-foreground"
-                              aria-label={`Sweep policy for ${env.name}`}
-                            >
-                              {(Object.keys(SWEEP_POLICY_LABELS) as SweepPolicy[]).map((p) => (
-                                <option key={p} value={p}>
-                                  {SWEEP_POLICY_LABELS[p]}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              className="ml-2 text-xs text-[#D4AF37] hover:underline"
-                              onClick={() => void saveEnvelopeSweep(env.id, "default")}
-                            >
-                              Use default
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+              <div className="space-y-2">
+                <h5 className="text-sm font-medium text-foreground">Per-envelope overrides</h5>
+                <div className="overflow-x-auto rounded-lg border border-[#222]">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[#222] text-left text-muted-foreground">
+                        <th className="px-3 py-2 font-medium">Envelope</th>
+                        <th className="px-3 py-2 font-medium">Policy</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {discretionaryEnvelopes.map((env) => {
+                        const effectivePolicy = (env.sweepPolicy ?? SWEEP_POLICY_RESET) as SweepPolicy
+                        return (
+                          <tr key={env.id} className="border-b border-[#222] last:border-0">
+                            <td className="px-3 py-2 text-foreground">{env.name}</td>
+                            <td className="px-3 py-2">
+                              <select
+                                value={effectivePolicy}
+                                onChange={(e) => {
+                                  const v = e.target.value as SweepPolicy
+                                  void saveEnvelopeSweep(env.id, v, env.sweepCapMultiplier ?? sweepCapMultiplier)
+                                }}
+                                className="bg-[#0D0D0D] border border-[#333] rounded-md px-2 py-1 text-xs text-foreground"
+                                aria-label={`Sweep policy for ${env.name}`}
+                              >
+                                {(Object.keys(SWEEP_POLICY_LABELS) as SweepPolicy[]).map((p) => (
+                                  <option key={p} value={p}>
+                                    {SWEEP_POLICY_LABELS[p]}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="ml-2 text-xs text-[#D4AF37] hover:underline"
+                                onClick={() => void saveEnvelopeSweep(env.id, "default")}
+                              >
+                                Use default
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>

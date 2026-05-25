@@ -53,14 +53,12 @@ export function sweepAmountForEnvelope(params: {
 
   if (policy === SWEEP_POLICY_CARRY_FORWARD) return 0
 
-  if (policy === SWEEP_POLICY_CAPPED) {
-    const cap = capMultiplier * monthlyAllotment
+  const effectiveCapMultiplier =
+    policy === SWEEP_POLICY_RESET ? 1 : policy === SWEEP_POLICY_CAPPED ? capMultiplier : null
+  if (effectiveCapMultiplier != null) {
+    const cap = effectiveCapMultiplier * monthlyAllotment
     const amount = Math.max(0, balance - cap)
     return Math.round(amount * 100) / 100
-  }
-
-  if (policy === SWEEP_POLICY_RESET) {
-    return Math.round(balance * 100) / 100
   }
 
   return 0
