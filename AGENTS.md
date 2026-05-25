@@ -401,7 +401,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 
 - Set `E2E_TEST="true"` and `E2E_EMAIL_CODE="424242"` in `.env.local` to enable fixed OTP login for `@bitbudget.test` email addresses. This also suppresses outbound email/Nostr DM notifications.
 - Playwright e2e global setup runs `prisma migrate deploy` and seeds fixtures automatically.
-- Install Playwright browsers once. Use the same command as in **End-to-end (Playwright)** (`pnpm exec playwright install`); on Cursor Cloud VMs also pass **`--with-deps chromium`** so Chromium’s system libraries are installed via apt (CI installs browsers without `--with-deps`).
+- Install Playwright browsers once. Use the same command as in **End-to-end (Playwright)** (`pnpm exec playwright install`); on Cursor Cloud VMs, use **`pnpm exec playwright install chromium --with-deps`** so Chromium’s system libraries are installed via apt, matching CI.
 
 ### Gotchas
 
