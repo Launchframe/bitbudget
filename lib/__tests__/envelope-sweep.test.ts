@@ -6,8 +6,8 @@ import {
   resolveSweepCapMultiplier,
   suggestedManualSweepAmount,
   sweepAmountForEnvelope,
-  sweepFromLabel,
-} from "../envelope-sweep"
+} from "../sweep-math"
+import { sweepFromLabel } from "../envelope-sweep"
 import {
   SWEEP_POLICY_CAPPED,
   SWEEP_POLICY_CARRY_FORWARD,

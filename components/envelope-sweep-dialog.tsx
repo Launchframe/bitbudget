@@ -16,7 +16,7 @@ import {
   resolveEffectiveSweepPolicy,
   resolveSweepCapMultiplier,
   suggestedManualSweepAmount,
-} from "@/lib/envelope-sweep"
+} from "@/lib/sweep-math"
 import {
   SWEEP_POLICY_CAPPED,
   SWEEP_POLICY_CARRY_FORWARD,

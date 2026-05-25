@@ -4,7 +4,7 @@ import {
   SWEEP_POLICY_RESET,
 } from "@/lib/constants"
 import { formatUsd } from "@/lib/data"
-import { sweepAmountForEnvelope } from "@/lib/envelope-sweep"
+import { sweepAmountForEnvelope } from "@/lib/sweep-math"
 
 export type SweepPolicy =
   | typeof SWEEP_POLICY_RESET
