@@ -1222,13 +1222,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const completeWalkthrough = useCallback(async () => {
     setState(prev => ({ ...prev, walkthroughCompleted: true }))
     try {
-      await fetch("/api/user/settings", {
+      const res = await fetch("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ walkthroughCompleted: true }),
       })
+      if (!res.ok) {
+        await refreshData()
+      }
     } catch {
-      refreshData()
+      await refreshData()
     }
   }, [refreshData])
 
