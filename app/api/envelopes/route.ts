@@ -82,7 +82,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { name, monthlyAllotment, color, icon } = await req.json()
+  let name: unknown
+  let monthlyAllotment: unknown
+  let color: unknown
+  let icon: unknown
+
+  try {
+    ;({ name, monthlyAllotment, color, icon } = await req.json())
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
+
   if (typeof name !== "string" || !name.trim()) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 })
   }
