@@ -14,6 +14,7 @@ import {
   grossIncomeForFundingRun,
   grossIncomeForPaydayUser,
   allotmentSliceForPaydayUser,
+  paydayDomListInUtcMonth,
 } from "@/lib/envelope-funding-period"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 import {
@@ -147,8 +148,19 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
   const savings = await savingsEnvelopeForUserDb(prisma, userId)
   if (!savings) return 0
 
+  const paydaysInMonth =
+    usesPaydayCadence(paydayUser) && paydayUser.payCadence !== "daily"
+      ? paydayDomListInUtcMonth(paydayUser, now.getUTCFullYear(), now.getUTCMonth())
+      : undefined
+
   const gross = usesPaydayCadence(paydayUser)
-    ? grossIncomeForPaydayUser(user.monthlyIncome, paydayUser, now, dailyAllowed)
+    ? grossIncomeForPaydayUser(
+        user.monthlyIncome,
+        paydayUser,
+        now,
+        dailyAllowed,
+        paydaysInMonth,
+      )
     : grossIncomeForFundingRun(user.monthlyIncome, user.payCadence, now, dailyAllowed)
   if (!Number.isFinite(gross) || gross <= 0) return 0
 
@@ -163,7 +175,13 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
   let sumSlices = 0
   for (const e of envelopes) {
     const slice = usesPaydayCadence(paydayUser)
-      ? allotmentSliceForPaydayUser(e.monthlyAllotment, paydayUser, now, dailyAllowed)
+      ? allotmentSliceForPaydayUser(
+          e.monthlyAllotment,
+          paydayUser,
+          now,
+          dailyAllowed,
+          paydaysInMonth,
+        )
       : allotmentSliceForFundingRun(
           e.monthlyAllotment,
           user.payCadence,

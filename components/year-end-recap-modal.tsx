@@ -38,7 +38,9 @@ export function YearEndRecapModal() {
   }, [activeTransactions, state.envelopes])
 
   const monthlySaveRate = useMemo(() => {
-    const inYear = closedGoals.filter((g) => g.periodKey.startsWith(`${recapYear}-`))
+    const inYear = closedGoals.filter(
+      (g) => g.periodKey.startsWith(`${recapYear}-`) && g.actualSavedAmount != null,
+    )
     if (inYear.length === 0) return 0
     const sum = inYear.reduce((s, g) => s + (g.actualSavedAmount ?? 0), 0)
     return sum / inYear.length

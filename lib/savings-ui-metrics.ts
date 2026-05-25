@@ -44,7 +44,7 @@ export function savingsBalance(
   savingsEnvelope: Envelope | undefined,
 ): number {
   if (!savingsEnvelope) return 0
-  return getEnvelopeBalanceAllTime(transactions as Transaction[], savingsEnvelope.id)
+  return getEnvelopeBalanceAllTime(transactions, savingsEnvelope.id)
 }
 
 export function sumRemainingDiscretionary(
@@ -52,7 +52,7 @@ export function sumRemainingDiscretionary(
   discretionaryEnvelopes: readonly Envelope[],
 ): number {
   return discretionaryEnvelopes.reduce(
-    (sum, env) => sum + getEnvelopeBalanceAllTime(transactions as Transaction[], env.id),
+    (sum, env) => sum + getEnvelopeBalanceAllTime(transactions, env.id),
     0,
   )
 }

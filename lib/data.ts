@@ -296,7 +296,7 @@ export function getCurrentMonthKey(): string {
 }
 
 export function getTransactionsForEnvelope(
-  transactions: Transaction[],
+  transactions: readonly Transaction[],
   envelopeId: string,
   monthKey?: string,
 ): Transaction[] {
@@ -308,7 +308,7 @@ export function getTransactionsForEnvelope(
 }
 
 export function getEnvelopeBalance(
-  transactions: Transaction[],
+  transactions: readonly Transaction[],
   envelopeId: string,
   monthKey: string,
 ): number {
@@ -320,7 +320,7 @@ export function getEnvelopeBalance(
 
 /** All-time envelope balance (Savings hub total; not month-scoped). */
 export function getEnvelopeBalanceAllTime(
-  transactions: Transaction[],
+  transactions: readonly Transaction[],
   envelopeId: string,
 ): number {
   const txns = getTransactionsForEnvelope(transactions, envelopeId)

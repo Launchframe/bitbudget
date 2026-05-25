@@ -126,11 +126,12 @@ export function sliceMonthlyAmountForPaydayRun(
   monthAmount: number,
   user: PaydayUserFields,
   runDateUtc: Date,
+  paydaysInMonth?: readonly number[],
 ): number {
   if (!Number.isFinite(monthAmount) || monthAmount <= 0) return 0
   const y = runDateUtc.getUTCFullYear()
   const m = runDateUtc.getUTCMonth()
-  const paydays = paydayDomListInUtcMonth(user, y, m)
+  const paydays = paydaysInMonth ?? paydayDomListInUtcMonth(user, y, m)
   if (paydays.length === 0) return 0
   const dom = runDateUtc.getUTCDate()
   const index = paydays.indexOf(dom)
@@ -150,13 +151,14 @@ export function grossIncomeForPaydayUser(
   user: PaydayUserFields,
   runDateUtc: Date,
   dailyCadenceAllowed: boolean,
+  paydaysInMonth?: readonly number[],
 ): number {
   if (!Number.isFinite(monthlyIncome) || monthlyIncome <= 0) return 0
   if (user.payCadence === "daily") {
     if (!dailyCadenceAllowed) return 0
     return sliceMonthlyAmountForDailyRun(monthlyIncome, runDateUtc)
   }
-  return sliceMonthlyAmountForPaydayRun(monthlyIncome, user, runDateUtc)
+  return sliceMonthlyAmountForPaydayRun(monthlyIncome, user, runDateUtc, paydaysInMonth)
 }
 
 /** Envelope allotment slice when funding uses explicit paydays. */
@@ -165,11 +167,12 @@ export function allotmentSliceForPaydayUser(
   user: PaydayUserFields,
   runDateUtc: Date,
   dailyCadenceAllowed: boolean,
+  paydaysInMonth?: readonly number[],
 ): number {
   if (!Number.isFinite(monthlyAllotment) || monthlyAllotment <= 0) return 0
   if (user.payCadence === "daily") {
     if (!dailyCadenceAllowed) return 0
     return sliceMonthlyAmountForDailyRun(monthlyAllotment, runDateUtc)
   }
-  return sliceMonthlyAmountForPaydayRun(monthlyAllotment, user, runDateUtc)
+  return sliceMonthlyAmountForPaydayRun(monthlyAllotment, user, runDateUtc, paydaysInMonth)
 }

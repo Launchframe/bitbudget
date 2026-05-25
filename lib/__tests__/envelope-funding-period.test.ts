@@ -96,4 +96,17 @@ describe("envelope-funding-period", () => {
         sliceMonthlyAmountForPaydayRun(100.01, user, second),
     ).toBeCloseTo(100.01, 5)
   })
+
+  it("sliceMonthlyAmountForPaydayRun accepts precomputed payday list", () => {
+    const user: PaydayUserFields = {
+      payCadence: "monthly",
+      payDays: [1, 15],
+      payDayOfWeek: null,
+      lastPaydayAt: null,
+    }
+    const run = new Date(Date.UTC(2026, 4, 15))
+    const paydays = [1, 15]
+    expect(sliceMonthlyAmountForPaydayRun(300, user, run, paydays)).toBe(150)
+    expect(sliceMonthlyAmountForPaydayRun(300, user, run)).toBe(150)
+  })
 })
