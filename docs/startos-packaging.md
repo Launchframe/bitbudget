@@ -2,6 +2,16 @@
 
 Internal knowledge base for packaging BitBudget (and related services) as StartOS `.s9pk` services. Official reference: [Start9 Service Packaging (0.4.x)](https://docs.start9.com/packaging/0.4.0.x/).
 
+## Project status
+
+**Deferred** — we are not actively building a `bitbudget-startos` package yet.
+
+**Why:** On older StartOS (0.3.x), reaching a home server from away from home often meant **Tor-only** `.onion` URLs. That is a poor fit for BitBudget today (browser UX, OAuth redirects, Plaid/webhooks, email/SMS integrations, and routine mobile use off-LAN).
+
+**Revisit when:** StartOS **0.4.x** networking matures (see [Future: StartOS 0.4 networking](#future-startos-04-networking) below). A WireGuard VPN back to the server, clearnet domain + TLS, or StartTunnel could make “use my budget from my phone” viable without Tor as the only path.
+
+---
+
 ## Goals
 
 - Run BitBudget on user-owned hardware via StartOS, with privacy/sovereignty aligned with product ethos.
@@ -292,6 +302,28 @@ Packaging BitBudget is feasible but non-trivial compared to a single-container a
 | **Backups** | Define volumes for DB and any uploaded assets; test restore on `kind: 'restore'` in `setupOnInit` |
 
 Treat **v1 StartOS** as a scoped slice (e.g. self-hosted vanilla, no Plaid) unless we explicitly design for full integration parity.
+
+---
+
+## Future: StartOS 0.4 networking
+
+StartOS **0.4** is a ground-up rewrite (public beta as of 2025–2026). Tor is still supported but is an **optional plugin**; Start9’s own update copy notes that most users are better served by other options. See [Update to StartOS 0.4.0](https://docs.start9.com/start-os/0.4.0.x/update-040.html) and [v0.4.0 release notes](https://github.com/Start9Labs/start-os/blob/master/core/src/version/update_details/v0_4_0.md).
+
+Relevant pieces for “BitBudget away from home”:
+
+| Capability | What it gives you |
+|------------|-------------------|
+| **WireGuard VPN gateways** | Encrypted tunnel from phone/laptop to the server; access services on LAN-style ports without Tor Browser. |
+| **LAN port forwarding + per-service ports** | Services on unique ports of the server’s main `.local` host (non-HTTP TCP supported on LAN). |
+| **Private / public clearnet domains** | Built-in DNS + Let’s Encrypt for HTTPS on a domain you control. |
+| **StartTunnel** | WireGuard **reverse** tunnel via a small VPS — public HTTPS without exposing home IP (similar idea to Tailscale funnel / cloudflare tunnel). |
+| **Router port forward** | Direct clearnet exposure (reveals home IP to visitors). |
+
+**Packaging implication:** Service `interfaces` in 0.4.x packages can expose **LAN, Tor, and clearnet** choices; the OS routes traffic through gateways. That is the “secure TCP/IP” direction — VPN and TLS-terminated clearnet, not only onion services.
+
+**Still hard for full BitBudget:** Even with VPN/clearnet to *reach* the app, **third-party callbacks** (Plaid, OAuth, inbound email webhooks) need a stable public URL and outbound internet unless those features are disabled on the StartOS build. A minimal self-hosted edition (manual entry, no Plaid, limited auth) remains the realistic first package.
+
+Watch: 0.4 is beta; backup format and services break from 0.3.5.x — any future packaging effort should target **0.4.x SDK / `.s9pk`** only.
 
 ---
 
