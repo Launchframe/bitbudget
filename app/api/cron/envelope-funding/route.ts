@@ -55,8 +55,11 @@ export async function processEnvelopeFundingCron(asOf?: Date): Promise<EnvelopeF
   }
 
   for (const u of users) {
-    if (await closePreviousPeriodGoal(u.id, now)) result.goalsClosed++
-    if (await openCurrentPeriodGoal(u.id, now)) result.goalsOpened++
+    const goalClosed = await closePreviousPeriodGoal(u.id, now)
+    if (goalClosed) result.goalsClosed++
+
+    const goalOpened = await openCurrentPeriodGoal(u.id, now)
+    if (goalOpened) result.goalsOpened++
 
     const paydayUser: PaydayUserFields = {
       payCadence: u.payCadence,
@@ -65,12 +68,18 @@ export async function processEnvelopeFundingCron(asOf?: Date): Promise<EnvelopeF
       lastPaydayAt: u.lastPaydayAt,
     }
 
+    let sweepCreated = 0
+    let fundCreated = 0
     if (isFundingDayForUser(paydayUser, now)) {
-      result.sweepTransactionsCreated += await sweepDiscretionaryEnvelopesForUser(u.id, now)
-      result.fundTransactionsCreated += await processEnvelopeFundingForUser(u.id, now)
+      sweepCreated = await sweepDiscretionaryEnvelopesForUser(u.id, now)
+      fundCreated = await processEnvelopeFundingForUser(u.id, now)
+      result.sweepTransactionsCreated += sweepCreated
+      result.fundTransactionsCreated += fundCreated
     }
 
-    result.achievementsDetected += await detectAchievementsForUser(u.id, now)
+    if (goalClosed || goalOpened || sweepCreated > 0 || fundCreated > 0) {
+      result.achievementsDetected += await detectAchievementsForUser(u.id, now)
+    }
   }
 
   return result

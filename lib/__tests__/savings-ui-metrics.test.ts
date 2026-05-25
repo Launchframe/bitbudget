@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import type { Envelope, Transaction } from "@/lib/data"
-import { avgMonthlySpendLastNMonths, goalProgressRingColor, savingsBalance, sumRemainingDiscretionary } from "../savings-ui-metrics"
+import { avgMonthlySpendLastNMonths, goalProgressRingColor, savingsBalance, sumMonthlyIncomeCredits, sumRemainingDiscretionary } from "../savings-ui-metrics"
 
 const savingsEnvelope: Envelope = {
   id: "sav-1",
@@ -43,6 +43,64 @@ describe("savingsBalance", () => {
       },
     ]
     expect(savingsBalance(txns, savingsEnvelope)).toBe(650)
+  })
+})
+
+describe("sumMonthlyIncomeCredits", () => {
+  it("includes paycheck, irregular income, and income import for the month", () => {
+    const txns: Transaction[] = [
+      {
+        id: "1",
+        date: "2026-05-01",
+        payee: "Paycheck",
+        amount: 2000,
+        type: "credit",
+        envelopeId: "sav-1",
+        tags: [],
+        source: "paycheck",
+      },
+      {
+        id: "2",
+        date: "2026-05-10",
+        payee: "Bonus",
+        amount: 500,
+        type: "credit",
+        envelopeId: "sav-1",
+        tags: [],
+        source: "irregular_income",
+      },
+      {
+        id: "3",
+        date: "2026-05-12",
+        payee: "Import",
+        amount: 300,
+        type: "credit",
+        envelopeId: "sav-1",
+        tags: [],
+        source: "income_import",
+      },
+      {
+        id: "4",
+        date: "2026-05-15",
+        payee: "Sweep",
+        amount: 100,
+        type: "credit",
+        envelopeId: "sav-1",
+        tags: [],
+        source: "envelope_sweep",
+      },
+      {
+        id: "5",
+        date: "2026-04-30",
+        payee: "Old",
+        amount: 999,
+        type: "credit",
+        envelopeId: "sav-1",
+        tags: [],
+        source: "paycheck",
+      },
+    ]
+    expect(sumMonthlyIncomeCredits(txns, "2026-05")).toBe(2800)
   })
 })
 

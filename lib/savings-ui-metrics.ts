@@ -13,6 +13,28 @@ export const SAVINGS_INFLOW_SOURCES = new Set([
   TX_SOURCE_ENVELOPE_SWEEP,
 ])
 
+/** External income credits (excludes envelope sweeps). */
+export const MONTHLY_INCOME_SOURCES = new Set([
+  "paycheck",
+  "irregular_income",
+  "income_import",
+])
+
+export function sumMonthlyIncomeCredits(
+  transactions: readonly Transaction[],
+  monthKey: string,
+): number {
+  return transactions
+    .filter(
+      (t) =>
+        !t.excludeFromMainHistory &&
+        t.type === "credit" &&
+        t.date.startsWith(monthKey) &&
+        MONTHLY_INCOME_SOURCES.has(t.source ?? "manual"),
+    )
+    .reduce((sum, t) => sum + t.amount, 0)
+}
+
 export function findSavingsEnvelope(envelopes: readonly Envelope[]): Envelope | undefined {
   return envelopes.find((e) => !e.archived && e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)
 }

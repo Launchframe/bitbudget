@@ -17,7 +17,7 @@ export interface YearEndRecapStats {
   projection2030: number | null
 }
 
-/** Monthly save periods from asOf through December of targetYear (inclusive). */
+/** Monthly save periods from asOf through December of targetYear. Returns 0 when asOf is already in targetYear (2030 projection uses current balance only, no forward saves within that calendar year). */
 export function monthsToSaveThroughYearEnd(asOf: Date, targetYear: number): number {
   const year = asOf.getUTCFullYear()
   const month = asOf.getUTCMonth()

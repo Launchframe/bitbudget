@@ -11,6 +11,7 @@ import {
 import {
   findSavingsEnvelope,
   savingsBalance,
+  sumMonthlyIncomeCredits,
   sumRemainingDiscretionary,
 } from "@/lib/savings-ui-metrics"
 
@@ -22,15 +23,7 @@ export function DashboardMetrics() {
 
   const currentMonth = getCurrentMonthKey()
 
-  const fundedIncomeMonth = activeTransactions
-    .filter(
-      (t) =>
-        !t.excludeFromMainHistory &&
-        t.type === "credit" &&
-        t.date.startsWith(currentMonth) &&
-        (t.source === "paycheck" || t.source === "irregular_income"),
-    )
-    .reduce((sum, t) => sum + t.amount, 0)
+  const fundedIncomeMonth = sumMonthlyIncomeCredits(activeTransactions, currentMonth)
 
   const displayedMonthlyIncome =
     fundedIncomeMonth > 0 ? fundedIncomeMonth : state.monthlyIncome
