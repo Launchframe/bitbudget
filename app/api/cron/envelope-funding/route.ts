@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "crypto"
 import { NextRequest, NextResponse } from "next/server"
-import { processAllEnvelopeFunding } from "@/lib/envelope-funding"
+import { processEnvelopeFundingCron } from "@/lib/envelope-funding-cron"
 
 function bearerMatches(secret: string, authHeader: string | null): boolean {
   const expected = Buffer.from(`Bearer ${secret}`, "utf8")
@@ -24,8 +24,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const created = await processAllEnvelopeFunding()
-    return NextResponse.json({ processed: created })
+    const result = await processEnvelopeFundingCron()
+    return NextResponse.json(result)
   } catch (err) {
     console.error("[cron/envelope-funding] Error:", err)
     return NextResponse.json({ error: "Processing failed" }, { status: 500 })

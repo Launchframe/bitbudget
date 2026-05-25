@@ -16,6 +16,7 @@ import {
   X,
   CheckCheck,
   Copy,
+  Sparkles,
 } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import type { TransactionSource } from "@/lib/data"
@@ -40,6 +41,8 @@ const sourceIcons: Record<TransactionSource, React.ElementType> = {
   irregular_income: TrendingUp,
   envelope_funding_out: ArrowUpFromLine,
   envelope_funding_in: ArrowDownToLine,
+  income_import: TrendingUp,
+  envelope_sweep: Sparkles,
 }
 
 const sourceLabels: Record<TransactionSource, string> = {
@@ -54,6 +57,8 @@ const sourceLabels: Record<TransactionSource, string> = {
   irregular_income: "Irregular income",
   envelope_funding_out: "Funding (Savings)",
   envelope_funding_in: "Funding (envelope)",
+  income_import: "Income import",
+  envelope_sweep: "Envelope sweep",
 }
 
 export function ReviewInbox() {

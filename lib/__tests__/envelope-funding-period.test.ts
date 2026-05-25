@@ -2,14 +2,18 @@
 import { describe, expect, it } from "vitest"
 import {
   allotmentSliceForFundingRun,
+  allotmentSliceForPaydayUser,
   dailySliceFromMonthlyTotalCents,
   daysInUtcMonth,
   fundingPeriodKeyForDate,
   grossIncomeForFundingRun,
+  grossIncomeForPaydayUser,
   pad2,
   sliceMonthlyAmountForBimonthlyRun,
   sliceMonthlyAmountForDailyRun,
+  sliceMonthlyAmountForPaydayRun,
 } from "../envelope-funding-period"
+import type { PaydayUserFields } from "../payday-cadence"
 
 describe("envelope-funding-period", () => {
   it("pad2 zero-pads", () => {
@@ -73,5 +77,36 @@ describe("envelope-funding-period", () => {
     expect(a + b).toBeCloseTo(100.01, 5)
     expect(a).toBe(50)
     expect(b).toBeCloseTo(50.01, 5)
+  })
+
+  it("payday run splits monthly income across configured pay days", () => {
+    const user: PaydayUserFields = {
+      payCadence: "monthly",
+      payDays: [1, 15],
+      payDayOfWeek: null,
+      lastPaydayAt: null,
+    }
+    const first = new Date(Date.UTC(2026, 4, 1))
+    const second = new Date(Date.UTC(2026, 4, 15))
+    expect(grossIncomeForPaydayUser(4000, user, first, false)).toBe(2000)
+    expect(grossIncomeForPaydayUser(4000, user, second, false)).toBe(2000)
+    expect(allotmentSliceForPaydayUser(500, user, first, false)).toBe(250)
+    expect(
+      sliceMonthlyAmountForPaydayRun(100.01, user, first) +
+        sliceMonthlyAmountForPaydayRun(100.01, user, second),
+    ).toBeCloseTo(100.01, 5)
+  })
+
+  it("sliceMonthlyAmountForPaydayRun accepts precomputed payday list", () => {
+    const user: PaydayUserFields = {
+      payCadence: "monthly",
+      payDays: [1, 15],
+      payDayOfWeek: null,
+      lastPaydayAt: null,
+    }
+    const run = new Date(Date.UTC(2026, 4, 15))
+    const paydays = [1, 15]
+    expect(sliceMonthlyAmountForPaydayRun(300, user, run, paydays)).toBe(150)
+    expect(sliceMonthlyAmountForPaydayRun(300, user, run)).toBe(150)
   })
 })

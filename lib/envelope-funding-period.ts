@@ -2,9 +2,10 @@
  * Pure UTC calendar helpers for ledger funding runs (safe on client & server).
  */
 
-export function pad2(n: number): string {
-  return String(n).padStart(2, "0")
-}
+import { isPaydayForUser, type PaydayUserFields } from "@/lib/payday-cadence"
+import { pad2 } from "@/lib/pad2"
+
+export { pad2 } from "@/lib/pad2"
 
 export function daysInUtcMonth(date: Date): number {
   const y = date.getUTCFullYear()
@@ -103,4 +104,75 @@ export function allotmentSliceForFundingRun(
     return sliceMonthlyAmountForDailyRun(monthlyAllotment, runDateUtc)
   }
   return 0
+}
+
+/** UTC day-of-month numbers that are paydays for the user in a calendar month. */
+export function paydayDomListInUtcMonth(
+  user: PaydayUserFields,
+  year: number,
+  monthIndex: number,
+): number[] {
+  const dim = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate()
+  const days: number[] = []
+  for (let dom = 1; dom <= dim; dom++) {
+    const d = new Date(Date.UTC(year, monthIndex, dom, 12, 0, 0))
+    if (isPaydayForUser(user, d)) days.push(dom)
+  }
+  return days
+}
+
+/** Split a monthly total across the user's paydays in the run month (exact cents). */
+export function sliceMonthlyAmountForPaydayRun(
+  monthAmount: number,
+  user: PaydayUserFields,
+  runDateUtc: Date,
+  paydaysInMonth?: readonly number[],
+): number {
+  if (!Number.isFinite(monthAmount) || monthAmount <= 0) return 0
+  const y = runDateUtc.getUTCFullYear()
+  const m = runDateUtc.getUTCMonth()
+  const paydays = paydaysInMonth ?? paydayDomListInUtcMonth(user, y, m)
+  if (paydays.length === 0) return 0
+  const dom = runDateUtc.getUTCDate()
+  const index = paydays.indexOf(dom)
+  if (index === -1) return 0
+  const cents = Math.round(monthAmount * 100)
+  const abs = Math.abs(cents)
+  const sign = cents < 0 ? -1 : 1
+  const base = Math.floor(abs / paydays.length)
+  const remainder = abs - base * paydays.length
+  const slice = index + 1 <= remainder ? base + 1 : base
+  return (sign * slice) / 100
+}
+
+/** Gross income when funding uses explicit paydays (splits monthly income per payday). */
+export function grossIncomeForPaydayUser(
+  monthlyIncome: number,
+  user: PaydayUserFields,
+  runDateUtc: Date,
+  dailyCadenceAllowed: boolean,
+  paydaysInMonth?: readonly number[],
+): number {
+  if (!Number.isFinite(monthlyIncome) || monthlyIncome <= 0) return 0
+  if (user.payCadence === "daily") {
+    if (!dailyCadenceAllowed) return 0
+    return sliceMonthlyAmountForDailyRun(monthlyIncome, runDateUtc)
+  }
+  return sliceMonthlyAmountForPaydayRun(monthlyIncome, user, runDateUtc, paydaysInMonth)
+}
+
+/** Envelope allotment slice when funding uses explicit paydays. */
+export function allotmentSliceForPaydayUser(
+  monthlyAllotment: number,
+  user: PaydayUserFields,
+  runDateUtc: Date,
+  dailyCadenceAllowed: boolean,
+  paydaysInMonth?: readonly number[],
+): number {
+  if (!Number.isFinite(monthlyAllotment) || monthlyAllotment <= 0) return 0
+  if (user.payCadence === "daily") {
+    if (!dailyCadenceAllowed) return 0
+    return sliceMonthlyAmountForDailyRun(monthlyAllotment, runDateUtc)
+  }
+  return sliceMonthlyAmountForPaydayRun(monthlyAllotment, user, runDateUtc, paydaysInMonth)
 }

@@ -14,6 +14,8 @@ export type TransactionSource =
   | "irregular_income"
   | "envelope_funding_out"
   | "envelope_funding_in"
+  | "income_import"
+  | "envelope_sweep"
 
 export interface Transaction {
   id: string
@@ -59,8 +61,10 @@ export interface Envelope {
   color: string
   icon?: string | null
   archived?: boolean
-  /** Server: system-managed Savings envelope when ledger funding is enabled */
+  /** Server: system-managed Savings envelope (always present after first session) */
   systemRole?: string | null
+  sweepPolicy?: string
+  sweepCapMultiplier?: number | null
 }
 
 export interface Tag {
@@ -98,7 +102,7 @@ export interface AppState {
   monthlyIncome: number
   btcDisplayUnit: BtcDisplayUnit
   opportunityCostEnabled: boolean
-  ledgerFundingEnabled: boolean
+  savingsExperience: string
 }
 
 export function compareTransactionsDesc(a: Transaction, b: Transaction): number {
@@ -272,7 +276,7 @@ export function getDefaultState(): AppState {
     monthlyIncome: 0,
     btcDisplayUnit: "sats",
     opportunityCostEnabled: false,
-    ledgerFundingEnabled: false,
+    savingsExperience: "engaged",
   }
 }
 
@@ -292,7 +296,7 @@ export function getCurrentMonthKey(): string {
 }
 
 export function getTransactionsForEnvelope(
-  transactions: Transaction[],
+  transactions: readonly Transaction[],
   envelopeId: string,
   monthKey?: string,
 ): Transaction[] {
@@ -304,19 +308,25 @@ export function getTransactionsForEnvelope(
 }
 
 export function getEnvelopeBalance(
-  transactions: Transaction[],
+  transactions: readonly Transaction[],
   envelopeId: string,
   monthKey: string,
-  allotment: number,
-  options?: { ledgerFundingEnabled?: boolean },
 ): number {
   const monthTxns = getTransactionsForEnvelope(transactions, envelopeId, monthKey)
   const expenses = monthTxns.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0)
   const credits = monthTxns.filter(t => t.type === "credit").reduce((sum, t) => sum + t.amount, 0)
-  if (options?.ledgerFundingEnabled) {
-    return credits - expenses
-  }
-  return allotment - expenses + credits
+  return credits - expenses
+}
+
+/** All-time envelope balance (Savings hub total; not month-scoped). */
+export function getEnvelopeBalanceAllTime(
+  transactions: readonly Transaction[],
+  envelopeId: string,
+): number {
+  const txns = getTransactionsForEnvelope(transactions, envelopeId)
+  const expenses = txns.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0)
+  const credits = txns.filter(t => t.type === "credit").reduce((sum, t) => sum + t.amount, 0)
+  return credits - expenses
 }
 
 /** Exclude ledger funding allocation legs from global-style feeds (dashboard recent, transactions page). */

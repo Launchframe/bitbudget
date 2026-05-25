@@ -18,8 +18,10 @@ import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
-import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X, Plus, Download } from "lucide-react"
+import { Search, ChevronLeft, ChevronRight, Trash2, Repeat, SlidersHorizontal, X, Plus, Download, PiggyBank } from "lucide-react"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
+import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
+import { findSavingsEnvelope } from "@/lib/savings-ui-metrics"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { PayeeMappingReviewBanner } from "@/components/payee-mapping-review-banner"
 import { UpcomingRecurringTransactions } from "@/components/upcoming-recurring-transactions"
@@ -49,7 +51,7 @@ const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 export function TransactionsPage() {
   const {
     state,
-    activeEnvelopes,
+    discretionaryEnvelopes,
     activeTransactions,
     deleteTransaction,
     highlightTransactionId,
@@ -87,6 +89,13 @@ export function TransactionsPage() {
     if (moreFiltersOpen) document.addEventListener("mousedown", handleClick)
     return () => document.removeEventListener("mousedown", handleClick)
   }, [moreFiltersOpen])
+
+  const savingsEnvelope = useMemo(() => findSavingsEnvelope(state.envelopes), [state.envelopes])
+
+  const savingsOnlyFilter =
+    savingsEnvelope != null &&
+    activeEnvelopeFilters.size === 1 &&
+    activeEnvelopeFilters.has(savingsEnvelope.id)
 
   const envelopeMap = useMemo(() => {
     const map: Record<string, { name: string; color: string; icon?: string | null }> = {}
@@ -421,9 +430,38 @@ export function TransactionsPage() {
         </div>
 
         {/* Envelope quick-filter bubbles */}
-        {activeEnvelopes.length > 0 && (
+        {(savingsEnvelope || discretionaryEnvelopes.length > 0) && (
           <div className="flex items-center gap-2 flex-wrap">
-            {activeEnvelopes.map((env) => {
+            {savingsEnvelope && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => toggleEnvelopeFilter(savingsEnvelope.id)}
+                  title={savingsEnvelope.name}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium transition-all border bg-[#0D0D0D] ${
+                    activeEnvelopeFilters.has(savingsEnvelope.id)
+                      ? ""
+                      : "text-muted-foreground hover:opacity-90"
+                  }`}
+                  style={
+                    activeEnvelopeFilters.has(savingsEnvelope.id)
+                      ? {
+                          borderColor: SAVINGS_GOLD_ACCENT,
+                          color: SAVINGS_GOLD_ACCENT,
+                          backgroundColor: `${SAVINGS_GOLD_ACCENT}18`,
+                        }
+                      : { borderColor: `${SAVINGS_GOLD_ACCENT}4D` }
+                  }
+                >
+                  <PiggyBank className="h-3 w-3 shrink-0" aria-hidden />
+                  <span>{savingsEnvelope.name}</span>
+                </button>
+                {discretionaryEnvelopes.length > 0 && (
+                  <div className="h-6 w-px bg-white/10 mx-1" aria-hidden />
+                )}
+              </>
+            )}
+            {discretionaryEnvelopes.map((env) => {
               const active = activeEnvelopeFilters.has(env.id)
               return (
                 <button
@@ -461,6 +499,11 @@ export function TransactionsPage() {
               </button>
             )}
           </div>
+        )}
+        {savingsOnlyFilter && (
+          <p className="text-xs text-muted-foreground px-1" role="status">
+            Showing Savings transactions only — some entries move money into other envelopes.
+          </p>
         )}
         {!historyReady && hasActiveFilter && (
           <p className="text-xs text-amber-400/90 px-1" role="status">

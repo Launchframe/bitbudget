@@ -51,15 +51,18 @@ export async function POST(req: NextRequest) {
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: {
-      ledgerFundingEnabled: true,
       monthlyIncome: true,
       publicKey: true,
     },
   })
 
-  if (!user?.ledgerFundingEnabled) {
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  if (!user.publicKey?.trim()) {
     return NextResponse.json(
-      { error: "Ledger funding must be enabled in Settings first." },
+      { error: "Finish Secure Your Data setup before recording irregular income." },
       { status: 400 },
     )
   }
@@ -78,8 +81,7 @@ export async function POST(req: NextRequest) {
     dateIso,
     displayPayee: payee.trim(),
     notesPlain: notesStr,
-    userLedger: {
-      ledgerFundingEnabled: user.ledgerFundingEnabled,
+    userIncome: {
       monthlyIncome: user.monthlyIncome,
     },
   })

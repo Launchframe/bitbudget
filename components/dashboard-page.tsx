@@ -6,6 +6,8 @@ import { OpportunityCostChart } from "@/components/opportunity-cost-chart"
 import { TopOpportunityCosts } from "@/components/top-opportunity-costs"
 import { RecentTransactions } from "@/components/recent-transactions"
 import { WalkthroughOverlay } from "@/components/walkthrough-overlay"
+import { YearEndRecapModal } from "@/components/year-end-recap-modal"
+import { GoalHitCelebration } from "@/components/goal-hit-celebration"
 
 export function DashboardPage() {
   const { state } = useApp()
@@ -13,6 +15,8 @@ export function DashboardPage() {
   return (
     <div className="flex flex-col gap-6" data-walkthrough="dashboard-area">
       <WalkthroughOverlay />
+      <YearEndRecapModal />
+      <GoalHitCelebration />
       <DashboardMetrics />
       <OpportunityCostChart />
       {state.opportunityCostEnabled ? <TopOpportunityCosts /> : <RecentTransactions />}

@@ -2,9 +2,9 @@ import { randomUUID } from "crypto"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import {
+  ENVELOPE_FUNDING_BATCH_KIND_FUND,
   LEDGER_ALLOCATION_PAYEE_LABEL,
   LEDGER_INCOME_PAYEE_LABEL,
-  RESERVED_SAVINGS_ENVELOPE_NAME,
   SYSTEM_ENVELOPE_ROLE_SAVINGS,
   isBudgetEnvelope,
 } from "@/lib/constants"
@@ -12,14 +12,26 @@ import {
   allotmentSliceForFundingRun,
   fundingPeriodKeyForDate,
   grossIncomeForFundingRun,
+  grossIncomeForPaydayUser,
+  allotmentSliceForPaydayUser,
+  paydayDomListInUtcMonth,
 } from "@/lib/envelope-funding-period"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import {
+  fundingPeriodKeyForPayday,
+  isPaydayForUser,
+  usesPaydayCadence,
+  type PaydayUserFields,
+} from "@/lib/payday-cadence"
 import { encryptFieldForUser } from "@/lib/server-encrypt"
-import { isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
+import { isDailyCadenceBlocked, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import {
   computeIrregularIncomeSplits,
   sumAllocatedIrregularCents,
 } from "@/lib/irregular-income-split"
+import { ensureSystemSavingsEnvelope, savingsEnvelopeForUserDb } from "@/lib/ensure-system-savings-envelope"
+
+export { ensureSystemSavingsEnvelope } from "@/lib/ensure-system-savings-envelope"
 
 export const TX_SOURCE_PAYCHECK = "paycheck"
 export const TX_SOURCE_IRREGULAR_INCOME = "irregular_income"
@@ -28,7 +40,23 @@ export const TX_SOURCE_FUNDING_IN = "envelope_funding_in"
 
 const EMPTY_TAGS = "[]"
 
-type FundingDb = Pick<typeof prisma, "envelope">
+function fundingPeriodKeyForUser(
+  user: PaydayUserFields,
+  runDateUtc: Date,
+  dailyAllowed: boolean,
+): string | null {
+  if (isDailyCadenceBlocked(user.payCadence, dailyAllowed)) return null
+
+  if (usesPaydayCadence(user)) {
+    if (!isPaydayForUser(user, runDateUtc)) return null
+    return fundingPeriodKeyForPayday(user, runDateUtc)
+  }
+  return fundingPeriodKeyForDate({
+    payCadence: user.payCadence,
+    runDateUtc,
+    dailyCadenceAllowed: dailyAllowed,
+  })
+}
 
 /**
  * Budget envelopes for funding splits. Prisma `NOT: { systemRole: 'savings' }` excludes rows
@@ -39,128 +67,6 @@ function budgetEnvelopeWhere(userId: string): Prisma.EnvelopeWhereInput {
     userId,
     archived: false,
     OR: [{ systemRole: null }, { systemRole: { not: SYSTEM_ENVELOPE_ROLE_SAVINGS } }],
-  }
-}
-
-async function savingsEnvelopeForUserDb(db: FundingDb, userId: string): Promise<{ id: string } | null> {
-  const row = await db.envelope.findFirst({
-    where: { userId, systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS, archived: false },
-    select: { id: true },
-  })
-  return row
-}
-
-async function promoteEnvelopeToSystemSavings(
-  db: FundingDb,
-  envelopeId: string,
-): Promise<{ id: string }> {
-  return db.envelope.update({
-    where: { id: envelopeId },
-    data: {
-      archived: false,
-      name: RESERVED_SAVINGS_ENVELOPE_NAME,
-      monthlyAllotment: 0,
-      systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
-    },
-    select: { id: true },
-  })
-}
-
-/**
- * Ensure system Savings envelope exists (idempotent). Un-archives a legacy Savings-named row if needed.
- * Pass `tx` to participate in a caller transaction (e.g. settings enable + user row update).
- */
-export async function ensureSystemSavingsEnvelope(
-  userId: string,
-  tx?: Prisma.TransactionClient,
-): Promise<{ id: string }> {
-  const db = tx ?? prisma
-
-  const existing = await savingsEnvelopeForUserDb(db, userId)
-  if (existing) return existing
-
-  // Prefer exact-case canonical name — Postgres unique(userId, name) is case-sensitive, so users
-  // can have both "Savings" and "savings"; promoting a non-canonical row would P2002 on rename.
-  const canonicalNamed = await db.envelope.findFirst({
-    where: { userId, name: RESERVED_SAVINGS_ENVELOPE_NAME },
-    select: { id: true },
-  })
-  if (canonicalNamed) {
-    return promoteEnvelopeToSystemSavings(db, canonicalNamed.id)
-  }
-
-  const legacyNamed = await db.envelope.findFirst({
-    where: {
-      userId,
-      name: { equals: RESERVED_SAVINGS_ENVELOPE_NAME, mode: "insensitive" },
-    },
-    select: { id: true },
-  })
-  if (legacyNamed) {
-    try {
-      return await promoteEnvelopeToSystemSavings(db, legacyNamed.id)
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-        const promoted = await savingsEnvelopeForUserDb(db, userId)
-        if (promoted) return promoted
-        const fallback = await db.envelope.findFirst({
-          where: { userId, name: RESERVED_SAVINGS_ENVELOPE_NAME },
-          select: { id: true },
-        })
-        if (fallback) return promoteEnvelopeToSystemSavings(db, fallback.id)
-      }
-      throw e
-    }
-  }
-
-  try {
-    return await db.envelope.create({
-      data: {
-        userId,
-        name: RESERVED_SAVINGS_ENVELOPE_NAME,
-        monthlyAllotment: 0,
-        systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
-        color: "#22C55E",
-      },
-      select: { id: true },
-    })
-  } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      const promoted = await savingsEnvelopeForUserDb(db, userId)
-      if (promoted) return promoted
-      const canonical = await db.envelope.findFirst({
-        where: { userId, name: RESERVED_SAVINGS_ENVELOPE_NAME },
-        select: { id: true },
-      })
-      if (canonical) return promoteEnvelopeToSystemSavings(db, canonical.id)
-      const again = await db.envelope.findFirst({
-        where: {
-          userId,
-          name: { equals: RESERVED_SAVINGS_ENVELOPE_NAME, mode: "insensitive" },
-        },
-        select: { id: true },
-      })
-      if (again) {
-        try {
-          return await promoteEnvelopeToSystemSavings(db, again.id)
-        } catch (retryErr) {
-          if (
-            retryErr instanceof Prisma.PrismaClientKnownRequestError &&
-            retryErr.code === "P2002"
-          ) {
-            const resolved = await savingsEnvelopeForUserDb(db, userId)
-            if (resolved) return resolved
-            const retryCanonical = await db.envelope.findFirst({
-              where: { userId, name: RESERVED_SAVINGS_ENVELOPE_NAME },
-              select: { id: true },
-            })
-            if (retryCanonical) return promoteEnvelopeToSystemSavings(db, retryCanonical.id)
-          }
-          throw retryErr
-        }
-      }
-    }
-    throw e
   }
 }
 
@@ -218,27 +124,44 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
-      ledgerFundingEnabled: true,
       monthlyIncome: true,
       payCadence: true,
+      payDays: true,
+      payDayOfWeek: true,
+      lastPaydayAt: true,
       publicKey: true,
     },
   })
 
-  if (!user?.ledgerFundingEnabled) return 0
-  if (!user.publicKey?.trim()) return 0
+  if (!user?.publicKey?.trim()) return 0
 
-  const periodKey = fundingPeriodKeyForDate({
+  const paydayUser: PaydayUserFields = {
     payCadence: user.payCadence,
-    runDateUtc: now,
-    dailyCadenceAllowed: dailyAllowed,
-  })
+    payDays: user.payDays,
+    payDayOfWeek: user.payDayOfWeek,
+    lastPaydayAt: user.lastPaydayAt,
+  }
+
+  const periodKey = fundingPeriodKeyForUser(paydayUser, now, dailyAllowed)
   if (!periodKey) return 0
 
   const savings = await savingsEnvelopeForUserDb(prisma, userId)
   if (!savings) return 0
 
-  const gross = grossIncomeForFundingRun(user.monthlyIncome, user.payCadence, now, dailyAllowed)
+  const paydaysInMonth =
+    usesPaydayCadence(paydayUser) && paydayUser.payCadence !== "daily"
+      ? paydayDomListInUtcMonth(paydayUser, now.getUTCFullYear(), now.getUTCMonth())
+      : undefined
+
+  const gross = usesPaydayCadence(paydayUser)
+    ? grossIncomeForPaydayUser(
+        user.monthlyIncome,
+        paydayUser,
+        now,
+        dailyAllowed,
+        paydaysInMonth,
+      )
+    : grossIncomeForFundingRun(user.monthlyIncome, user.payCadence, now, dailyAllowed)
   if (!Number.isFinite(gross) || gross <= 0) return 0
 
   const envelopeRows = await prisma.envelope.findMany({
@@ -251,12 +174,20 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
   const slices: SliceRow[] = []
   let sumSlices = 0
   for (const e of envelopes) {
-    const slice = allotmentSliceForFundingRun(
-      e.monthlyAllotment,
-      user.payCadence,
-      now,
-      dailyAllowed,
-    )
+    const slice = usesPaydayCadence(paydayUser)
+      ? allotmentSliceForPaydayUser(
+          e.monthlyAllotment,
+          paydayUser,
+          now,
+          dailyAllowed,
+          paydaysInMonth,
+        )
+      : allotmentSliceForFundingRun(
+          e.monthlyAllotment,
+          user.payCadence,
+          now,
+          dailyAllowed,
+        )
     if (slice > 0) {
       slices.push({ id: e.id, slice })
       sumSlices += slice
@@ -280,14 +211,20 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
 
   return prisma.$transaction(async (tx) => {
     const dup = await tx.envelopeFundingBatch.findUnique({
-      where: { userId_periodKey: { userId, periodKey } },
+      where: {
+        userId_periodKey_kind: {
+          userId,
+          periodKey,
+          kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+        },
+      },
     })
     if (dup) return 0
 
     let batch
     try {
       batch = await tx.envelopeFundingBatch.create({
-        data: { userId, periodKey },
+        data: { userId, periodKey, kind: ENVELOPE_FUNDING_BATCH_KIND_FUND },
       })
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
@@ -348,10 +285,13 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
   })
 }
 
-/** Process ledger funding for every user with the flag enabled. */
+/** Process ledger funding for every user with encryption keys configured. */
 export async function processAllEnvelopeFunding(asOf?: Date): Promise<number> {
   const users = await prisma.user.findMany({
-    where: { ledgerFundingEnabled: true },
+    where: {
+      publicKey: { not: null },
+      NOT: { publicKey: "" },
+    },
     select: { id: true },
   })
   let total = 0
@@ -370,8 +310,8 @@ export interface IrregularIncomeInput {
   /** Plaintext payer description — encrypted before storage */
   displayPayee: string
   notesPlain?: string | null
-  /** When set, skips reloading `User.ledgerFundingEnabled` / `monthlyIncome` from the database. */
-  userLedger?: { ledgerFundingEnabled: boolean; monthlyIncome: number }
+  /** When set, skips reloading `User.monthlyIncome` from the database. */
+  userIncome?: { monthlyIncome: number }
 }
 
 /** Manual irregular income: one visible Savings credit + hidden allocation legs. */
@@ -383,21 +323,17 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
   if (!Number.isFinite(gross) || gross <= 0) return 0
 
   const user =
-    input.userLedger ??
+    input.userIncome ??
     (await prisma.user.findUnique({
       where: { id: input.userId },
-      select: {
-        ledgerFundingEnabled: true,
-        monthlyIncome: true,
-      },
+      select: { monthlyIncome: true },
     }))
-  if (!user?.ledgerFundingEnabled) return 0
+  if (!user) return 0
 
   const mi = user.monthlyIncome
   if (!Number.isFinite(mi) || mi <= 0) return 0
 
-  const savings = await savingsEnvelopeForUserDb(prisma, input.userId)
-  if (!savings) return 0
+  const savings = await ensureSystemSavingsEnvelope(input.userId)
 
   const envelopeRows = await prisma.envelope.findMany({
     where: budgetEnvelopeWhere(input.userId),
@@ -444,7 +380,11 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
 
   await prisma.$transaction(async (tx) => {
     const batch = await tx.envelopeFundingBatch.create({
-      data: { userId: input.userId, periodKey },
+      data: {
+        userId: input.userId,
+        periodKey,
+        kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+      },
     })
 
     await tx.transaction.create({
@@ -533,16 +473,16 @@ export async function repairIrregularIncomeFundingLegs(
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { ledgerFundingEnabled: true, monthlyIncome: true, publicKey: true },
+    select: { monthlyIncome: true, publicKey: true },
   })
   const pk = user?.publicKey?.trim()
-  if (!user?.ledgerFundingEnabled || !pk) return 0
+  if (!user || !pk) return 0
 
   const mi = user.monthlyIncome
   if (!Number.isFinite(mi) || mi <= 0) return 0
 
-  const savings = await savingsEnvelopeForUserDb(prisma, userId)
-  if (!savings || incomeRow.envelopeId !== savings.id) return 0
+  const savings = await ensureSystemSavingsEnvelope(userId)
+  if (incomeRow.envelopeId !== savings.id) return 0
 
   const envelopeRows = await prisma.envelope.findMany({
     where: budgetEnvelopeWhere(userId),

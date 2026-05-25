@@ -18,6 +18,7 @@ import {
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd, getMonthKey, type Envelope, type Transaction } from "@/lib/data"
+import { MonthOverlayChart } from "@/components/month-overlay-chart"
 
 type RangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "all" | "custom"
 type HeatmapMode = "count" | "spent"
@@ -646,6 +647,8 @@ export function AnalyticsPage() {
           </div>
         </div>
       </div>
+
+      <MonthOverlayChart />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">

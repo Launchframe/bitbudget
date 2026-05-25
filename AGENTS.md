@@ -13,6 +13,38 @@ BitBudget is a **privacy-first, user-sovereign budgeting app**. Every change mus
 
 If a change would cause sensitive data to be logged, stored in plaintext, or readable by the server, **stop and redesign**.
 
+## Savings as core mechanic
+
+BitBudget treats **pay yourself first** as a non-negotiable budgeting principle, not an optional mode:
+
+- **Ledger accounting is always on.** Income credits land in the system **Savings** envelope first; envelope funding allocation legs run from Savings. There is no user-facing toggle to disable this.
+- **Savings is its own UI primitive** — hero card on Envelopes, pinned filter pill on Transactions, dashboard tile, savings-mode chart — **not** a member of the discretionary envelope grid.
+- **`User.savingsExperience`** (`engaged` | `dismissed`, default `engaged`) controls the **motivational narrative** only: goals, streaks, achievements, year-end recap, sweep ritual UI. When `dismissed`, the ledger still works; hero/goals/recap UI is hidden; dismissing also sets `sweepDefaultPolicy: carry_forward` so envelopes stop auto-draining on payday.
+- **Do not reintroduce a ledger funding flag.** All server paths (`envelope-funding`, irregular income, cron) assume funding is active.
+
+### Envelope balances: remaining vs current month
+
+Discretionary envelopes and Savings are **running balances** (credits minus expenses over time). Sweep policy (reset / carry forward / capped) and monthly top-ups can leave **unspent money across calendar months** — especially with **carry forward**, which keeps leftovers in the envelope until spent or manually swept.
+
+Use two scopes consistently:
+
+| Concept | Meaning | When to use |
+|--------|---------|-------------|
+| **Remaining** (spendable) | All-time credits − expenses for the envelope, **including carryover** | “$X left”, “Remaining”, “Balance”, sweep amounts, dashboard Remaining tile, Savings total |
+| **Current month** | Net activity dated in `YYYY-MM` only | Monthly Income / Monthly Spend, savings-goal period math, spend analytics buckets, **pacing** (not spendable totals) |
+
+**Helpers (client):**
+
+- **Remaining:** `getEnvelopeBalanceAllTime()` in `lib/data.ts`; `savingsBalance()` and `sumRemainingDiscretionary()` in `lib/savings-ui-metrics.ts`; `envelopeBudgetProgressPct()` / `envelopeHealthColor()` in `lib/envelope-card-metrics.ts` (progress vs monthly allotment; may exceed 100% with carryover).
+- **Current month:** `getEnvelopeBalance(transactions, envelopeId, monthKey)` with `getCurrentMonthKey()` / `getMonthKey()`.
+- **Pacing:** `monthProgressMarkerPct()` and `targetBalanceForMonthPace()` in `lib/envelope-sweep.ts` — compare remaining to where the user “should” be by day-of-month; do not substitute month-scoped balance for remaining.
+
+**Server:** sweep and funding decisions use all-time balances (`envelopeBalancesAllTimeBatch`, `savingsEnvelopeBalanceBefore`, etc. in `lib/envelope-balance-server.ts`). Client remaining UI must match that scope.
+
+**UI pattern:** Envelope cards and detail pages show **remaining (all-time)** for dollar amounts; the progress bar fill uses remaining ÷ monthly allotment, with the white marker for **month pacing** only.
+
+**Do not** use month-scoped balance for remaining labels — it ignores prior-month carryover and diverges from sweep/funding behavior.
+
 ## Project Structure
 
 ```
@@ -80,6 +112,13 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 - `app/page.tsx` is the shell: `OnboardingGate → AppProvider → EncryptionGate → BtcPriceProvider → layout`.
 - When changing interactive UI, keep accessibility state and labels current: update `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-pressed`, `aria-selected`, and related screen-reader text alongside visible labels and control state.
 
+### User-facing copy
+- **Write for people, not engineers.** Labels, hints, empty states, errors, onboarding steps, and settings help must use plain language anyone can understand on first read.
+- **Do not expose implementation vocabulary** in the UI: avoid terms like “bounded sliders,” “ledger,” “allocation legs,” “capacity,” “batch,” “ciphertext,” “envelope funding,” API field names, or other internal mechanic names unless the product explicitly teaches that term (e.g. “envelope” as a budgeting concept users already chose).
+- **Explain outcomes, not plumbing.** Say what the app will do for the user (“We’ll use this to build a rough budget”) rather than how the code works (“Powers bounded allocation sliders”).
+- **Keep tone calm and optional where fields are optional.** Make it clear they can skip or change things later without jargon or pressure.
+- **Technical accuracy belongs in code comments, AGENTS.md, and PRs** — not in strings users see in the app.
+
 ### State Management
 - `AppContext` (`lib/app-context.tsx`) is the single source of truth for app state. It holds transactions, envelopes, tags, user settings, encryption state, and navigation.
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
@@ -108,6 +147,7 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 ### Styling
 - Dark theme only. Background: `#0D0D0D`, cards: `bg-[#0D0D0D] rounded-2xl`.
 - Accent color: `#F7931A` (Bitcoin orange), used for CTAs, active states, and BTC-related highlights.
+- **Savings gold accent:** `SAVINGS_GOLD_ACCENT` (`#D4AF37` in `lib/constants.ts`) — use sparingly for Savings hero card border, pinned Savings filter pill, savings-mode chart lines, and Savings dashboard tile highlights. Distinct from Bitcoin orange.
 - Success/credit color: `#22C55E`. Blue accent: `#3B82F6`.
 - BTC numeric values use `font-ibm-plex-mono` class for monospace rendering.
 - Mobile-first responsive design. Use Tailwind breakpoints (`sm:`, `md:`, `lg:`).
@@ -130,6 +170,8 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 - Migrations must be **idempotent** (`ADD COLUMN IF NOT EXISTS`, etc.) to survive re-runs during deployment.
 - After changing `schema.prisma`, always run `pnpm prisma generate` before testing types.
 - Use `cuid()` for IDs. Dates are stored as `DateTime` and formatted as `YYYY-MM-DD` strings at the API boundary.
+- **System Savings envelope:** created idempotently via `ensureSystemSavingsEnvelope()` on first session (see `lib/auth.ts`). Prisma `Envelope.systemRole = 'savings'`; reserved name `"Savings"`. Protected from rename, archive, merge, and delete in envelope API routes. **`activeEnvelopes`** includes Savings; **`discretionaryEnvelopes`** (`AppContext`) excludes it — use `discretionaryEnvelopes` for budget grids, sweep targets, and allotment totals.
+- **`SavingsGoal`** rows keyed by `periodKey` (`'YYYY-MM'` or `'default'`). Per-period lifecycle (grace, upward-only edits, close snapshots) is enforced in `lib/savings-goal.ts` and the savings-goal API routes.
 
 #### Schema changes during development (`db push`)
 
@@ -168,9 +210,13 @@ CI and fresh clones use `prisma migrate deploy`; idempotent consolidated migrati
 
 ## Feature Gating: Opportunity Cost
 
+**Only opportunity cost is gated.** Ledger funding (pay-yourself-first, Savings envelope, allocation legs) is **always on** for every user regardless of tier or entry point. Do not add flags or UI that disable the ledger.
+
 Bitcoin/sats/opportunity-cost features are controlled by `User.opportunityCostEnabled` (default `false`). New users get it from **entry point**: `/welcome` or app shell `/` → off; `/landing` → on. **Referral referees** inherit the flag from the **referrer** (code owner) at redeem and during onboarding via validate. **Premium** users can change it in Settings; free users do not see that control.
 
-When this flag is off, the app is a **vanilla budgeting tool** — no Bitcoin mentions anywhere:
+**Savings narrative UI** (hero card, goals, streaks, achievements, year-end recap) is controlled separately by `User.savingsExperience` (`engaged` | `dismissed`). When dismissed, the underlying ledger and Savings envelope still work; only motivational surfaces are hidden.
+
+When `opportunityCostEnabled` is off, the app is a **vanilla budgeting tool** — no Bitcoin mentions anywhere:
 
 - Sidebar: BTC Price nav item hidden
 - Dashboard: chart shows "Your Expenses" (cumulative spent, single line, no BTC data dependency); `RecentTransactions` replaces `TopOpportunityCosts`
@@ -265,6 +311,10 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 
 - **Adding a Prisma field but forgetting `pnpm prisma generate`** — TypeScript won't see the new field until the client is regenerated.
 - **Calling `useBtcPrices()` outside `BtcPriceProvider`** — the hook returns **`NOOP_PRICES`** and warns in development; it does not throw. Real prices and OC math need `BtcPriceProvider`; gate Bitcoin UI with `state.opportunityCostEnabled` so vanilla mode does not depend on live BTC data.
+- **Rendering Savings inside the discretionary envelope grid** — use `<SavingsHeroCard>` instead. Grid lists, sweep dialogs, and allotment math should use `discretionaryEnvelopes`, not `activeEnvelopes`.
+- **`activeEnvelopes` vs `discretionaryEnvelopes`** — `activeEnvelopes` includes the system Savings envelope; `discretionaryEnvelopes` filters `systemRole !== 'savings'`. Use the latter for budget envelopes; use Savings-specific helpers (`findSavingsEnvelope`, hero card) for the hub.
+- **Gating ledger funding or Savings accounting** — there is no ledger toggle. Gate motivational Savings UI with `state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED`; never tie funding to `opportunityCostEnabled`.
+- **Month-scoped balance for “remaining”** — `getEnvelopeBalance(..., monthKey)` only counts the current calendar month, so it **under-reports spendable money** when carry-forward or capped policy leaves balance from prior months (and diverges from server sweep math). Use `getEnvelopeBalanceAllTime` for “$X left”, dashboard **Remaining**, Savings totals, and sweep UI; reserve month scope for Monthly Income/Spend, goal periods, and pacing markers (see **Envelope balances: remaining vs current month**).
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
 - **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During dev, prefer **`db push`**; at PR time, consolidate into a new migration. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.
