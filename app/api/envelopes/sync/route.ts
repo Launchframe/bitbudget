@@ -8,6 +8,10 @@ import {
   isReservedSavingsEnvelopeName,
 } from "@/lib/constants"
 import { mergeEnvelopeRecords } from "@/lib/server-merge-envelope"
+import {
+  hasUnresolvedSavingsDraft,
+  resolveSavingsDraftIds,
+} from "@/lib/envelope-sync-savings"
 
 const TMP_PREFIX = "__bb_sync_tmp_"
 
@@ -83,6 +87,8 @@ export async function POST(req: NextRequest) {
       let server = await tx.envelope.findMany({ where: { userId } })
       let serverById = new Map(server.map(e => [e.id, e]))
 
+      resolveSavingsDraftIds(normalized, server)
+
       let systemSav = server.find(e => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)
       const savingsDraft = normalized.find(
         e =>
@@ -101,10 +107,30 @@ export async function POST(req: NextRequest) {
       }
 
       if (!systemSav) {
+        const idLessSavings = normalized.find(
+          e => isReservedSavingsEnvelopeName(e.name) && !e.id,
+        )
+        if (idLessSavings) {
+          const created = await tx.envelope.create({
+            data: {
+              userId,
+              name: RESERVED_SAVINGS_ENVELOPE_NAME,
+              monthlyAllotment: 0,
+              systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
+              color: idLessSavings.color,
+              icon: idLessSavings.icon,
+            },
+          })
+          idLessSavings.id = created.id
+          server = await tx.envelope.findMany({ where: { userId } })
+          serverById = new Map(server.map(e => [e.id, e]))
+          systemSav = created
+        }
+
         const lone = normalized.find(
           e => isReservedSavingsEnvelopeName(e.name) && e.id && serverById.has(e.id),
         )
-        if (lone?.id) {
+        if (!systemSav && lone?.id) {
           await tx.envelope.update({
             where: { id: lone.id },
             data: {
@@ -117,6 +143,10 @@ export async function POST(req: NextRequest) {
           server = await tx.envelope.findMany({ where: { userId } })
           serverById = new Map(server.map(e => [e.id, e]))
         }
+      }
+
+      if (hasUnresolvedSavingsDraft(normalized)) {
+        throw new Error("RESERVED_SAVINGS_UNRESOLVED")
       }
 
       const draftIds = new Set(normalized.filter(e => e.id).map(e => e.id!))
@@ -189,6 +219,9 @@ export async function POST(req: NextRequest) {
       const createdRows: typeof server = []
       for (const d of normalized) {
         if (d.id) continue
+        if (isReservedSavingsEnvelopeName(d.name)) {
+          throw new Error("RESERVED_SAVINGS_UNRESOLVED")
+        }
         createdRows.push(
           await tx.envelope.create({
             data: {
@@ -226,6 +259,12 @@ export async function POST(req: NextRequest) {
       })),
     })
   } catch (e) {
+    if (e instanceof Error && e.message === "RESERVED_SAVINGS_UNRESOLVED") {
+      return NextResponse.json(
+        { error: "Savings is managed by the app and could not be synced. Try again or contact support." },
+        { status: 400 },
+      )
+    }
     if (e instanceof Error && e.message === "UNKNOWN_ID") {
       return NextResponse.json({ error: "Unknown or stale envelope id" }, { status: 400 })
     }
