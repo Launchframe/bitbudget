@@ -1,7 +1,12 @@
 import "./load-env"
 import { test, expect } from "@playwright/test"
 import { prisma } from "../lib/db"
+import {
+  E2E_TEST_ENCRYPTED_PRIVACY_KEY_JSON,
+  E2E_TEST_PRIVACY_KEY_SALT_HEX,
+} from "./fixtures/encryption-e2e-constants"
 import { signInWithE2eEmail } from "./helpers/auth-email"
+import { primePrivacyKeyCache } from "./helpers/privacy-cache"
 
 /**
  * Regression: walkthrough completion must be per-user (DB), not browser localStorage.
@@ -24,9 +29,17 @@ test.describe("Dashboard walkthrough", () => {
       expect(user?.id).toBeTruthy()
       await prisma.user.update({
         where: { id: user!.id },
-        data: { onboardingComplete: true, walkthroughCompleted: false },
+        data: {
+          onboardingComplete: true,
+          walkthroughCompleted: false,
+          monthlyIncome: 5000,
+          encryptedPrivacyKey: E2E_TEST_ENCRYPTED_PRIVACY_KEY_JSON,
+          privacyKeySalt: E2E_TEST_PRIVACY_KEY_SALT_HEX,
+        },
       })
       await page.goto(`${origin}/#/dashboard`)
+      await primePrivacyKeyCache(page, user!.id)
+      await page.reload()
       await expect(page.getByText("Monthly Income")).toBeVisible({ timeout: 90_000 })
     }
 
