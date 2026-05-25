@@ -13,6 +13,7 @@ import type {
   CommunicationPreferenceKey,
 } from "@/lib/data"
 import { compareTransactionsDesc, generateId, getDefaultState } from "@/lib/data"
+import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import {
   COMMUNICATION_PREFERENCE_COLUMNS,
   normalizeCommunicationPreferences,
@@ -157,10 +158,12 @@ export interface ReferralSummaryState {
 interface AppContextValue {
   state: AppState
   activeEnvelopes: Envelope[]
+  discretionaryEnvelopes: Envelope[]
   activeTransactions: Transaction[]
   currentPage: PageId
   selectedEnvelopeId: string | null
   highlightTransactionId: string | null
+  clearHighlightTransactionId: () => void
   transactionDialogOpen: boolean
   transactionPrefill: TransactionPrefill | null
   inputModeSheetOpen: boolean
@@ -201,6 +204,8 @@ interface AppContextValue {
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
   setOpportunityCostEnabled: (enabled: boolean) => void
   setCommunicationPreference: (key: CommunicationPreferenceKey, enabled: boolean) => Promise<void>
+  setSavingsExperience: (experience: "engaged" | "dismissed") => Promise<void>
+  completeWalkthrough: () => Promise<void>
   addTag: (tag: string) => void
   deleteTag: (id: string) => void
   refreshData: () => Promise<void>
@@ -388,6 +393,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [referralRefereeTrialMonths, setReferralRefereeTrialMonths] = useState<1 | 3 | null>(null)
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const [recurringTransactions, setRecurringTransactions] = useState<RecurringTransaction[]>([])
+  /** Latest envelopes for synchronous guards before optimistic updates (avoid mutable flags inside setState updaters). */
+  const envelopesRef = useRef(state.envelopes)
+  envelopesRef.current = state.envelopes
+
   const mounted = useRef(false)
   const isPopstate = useRef(false)
 
@@ -632,6 +641,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         communicationPreferences: normalizeCommunicationPreferences(
           settings.emailPreferences ?? settings.communicationPreferences ?? {},
         ),
+        savingsExperience:
+          typeof (settings as { savingsExperience?: string }).savingsExperience === "string"
+            ? (settings as { savingsExperience: string }).savingsExperience
+            : "engaged",
+        walkthroughCompleted: settings.walkthroughCompleted === true,
       }))
 
       const uid = currentUserIdRef.current
@@ -1084,6 +1098,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const archiveEnvelope = useCallback(async (id: string) => {
+    const env = envelopesRef.current.find(e => e.id === id)
+    if (env?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) return
+
     setState(prev => ({
       ...prev,
       envelopes: prev.envelopes.map(e => e.id === id ? { ...e, archived: true } : e),
@@ -1118,6 +1135,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const deleteEnvelope = useCallback(async (id: string) => {
+    const env = envelopesRef.current.find(e => e.id === id)
+    if (env?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) return
+
     setState(prev => ({
       ...prev,
       envelopes: prev.envelopes.filter(e => e.id !== id),
@@ -1137,6 +1157,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const mergeEnvelope = useCallback(async (sourceId: string, targetId: string) => {
+    const src = envelopesRef.current.find(e => e.id === sourceId)
+    const tgt = envelopesRef.current.find(e => e.id === targetId)
+    if (src?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) return
+    if (tgt?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) return
+
     setState(prev => ({
       ...prev,
       envelopes: prev.envelopes.filter(e => e.id !== sourceId),
@@ -1217,6 +1242,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) await refreshData()
     } catch {
       refreshData()
+    }
+  }, [refreshData])
+
+  const setSavingsExperience = useCallback(async (experience: "engaged" | "dismissed") => {
+    setState(prev => ({ ...prev, savingsExperience: experience }))
+    try {
+      const res = await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ savingsExperience: experience }),
+      })
+      if (!res.ok) await refreshData()
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
+  const completeWalkthrough = useCallback(async () => {
+    setState(prev => ({ ...prev, walkthroughCompleted: true }))
+    try {
+      const res = await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walkthroughCompleted: true }),
+      })
+      if (!res.ok) {
+        await refreshData()
+      }
+    } catch {
+      await refreshData()
     }
   }, [refreshData])
 
@@ -1463,6 +1518,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [state.envelopes]
   )
 
+  const discretionaryEnvelopes = useMemo(
+    () => activeEnvelopes.filter(e => e.systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS),
+    [activeEnvelopes],
+  )
+
   const archivedEnvelopeIds = useMemo(
     () => new Set(state.envelopes.filter(e => e.archived).map(e => e.id)),
     [state.envelopes]
@@ -1482,10 +1542,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       value={{
         state,
         activeEnvelopes,
+        discretionaryEnvelopes,
         activeTransactions,
         currentPage,
         selectedEnvelopeId,
         highlightTransactionId,
+        clearHighlightTransactionId: () => setHighlightTransactionId(null),
         transactionDialogOpen,
         transactionPrefill,
         inputModeSheetOpen,
@@ -1517,6 +1579,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setBtcDisplayUnit,
         setOpportunityCostEnabled,
         setCommunicationPreference,
+        setSavingsExperience,
+        completeWalkthrough,
         addTag,
         deleteTag,
         refreshData,

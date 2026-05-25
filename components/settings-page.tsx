@@ -34,6 +34,7 @@ import {
   Settings2,
   Plug,
   MessageSquare,
+  PiggyBank,
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
@@ -42,13 +43,17 @@ import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { SettingsReferralsCard } from "@/components/settings-referrals-card"
+import { SettingsSavingsCard } from "@/components/settings-savings-card"
+import { IncomeImporterCard } from "@/components/income-importer-dialog"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
+import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
-type SettingsTab = "general" | "communications" | "integrations" | "tags" | "payees" | "data"
+type SettingsTab = "general" | "communications" | "savings" | "integrations" | "tags" | "payees" | "data"
 
 const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
   general: "general",
   communications: "communications",
+  savings: "savings-tracking",
   integrations: "integrations",
   tags: "tags",
   payees: "payee-mappings",
@@ -58,6 +63,8 @@ const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
 const SETTINGS_TAB_FROM_SLUG: Record<string, SettingsTab> = {
   general: "general",
   communications: "communications",
+  savings: "savings",
+  "savings-tracking": "savings",
   integrations: "integrations",
   tags: "tags",
   payees: "payees",
@@ -120,6 +127,9 @@ export function SettingsPage() {
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       } else if (t === "integrations") {
         selectSettingsTab("integrations", "replace")
+        sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      } else if (t === "savings" || t === "savings-tracking") {
+        selectSettingsTab("savings", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       }
     } catch {
@@ -321,15 +331,37 @@ export function SettingsPage() {
     e.target.value = ""
   }
 
-  const tabIconClass = (tab: SettingsTab) =>
-    `h-3.5 w-3.5 shrink-0 ${settingsTab === tab ? "text-btc-orange" : "text-muted-foreground"}`
+  const tabIconClass = (tab: SettingsTab) => {
+    const active = settingsTab === tab
+    if (active && tab === "savings") return "h-3.5 w-3.5 shrink-0"
+    return `h-3.5 w-3.5 shrink-0 ${active ? "text-btc-orange" : "text-muted-foreground"}`
+  }
 
-  const tabButtonClass = (tab: SettingsTab) =>
-    `flex items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors ${
-      settingsTab === tab
+  const tabIconStyle = (tab: SettingsTab): React.CSSProperties | undefined => {
+    if (settingsTab === tab && tab === "savings") return { color: SAVINGS_GOLD_ACCENT }
+    return undefined
+  }
+
+  const tabButtonClass = (tab: SettingsTab) => {
+    const active = settingsTab === tab
+    const base =
+      "flex w-full items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors"
+    if (active && tab === "savings") {
+      return `${base} bg-[#1A1A1A] border`
+    }
+    return `${base} ${
+      active
         ? "bg-[#1A1A1A] text-[#F7931A] border border-[#F7931A]/20"
         : "text-muted-foreground hover:text-foreground hover:bg-[#111111]"
     }`
+  }
+
+  const tabButtonStyle = (tab: SettingsTab): React.CSSProperties | undefined => {
+    if (settingsTab === tab && tab === "savings") {
+      return { color: SAVINGS_GOLD_ACCENT, borderColor: `${SAVINGS_GOLD_ACCENT}40` }
+    }
+    return undefined
+  }
 
   const toggleCommunicationPreference = useCallback(
     (key: CommunicationPreferenceKey, enabled: boolean) => {
@@ -553,6 +585,13 @@ export function SettingsPage() {
           )}
         </>
       )}
+    </>
+  )
+
+  const savingsSection = (
+    <>
+      <SettingsSavingsCard />
+      <IncomeImporterCard />
     </>
   )
 
@@ -944,12 +983,12 @@ export function SettingsPage() {
   )
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 w-full max-w-full flex-col gap-6">
       <h2 className="text-2xl font-bold text-foreground">Settings</h2>
-      <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="lg:sticky lg:top-6 self-start">
+      <div className="grid min-w-0 w-full max-w-full gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <aside className="min-w-0 w-full max-w-full lg:sticky lg:top-6 self-start">
           <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-2">
-            <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+            <div className="flex flex-col gap-2">
               <button type="button" onClick={() => selectSettingsTab("general")} className={tabButtonClass("general")}>
                 <Settings2 className={tabIconClass("general")} aria-hidden />
                 <span>General</span>
@@ -962,11 +1001,11 @@ export function SettingsPage() {
                 <MessageSquare className={tabIconClass("communications")} aria-hidden />
                 <span>Communications</span>
               </button>
-              <button
-                type="button"
-                onClick={() => selectSettingsTab("integrations")}
-                className={tabButtonClass("integrations")}
-              >
+              <button type="button" onClick={() => selectSettingsTab("savings")} className={tabButtonClass("savings")} style={tabButtonStyle("savings")}>
+                <PiggyBank className={tabIconClass("savings")} style={tabIconStyle("savings")} aria-hidden />
+                <span>Savings tracking</span>
+              </button>
+              <button type="button" onClick={() => selectSettingsTab("integrations")} className={tabButtonClass("integrations")}>
                 <Plug className={tabIconClass("integrations")} aria-hidden />
                 <span>Integrations</span>
               </button>
@@ -986,9 +1025,10 @@ export function SettingsPage() {
           </div>
         </aside>
 
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 w-full max-w-full flex-col gap-6">
           {settingsTab === "general" && generalSection}
           {settingsTab === "communications" && communicationsSection}
+          {settingsTab === "savings" && savingsSection}
           {settingsTab === "integrations" && integrationsSection}
           {settingsTab === "tags" && tagsSection}
           {settingsTab === "payees" && <PayeeMappingsSettings />}

@@ -38,7 +38,7 @@ export interface BuildExportFilenameOptions {
   /** True when payee search filter is active. */
   hasPayeeSearch?: boolean
   /** Active type filter when not "all". */
-  typeFilter?: "expense" | "credit"
+  typeFilter?: "expense" | "credit" | "income"
   /** Envelope names when envelope filter is active (will be sanitized for filename). */
   envelopeNames?: string[]
   /** Tag names when tag filter is active (will be sanitized for filename). */

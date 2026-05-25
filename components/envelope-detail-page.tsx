@@ -3,14 +3,18 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
+import { compareTransactionsDesc, getEnvelopeBalanceAllTime, formatUsd, type Transaction } from "@/lib/data"
+import { envelopeBudgetProgressPct, envelopeHealthColor } from "@/lib/envelope-card-metrics"
+import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import {
-  compareTransactionsDesc,
-  getEnvelopeBalance,
-  getCurrentMonthKey,
-  formatUsd,
-  type TransactionType,
-} from "@/lib/data"
-import type { Transaction } from "@/lib/data"
+  displayPayeeForTransaction,
+  displayTypeLabelForTransaction,
+  incomeTransactionsByFundingBatchId,
+  typeBadgeClassForTransaction,
+  transactionMatchesTypeFilter,
+  type TransactionListTypeFilter,
+} from "@/lib/ledger-funding-display"
+import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { Progress } from "@/components/ui/progress"
@@ -36,18 +40,21 @@ export function EnvelopeDetailPage() {
 
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
-  const [typeFilter, setTypeFilter] = useState<"all" | TransactionType>("all")
+  const [typeFilter, setTypeFilter] = useState<TransactionListTypeFilter>("all")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [pageSize, setPageSize] = useState(10)
   const [page, setPage] = useState(1)
   const highlightedRef = useRef<HTMLTableRowElement>(null)
 
-  const currentMonth = getCurrentMonthKey()
-
   const envelopeTransactions = useMemo(
     () => state.transactions.filter((t) => t.envelopeId === selectedEnvelopeId),
     [state.transactions, selectedEnvelopeId],
+  )
+
+  const incomeByFundingBatchId = useMemo(
+    () => incomeTransactionsByFundingBatchId(state.transactions),
+    [state.transactions],
   )
 
   const filteredTransactions = useMemo(() => {
@@ -55,11 +62,14 @@ export function EnvelopeDetailPage() {
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
-      result = result.filter((t) => t.payee.toLowerCase().includes(q))
+      result = result.filter((t) => {
+        const displayPayee = displayPayeeForTransaction(t, state.transactions, incomeByFundingBatchId)
+        return displayPayee.toLowerCase().includes(q) || t.payee.toLowerCase().includes(q)
+      })
     }
 
     if (typeFilter !== "all") {
-      result = result.filter((t) => t.type === typeFilter)
+      result = result.filter((t) => transactionMatchesTypeFilter(t, typeFilter))
     }
 
     if (startDate) {
@@ -70,7 +80,7 @@ export function EnvelopeDetailPage() {
     }
 
     return result.sort(compareTransactionsDesc)
-  }, [envelopeTransactions, searchQuery, typeFilter, startDate, endDate])
+  }, [envelopeTransactions, state.transactions, incomeByFundingBatchId, searchQuery, typeFilter, startDate, endDate])
 
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
   const paginatedTransactions = filteredTransactions.slice((page - 1) * pageSize, page * pageSize)
@@ -106,9 +116,18 @@ export function EnvelopeDetailPage() {
     )
   }
 
-  const balance = getEnvelopeBalance(state.transactions, envelope.id, currentMonth, envelope.monthlyAllotment)
-  const percentage = envelope.monthlyAllotment > 0 ? Math.max(0, (balance / envelope.monthlyAllotment) * 100) : 0
-  const healthColor = percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
+  const balance = getEnvelopeBalanceAllTime(state.transactions, envelope.id)
+  const isSavingsHub = envelope.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS
+  const progressPct = !isSavingsHub
+    ? envelopeBudgetProgressPct(balance, envelope.monthlyAllotment)
+    : 0
+  const healthColor = isSavingsHub
+    ? balance > 0
+      ? "#22C55E"
+      : balance < 0
+        ? "#EF4444"
+        : "#A3A3A3"
+    : envelopeHealthColor(progressPct)
 
   return (
     <div className="flex flex-col gap-6">
@@ -133,21 +152,25 @@ export function EnvelopeDetailPage() {
             <span className="text-lg font-semibold text-foreground">{formatUsd(envelope.monthlyAllotment)}</span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Remaining</span>
+            <span className="text-xs text-muted-foreground uppercase tracking-wider">
+              {isSavingsHub ? "Balance" : "Remaining"}
+            </span>
             <span className="text-lg font-semibold" style={{ color: healthColor }}>
               {formatUsd(balance)}
             </span>
           </div>
-          <div className="flex-1 max-w-xs">
-            <Progress
-              value={Math.min(100, percentage)}
-              className="h-2.5"
-              style={{
-                // @ts-expect-error - CSS custom properties
-                "--progress-color": healthColor,
-              }}
-            />
-          </div>
+          {!isSavingsHub && (
+            <div className="flex-1 max-w-xs">
+              <Progress
+                value={Math.min(100, progressPct)}
+                className="h-2.5"
+                style={{
+                  // @ts-expect-error - CSS custom properties
+                  "--progress-color": healthColor,
+                }}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -168,7 +191,7 @@ export function EnvelopeDetailPage() {
         <Select
           value={typeFilter}
           onValueChange={(v) => {
-            setTypeFilter(v as "all" | TransactionType)
+            setTypeFilter(v as TransactionListTypeFilter)
             setPage(1)
           }}
         >
@@ -179,6 +202,7 @@ export function EnvelopeDetailPage() {
             <SelectItem value="all" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">All Types</SelectItem>
             <SelectItem value="expense" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Expenses</SelectItem>
             <SelectItem value="credit" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Credits</SelectItem>
+            <SelectItem value="income" className="text-foreground focus:bg-[#2A2A2A] focus:text-foreground">Income</SelectItem>
           </SelectContent>
         </Select>
 
@@ -225,6 +249,10 @@ export function EnvelopeDetailPage() {
               {paginatedTransactions.map((txn) => {
                 const opCost = calculateOpportunityCost(txn.amount, txn.date)
                 const isHighlighted = txn.id === highlightTransactionId
+                const payeeLabel =
+                  txn.isDecrypted === false
+                    ? null
+                    : displayPayeeForTransaction(txn, state.transactions, incomeByFundingBatchId)
                 return (
                   <tr
                     key={txn.id}
@@ -237,7 +265,11 @@ export function EnvelopeDetailPage() {
                     </td>
                     <td className="py-3.5 px-4 text-sm font-medium text-foreground">
                       <span className="flex items-center gap-1.5">
-                        {txn.payee}
+                        {txn.isDecrypted === false ? (
+                          <span className="text-muted-foreground italic">{ENCRYPTED_DISPLAY}</span>
+                        ) : (
+                          payeeLabel
+                        )}
                         {txn.recurringId && (
                           <span title="Recurring transaction"><Repeat className="h-3 w-3 text-muted-foreground shrink-0" /></span>
                         )}
@@ -246,13 +278,9 @@ export function EnvelopeDetailPage() {
                     <td className="py-3.5 px-4">
                       <Badge
                         variant="outline"
-                        className={
-                          txn.type === "expense"
-                            ? "border-[#F7931A]/30 text-[#F7931A] bg-[#F7931A]/5"
-                            : "border-[#22C55E]/30 text-[#22C55E] bg-[#22C55E]/5"
-                        }
+                        className={typeBadgeClassForTransaction(txn)}
                       >
-                        {txn.type === "expense" ? "Expense" : "Credit"}
+                        {displayTypeLabelForTransaction(txn)}
                       </Badge>
                     </td>
                     <td className="py-3.5 px-4 text-right text-sm font-medium text-foreground">
@@ -387,6 +415,10 @@ export function EnvelopeDetailPage() {
         transaction={selectedTxn}
         open={!!selectedTxn}
         onOpenChange={(open) => { if (!open) setSelectedTxn(null) }}
+        onNavigateToLinkedIncome={(incomeTxn) => {
+          navigateTo("transactions", undefined, { envelopeFilter: incomeTxn.envelopeId })
+          setSelectedTxn(incomeTxn)
+        }}
       />
     </div>
   )

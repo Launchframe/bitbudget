@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import {
+  RESERVED_SAVINGS_ENVELOPE_NAME,
+  SYSTEM_ENVELOPE_ROLE_SAVINGS,
+  isReservedSavingsEnvelopeName,
+} from "@/lib/constants"
+import { mergeEnvelopeRecords } from "@/lib/server-merge-envelope"
+import { ensureSystemSavingsEnvelope } from "@/lib/ensure-system-savings-envelope"
+import {
+  hasUnresolvedSavingsDraft,
+  resolveSavingsDraftIds,
+} from "@/lib/envelope-sync-savings"
 
 const TMP_PREFIX = "__bb_sync_tmp_"
 
@@ -74,8 +85,32 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await prisma.$transaction(async tx => {
-      const server = await tx.envelope.findMany({ where: { userId } })
-      const serverById = new Map(server.map(e => [e.id, e]))
+      await ensureSystemSavingsEnvelope(userId, tx)
+      let server = await tx.envelope.findMany({ where: { userId } })
+      let serverById = new Map(server.map(e => [e.id, e]))
+
+      resolveSavingsDraftIds(normalized, server)
+
+      let systemSav = server.find(e => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)
+      const savingsDraft = normalized.find(
+        e =>
+          isReservedSavingsEnvelopeName(e.name) &&
+          e.id &&
+          serverById.has(e.id) &&
+          (!systemSav || e.id !== systemSav.id),
+      )
+
+      if (systemSav && savingsDraft?.id && savingsDraft.id !== systemSav.id) {
+        await mergeEnvelopeRecords(tx, userId, savingsDraft.id, systemSav.id)
+        savingsDraft.id = systemSav.id
+        server = await tx.envelope.findMany({ where: { userId } })
+        serverById = new Map(server.map(e => [e.id, e]))
+        systemSav = server.find(e => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)
+      }
+
+      if (hasUnresolvedSavingsDraft(normalized)) {
+        throw new Error("RESERVED_SAVINGS_UNRESOLVED")
+      }
 
       const draftIds = new Set(normalized.filter(e => e.id).map(e => e.id!))
       for (const id of draftIds) {
@@ -84,7 +119,11 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const idsToDelete = server.filter(e => !draftIds.has(e.id)).map(e => e.id)
+      const systemSavId = server.find(e => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)?.id
+
+      const idsToDelete = server
+        .filter(e => !draftIds.has(e.id) && (!systemSavId || e.id !== systemSavId))
+        .map(e => e.id)
 
       if (idsToDelete.length > 0) {
         const txnCount = await tx.transaction.count({
@@ -121,20 +160,33 @@ export async function POST(req: NextRequest) {
       }
 
       for (const d of withIds) {
+        const isSystemSavings = systemSavId !== undefined && d.id === systemSavId
         await tx.envelope.update({
           where: { id: d.id },
-          data: {
-            name: d.name,
-            color: d.color,
-            ...(d.icon !== undefined ? { icon: d.icon } : {}),
-            monthlyAllotment: d.monthlyAllotment,
-          },
+          data: isSystemSavings
+            ? {
+                name: RESERVED_SAVINGS_ENVELOPE_NAME,
+                monthlyAllotment: 0,
+                color: d.color,
+                archived: false,
+                systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
+                ...(d.icon !== undefined ? { icon: d.icon } : {}),
+              }
+            : {
+                name: d.name,
+                color: d.color,
+                ...(d.icon !== undefined ? { icon: d.icon } : {}),
+                monthlyAllotment: d.monthlyAllotment,
+              },
         })
       }
 
       const createdRows: typeof server = []
       for (const d of normalized) {
         if (d.id) continue
+        if (isReservedSavingsEnvelopeName(d.name)) {
+          throw new Error("RESERVED_SAVINGS_UNRESOLVED")
+        }
         createdRows.push(
           await tx.envelope.create({
             data: {
@@ -168,9 +220,16 @@ export async function POST(req: NextRequest) {
         color: e.color,
         icon: e.icon,
         archived: e.archived,
+        systemRole: e.systemRole ?? null,
       })),
     })
   } catch (e) {
+    if (e instanceof Error && e.message === "RESERVED_SAVINGS_UNRESOLVED") {
+      return NextResponse.json(
+        { error: "Savings is managed by the app and could not be synced. Try again or contact support." },
+        { status: 400 },
+      )
+    }
     if (e instanceof Error && e.message === "UNKNOWN_ID") {
       return NextResponse.json({ error: "Unknown or stale envelope id" }, { status: 400 })
     }

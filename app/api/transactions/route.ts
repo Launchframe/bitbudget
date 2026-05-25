@@ -16,6 +16,42 @@ function parseTagsJson(raw: string): string[] {
   }
 }
 
+function jsonTxnRow(t: {
+  id: string
+  date: Date
+  payee: string
+  amount: number
+  type: string
+  envelopeId: string
+  tags: string
+  notes: string | null
+  satsAmount: number | null
+  recurringId: string | null
+  source: string
+  excludeFromMainHistory: boolean
+  fundingBatchId: string | null
+  createdAt: Date
+  updatedAt: Date
+}) {
+  return {
+    id: t.id,
+    date: t.date.toISOString().split("T")[0],
+    payee: t.payee,
+    amount: t.amount,
+    type: t.type,
+    envelopeId: t.envelopeId,
+    tags: parseTagsJson(t.tags),
+    notes: t.notes ?? null,
+    satsAmount: t.satsAmount ?? null,
+    recurringId: t.recurringId ?? null,
+    source: t.source,
+    excludeFromMainHistory: t.excludeFromMainHistory,
+    fundingBatchId: t.fundingBatchId,
+    createdAt: t.createdAt.toISOString(),
+    updatedAt: t.updatedAt.toISOString(),
+  }
+}
+
 const TXN_TYPES = new Set(["expense", "credit"])
 
 export async function GET(req: NextRequest) {
@@ -64,20 +100,7 @@ export async function GET(req: NextRequest) {
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
   })
 
-  const formatted = transactions.map(t => ({
-    id: t.id,
-    date: t.date.toISOString().split("T")[0],
-    payee: t.payee,
-    amount: t.amount,
-    type: t.type,
-    envelopeId: t.envelopeId,
-    tags: parseTagsJson(t.tags),
-    notes: t.notes ?? null,
-    satsAmount: t.satsAmount ?? null,
-    recurringId: t.recurringId ?? null,
-    createdAt: t.createdAt.toISOString(),
-    updatedAt: t.updatedAt.toISOString(),
-  }))
+  const formatted = transactions.map(jsonTxnRow)
 
   return NextResponse.json(formatted)
 }
@@ -139,20 +162,7 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  return NextResponse.json({
-    id: transaction.id,
-    date: transaction.date.toISOString().split("T")[0],
-    payee: transaction.payee,
-    amount: transaction.amount,
-    type: transaction.type,
-    envelopeId: transaction.envelopeId,
-    tags: parseTagsJson(transaction.tags),
-    notes: transaction.notes ?? null,
-    satsAmount: transaction.satsAmount ?? null,
-    recurringId: transaction.recurringId ?? null,
-    createdAt: transaction.createdAt.toISOString(),
-    updatedAt: transaction.updatedAt.toISOString(),
-  }, { status: 201 })
+  return NextResponse.json(jsonTxnRow(transaction), { status: 201 })
 }
 
 export async function PUT(req: NextRequest) {
@@ -240,20 +250,7 @@ export async function PUT(req: NextRequest) {
     },
   })
 
-  return NextResponse.json({
-    id: updated.id,
-    date: updated.date.toISOString().split("T")[0],
-    payee: updated.payee,
-    amount: updated.amount,
-    type: updated.type,
-    envelopeId: updated.envelopeId,
-    tags: parseTagsJson(updated.tags),
-    notes: updated.notes ?? null,
-    satsAmount: updated.satsAmount ?? null,
-    recurringId: updated.recurringId ?? null,
-    createdAt: updated.createdAt.toISOString(),
-    updatedAt: updated.updatedAt.toISOString(),
-  })
+  return NextResponse.json(jsonTxnRow(updated))
 }
 
 export async function DELETE(req: NextRequest) {
