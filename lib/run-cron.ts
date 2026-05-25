@@ -1,4 +1,3 @@
-import type { NextRequest } from "next/server"
 import { NextResponse } from "next/server"
 import * as Sentry from "@sentry/nextjs"
 import { prisma } from "@/lib/db"
@@ -7,13 +6,6 @@ import { sendAlert } from "@/lib/alert"
 export interface CronResult {
   processed?: number
   [key: string]: unknown
-}
-
-export function verifyCronSecret(req: NextRequest): NextResponse | null {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-  return null
 }
 
 /** Uniform cron wrapper: persist run, capture failures, alert ops. */
