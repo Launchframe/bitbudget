@@ -7,6 +7,13 @@ export const SAVINGS_GOAL_GRACE_DAYS = 7
 
 export type SavingsGoalEditability = "editable" | "upward_only" | "closed"
 
+/** True for YYYY-MM with month 01–12 (excludes invalid strings like 2026-13). */
+export function isValidCalendarMonthPeriodKey(periodKey: string): boolean {
+  if (!/^\d{4}-\d{2}$/.test(periodKey)) return false
+  const m = Number(periodKey.split("-")[1])
+  return m >= 1 && m <= 12
+}
+
 export function savingsGoalEditability(
   row: Pick<SavingsGoal, "graceEndsAt" | "closedAt" | "periodKey">,
   now = new Date(),
@@ -22,7 +29,7 @@ export function graceEndsAtForPeriod(params: {
   userCreatedAt: Date
 }): Date | null {
   if (params.periodKey === SAVINGS_GOAL_DEFAULT_PERIOD) return null
-  if (!/^\d{4}-\d{2}$/.test(params.periodKey)) return null
+  if (!isValidCalendarMonthPeriodKey(params.periodKey)) return null
   const [y, m] = params.periodKey.split("-").map(Number)
   const periodStart = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0))
   const signup = params.userCreatedAt

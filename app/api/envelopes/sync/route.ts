@@ -8,6 +8,7 @@ import {
   isReservedSavingsEnvelopeName,
 } from "@/lib/constants"
 import { mergeEnvelopeRecords } from "@/lib/server-merge-envelope"
+import { ensureSystemSavingsEnvelope } from "@/lib/ensure-system-savings-envelope"
 import {
   hasUnresolvedSavingsDraft,
   resolveSavingsDraftIds,
@@ -84,6 +85,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await prisma.$transaction(async tx => {
+      await ensureSystemSavingsEnvelope(userId, tx)
       let server = await tx.envelope.findMany({ where: { userId } })
       let serverById = new Map(server.map(e => [e.id, e]))
 
@@ -104,45 +106,6 @@ export async function POST(req: NextRequest) {
         server = await tx.envelope.findMany({ where: { userId } })
         serverById = new Map(server.map(e => [e.id, e]))
         systemSav = server.find(e => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)
-      }
-
-      if (!systemSav) {
-        const idLessSavings = normalized.find(
-          e => isReservedSavingsEnvelopeName(e.name) && !e.id,
-        )
-        if (idLessSavings) {
-          const created = await tx.envelope.create({
-            data: {
-              userId,
-              name: RESERVED_SAVINGS_ENVELOPE_NAME,
-              monthlyAllotment: 0,
-              systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
-              color: idLessSavings.color,
-              icon: idLessSavings.icon,
-            },
-          })
-          idLessSavings.id = created.id
-          server = await tx.envelope.findMany({ where: { userId } })
-          serverById = new Map(server.map(e => [e.id, e]))
-          systemSav = created
-        }
-
-        const lone = normalized.find(
-          e => isReservedSavingsEnvelopeName(e.name) && e.id && serverById.has(e.id),
-        )
-        if (!systemSav && lone?.id) {
-          await tx.envelope.update({
-            where: { id: lone.id },
-            data: {
-              archived: false,
-              systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
-              name: RESERVED_SAVINGS_ENVELOPE_NAME,
-              monthlyAllotment: 0,
-            },
-          })
-          server = await tx.envelope.findMany({ where: { userId } })
-          serverById = new Map(server.map(e => [e.id, e]))
-        }
       }
 
       if (hasUnresolvedSavingsDraft(normalized)) {

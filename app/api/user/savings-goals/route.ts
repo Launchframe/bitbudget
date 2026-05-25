@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { decimalToNumber, savingsGoalEditability } from "@/lib/savings-goal"
-
-const PERIOD_KEY_RE = /^\d{4}-\d{2}$/
+import { decimalToNumber, isValidCalendarMonthPeriodKey, savingsGoalEditability } from "@/lib/savings-goal"
 
 function parsePeriodRange(from: string | null, to: string | null): { from: string; to: string } | null {
   if (!from || !to) return null
-  if (!PERIOD_KEY_RE.test(from) || !PERIOD_KEY_RE.test(to)) return null
+  if (!isValidCalendarMonthPeriodKey(from) || !isValidCalendarMonthPeriodKey(to)) return null
   if (from > to) return null
   return { from, to }
 }
