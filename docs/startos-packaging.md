@@ -1,6 +1,6 @@
 # StartOS packaging
 
-Internal knowledge base for packaging BitBudget (and related services) as StartOS `.s9pk` services. Official reference: [Start9 Service Packaging (0.4.x)](https://docs.start9.com/packaging/0.4.0.x/).
+Internal knowledge base for packaging BitBudget (and related services) as StartOS `.s9pk` services, plus **open-source and IP** considerations for trustworthy self-hosted distribution. Official packaging reference: [Start9 Service Packaging (0.4.x)](https://docs.start9.com/packaging/0.4.0.x/).
 
 ## Project status
 
@@ -15,10 +15,143 @@ Internal knowledge base for packaging BitBudget (and related services) as StartO
 ## Goals
 
 - Run BitBudget on user-owned hardware via StartOS, with privacy/sovereignty aligned with product ethos.
+- Enable **verify, don’t trust** via open source for security- and privacy-sensitive paths (see [Open source, trust, and intellectual property](#open-source-trust-and-intellectual-property)).
 - Maintain a repeatable packaging workflow (build, test, publish, update).
 - Support both **private distribution** (sideload / self-hosted registry) and, if we choose it, the **Start9 Community Registry**.
 
 This repo does **not** yet contain a `*-startos` package; packaging will live in a separate repository (convention: `bitbudget-startos`) cloned from [hello-world-startos](https://github.com/Start9Labs/hello-world-startos).
+
+Community registry submission expects a **public GitHub repo**; serious StartOS distribution aligns with **open source** so users and developers can **verify, don’t trust** privacy and security claims. See [Open source, trust, and intellectual property](#open-source-trust-and-intellectual-property) below.
+
+---
+
+## Open source, trust, and intellectual property
+
+> **Not legal advice.** This section is an engineering inventory and strategic notes for internal planning. Patentability, prior art, license choice, and enforcement require qualified IP counsel reviewing the repo and business goals.
+
+### Why open source matters here
+
+| Goal | How open source helps |
+|------|------------------------|
+| StartOS / sovereign hosting | Users can audit what runs on their hardware: encryption paths, what the server stores, ledger behavior, cron/funding logic. |
+| “Own your own data” | Aligns with product ethos; closed binaries on a home server do not prove claims. |
+| Community registry | Start9’s pipeline is built around **public** repos; trust is social and technical. |
+
+Open source does **not** automatically forbid patents (license terms matter). It **does** mean **trade secrets embedded in source** (prompts, thresholds, referral tuning) are exposed once published.
+
+This application repo has **no `LICENSE` file** yet; choosing a license is a separate decision from whether to pursue patents.
+
+### Open source vs other protection (overview)
+
+| Mechanism | What it protects | vs open source |
+|-----------|------------------|----------------|
+| **Published source + reproducible builds** | Trust, auditability | Core strategy for StartOS |
+| **Copyright + license** (MIT, Apache-2.0, AGPL-3.0, etc.) | Use and redistribution terms | Required choice when publishing |
+| **Trademark** (“BitBudget”, logo) | Brand; not the code | Still works |
+| **Hosted SaaS** | Convenience, integrations, support | “Open core” — self-host fork vs managed product |
+| **Patents** | Exclude others from claimed methods (if granted/enforced) | Possible alongside OSS with patent grant in license; culture and cost often poor fit for small teams |
+| **Trade secrets** | Unpublished know-how | **Lost** for anything in public repo |
+
+**Practical bias for BitBudget:** open-source the stack users must trust; compete on brand, hosted offering, and execution—not on hiding ledger or crypto code. Do **not** delay open source solely for speculative patents unless counsel identifies a concrete, worth-the-cost claim strategy.
+
+### Technical inventory (what is distinctive)
+
+Below maps **implemented behavior** to primary code areas. Distinctive **product/engineering** does not imply **patent-worthy** (see next subsection).
+
+#### Pay-yourself-first ledger, funding, sweep
+
+| Behavior | Primary paths |
+|----------|----------------|
+| Income credits **system Savings** first; discretionary envelopes funded via hidden allocation legs (`excludeFromMainHistory`) | `lib/envelope-funding.ts`, `lib/constants.ts` |
+| Idempotent fund/sweep batches (`EnvelopeFundingBatch`, period keys) | `prisma/schema.prisma`, `lib/envelope-funding-cron.ts` |
+| Pay cadence (monthly/weekly/biweekly/daily) + **cent-exact** splits across paydays/month fractions | `lib/payday-cadence.ts`, `lib/envelope-funding-period.ts` |
+| Irregular income: proportional split with floor + max-heap spare cents | `lib/irregular-income-split.ts` |
+| Sweep policies (reset / carry_forward / capped) + month **pacing** for manual reset suggestions | `lib/sweep-math.ts`, `lib/envelope-sweep.ts` |
+| Remaining = all-time balance vs current-month scope (UI + server alignment) | `lib/data.ts`, `lib/envelope-balance-server.ts`, `lib/savings-ui-metrics.ts` |
+| Savings goals, streaks, achievements, year-end recap | `lib/savings-goal.ts`, `lib/achievements.ts`, `lib/year-end-recap.ts` |
+
+“Pay yourself first” and envelope budgeting are **old ideas**; the combo of hidden legs, encrypted system labels, and cron idempotency is **implementation**, not a obviously broad invention.
+
+#### Privacy and encryption
+
+| Behavior | Primary paths |
+|----------|----------------|
+| Client privacy key (PBKDF2 + AES-GCM); field encryption; X25519 sealed-box for server-created rows | `lib/crypto.ts`, `lib/server-encrypt.ts` |
+| `POST /api/user/encryption` — **409** if wrapped key already set (no silent rotation) | `app/api/user/encryption/route.ts` |
+| Nostr: npub on server; nsec via extension / PIN-wrapped local storage only | `lib/auth.ts`, AGENTS.md |
+| Payee learning: **SHA-256(payee)** on server, not merchant plaintext | `lib/envelope-matcher.ts`, `prisma` `PayeeEnvelopeMapping` |
+| Confidence router: high confidence → live `Transaction`; else `PendingTransaction` inbox | `lib/confidence-router.ts` |
+| Client decrypt cache (IndexedDB + privacy key TTL) | `lib/txn-cache.ts`, `lib/privacy-key-storage.ts` |
+
+Best **verify-don’t-trust** story in the codebase. Similar hybrid encryption patterns exist elsewhere; value is **auditable correctness**, not secrecy of the approach.
+
+#### Opportunity cost (Bitcoin layer)
+
+| Behavior | Primary paths |
+|----------|----------------|
+| `satsAmount` from **BTC price on transaction date**; historical cache/backfill | `lib/btc-price.ts`, `Transaction.satsAmount` |
+| OC UI gated by `opportunityCostEnabled`; savings-mode ranking on Savings inflows | `components/top-opportunity-costs.tsx`, `lib/btc-price-context.tsx` |
+
+Unusual **product positioning** vs live fiat→BTC converters; patent outlook still uncertain (abstract-idea risk).
+
+#### Capture pipeline (receipt, email, Plaid, voice)
+
+| Behavior | Primary paths |
+|----------|----------------|
+| Magic-byte receipt validation; GPT vision/text | `lib/receipt-scan-validate.ts`, `app/api/receipts/scan/route.ts` |
+| Inbound email + per-user `receiptInboxToken` | `app/api/webhooks/inbound-email/route.ts` |
+| Plaid sync + dedupe claim; encrypt + confidence route | `app/api/webhooks/plaid/route.ts` |
+| Recurring due-date processor | `lib/recurring.ts` |
+
+Mostly **commodity stack** (GPT, Plaid, webhooks). Differentiation is **privacy-preserving routing**, not novel parsers.
+
+#### Referral program
+
+| Behavior | Primary paths |
+|----------|----------------|
+| Redeem window, Plaid-gated **activation**, trial/gratis stacking, OC flag inheritance | `lib/referral.ts`, `lib/subscription.ts` |
+
+**Commercial rules**, not a technical moat; weak patent fit; weakened as trade secret if open-sourced.
+
+#### Mostly standard (lower differentiation)
+
+Auth.js + Prisma, envelope CRUD, CSV import (client encrypt), Tailwind UI, GPT prompts for matching/receipts — necessary, not unique IP.
+
+### Patent candidacy (engineering view only)
+
+Nothing in the repo clearly demands “file a provisional immediately.” Areas **counsel might** explore for **narrow** claims (still may fail prior art or §101 in the US):
+
+1. **Integrated ledger + privacy pipeline** — mandatory Savings hub, hidden funding legs, server asymmetric encryption of system-generated labels, user-only decryption for user-authored fields, idempotent batch keys.
+2. **Privacy-preserving auto-categorization** — hashed payee learning + confidence tiers + encrypted pending vs posted split without server-side merchant plaintext for learning.
+3. **Historical opportunity-cost ledger** — per-txn sats from date-indexed price, tied to savings/funding transaction sources and UI modes.
+
+Broad patents on “envelope budgeting” or “encrypting budget data” are unlikely to be viable.
+
+### What is still worth protecting without patenting
+
+| Asset | Notes |
+|-------|--------|
+| **Brand / trademark** | Product name and mark independent of license |
+| **Hosted service** | Keys for Plaid, email, SMS, managed uptime — not in self-host tarball |
+| **Documentation & threat model** | Public artifact; replaces “trust us” for crypto/ledger |
+| **License terms** | AGPL if network copyleft desired; Apache-2.0 if permissive + patent grant preferred |
+
+### Open decisions (record)
+
+- [ ] **License** for app repo (and future `bitbudget-startos` repo if separate)
+- [ ] **Scope** of publication: full monorepo vs exclude admin-only scripts, marketing-only assets
+- [ ] **Patents:** none vs defensive publication vs provisional(s) — **counsel**
+- [ ] **Open-core boundary:** which integrations remain hosted-only on start9/bitbudget SaaS if any
+
+### Checklist before counsel review
+
+Bring this doc plus:
+
+- [AGENTS.md](../AGENTS.md) (privacy rules)
+- `lib/envelope-funding.ts`, `lib/crypto.ts`, `app/api/user/encryption/route.ts`, `lib/envelope-matcher.ts`, `lib/confidence-router.ts`, `lib/referral.ts`
+- Business intent: StartOS-only self-host vs dual SaaS + self-host
+
+Ask counsel: license recommendation, whether any provisional is justified, and whether public repo history creates disclosure issues for filings already planned.
 
 ---
 
