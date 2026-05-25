@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { booleanSettingsFieldError } from "@/lib/user-settings-validation"
+import {
+  booleanSettingsFieldError,
+  setupGuideSnoozedUntilError,
+} from "@/lib/user-settings-validation"
 
 describe("booleanSettingsFieldError", () => {
   it("returns null when boolean fields are omitted or valid", () => {
@@ -28,5 +31,21 @@ describe("booleanSettingsFieldError", () => {
     expect(booleanSettingsFieldError({ opportunityCostEnabled: null })).toBe(
       "opportunityCostEnabled must be a boolean",
     )
+  })
+})
+
+describe("setupGuideSnoozedUntilError", () => {
+  it("accepts undefined and null", () => {
+    expect(setupGuideSnoozedUntilError(undefined)).toBeNull()
+    expect(setupGuideSnoozedUntilError(null)).toBeNull()
+  })
+
+  it("accepts valid ISO strings", () => {
+    expect(setupGuideSnoozedUntilError("2026-05-25T12:00:00.000Z")).toBeNull()
+  })
+
+  it("rejects non-string and invalid dates", () => {
+    expect(setupGuideSnoozedUntilError(123)).toContain("ISO date string")
+    expect(setupGuideSnoozedUntilError("not-a-date")).toContain("valid ISO")
   })
 })

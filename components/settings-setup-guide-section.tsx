@@ -1,27 +1,22 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useSession } from "next-auth/react"
 import { Compass, RotateCcw } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { SetupGuidePanel } from "@/components/setup-guide-panel"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import {
-  computeSetupGuideTasks,
   setupGuideProgress,
-  type SetupGuideClientInput,
   type SetupGuideTaskId,
   type SetupGuideTaskStatus,
 } from "@/lib/setup-guide-status"
-import { getCurrentMonthKey } from "@/lib/data"
-import {
-  discretionaryAllotmentSignature,
-  fetchSavingsGoalSetForMonth,
-  focusSettingsSection,
-} from "@/lib/setup-guide-client"
+import { discretionaryAllotmentSignature, focusSettingsSection } from "@/lib/setup-guide-client"
 
 type SetupStatusResponse = {
   tasks: SetupGuideTaskStatus[]
+  completedCount: number
+  totalCount: number
+  allComplete: boolean
   hasPremiumFeatures: boolean
 }
 
@@ -37,10 +32,8 @@ export function SettingsSetupGuideSection() {
     restartWalkthrough,
     hasPremiumFeatures,
   } = useApp()
-  const { data: session } = useSession()
 
   const [remote, setRemote] = useState<SetupStatusResponse | null>(null)
-  const [savingsGoalSet, setSavingsGoalSet] = useState(false)
   const [upgradeFeature, setUpgradeFeature] = useState<PremiumFeature | null>(null)
 
   const allotmentSignature = useMemo(
@@ -60,39 +53,16 @@ export function SettingsSetupGuideSection() {
 
   useEffect(() => {
     const t = window.setTimeout(() => void loadStatus(), 0)
-    return () => window.clearTimeout(t)
-  }, [loadStatus, activeTransactions.length, state.monthlyIncome, allotmentSignature])
-
-  const monthKey = getCurrentMonthKey()
-
-  const refreshSavingsGoal = useCallback(async () => {
-    setSavingsGoalSet(await fetchSavingsGoalSetForMonth(monthKey))
-  }, [monthKey])
-
-  useEffect(() => {
-    const t = window.setTimeout(() => void refreshSavingsGoal(), 0)
-    const onFocus = () => void refreshSavingsGoal()
+    const onFocus = () => void loadStatus()
     window.addEventListener("focus", onFocus)
     return () => {
       window.clearTimeout(t)
       window.removeEventListener("focus", onFocus)
     }
-  }, [refreshSavingsGoal])
+  }, [loadStatus, activeTransactions.length, state.monthlyIncome, allotmentSignature])
 
-  const clientInput: SetupGuideClientInput = {
-    monthlyIncome: state.monthlyIncome,
-    envelopes: state.envelopes,
-    transactions: activeTransactions,
-    hasAccountEmail: Boolean(session?.user?.email),
-    hasPremiumFeatures: remote?.hasPremiumFeatures ?? hasPremiumFeatures,
-    savingsGoalSet,
-    hasPlaidLink: remote?.tasks.find((t) => t.id === "plaid")?.complete ?? false,
-    hasReceiptInboxActivity:
-      remote?.tasks.find((t) => t.id === "receipt_inbox")?.complete ?? false,
-  }
-
-  const tasks = computeSetupGuideTasks(clientInput)
-  const progress = setupGuideProgress(tasks)
+  const progress = remote ? setupGuideProgress(remote.tasks) : null
+  const tasks = remote?.tasks ?? []
 
   async function handleToggleShowOnHome(checked: boolean) {
     await updateSetupGuidePrefs({
@@ -133,10 +103,14 @@ export function SettingsSetupGuideSection() {
         break
     }
     void refreshSetupGuideStatus()
+    void loadStatus()
   }
 
   return (
-    <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 w-full max-w-full">
+    <div
+      className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 w-full max-w-full"
+      data-walkthrough="settings-setup-guide"
+    >
       <div className="flex items-center gap-3 mb-4">
         <div className="p-2 rounded-lg bg-[#3B82F6]/20">
           <Compass className="h-5 w-5 text-[#3B82F6]" />
@@ -166,15 +140,21 @@ export function SettingsSetupGuideSection() {
         </p>
       )}
 
-      <SetupGuidePanel
-        tasks={tasks}
-        completedCount={progress.completedCount}
-        totalCount={progress.totalCount}
-        allComplete={progress.allComplete}
-        hasPremiumFeatures={remote?.hasPremiumFeatures ?? hasPremiumFeatures}
-        variant="settings"
-        onTaskAction={handleTaskAction}
-      />
+      {!remote ? (
+        <p className="text-sm text-muted-foreground py-4" role="status">
+          Loading checklist…
+        </p>
+      ) : (
+        <SetupGuidePanel
+          tasks={tasks}
+          completedCount={progress!.completedCount}
+          totalCount={progress!.totalCount}
+          allComplete={progress!.allComplete}
+          hasPremiumFeatures={remote.hasPremiumFeatures}
+          variant="settings"
+          onTaskAction={handleTaskAction}
+        />
+      )}
 
       <div className="mt-6 pt-4 border-t border-[#1F1F1F]">
         <p className="text-sm font-medium text-foreground mb-1">App tour</p>

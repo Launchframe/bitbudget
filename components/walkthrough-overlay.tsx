@@ -186,15 +186,15 @@ export function WalkthroughOverlay() {
   }, [visible, positionTooltip])
 
   function handleNext() {
-    if (currentStep < steps.length - 1) {
-      setCurrentStep(currentStep + 1)
-    } else {
-      dismiss()
-    }
+    setCurrentStep((prev) => {
+      if (prev < steps.length - 1) return prev + 1
+      setTimeout(() => dismiss(), 0)
+      return prev
+    })
   }
 
   function handleBack() {
-    if (currentStep > 0) setCurrentStep(currentStep - 1)
+    setCurrentStep((prev) => (prev > 0 ? prev - 1 : prev))
   }
 
   function dismiss() {

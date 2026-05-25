@@ -29,15 +29,23 @@ export async function fetchSavingsGoalSetForMonth(
 
 export type SetupGuideSettingsTab = "general" | "integrations"
 
+function scrollWhenPresent(selector: string, attemptsLeft = 12): void {
+  const el = document.querySelector(selector)
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "start" })
+    return
+  }
+  if (attemptsLeft <= 0) return
+  requestAnimationFrame(() => scrollWhenPresent(selector, attemptsLeft - 1))
+}
+
 export function focusSettingsSection(tab: SetupGuideSettingsTab): void {
   window.dispatchEvent(
     new CustomEvent("bitbudget-walkthrough-settings-tab", { detail: { tab } }),
   )
-  requestAnimationFrame(() => {
-    const selector =
-      tab === "integrations"
-        ? '[data-walkthrough="settings-connections"]'
-        : "#settings-linked-sign-in"
-    document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "start" })
-  })
+  const selector =
+    tab === "integrations"
+      ? '[data-walkthrough="settings-connections"]'
+      : "#settings-linked-sign-in"
+  requestAnimationFrame(() => scrollWhenPresent(selector))
 }

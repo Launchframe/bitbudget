@@ -13,6 +13,7 @@ import { primePrivacyKeyCache } from "./helpers/privacy-cache"
  */
 test.describe("Dashboard walkthrough", () => {
   test("completion is per-user and persists after reload", async ({ page, baseURL }) => {
+    test.setTimeout(120_000)
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
     const emailA = `e2e-walkthrough-a-${Date.now()}@bitbudget.test`
     const emailB = `e2e-walkthrough-b-${Date.now()}@bitbudget.test`

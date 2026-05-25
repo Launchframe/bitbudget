@@ -22,10 +22,18 @@ export type SetupGuideTaskStatus = {
   premiumOnly?: boolean
 }
 
+export type SetupGuideTransactionSignals = {
+  hasFundedIncomeThisMonth: boolean
+  hasAnyTransaction: boolean
+  hasSweepToSavings: boolean
+}
+
 export type SetupGuideClientInput = {
   monthlyIncome: number
   envelopes: readonly Envelope[]
-  transactions: readonly Transaction[]
+  /** Omit when `transactionSignals` is provided (server-side setup-status). */
+  transactions?: readonly Transaction[]
+  transactionSignals?: SetupGuideTransactionSignals
   hasAccountEmail: boolean
   hasPremiumFeatures: boolean
   savingsGoalSet: boolean
@@ -37,20 +45,26 @@ const ALLOTMENT_EPSILON = 0.001
 
 export function hasIncomeSignal(
   monthlyIncome: number,
-  transactions: readonly Transaction[],
+  transactions: readonly Transaction[] = [],
   monthKey: string = getCurrentMonthKey(),
+  fundedIncomeThisMonth?: boolean,
 ): boolean {
   if (monthlyIncome > ALLOTMENT_EPSILON) return true
+  if (fundedIncomeThisMonth === true) return true
+  if (transactions.length === 0) return false
   return sumMonthlyIncomeCredits(transactions, monthKey) > ALLOTMENT_EPSILON
 }
 
 export function allocationsComplete(
   discretionaryEnvelopes: readonly Envelope[],
   monthlyIncome: number,
-  transactions: readonly Transaction[],
+  transactions: readonly Transaction[] = [],
+  fundedIncomeThisMonth?: boolean,
 ): boolean {
   if (discretionaryEnvelopes.length === 0) return false
-  if (!hasIncomeSignal(monthlyIncome, transactions)) return false
+  if (!hasIncomeSignal(monthlyIncome, transactions, getCurrentMonthKey(), fundedIncomeThisMonth)) {
+    return false
+  }
   return discretionaryEnvelopes.every((e) => (e.monthlyAllotment ?? 0) > ALLOTMENT_EPSILON)
 }
 
@@ -76,19 +90,23 @@ export function hasFirstSweep(
 
 export function computeSetupGuideTasks(input: SetupGuideClientInput): SetupGuideTaskStatus[] {
   const discretionary = input.envelopes.filter((e) => !e.archived && e.systemRole !== "savings")
+  const txns = input.transactions ?? []
+  const signals = input.transactionSignals
+  const savingsId = input.envelopes.find((e) => e.systemRole === "savings")?.id
+  const funded = signals?.hasFundedIncomeThisMonth
 
   const core: SetupGuideTaskStatus[] = [
     {
       id: "income",
-      complete: hasIncomeSignal(input.monthlyIncome, input.transactions),
+      complete: hasIncomeSignal(input.monthlyIncome, txns, getCurrentMonthKey(), funded),
     },
     {
       id: "allocations",
-      complete: allocationsComplete(discretionary, input.monthlyIncome, input.transactions),
+      complete: allocationsComplete(discretionary, input.monthlyIncome, txns, funded),
     },
     {
       id: "first_expense",
-      complete: hasFirstExpense(input.transactions),
+      complete: signals ? signals.hasAnyTransaction : hasFirstExpense(txns),
     },
     {
       id: "savings_goal",
@@ -96,10 +114,7 @@ export function computeSetupGuideTasks(input: SetupGuideClientInput): SetupGuide
     },
     {
       id: "first_sweep",
-      complete: hasFirstSweep(
-        input.transactions,
-        input.envelopes.find((e) => e.systemRole === "savings")?.id,
-      ),
+      complete: signals ? signals.hasSweepToSavings : hasFirstSweep(txns, savingsId),
     },
     {
       id: "account_email",

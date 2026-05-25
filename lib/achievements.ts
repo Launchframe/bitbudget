@@ -265,14 +265,3 @@ export async function detectAchievementsForUser(userId: string, asOf?: Date): Pr
 
   return awarded
 }
-
-/** Run full achievement scan including setup-guide awards from current user state. */
-export async function detectAllAchievementsForUser(
-  userId: string,
-  setupFlags: SetupGuideAchievementFlags,
-  asOf?: Date,
-): Promise<number> {
-  let awarded = await detectAchievementsForUser(userId, asOf)
-  awarded += await awardSetupGuideAchievements(userId, setupFlags)
-  return awarded
-}

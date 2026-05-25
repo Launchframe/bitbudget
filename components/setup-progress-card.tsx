@@ -1,24 +1,17 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useSession } from "next-auth/react"
 import { useApp } from "@/lib/app-context"
 import { SetupGuidePanel } from "@/components/setup-guide-panel"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import {
   SETUP_GUIDE_SNOOZE_MS,
-  computeSetupGuideTasks,
   setupGuideProgress,
-  type SetupGuideClientInput,
+  shouldShowSetupGuideOnDashboard,
   type SetupGuideTaskId,
   type SetupGuideTaskStatus,
 } from "@/lib/setup-guide-status"
-import { getCurrentMonthKey } from "@/lib/data"
-import {
-  discretionaryAllotmentSignature,
-  fetchSavingsGoalSetForMonth,
-  focusSettingsSection,
-} from "@/lib/setup-guide-client"
+import { discretionaryAllotmentSignature, focusSettingsSection } from "@/lib/setup-guide-client"
 
 type SetupStatusResponse = {
   tasks: SetupGuideTaskStatus[]
@@ -39,10 +32,8 @@ export function SetupProgressCard() {
     refreshSetupGuideStatus,
     hasPremiumFeatures,
   } = useApp()
-  const { data: session } = useSession()
 
   const [remote, setRemote] = useState<SetupStatusResponse | null>(null)
-  const [savingsGoalSet, setSavingsGoalSet] = useState(false)
   const [upgradeFeature, setUpgradeFeature] = useState<PremiumFeature | null>(null)
   const [snoozeActive, setSnoozeActive] = useState(false)
 
@@ -68,39 +59,6 @@ export function SetupProgressCard() {
     return () => window.clearTimeout(t)
   }, [loadStatus, activeTransactions.length, state.monthlyIncome, allotmentSignature])
 
-  const monthKey = getCurrentMonthKey()
-
-  const refreshSavingsGoal = useCallback(async () => {
-    setSavingsGoalSet(await fetchSavingsGoalSetForMonth(monthKey))
-  }, [monthKey])
-
-  useEffect(() => {
-    const t = window.setTimeout(() => void refreshSavingsGoal(), 0)
-    const onFocus = () => void refreshSavingsGoal()
-    window.addEventListener("focus", onFocus)
-    return () => {
-      window.clearTimeout(t)
-      window.removeEventListener("focus", onFocus)
-    }
-  }, [refreshSavingsGoal])
-
-  const clientInput: SetupGuideClientInput | null = remote
-    ? {
-        monthlyIncome: state.monthlyIncome,
-        envelopes: state.envelopes,
-        transactions: activeTransactions,
-        hasAccountEmail: Boolean(session?.user?.email),
-        hasPremiumFeatures: remote.hasPremiumFeatures ?? hasPremiumFeatures,
-        savingsGoalSet,
-        hasPlaidLink: remote.tasks.find((t) => t.id === "plaid")?.complete ?? false,
-        hasReceiptInboxActivity:
-          remote.tasks.find((t) => t.id === "receipt_inbox")?.complete ?? false,
-      }
-    : null
-
-  const tasks = clientInput ? computeSetupGuideTasks(clientInput) : (remote?.tasks ?? [])
-  const progress = setupGuideProgress(tasks)
-
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
       const active =
@@ -111,9 +69,18 @@ export function SetupProgressCard() {
     return () => cancelAnimationFrame(raf)
   }, [state.setupGuideSnoozedUntil])
 
-  if (!state.setupGuideShowOnDashboard || state.setupGuideDismissed || snoozeActive) {
-    return null
-  }
+  if (!remote) return null
+
+  const progress = setupGuideProgress(remote.tasks)
+
+  const showOnDashboard = shouldShowSetupGuideOnDashboard({
+    showOnDashboard: state.setupGuideShowOnDashboard,
+    dismissed: state.setupGuideDismissed,
+    snoozedUntil: state.setupGuideSnoozedUntil,
+    allComplete: progress.allComplete,
+  })
+
+  if (!showOnDashboard || snoozeActive) return null
 
   async function handleSnooze() {
     const until = new Date(Date.now() + SETUP_GUIDE_SNOOZE_MS).toISOString()
@@ -121,12 +88,17 @@ export function SetupProgressCard() {
   }
 
   async function handleDismissFromHome() {
-    await updateSetupGuidePrefs({ setupGuideDismissed: true })
+    await updateSetupGuidePrefs({
+      setupGuideDismissed: true,
+      setupGuideShowOnDashboard: false,
+    })
   }
 
   function handleTaskAction(id: SetupGuideTaskId) {
     const premiumLocked =
-      (id === "plaid" || id === "receipt_inbox") && !hasPremiumFeatures && !remote?.hasPremiumFeatures
+      (id === "plaid" || id === "receipt_inbox") &&
+      !hasPremiumFeatures &&
+      !remote?.hasPremiumFeatures
     if (premiumLocked) {
       setUpgradeFeature(id === "plaid" ? "plaid" : "receipt_inbox")
       return
@@ -159,16 +131,17 @@ export function SetupProgressCard() {
         break
     }
     void refreshSetupGuideStatus()
+    void loadStatus()
   }
 
   return (
     <>
       <SetupGuidePanel
-        tasks={tasks}
+        tasks={remote.tasks}
         completedCount={progress.completedCount}
         totalCount={progress.totalCount}
         allComplete={progress.allComplete}
-        hasPremiumFeatures={remote?.hasPremiumFeatures ?? hasPremiumFeatures}
+        hasPremiumFeatures={remote.hasPremiumFeatures}
         variant="dashboard"
         onTaskAction={handleTaskAction}
         onSnooze={progress.allComplete ? undefined : handleSnooze}

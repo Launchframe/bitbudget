@@ -50,7 +50,7 @@ describe("setup-guide-status", () => {
     const base = {
       monthlyIncome: 1000,
       envelopes: [env({ id: "a", name: "Food", monthlyAllotment: 500 })],
-      transactions: [txn({ id: "t1" })],
+      transactions: [txn({ id: "t1" })] as const,
       hasAccountEmail: true,
       savingsGoalSet: true,
       hasPlaidLink: true,
@@ -78,6 +78,14 @@ describe("setup-guide-status", () => {
         dismissed: true,
         snoozedUntil: null,
         allComplete: false,
+      }),
+    ).toBe(false)
+    expect(
+      shouldShowSetupGuideOnDashboard({
+        showOnDashboard: true,
+        dismissed: false,
+        snoozedUntil: null,
+        allComplete: true,
       }),
     ).toBe(false)
   })

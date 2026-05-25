@@ -7,6 +7,13 @@ import { useApp, type PageId } from "@/lib/app-context"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
 import { VoiceDictationButton } from "@/components/voice-dictation-button"
 
+const NAV_WALKTHROUGH_TARGETS: Partial<Record<PageId, string>> = {
+  transactions: "transactions-nav",
+  "review-inbox": "review-nav",
+  analytics: "analytics-nav",
+  envelopes: "envelopes-nav",
+}
+
 const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "DASHBOARD", icon: LayoutDashboard },
   { id: "transactions", label: "TRANSACTIONS", icon: List },
@@ -24,7 +31,7 @@ export function Sidebar() {
 
   return (
     <aside className="sticky top-24 h-[calc(100vh-8rem)] w-16 lg:w-64 bg-[#0D0D0D] rounded-2xl hidden md:flex flex-col py-8 px-3 lg:px-8 overflow-y-auto">
-      <nav className="flex flex-col gap-8">
+      <nav className="flex flex-col gap-8" data-walkthrough="app-nav">
         {navItems.filter(item => item.id !== "btc-price" || state.opportunityCostEnabled).map((item) => {
           const isActive = currentPage === item.id || (item.id === "envelopes" && (currentPage === "envelope-detail" || currentPage === "envelope-allocations"))
           const isPlaceholder = item.id === "researcher" || item.id === "funds"
@@ -36,15 +43,9 @@ export function Sidebar() {
                 if (!isPlaceholder) navigateTo(item.id)
               }}
               title={item.label}
-              {...(item.id === "transactions"
-                ? { "data-walkthrough": "transactions-nav" }
-                : item.id === "review-inbox"
-                  ? { "data-walkthrough": "review-nav" }
-                  : item.id === "analytics"
-                    ? { "data-walkthrough": "analytics-nav" }
-                    : item.id === "envelopes"
-                      ? { "data-walkthrough": "envelopes-nav" }
-                      : {})}
+              {...(NAV_WALKTHROUGH_TARGETS[item.id]
+                ? { "data-walkthrough": NAV_WALKTHROUGH_TARGETS[item.id] }
+                : {})}
               className={`relative flex items-center justify-center lg:justify-start gap-4 transition-colors text-left ${
                 isActive
                   ? "text-[#F7931A]"
