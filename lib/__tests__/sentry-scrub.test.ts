@@ -1,0 +1,31 @@
+// @vitest-environment node
+import { describe, it, expect } from "vitest"
+import { scrubAlertText, scrubSentryEvent } from "../sentry-scrub"
+
+describe("scrubAlertText", () => {
+  it("redacts emails", () => {
+    expect(scrubAlertText("failed for user@example.com")).toContain("[redacted-email]")
+    expect(scrubAlertText("failed for user@example.com")).not.toContain("user@example.com")
+  })
+
+  it("redacts npub and nsec", () => {
+    const npub = "npub1" + "a".repeat(58)
+    expect(scrubAlertText(`key ${npub}`)).toContain("[redacted-npub]")
+  })
+})
+
+describe("scrubSentryEvent", () => {
+  it("strips user email and sensitive headers", () => {
+    const event = scrubSentryEvent({
+      user: { id: "u1", email: "secret@example.com" },
+      request: {
+        headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
+        cookies: { session: "abc" },
+      },
+      extra: { payee: "Coffee Shop", notes: "latte" },
+    })
+    expect(event?.user?.email).toBeUndefined()
+    expect((event?.request?.headers as Record<string, string>).Authorization).toBe("[redacted]")
+    expect((event?.extra as Record<string, unknown>).payee).toBe("[redacted]")
+  })
+})
