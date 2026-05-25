@@ -33,6 +33,23 @@ describe("ledger-funding-display", () => {
     expect(incomeTransactionForBatch(rows, batch)?.id).toBe("inc")
   })
 
+  it("treats income_import credits as income batch headers", () => {
+    const batch = "batch-import"
+    const rows = [
+      txn({
+        id: "inc",
+        envelopeId: "sav",
+        source: "income_import",
+        fundingBatchId: batch,
+        payee: "2025 W-2",
+      }),
+      txn({ id: "leg", envelopeId: "rent", source: "envelope_funding_in", fundingBatchId: batch }),
+    ]
+    expect(incomeTransactionForBatch(rows, batch)?.id).toBe("inc")
+    expect(displayPayeeForTransaction(rows[1]!, rows)).toBe("From Income · 2025 W-2")
+    expect(transactionMatchesTypeFilter(rows[0]!, "income")).toBe(true)
+  })
+
   it("labels funding-in legs with income source", () => {
     const batch = "batch-1"
     const rows = [

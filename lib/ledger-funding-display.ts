@@ -6,7 +6,11 @@ export function isEnvelopeFundingLeg(txn: Pick<Transaction, "source">): boolean 
 }
 
 export function isIncomeHeaderTransaction(txn: Pick<Transaction, "source">): boolean {
-  return txn.source === "paycheck" || txn.source === "irregular_income"
+  return (
+    txn.source === "paycheck" ||
+    txn.source === "irregular_income" ||
+    txn.source === "income_import"
+  )
 }
 
 export function incomeTransactionForBatch(

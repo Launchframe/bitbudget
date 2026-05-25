@@ -9,6 +9,7 @@ import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import {
   displayPayeeForTransaction,
   displayTypeLabelForTransaction,
+  incomeTransactionsByFundingBatchId,
   typeBadgeClassForTransaction,
   transactionMatchesTypeFilter,
   type TransactionListTypeFilter,
@@ -51,13 +52,18 @@ export function EnvelopeDetailPage() {
     [state.transactions, selectedEnvelopeId],
   )
 
+  const incomeByFundingBatchId = useMemo(
+    () => incomeTransactionsByFundingBatchId(state.transactions),
+    [state.transactions],
+  )
+
   const filteredTransactions = useMemo(() => {
     let result = envelopeTransactions
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter((t) => {
-        const displayPayee = displayPayeeForTransaction(t, state.transactions)
+        const displayPayee = displayPayeeForTransaction(t, state.transactions, incomeByFundingBatchId)
         return displayPayee.toLowerCase().includes(q) || t.payee.toLowerCase().includes(q)
       })
     }
@@ -74,7 +80,7 @@ export function EnvelopeDetailPage() {
     }
 
     return result.sort(compareTransactionsDesc)
-  }, [envelopeTransactions, state.transactions, searchQuery, typeFilter, startDate, endDate])
+  }, [envelopeTransactions, state.transactions, incomeByFundingBatchId, searchQuery, typeFilter, startDate, endDate])
 
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
   const paginatedTransactions = filteredTransactions.slice((page - 1) * pageSize, page * pageSize)
@@ -246,7 +252,7 @@ export function EnvelopeDetailPage() {
                 const payeeLabel =
                   txn.isDecrypted === false
                     ? null
-                    : displayPayeeForTransaction(txn, state.transactions)
+                    : displayPayeeForTransaction(txn, state.transactions, incomeByFundingBatchId)
                 return (
                   <tr
                     key={txn.id}

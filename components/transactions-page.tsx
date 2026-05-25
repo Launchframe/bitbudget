@@ -574,7 +574,7 @@ export function TransactionsPage() {
                 const payeeLabel =
                   txn.isDecrypted === false
                     ? null
-                    : displayPayeeForTransaction(txn, activeTransactions)
+                    : displayPayeeForTransaction(txn, activeTransactions, incomeByFundingBatchId)
                 return (
                   <tr
                     key={txn.id}
