@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { clearDraft, loadDraft, saveDraft, saveDraftImmediate } from "../draft-storage"
+import { clearDraft, clearAllDrafts, loadDraft, saveDraft, saveDraftImmediate } from "../draft-storage"
 
 describe("draft-storage", () => {
   afterEach(() => {
@@ -40,5 +40,14 @@ describe("draft-storage", () => {
     expect(sessionStorage.getItem(key)).toBeNull()
     vi.advanceTimersByTime(400)
     expect(sessionStorage.getItem(key)).toBe(JSON.stringify({ v: 1 }))
+  })
+
+  it("clearAllDrafts cancels pending debounced saves", () => {
+    vi.useFakeTimers()
+    const key = "bitbudget-logout-draft"
+    saveDraft(key, { v: 1 })
+    clearAllDrafts()
+    vi.advanceTimersByTime(500)
+    expect(sessionStorage.getItem(key)).toBeNull()
   })
 })

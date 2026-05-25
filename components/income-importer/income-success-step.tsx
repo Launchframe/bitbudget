@@ -2,12 +2,12 @@
 
 import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
-import { setDashboardChartMode } from "@/lib/dashboard-chart-mode"
+import { setDashboardChartMode, DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 import { Button } from "@/components/ui/button"
 import { Megaphone } from "lucide-react"
 import { IncomeSuccessParticles } from "@/components/income-importer/income-success-particles"
 
-export const DASHBOARD_CHART_RANGE_OVERRIDE_KEY = "dashboard-chart-range-override"
+export { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 
 interface IncomeSuccessStepProps {
   totalUsd: number

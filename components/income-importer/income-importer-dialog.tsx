@@ -4,10 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { TrendingUp } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import {
-  EXISTING_INCOME_SOURCES,
   entriesNeedMonthlyIncome,
   parseIncomePeriodKey,
-  periodBoundsForExistingIncome,
+  sumPriorIncomeImportForPeriod,
 } from "@/lib/income-import"
 import { suggestedImportIncome } from "@/lib/income-import-defaults"
 import { findTransactionHistoryStart } from "@/lib/income-import-tx0"
@@ -97,24 +96,9 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
 
   const tx0 = useMemo(() => findTransactionHistoryStart(activeTransactions), [activeTransactions])
 
-  const sumExistingForPeriod = useCallback(
-    (periodKey: string): number => {
-      const bounds = periodBoundsForExistingIncome(periodKey)
-      if (!bounds) return 0
-      const startMs = bounds.start.getTime()
-      const endMs = bounds.end.getTime()
-      return activeTransactions
-        .filter((t) => {
-          if (t.type !== "credit" || t.excludeFromMainHistory) return false
-          const src = t.source ?? "manual"
-          if (!EXISTING_INCOME_SOURCES.includes(src as (typeof EXISTING_INCOME_SOURCES)[number])) {
-            return false
-          }
-          const d = new Date(`${t.date}T12:00:00.000Z`).getTime()
-          return d >= startMs && d < endMs
-        })
-        .reduce((sum, t) => sum + t.amount, 0)
-    },
+  const sumPriorImportForPeriod = useCallback(
+    (periodKey: string): number =>
+      sumPriorIncomeImportForPeriod(activeTransactions, periodKey),
     [activeTransactions],
   )
 
@@ -202,9 +186,9 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
   const entryList = useMemo(() => [...entries.values()], [entries])
   const summary = useMemo(() => {
     const existingMap = new Map<string, number>()
-    for (const e of entryList) existingMap.set(e.periodKey, sumExistingForPeriod(e.periodKey))
+    for (const e of entryList) existingMap.set(e.periodKey, sumPriorImportForPeriod(e.periodKey))
     return summarizeImportEntries(entryList, existingMap)
-  }, [entryList, sumExistingForPeriod])
+  }, [entryList, sumPriorImportForPeriod])
 
   const hasPreTx0Staging = useMemo(() => {
     if (!tx0) return false
@@ -440,7 +424,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
           <IncomeCellEditDialog
             open={editOpen}
             state={editState}
-            existingTotal={editState ? sumExistingForPeriod(editState.periodKey) : 0}
+            existingTotal={editState ? sumPriorImportForPeriod(editState.periodKey) : 0}
             adjacentPeriodKeys={adjacentPeriodKeys}
             onSave={(entry) => {
               stageEntries([entry])

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, type MouseEvent } from "react"
+import { useState, type MouseEvent } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import {
   Dialog,
@@ -41,6 +41,8 @@ function periodLabel(periodKey: string): string {
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" })
 }
 
+const CELL_EDIT_TITLE_ID = "income-cell-edit-title"
+
 function CellEditForm({
   state,
   existingTotal,
@@ -73,7 +75,7 @@ function CellEditForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
+        <DialogTitle id={CELL_EDIT_TITLE_ID}>{title}</DialogTitle>
       </DialogHeader>
 
       <div className="flex items-center justify-between gap-2">
@@ -87,7 +89,9 @@ function CellEditForm({
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <span className="text-sm text-muted-foreground">Existing: ${existingTotal.toFixed(2)}</span>
+        <span className="text-sm text-muted-foreground">
+          Prior import: ${existingTotal.toFixed(2)}
+        </span>
         <Button
           type="button"
           variant="outline"
@@ -176,8 +180,6 @@ export function IncomeCellEditDialog({
   onCancel,
   onNavigate,
 }: IncomeCellEditDialogProps) {
-  const title = useMemo(() => (state ? periodLabel(state.periodKey) : "Edit"), [state])
-
   if (!state) return null
 
   return (
@@ -189,7 +191,7 @@ export function IncomeCellEditDialog({
     >
       <DialogContent
         className="z-[60] bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-md"
-        aria-labelledby={title}
+        aria-labelledby={CELL_EDIT_TITLE_ID}
         onInteractOutside={(e) => e.preventDefault()}
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.stopPropagation()}

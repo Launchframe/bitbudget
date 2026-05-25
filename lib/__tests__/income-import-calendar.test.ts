@@ -26,9 +26,9 @@ describe("income-import-calendar", () => {
   })
 
   it("cellState reflects tx0 and pre-history", () => {
-    expect(cellState({ periodKey: "2022-05", tx0PeriodKey: "2022-06", amount: 0, intensity: 0 })).toBe("preHistory")
-    expect(cellState({ periodKey: "2022-06", tx0PeriodKey: "2022-06", amount: 0, intensity: 0 })).toBe("tx0")
-    expect(cellState({ periodKey: "2022-07", tx0PeriodKey: "2022-06", amount: 500, intensity: 0.5 })).toBe("shaded")
+    expect(cellState({ periodKey: "2022-05", tx0PeriodKey: "2022-06", amount: 0 })).toBe("preHistory")
+    expect(cellState({ periodKey: "2022-06", tx0PeriodKey: "2022-06", amount: 0 })).toBe("tx0")
+    expect(cellState({ periodKey: "2022-07", tx0PeriodKey: "2022-06", amount: 500 })).toBe("shaded")
   })
 
   it("summarizeImportEntries totals pending and existing", () => {

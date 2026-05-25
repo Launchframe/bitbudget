@@ -3,15 +3,16 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 import { Prisma } from "@prisma/client"
 import {
   currentMonthKeyUtc,
-  deletePriorImportForPeriod,
   distributeImportDates,
   entriesNeedMonthlyIncome,
   importBatchPeriodKey,
   isPeriodCurrentOrFuture,
   parseIncomePeriodKey,
   processIncomeImport,
+  resetImportBatchForPeriod,
   resolveImportPayDay,
   splitAmountAcrossChecks,
+  sumPriorIncomeImportForPeriod,
 } from "../income-import"
 import { ENVELOPE_FUNDING_BATCH_KIND_FUND } from "../constants"
 
@@ -102,29 +103,52 @@ describe("income-import helpers", () => {
   })
 })
 
-describe("deletePriorImportForPeriod", () => {
-  it("deletes batch transactions then batch row", async () => {
+describe("resetImportBatchForPeriod", () => {
+  it("clears stable batch transactions but keeps the batch row; deletes legacy batches", async () => {
     const deleteMany = vi.fn()
     const deleteBatch = vi.fn()
-    const findMany = vi.fn().mockResolvedValue([{ id: "batch-1" }])
+    const findMany = vi.fn().mockResolvedValue([{ id: "legacy-1" }])
+    const findUnique = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "stable-1" })
+    const create = vi.fn().mockResolvedValue({ id: "stable-1" })
 
     const tx = {
-      envelopeFundingBatch: { findMany, delete: deleteBatch },
+      envelopeFundingBatch: { findMany, findUnique, create, delete: deleteBatch },
       transaction: { deleteMany },
     } as unknown as Prisma.TransactionClient
 
-    await deletePriorImportForPeriod(tx, "user-1", "2026-05")
+    const batch = await resetImportBatchForPeriod(tx, "user-1", "2026-05")
 
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           userId: "user-1",
           kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+          periodKey: { startsWith: "import-user-1-2026-05-" },
         }),
       }),
     )
-    expect(deleteMany).toHaveBeenCalledWith({ where: { fundingBatchId: "batch-1" } })
-    expect(deleteBatch).toHaveBeenCalledWith({ where: { id: "batch-1" } })
+    expect(deleteMany).toHaveBeenCalledWith({ where: { fundingBatchId: "legacy-1" } })
+    expect(deleteBatch).toHaveBeenCalledWith({ where: { id: "legacy-1" } })
+    expect(create).toHaveBeenCalled()
+    expect(deleteMany).toHaveBeenCalledWith({ where: { fundingBatchId: "stable-1" } })
+    expect(batch).toEqual({ id: "stable-1" })
+  })
+})
+
+describe("sumPriorIncomeImportForPeriod", () => {
+  it("counts only income_import credits in the period", () => {
+    const total = sumPriorIncomeImportForPeriod(
+      [
+        { type: "credit", source: "income_import", amount: 1000, date: "2026-05-10" },
+        { type: "credit", source: "paycheck", amount: 5000, date: "2026-05-15" },
+        { type: "credit", source: "income_import", amount: 200, date: "2026-04-10" },
+      ],
+      "2026-05",
+    )
+    expect(total).toBe(1000)
   })
 })
 
@@ -134,39 +158,38 @@ describe("processIncomeImport overwrite", () => {
     vi.mocked(prisma.envelope.findMany).mockResolvedValue([])
   })
 
+  function batchLookup(batches: Map<string, { id: string; periodKey: string }>) {
+    return {
+      findMany: vi.fn(async ({ where }: { where: { periodKey?: { startsWith?: string } } }) => {
+        const prefix = where.periodKey?.startsWith
+        if (!prefix) return []
+        return [...batches.values()].filter((b) => b.periodKey.startsWith(prefix))
+      }),
+      findUnique: vi.fn(async ({ where }: { where: { userId_periodKey_kind: { periodKey: string } } }) => {
+        const row = batches.get(where.userId_periodKey_kind.periodKey)
+        return row ? { id: row.id } : null
+      }),
+      create: vi.fn(async ({ data }: { data: { periodKey: string } }) => {
+        const id = `batch-${batches.size + 1}`
+        const row = { id, periodKey: data.periodKey }
+        batches.set(data.periodKey, row)
+        return row
+      }),
+      delete: vi.fn(async ({ where }: { where: { id: string } }) => {
+        for (const [k, v] of batches) {
+          if (v.id === where.id) batches.delete(k)
+        }
+      }),
+    }
+  }
+
   it("re-importing same period+amount replaces prior batch (idempotent row count)", async () => {
     const batches = new Map<string, { id: string; periodKey: string }>()
     const txns: { id: string; fundingBatchId: string | null }[] = []
-    let batchSeq = 0
     let txnSeq = 0
 
     const tx = {
-      envelopeFundingBatch: {
-        findMany: vi.fn(async ({ where }: { where: { OR?: { periodKey?: string | { startsWith?: string } }[] } }) => {
-          const keys = new Set<string>()
-          for (const clause of where.OR ?? []) {
-            if ("periodKey" in clause && typeof clause.periodKey === "string") keys.add(clause.periodKey)
-            if ("periodKey" in clause && typeof clause.periodKey === "object" && clause.periodKey?.startsWith) {
-              const prefix = clause.periodKey.startsWith
-              for (const b of batches.values()) {
-                if (b.periodKey.startsWith(prefix)) keys.add(b.periodKey)
-              }
-            }
-          }
-          return [...batches.values()].filter((b) => keys.has(b.periodKey))
-        }),
-        create: vi.fn(async ({ data }: { data: { periodKey: string } }) => {
-          const id = `batch-${++batchSeq}`
-          const row = { id, periodKey: data.periodKey }
-          batches.set(data.periodKey, row)
-          return row
-        }),
-        delete: vi.fn(async ({ where }: { where: { id: string } }) => {
-          for (const [k, v] of batches) {
-            if (v.id === where.id) batches.delete(k)
-          }
-        }),
-      },
+      envelopeFundingBatch: batchLookup(batches),
       transaction: {
         deleteMany: vi.fn(async ({ where }: { where: { fundingBatchId: string } }) => {
           for (let i = txns.length - 1; i >= 0; i--) {
@@ -204,23 +227,9 @@ describe("processIncomeImport overwrite", () => {
   it("re-importing same period with new amount overwrites prior credits", async () => {
     const batches = new Map<string, { id: string; periodKey: string }>()
     const credits: number[] = []
-    let batchSeq = 0
 
     const tx = {
-      envelopeFundingBatch: {
-        findMany: vi.fn(async () => [...batches.values()]),
-        create: vi.fn(async ({ data }: { data: { periodKey: string } }) => {
-          const id = `batch-${++batchSeq}`
-          const row = { id, periodKey: data.periodKey }
-          batches.set(data.periodKey, row)
-          return row
-        }),
-        delete: vi.fn(async ({ where }: { where: { id: string } }) => {
-          for (const [k, v] of batches) {
-            if (v.id === where.id) batches.delete(k)
-          }
-        }),
-      },
+      envelopeFundingBatch: batchLookup(batches),
       transaction: {
         deleteMany: vi.fn(async () => {
           credits.length = 0
@@ -256,39 +265,9 @@ describe("processIncomeImport overwrite", () => {
   it("re-importing past period does not delete current-month batch", async () => {
     const batches = new Map<string, { id: string; periodKey: string }>()
     const txnsByBatch = new Map<string, number>()
-    let batchSeq = 0
 
     const tx = {
-      envelopeFundingBatch: {
-        findMany: vi.fn(async ({ where }: { where: { OR?: { periodKey?: string | { startsWith?: string } }[] } }) => {
-          const matchKeys = new Set<string>()
-          for (const clause of where.OR ?? []) {
-            if ("periodKey" in clause && typeof clause.periodKey === "string") matchKeys.add(clause.periodKey)
-            if ("periodKey" in clause && typeof clause.periodKey === "object" && clause.periodKey?.startsWith) {
-              const prefix = clause.periodKey.startsWith
-              for (const b of batches.values()) {
-                if (b.periodKey.startsWith(prefix)) matchKeys.add(b.periodKey)
-              }
-            }
-          }
-          return [...batches.values()].filter((b) => matchKeys.has(b.periodKey))
-        }),
-        create: vi.fn(async ({ data }: { data: { periodKey: string } }) => {
-          const id = `batch-${++batchSeq}`
-          const row = { id, periodKey: data.periodKey }
-          batches.set(data.periodKey, row)
-          txnsByBatch.set(id, 0)
-          return row
-        }),
-        delete: vi.fn(async ({ where }: { where: { id: string } }) => {
-          for (const [k, v] of batches) {
-            if (v.id === where.id) {
-              batches.delete(k)
-              txnsByBatch.delete(v.id)
-            }
-          }
-        }),
-      },
+      envelopeFundingBatch: batchLookup(batches),
       transaction: {
         deleteMany: vi.fn(async ({ where }: { where: { fundingBatchId: string } }) => {
           txnsByBatch.set(where.fundingBatchId, 0)
@@ -322,20 +301,10 @@ describe("processIncomeImport overwrite", () => {
 
   it("historical-only import succeeds when monthlyIncome is zero", async () => {
     const batches = new Map<string, { id: string; periodKey: string }>()
-    let batchSeq = 0
     let created = 0
 
     const tx = {
-      envelopeFundingBatch: {
-        findMany: vi.fn(async () => []),
-        create: vi.fn(async ({ data }: { data: { periodKey: string } }) => {
-          const id = `batch-${++batchSeq}`
-          const row = { id, periodKey: data.periodKey }
-          batches.set(data.periodKey, row)
-          return row
-        }),
-        delete: vi.fn(),
-      },
+      envelopeFundingBatch: batchLookup(batches),
       transaction: {
         deleteMany: vi.fn(),
         create: vi.fn(async () => {

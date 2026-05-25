@@ -171,7 +171,7 @@ export function IncomeCalendar({
     const staged = entries.get(periodKey)
     const amount = staged?.amount ?? 0
     const intensity = heatmapIntensity(amount, heatmapMax)
-    const visual = cellState({ periodKey, tx0PeriodKey, amount, intensity })
+    const visual = cellState({ periodKey, tx0PeriodKey, amount })
     const showEdit = mobileEditPeriod === periodKey
     const monthIdx = kind === "month" ? parseInt(periodKey.split("-")[1]!, 10) - 1 : -1
 
@@ -348,7 +348,7 @@ export function IncomeCalendar({
             const staged = entries.get(pk)
             const amount = staged?.amount ?? 0
             const intensity = heatmapIntensity(amount, heatmapMax)
-            const visual = cellState({ periodKey: pk, tx0PeriodKey, amount, intensity })
+            const visual = cellState({ periodKey: pk, tx0PeriodKey, amount })
             return (
               <div
                 key={year}

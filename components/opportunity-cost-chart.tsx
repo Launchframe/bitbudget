@@ -7,6 +7,7 @@ import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
 import { findSavingsEnvelope, isSavingsInflowCredit } from "@/lib/savings-ui-metrics"
 import {
+  DASHBOARD_CHART_RANGE_OVERRIDE_KEY,
   getDashboardChartMode,
   setDashboardChartMode,
   subscribeDashboardChartMode,
@@ -122,9 +123,9 @@ export function OpportunityCostChart() {
 
   useEffect(() => {
     try {
-      const override = sessionStorage.getItem("dashboard-chart-range-override")
+      const override = sessionStorage.getItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
       if (override === "all") {
-        sessionStorage.removeItem("dashboard-chart-range-override")
+        sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
         setTimeout(() => selectRange("all"), 0)
       }
     } catch {

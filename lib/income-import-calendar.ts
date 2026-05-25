@@ -84,7 +84,6 @@ export function cellState(params: {
   periodKey: string
   tx0PeriodKey: string | null
   amount: number
-  intensity: number
 }): CellVisualState {
   const { periodKey, tx0PeriodKey, amount } = params
   if (tx0PeriodKey && periodKey < tx0PeriodKey) return "preHistory"

@@ -60,6 +60,10 @@ export function clearDraft(key: string): void {
 /** Remove all bitbudget draft keys (logout sweep). */
 export function clearAllDrafts(): void {
   if (typeof sessionStorage === "undefined") return
+  for (const timer of debounceTimers.values()) {
+    clearTimeout(timer)
+  }
+  debounceTimers.clear()
   try {
     const keys: string[] = []
     for (let i = 0; i < sessionStorage.length; i++) {

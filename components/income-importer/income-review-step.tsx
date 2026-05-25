@@ -48,7 +48,7 @@ export function IncomeReviewStep({
                   <span className={row.delta > 0 ? " text-success" : " text-amber-400"}>
                     {" "}
                     ({row.delta > 0 ? "+" : ""}
-                    {formatUsd(row.delta)} vs recorded)
+                    {formatUsd(row.delta)} vs prior import)
                   </span>
                 )}
               </span>

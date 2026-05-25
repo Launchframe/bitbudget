@@ -88,22 +88,73 @@ export async function deletePriorImportForPeriod(
   userId: string,
   periodKey: string,
 ): Promise<void> {
+  await resetImportBatchForPeriod(tx, userId, periodKey)
+}
+
+/**
+ * Reuse the stable import batch for user+period: clear its transactions, delete legacy
+ * amount-suffixed batches, and return the batch row (avoids FK races on concurrent imports).
+ */
+export async function resetImportBatchForPeriod(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  periodKey: string,
+): Promise<{ id: string }> {
   const batchKey = importBatchPeriodKey(userId, periodKey)
   const legacyPrefix = `${batchKey}-`
 
-  const batches = await tx.envelopeFundingBatch.findMany({
+  const legacyBatches = await tx.envelopeFundingBatch.findMany({
     where: {
       userId,
       kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
-      OR: [{ periodKey: batchKey }, { periodKey: { startsWith: legacyPrefix } }],
+      periodKey: { startsWith: legacyPrefix },
     },
     select: { id: true },
   })
 
-  for (const batch of batches) {
+  for (const batch of legacyBatches) {
     await tx.transaction.deleteMany({ where: { fundingBatchId: batch.id } })
     await tx.envelopeFundingBatch.delete({ where: { id: batch.id } })
   }
+
+  const stableWhere = {
+    userId_periodKey_kind: {
+      userId,
+      periodKey: batchKey,
+      kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+    },
+  } as const
+
+  let stable = await tx.envelopeFundingBatch.findUnique({
+    where: stableWhere,
+    select: { id: true },
+  })
+
+  if (!stable) {
+    try {
+      stable = await tx.envelopeFundingBatch.create({
+        data: {
+          userId,
+          periodKey: batchKey,
+          kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+        },
+        select: { id: true },
+      })
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        stable = await tx.envelopeFundingBatch.findUnique({
+          where: stableWhere,
+          select: { id: true },
+        })
+        if (!stable) throw e
+      } else {
+        throw e
+      }
+    }
+  }
+
+  await tx.transaction.deleteMany({ where: { fundingBatchId: stable.id } })
+  return stable
 }
 
 export function resolveImportPayDay(payDays: readonly number[]): number {
@@ -188,6 +239,33 @@ export function periodBoundsForExistingIncome(periodKey: string): { start: Date;
     start: new Date(Date.UTC(parsed.year, parsed.month - 1, 1, 0, 0, 0, 0)),
     end: new Date(Date.UTC(parsed.year, parsed.month, 1, 0, 0, 0, 0)),
   }
+}
+
+export interface IncomeImportTransactionRow {
+  type: string
+  source?: string | null
+  amount: number
+  date: string
+  excludeFromMainHistory?: boolean
+}
+
+/** Sum prior income-import credits in a period (overwrite baseline for review UI). */
+export function sumPriorIncomeImportForPeriod(
+  transactions: readonly IncomeImportTransactionRow[],
+  periodKey: string,
+): number {
+  const bounds = periodBoundsForExistingIncome(periodKey)
+  if (!bounds) return 0
+  const startMs = bounds.start.getTime()
+  const endMs = bounds.end.getTime()
+  return transactions
+    .filter((t) => {
+      if (t.type !== "credit" || t.excludeFromMainHistory) return false
+      if (t.source !== TX_SOURCE_INCOME_IMPORT) return false
+      const d = new Date(`${t.date}T12:00:00.000Z`).getTime()
+      return d >= startMs && d < endMs
+    })
+    .reduce((sum, t) => sum + t.amount, 0)
 }
 
 function cents(usd: number): number {
@@ -309,8 +387,7 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
       const parsed = parseIncomePeriodKey(entry.periodKey)
       if (!parsed) continue
 
-      const batchKey = importBatchPeriodKey(input.userId, entry.periodKey)
-      await deletePriorImportForPeriod(tx, input.userId, entry.periodKey)
+      const batch = await resetImportBatchForPeriod(tx, input.userId, entry.periodKey)
 
       const label = entry.source?.trim() || INCOME_IMPORT_PAYEE_DEFAULT
       const encPayee = encryptFieldForUser(label, pk)
@@ -320,20 +397,6 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
       const splitCount = parsed.kind === "year" ? Math.max(1, entry.splitCount ?? 1) : 1
       const dates = distributeImportDates({ periodKey: entry.periodKey, payDay, splitCount })
       const amounts = splitAmountAcrossChecks(amount, dates.length)
-
-      let batch
-      try {
-        batch = await tx.envelopeFundingBatch.create({
-          data: {
-            userId: input.userId,
-            periodKey: batchKey,
-            kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
-          },
-        })
-      } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") continue
-        throw e
-      }
 
       for (let i = 0; i < dates.length; i++) {
         const dateIso = dates[i]!
