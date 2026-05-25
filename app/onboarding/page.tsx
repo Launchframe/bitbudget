@@ -3002,6 +3002,7 @@ export default function OnboardingPage() {
                       <OnboardingAllocFineScroller
                         accentColor={env.color}
                         ariaLabel={`Fine adjust ${env.name} monthly allotment`}
+                        value={env.monthlyAllotment}
                         onGestureStart={() => {
                           setActiveEnvIdx(idx)
                           allocSliderGestureKindRef.current = "fine"

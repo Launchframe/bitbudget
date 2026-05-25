@@ -1,11 +1,13 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useId, useRef, useState, type KeyboardEvent } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { ONBOARDING_ALLOCATE_FINE_STEP } from "@/lib/onboarding-allocate-budget"
+import { formatUsd } from "@/lib/data"
 
 const SWIPE_PX_PER_STEP = 10
 const TAP_MOVE_THRESHOLD_PX = 8
+const PAGE_KEY_STEP_MULTIPLIER = 10
 /** Visible track height — keep in sync with inner `h-10`. */
 const VISIBLE_TRACK_HEIGHT_PX = 40
 /** Extra touch padding above/below the visible track (layout neutral via negative margin). */
@@ -14,6 +16,7 @@ const HIT_EXTEND_Y_PX = 16
 type OnboardingAllocFineScrollerProps = {
   accentColor: string
   ariaLabel: string
+  value: number
   onGestureStart: () => void
   onNudge: (deltaSteps: number) => void
   onGestureEnd: () => void
@@ -22,10 +25,12 @@ type OnboardingAllocFineScrollerProps = {
 export function OnboardingAllocFineScroller({
   accentColor,
   ariaLabel,
+  value,
   onGestureStart,
   onNudge,
   onGestureEnd,
 }: OnboardingAllocFineScrollerProps) {
+  const hintId = useId()
   const hitRef = useRef<HTMLDivElement>(null)
   const [isPressed, setIsPressed] = useState(false)
   const pointerRef = useRef<{
@@ -60,12 +65,47 @@ export function OnboardingAllocFineScroller({
     }
   }
 
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    let deltaSteps = 0
+    switch (e.key) {
+      case "ArrowUp":
+      case "ArrowRight":
+        deltaSteps = 1
+        break
+      case "ArrowDown":
+      case "ArrowLeft":
+        deltaSteps = -1
+        break
+      case "PageUp":
+        deltaSteps = PAGE_KEY_STEP_MULTIPLIER
+        break
+      case "PageDown":
+        deltaSteps = -PAGE_KEY_STEP_MULTIPLIER
+        break
+      default:
+        return
+    }
+    e.preventDefault()
+    e.stopPropagation()
+    onGestureStart()
+    onNudge(deltaSteps)
+    onGestureEnd()
+  }
+
+  const stepLabel = formatUsd(ONBOARDING_ALLOCATE_FINE_STEP)
+  const pageStepLabel = formatUsd(ONBOARDING_ALLOCATE_FINE_STEP * PAGE_KEY_STEP_MULTIPLIER)
+
   return (
     <div
       ref={hitRef}
-      role="group"
+      role="spinbutton"
+      tabIndex={0}
       aria-label={ariaLabel}
-      className="relative flex w-7 shrink-0 touch-none select-none items-center justify-center"
+      aria-valuenow={value}
+      aria-valuetext={`${formatUsd(value)} per month`}
+      aria-valuemin={0}
+      aria-describedby={hintId}
+      className="relative flex w-7 shrink-0 touch-none select-none items-center justify-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#F7931A] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D0D0D]"
       style={{
         touchAction: "none",
         height: VISIBLE_TRACK_HEIGHT_PX + HIT_EXTEND_Y_PX * 2,
@@ -118,7 +158,12 @@ export function OnboardingAllocFineScroller({
         e.stopPropagation()
         finishGesture(e.pointerId, e.currentTarget)
       }}
+      onKeyDown={handleKeyDown}
     >
+      <span id={hintId} className="sr-only">
+        Arrow keys adjust by {stepLabel}. Page Up and Page Down adjust by {pageStepLabel}. Swipe or tap
+        the top or bottom half to fine tune.
+      </span>
       <div
         aria-hidden
         className={`pointer-events-none relative flex h-10 w-7 shrink-0 flex-col overflow-hidden rounded-lg border transition-[transform,background-color,border-color,box-shadow] duration-100 ${

@@ -1,9 +1,6 @@
 import { timingSafeEqual } from "crypto"
 import { NextRequest, NextResponse } from "next/server"
-import {
-  processEnvelopeFundingCron,
-  type EnvelopeFundingCronResult,
-} from "@/lib/envelope-funding-cron"
+import { processEnvelopeFundingCron } from "@/lib/envelope-funding-cron"
 
 function bearerMatches(secret: string, authHeader: string | null): boolean {
   const expected = Buffer.from(`Bearer ${secret}`, "utf8")
@@ -15,10 +12,6 @@ function bearerMatches(secret: string, authHeader: string | null): boolean {
     return false
   }
 }
-
-export type { EnvelopeFundingCronResult }
-
-export { processEnvelopeFundingCron } from "@/lib/envelope-funding-cron"
 
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET
