@@ -1,6 +1,8 @@
 # Self-hosting BitBudget
 
-Run BitBudget on a home PC or server with Docker. For strategy and open-source planning, see [self-hosting-plan.md](./self-hosting-plan.md).
+Run BitBudget on a home PC or server with Docker.
+
+For **commercial** hosted + store clients (Windows, macOS, Android, iOS), see [commercial-clients-proposal.md](./commercial-clients-proposal.md).
 
 ## Prerequisites
 
