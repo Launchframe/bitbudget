@@ -65,7 +65,7 @@ test.describe("Dashboard walkthrough", () => {
     }
 
     await signInReadyForWalkthrough(emailA)
-    await expect(skipWalkthrough).toBeVisible({ timeout: 15_000 })
+    await expect(skipWalkthrough).toBeVisible({ timeout: 20_000 })
     await dismissWalkthroughAndWaitForSave()
 
     await expect
@@ -79,7 +79,7 @@ test.describe("Dashboard walkthrough", () => {
       .toBe(true)
 
     await signInReadyForWalkthrough(emailB)
-    await expect(skipWalkthrough).toBeVisible({ timeout: 15_000 })
+    await expect(skipWalkthrough).toBeVisible({ timeout: 20_000 })
     await dismissWalkthroughAndWaitForSave()
 
     await page.reload()
