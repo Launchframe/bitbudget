@@ -103,6 +103,7 @@ export interface AppState {
   btcDisplayUnit: BtcDisplayUnit
   opportunityCostEnabled: boolean
   savingsExperience: string
+  walkthroughCompleted: boolean
 }
 
 export function compareTransactionsDesc(a: Transaction, b: Transaction): number {
@@ -277,6 +278,7 @@ export function getDefaultState(): AppState {
     btcDisplayUnit: "sats",
     opportunityCostEnabled: false,
     savingsExperience: "engaged",
+    walkthroughCompleted: false,
   }
 }
 

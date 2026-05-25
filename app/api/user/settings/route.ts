@@ -14,12 +14,14 @@ import {
 import { assertPayCadencePersistable, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import { PAYDAY_LAST_OF_MONTH } from "@/lib/payday-cadence"
 import { validateDecimal12_2, validateDecimal4_2Positive } from "@/lib/decimal-validation"
+import { booleanSettingsFieldError } from "@/lib/user-settings-validation"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
 type UserSettingsPutBody = Partial<{
   monthlyIncome: number
   payCadence: string
   onboardingComplete: boolean
+  walkthroughCompleted: boolean
   btcDisplayUnit: string
   opportunityCostEnabled: boolean
   receiptInboxToken: string | null
@@ -58,6 +60,7 @@ const ALLOWED_SETTINGS_PUT_FIELDS = [
   "monthlyIncome",
   "payCadence",
   "onboardingComplete",
+  "walkthroughCompleted",
   "btcDisplayUnit",
   "opportunityCostEnabled",
   "receiptInboxToken",
@@ -83,6 +86,7 @@ const userSettingsSelect = {
   savingsExperience: true,
   onboardingComplete: true,
   onboardingCompletedAt: true,
+  walkthroughCompleted: true,
   btcDisplayUnit: true,
   opportunityCostEnabled: true,
   nostrPubkey: true,
@@ -332,6 +336,11 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  const booleanFieldError = booleanSettingsFieldError(body)
+  if (booleanFieldError) {
+    return NextResponse.json({ error: booleanFieldError }, { status: 400 })
+  }
+
   // Never allow encryptedPrivacyKey / privacyKeySalt via this route — use POST /api/user/encryption
   // (guarded) so existing keys cannot be clobbered by mistake or a buggy client.
   let prevUser: { onboardingComplete: boolean; onboardingCompletedAt: Date | null } | null = null
@@ -407,6 +416,7 @@ export async function PUT(req: NextRequest) {
       sweepDefaultCapMultiplier: true,
       savingsExperience: true,
       onboardingComplete: true,
+      walkthroughCompleted: true,
       btcDisplayUnit: true,
       opportunityCostEnabled: true,
       receiptInboxToken: true,

@@ -191,6 +191,7 @@ interface AppContextValue {
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
   setOpportunityCostEnabled: (enabled: boolean) => void
   setSavingsExperience: (experience: "engaged" | "dismissed") => Promise<void>
+  completeWalkthrough: () => Promise<void>
   addTag: (tag: string) => void
   deleteTag: (id: string) => void
   refreshData: () => Promise<void>
@@ -627,6 +628,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           typeof (settings as { savingsExperience?: string }).savingsExperience === "string"
             ? (settings as { savingsExperience: string }).savingsExperience
             : "engaged",
+        walkthroughCompleted: settings.walkthroughCompleted === true,
       }))
 
       const uid = currentUserIdRef.current
@@ -1217,6 +1219,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const completeWalkthrough = useCallback(async () => {
+    setState(prev => ({ ...prev, walkthroughCompleted: true }))
+    try {
+      const res = await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walkthroughCompleted: true }),
+      })
+      if (!res.ok) {
+        await refreshData()
+      }
+    } catch {
+      await refreshData()
+    }
+  }, [refreshData])
+
   const addTag = useCallback(async (tag: string) => {
     const trimmed = tag.trim()
     if (!trimmed) return
@@ -1521,6 +1539,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setBtcDisplayUnit,
         setOpportunityCostEnabled,
         setSavingsExperience,
+        completeWalkthrough,
         addTag,
         deleteTag,
         refreshData,

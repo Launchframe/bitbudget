@@ -26,78 +26,79 @@ model User {
   privacyKeySalt      String?
 
   // Budgeting settings
-  monthlyIncome           Float    @default(0)
-  payCadence              String   @default("monthly") // monthly | bimonthly | weekly | biweekly | irregular | mixed | daily (daily non-production only)
-  payDays                 Int[]    @default([])
-  payDayOfWeek            Int?
-  lastPaydayAt            DateTime?
-  estimatedAnnualIncome   Decimal? @db.Decimal(12, 2)
-  sweepDefaultPolicy      String   @default("reset") // reset | carry_forward | capped
-  sweepDefaultCapMultiplier Decimal? @db.Decimal(4, 2)
-  savingsExperience       String   @default("engaged") // engaged | dismissed
-  onboardingComplete      Boolean  @default(false)
-  onboardingCompletedAt   DateTime?
-  btcDisplayUnit          String   @default("sats") // "sats" | "btc"
-  opportunityCostEnabled  Boolean  @default(false)
-  role      String? @default("user")
-  publicKey String?
-  receiptInboxToken String? @unique
-  lastVisitedAt DateTime?
-  remindersEnabled Boolean @default(false)
-  reminderTime    String?  @default("20:00")
-  subscriptionTier String @default("free")
+  monthlyIncome             Float     @default(0)
+  payCadence                String    @default("monthly") // monthly | bimonthly | weekly | biweekly | irregular | mixed | daily (daily non-production only)
+  payDays                   Int[]     @default([])
+  payDayOfWeek              Int?
+  lastPaydayAt              DateTime?
+  estimatedAnnualIncome     Decimal?  @db.Decimal(12, 2)
+  sweepDefaultPolicy        String    @default("reset") // reset | carry_forward | capped
+  sweepDefaultCapMultiplier Decimal?  @db.Decimal(4, 2)
+  savingsExperience         String    @default("engaged") // engaged | dismissed
+  onboardingComplete        Boolean   @default(false)
+  onboardingCompletedAt     DateTime?
+  walkthroughCompleted      Boolean   @default(false)
+  btcDisplayUnit            String    @default("sats") // "sats" | "btc"
+  opportunityCostEnabled    Boolean   @default(false)
+  role                      String?   @default("user")
+  publicKey                 String?
+  receiptInboxToken         String?   @unique
+  lastVisitedAt             DateTime?
+  remindersEnabled          Boolean   @default(false)
+  reminderTime              String?   @default("20:00")
+  subscriptionTier          String    @default("free")
   // Set when a free user taps Upgrade to Premium (checkout not yet available).
-  premiumInterestAt DateTime?
-  premiumGratisUntil  DateTime?
-  premiumTrialUntil   DateTime?
-  referredByCodeId    String?
+  premiumInterestAt      DateTime?
+  premiumGratisUntil     DateTime?
+  premiumTrialUntil      DateTime?
+  referredByCodeId       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts              Account[]
-  sessions              Session[]
-  envelopes             Envelope[]
-  transactions          Transaction[]
-  tags                  Tag[]
-  recurringTransactions RecurringTransaction[]
-  pendingTransactions PendingTransaction[]
-  shortcuts           TransactionShortcut[]
-  approvedSenders     ApprovedReceiptSender[] @relation("ApprovedSenderAdmin")
-  auditLogs           AuditLog[]              @relation("AuditLogAdmin")
+  accounts                   Account[]
+  sessions                   Session[]
+  envelopes                  Envelope[]
+  transactions               Transaction[]
+  tags                       Tag[]
+  recurringTransactions      RecurringTransaction[]
+  pendingTransactions        PendingTransaction[]
+  shortcuts                  TransactionShortcut[]
+  approvedSenders            ApprovedReceiptSender[]    @relation("ApprovedSenderAdmin")
+  auditLogs                  AuditLog[]                 @relation("AuditLogAdmin")
   plaidItems                 PlaidItem[]
   plaidImportedTransactions  PlaidImportedTransaction[]
-  connectedEmails     ConnectedEmailAccount[]
-  payeeMappings       PayeeEnvelopeMapping[]
-  payeeDisplayAliases PayeeDisplayAlias[]
-  pushSubscriptions   PushSubscription[]
-  codesCreated        ReferralCode[] @relation("CodesCreated")
-  referralsMade       Referral[]     @relation("ReferralsMade")
-  referralReceived    Referral?      @relation("ReferralReceived")
-  survey              Survey?
-  referredByCode      ReferralCode?  @relation("ReferredByCode", fields: [referredByCodeId], references: [id], onDelete: SetNull)
-  envelopeFundingBatches EnvelopeFundingBatch[]
-  savingsGoals           SavingsGoal[]
-  achievements           UserAchievement[]
+  connectedEmails            ConnectedEmailAccount[]
+  payeeMappings              PayeeEnvelopeMapping[]
+  payeeDisplayAliases        PayeeDisplayAlias[]
+  pushSubscriptions          PushSubscription[]
+  codesCreated               ReferralCode[]             @relation("CodesCreated")
+  referralsMade              Referral[]                 @relation("ReferralsMade")
+  referralReceived           Referral?                  @relation("ReferralReceived")
+  survey                     Survey?
+  referredByCode             ReferralCode?              @relation("ReferredByCode", fields: [referredByCodeId], references: [id], onDelete: SetNull)
+  envelopeFundingBatches     EnvelopeFundingBatch[]
+  savingsGoals               SavingsGoal[]
+  achievements               UserAchievement[]
 }
 
 model ReferralCode {
-  id          String    @id @default(cuid())
-  code        String    @unique
-  type        String
-  ownerId     String
-  label       String?
-  maxUses     Int       @default(1)
-  usedCount   Int       @default(0)
-  visitCount  Int       @default(0)
-  startsAt    DateTime  @default(now())
-  expiresAt   DateTime
-  active      Boolean   @default(true)
-  createdAt   DateTime  @default(now())
+  id         String   @id @default(cuid())
+  code       String   @unique
+  type       String
+  ownerId    String
+  label      String?
+  maxUses    Int      @default(1)
+  usedCount  Int      @default(0)
+  visitCount Int      @default(0)
+  startsAt   DateTime @default(now())
+  expiresAt  DateTime
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
 
-  owner       User       @relation("CodesCreated", fields: [ownerId], references: [id], onDelete: Cascade)
-  referrals   Referral[]
-  referredUsers User[]   @relation("ReferredByCode")
+  owner         User       @relation("CodesCreated", fields: [ownerId], references: [id], onDelete: Cascade)
+  referrals     Referral[]
+  referredUsers User[]     @relation("ReferredByCode")
 
   @@index([ownerId])
   @@index([type])
@@ -181,16 +182,16 @@ model VerificationToken {
 // ─── App models ─────────────────────────────────────────────────────
 
 model Envelope {
-  id              String  @id @default(cuid())
-  userId          String
-  name            String
-  monthlyAllotment Float  @default(0)
-  color           String  @default("#F7931A")
-  icon            String?
-  archived        Boolean @default(false)
+  id                 String   @id @default(cuid())
+  userId             String
+  name               String
+  monthlyAllotment   Float    @default(0)
+  color              String   @default("#F7931A")
+  icon               String?
+  archived           Boolean  @default(false)
   /// null | savings — system-managed Savings envelope
-  systemRole      String?
-  sweepPolicy     String   @default("reset") // reset | carry_forward | capped
+  systemRole         String?
+  sweepPolicy        String   @default("reset") // reset | carry_forward | capped
   sweepCapMultiplier Decimal? @db.Decimal(4, 2)
 
   createdAt DateTime @default(now())
@@ -199,9 +200,9 @@ model Envelope {
   user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions          Transaction[]
   recurringTransactions RecurringTransaction[]
-  pendingTransactions PendingTransaction[]
-  shortcuts           TransactionShortcut[]
-  payeeMappings       PayeeEnvelopeMapping[]
+  pendingTransactions   PendingTransaction[]
+  shortcuts             TransactionShortcut[]
+  payeeMappings         PayeeEnvelopeMapping[]
 
   @@unique([userId, name])
   @@index([userId])
@@ -212,12 +213,12 @@ model Transaction {
   userId     String
   envelopeId String
   date       DateTime
-  payee      String   // encrypted for privacy
+  payee      String // encrypted for privacy
   amount     Float
-  type       String   // "expense" | "credit"
+  type       String // "expense" | "credit"
   tags       String   @default("[]") // JSON array of tag names
   notes      String?
-  satsAmount Int?     // BTC equivalent in satoshis (1 BTC = 100,000,000 sats)
+  satsAmount Int? // BTC equivalent in satoshis (1 BTC = 100,000,000 sats)
   source     String   @default("manual")
 
   recurringId String?
@@ -291,19 +292,19 @@ model UserAchievement {
 }
 
 model RecurringTransaction {
-  id         String   @id @default(cuid())
+  id         String  @id @default(cuid())
   userId     String
   envelopeId String
   payee      String
   amount     Float
-  type       String   // "expense" | "credit"
-  tags       String   @default("[]")
-  notes      String?  // encrypted for privacy
-  cadence    String   // "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
+  type       String // "expense" | "credit"
+  tags       String  @default("[]")
+  notes      String? // encrypted for privacy
+  cadence    String // "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
   nextDueDate DateTime
   endDate     DateTime?
-  active      Boolean  @default(true)
+  active      Boolean   @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -338,16 +339,16 @@ model EmailCode {
 }
 
 model BtcPriceCache {
-  id       String   @id @default(cuid())
-  date     String   @unique // YYYY-MM-DD
-  priceUsd Float
+  id        String   @id @default(cuid())
+  date      String   @unique // YYYY-MM-DD
+  priceUsd  Float
   fetchedAt DateTime @default(now())
 }
 
 // ─── Low-friction capture models ────────────────────────────────────
 
 model PendingTransaction {
-  id                  String    @id @default(cuid())
+  id                  String   @id @default(cuid())
   userId              String
   source              String
   payee               String
@@ -358,7 +359,7 @@ model PendingTransaction {
   confidence          Float
   rawInput            String?
   tags                String?
-  createdAt           DateTime  @default(now())
+  createdAt           DateTime @default(now())
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   envelope Envelope? @relation(fields: [suggestedEnvelopeId], references: [id])
@@ -448,7 +449,7 @@ model PlaidImportedTransaction {
 }
 
 model PlaidAccount {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   plaidItemId String
   accountName String
   mask        String?
