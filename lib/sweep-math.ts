@@ -53,6 +53,10 @@ export function sweepAmountForEnvelope(params: {
 
   if (policy === SWEEP_POLICY_CARRY_FORWARD) return 0
 
+  if (policy === SWEEP_POLICY_RESET || policy === SWEEP_POLICY_CAPPED) {
+    if (!Number.isFinite(monthlyAllotment) || monthlyAllotment <= 0) return 0
+  }
+
   const effectiveCapMultiplier =
     policy === SWEEP_POLICY_RESET ? 1 : policy === SWEEP_POLICY_CAPPED ? capMultiplier : null
   if (effectiveCapMultiplier != null) {

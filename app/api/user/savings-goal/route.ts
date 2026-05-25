@@ -155,6 +155,13 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "periodKey must be YYYY-MM or 'default'" }, { status: 400 })
   }
 
+  if (!Object.prototype.hasOwnProperty.call(raw, "targetAmount")) {
+    return NextResponse.json({ error: "targetAmount is required" }, { status: 400 })
+  }
+  if (typeof targetAmount !== "number" && typeof targetAmount !== "string") {
+    return NextResponse.json({ error: "targetAmount must be a number" }, { status: 400 })
+  }
+
   const amountNum = typeof targetAmount === "number" ? targetAmount : Number(targetAmount)
   const validatedAmount = validateDecimal12_2(amountNum, "targetAmount")
   if (!validatedAmount.ok) {

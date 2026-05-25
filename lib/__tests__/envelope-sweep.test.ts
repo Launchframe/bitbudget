@@ -74,6 +74,25 @@ describe("envelope-sweep", () => {
     ).toBe(0)
   })
 
+  it("sweepAmountForEnvelope skips reset/capped when monthly allotment is unset", () => {
+    expect(
+      sweepAmountForEnvelope({
+        balance: 100,
+        policy: SWEEP_POLICY_RESET,
+        monthlyAllotment: 0,
+        capMultiplier: 1.5,
+      }),
+    ).toBe(0)
+    expect(
+      sweepAmountForEnvelope({
+        balance: 100,
+        policy: SWEEP_POLICY_CAPPED,
+        monthlyAllotment: 0,
+        capMultiplier: 1.5,
+      }),
+    ).toBe(0)
+  })
+
   it("sweepAmountForEnvelope skips non-positive balances", () => {
     expect(
       sweepAmountForEnvelope({
