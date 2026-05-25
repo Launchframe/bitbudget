@@ -205,6 +205,8 @@ export async function POST(req: NextRequest) {
                 name: RESERVED_SAVINGS_ENVELOPE_NAME,
                 monthlyAllotment: 0,
                 color: d.color,
+                archived: false,
+                systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
                 ...(d.icon !== undefined ? { icon: d.icon } : {}),
               }
             : {
