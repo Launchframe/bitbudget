@@ -175,7 +175,6 @@ export function MobileNav() {
                 {i === 2 && (
                   <button
                     type="button"
-                    data-walkthrough="new-transaction"
                     className={cn(
                       "flex h-16 w-16 -mt-6 touch-manipulation items-center justify-center rounded-full bg-[#F7931A] text-[#0D0D0D] shadow-lg shadow-[#F7931A]/20 transition-transform duration-300 ease-out will-change-transform",
                       fabNudge && "-translate-y-3",

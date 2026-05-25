@@ -100,7 +100,11 @@ export function WalkthroughOverlay() {
     if (!el) {
       const cx = window.innerWidth / 2
       const cy = window.innerHeight / 2
-      if (step.target === "new-transaction" || step.target === "scan-receipt") {
+      if (
+        step.target === "new-transaction" ||
+        step.target === "new-transaction-page" ||
+        step.target === "scan-receipt"
+      ) {
         setTooltipPos({ top: window.innerHeight - 180, left: cx, centred: true, variant: "above" })
       } else if (step.target === "dashboard-metrics" || step.target === "dashboard-chart") {
         setTooltipPos({ top: 160, left: cx, centred: true, variant: "below" })
