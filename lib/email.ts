@@ -235,6 +235,15 @@ export async function sendAdminDigestEmail(to: string, bodyHtml: string): Promis
   await sendHtmlMail(to, subject, html)
 }
 
+export async function sendOpsAlertEmail(to: string, subject: string, bodyHtml: string): Promise<boolean> {
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 640px; margin: 0 auto; padding: 24px;">
+      <h2 style="color: #F7931A;">Ops alert</h2>
+      <p style="color: #ccc; font-size: 14px;">${bodyHtml}</p>
+    </div>`
+  return sendHtmlMail(to, subject, html)
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")

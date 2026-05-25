@@ -446,6 +446,38 @@ model AuditLog {
   @@index([createdAt])
 }
 
+model CronRun {
+  id           String    @id @default(cuid())
+  name         String
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  status       String
+  errorClass   String?
+  errorMessage String?
+  processed    Int?
+  durationMs   Int?
+
+  @@index([name, startedAt])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model OpsEvent {
+  id            String   @id @default(cuid())
+  severity      String
+  source        String
+  title         String
+  body          String
+  fingerprint   String?
+  sentryEventId String?
+  channelStatus Json?
+  createdAt     DateTime @default(now())
+
+  @@index([severity])
+  @@index([fingerprint, createdAt])
+  @@index([createdAt])
+}
+
 model PlaidItem {
   id                     String   @id @default(cuid())
   userId                 String
