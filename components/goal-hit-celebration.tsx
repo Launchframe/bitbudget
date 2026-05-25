@@ -16,11 +16,12 @@ function recentAchievedGoalsRange(): { from: string; to: string } {
 }
 
 export function GoalHitCelebration() {
-  const { state } = useApp()
+  const { state, currentUserId } = useApp()
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
     if (state.savingsExperience === SAVINGS_EXPERIENCE_DISMISSED) return
+    if (!currentUserId) return
 
     let cancelled = false
     let dismissTimer: number | undefined
@@ -37,7 +38,7 @@ export function GoalHitCelebration() {
         if (closed.length === 0) return
         closed.sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""))
         const latest = closed[0]
-        const seenKey = `${GOAL_HIT_SEEN_KEY}-${latest.periodKey}`
+        const seenKey = `${GOAL_HIT_SEEN_KEY}-${currentUserId}-${latest.periodKey}`
         if (localStorage.getItem(seenKey)) return
         localStorage.setItem(seenKey, "1")
         if (cancelled) return
@@ -54,7 +55,7 @@ export function GoalHitCelebration() {
       cancelled = true
       if (dismissTimer !== undefined) window.clearTimeout(dismissTimer)
     }
-  }, [state.savingsExperience])
+  }, [state.savingsExperience, currentUserId])
 
   if (!message) return null
 

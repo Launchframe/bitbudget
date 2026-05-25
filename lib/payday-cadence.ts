@@ -70,14 +70,13 @@ export function isPaydayForUser(user: PaydayUserFields, today: Date): boolean {
   return false
 }
 
-export function fundingPeriodKeyForPayday(_user: PaydayUserFields, runDateUtc: Date): string | null {
+export function fundingPeriodKeyForPayday(_user: PaydayUserFields, runDateUtc: Date): string {
   const y = runDateUtc.getUTCFullYear()
   const m = runDateUtc.getUTCMonth() + 1
   const dom = runDateUtc.getUTCDate()
   return `fund-${y}-${pad2(m)}-${pad2(dom)}`
 }
 
-export function sweepPeriodKeyForPayday(user: PaydayUserFields, runDateUtc: Date): string | null {
-  const key = fundingPeriodKeyForPayday(user, runDateUtc)
-  return key ? key.replace(/^fund-/, "sweep-") : null
+export function sweepPeriodKeyForPayday(user: PaydayUserFields, runDateUtc: Date): string {
+  return fundingPeriodKeyForPayday(user, runDateUtc).replace(/^fund-/, "sweep-")
 }

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest"
-import { aggregateYearEndRecap, monthsToSaveThroughYearEnd } from "../year-end-recap"
+import { aggregateYearEndRecap, forwardSaveMonthsBeforeTargetYear } from "../year-end-recap"
 
 describe("aggregateYearEndRecap", () => {
   it("projects 2030 balance from asOf month, not recap year", () => {
@@ -24,8 +24,8 @@ describe("aggregateYearEndRecap", () => {
     expect(stats.projection2030).toBe(7000)
   })
 
-  it("monthsToSaveThroughYearEnd is zero when already in the target year", () => {
-    expect(monthsToSaveThroughYearEnd(new Date("2030-12-15T00:00:00.000Z"), 2030)).toBe(0)
+  it("forwardSaveMonthsBeforeTargetYear is zero when already in the target year", () => {
+    expect(forwardSaveMonthsBeforeTargetYear(new Date("2030-12-15T00:00:00.000Z"), 2030)).toBe(0)
     const stats = aggregateYearEndRecap({
       year: 2029,
       closedGoals: [],
