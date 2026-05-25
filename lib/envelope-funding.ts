@@ -21,7 +21,7 @@ import {
   type PaydayUserFields,
 } from "@/lib/payday-cadence"
 import { encryptFieldForUser } from "@/lib/server-encrypt"
-import { isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
+import { isDailyCadenceBlocked, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import {
   computeIrregularIncomeSplits,
   sumAllocatedIrregularCents,
@@ -42,6 +42,8 @@ function fundingPeriodKeyForUser(
   runDateUtc: Date,
   dailyAllowed: boolean,
 ): string | null {
+  if (isDailyCadenceBlocked(user.payCadence, dailyAllowed)) return null
+
   if (usesPaydayCadence(user)) {
     if (!isPaydayForUser(user, runDateUtc)) return null
     return fundingPeriodKeyForPayday(user, runDateUtc)

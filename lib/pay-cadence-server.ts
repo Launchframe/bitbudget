@@ -10,6 +10,14 @@ export function isDailyPayCadenceAllowed(): boolean {
   )
 }
 
+/** True when daily cadence must not run (e.g. production without INTERNAL_PAY_CADENCES). */
+export function isDailyCadenceBlocked(
+  cadence: string,
+  dailyAllowed: boolean = isDailyPayCadenceAllowed(),
+): boolean {
+  return cadence === "daily" && !dailyAllowed
+}
+
 /** Reject persisting `daily` when disallowed. */
 export function assertPayCadencePersistable(cadence: string): void {
   if (cadence === "daily" && !isDailyPayCadenceAllowed()) {

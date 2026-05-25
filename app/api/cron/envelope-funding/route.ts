@@ -4,7 +4,7 @@ import { detectAchievementsForUser } from "@/lib/achievements"
 import { fundingPeriodKeyForDate } from "@/lib/envelope-funding-period"
 import { processEnvelopeFundingForUser } from "@/lib/envelope-funding"
 import { sweepDiscretionaryEnvelopesForUser } from "@/lib/envelope-sweep"
-import { isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
+import { isDailyCadenceBlocked, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import { isPaydayForUser, usesPaydayCadence, type PaydayUserFields } from "@/lib/payday-cadence"
 import { prisma } from "@/lib/db"
 import { closePreviousPeriodGoal, openCurrentPeriodGoal } from "@/lib/savings-goal-cron"
@@ -21,6 +21,8 @@ function bearerMatches(secret: string, authHeader: string | null): boolean {
 }
 
 function isFundingDayForUser(user: PaydayUserFields, today: Date): boolean {
+  if (isDailyCadenceBlocked(user.payCadence)) return false
+
   if (usesPaydayCadence(user)) return isPaydayForUser(user, today)
   // Legacy monthly/bimonthly/daily only; irregular/mixed have no period key — skip cron work.
   return (

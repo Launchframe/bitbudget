@@ -14,7 +14,7 @@ import {
 import { envelopeBalancesForMonthBatch, monthKeyFromDate } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
 import { fundingPeriodKeyForDate } from "@/lib/envelope-funding-period"
-import { isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
+import { isDailyCadenceBlocked, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import {
   isPaydayForUser,
   sweepPeriodKeyForPayday,
@@ -65,6 +65,8 @@ export function sweepAmountForEnvelope(params: {
 }
 
 function sweepPeriodKeyForUser(user: PaydayUserFields, runDateUtc: Date): string | null {
+  if (isDailyCadenceBlocked(user.payCadence)) return null
+
   if (usesPaydayCadence(user)) {
     if (!isPaydayForUser(user, runDateUtc)) return null
     return sweepPeriodKeyForPayday(user, runDateUtc)

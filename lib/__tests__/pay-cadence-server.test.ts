@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { assertPayCadencePersistable, isDailyPayCadenceAllowed } from "../pay-cadence-server"
+import { assertPayCadencePersistable, isDailyCadenceBlocked, isDailyPayCadenceAllowed } from "../pay-cadence-server"
 
 describe("pay-cadence-server", () => {
   afterEach(() => {
@@ -31,5 +31,11 @@ describe("pay-cadence-server", () => {
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("INTERNAL_PAY_CADENCES", "")
     expect(() => assertPayCadencePersistable("monthly")).not.toThrow()
+  })
+
+  it("isDailyCadenceBlocked is true only for daily when disallowed", () => {
+    expect(isDailyCadenceBlocked("daily", false)).toBe(true)
+    expect(isDailyCadenceBlocked("daily", true)).toBe(false)
+    expect(isDailyCadenceBlocked("weekly", false)).toBe(false)
   })
 })

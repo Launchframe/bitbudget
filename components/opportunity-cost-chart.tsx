@@ -395,9 +395,14 @@ export function OpportunityCostChart() {
                   aria-pressed={effectiveChartMode === "savings"}
                   className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                     effectiveChartMode === "savings"
-                      ? "bg-[#D4AF37] text-[#0D0D0D]"
+                      ? "text-[#0D0D0D]"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
+                  style={
+                    effectiveChartMode === "savings"
+                      ? { backgroundColor: SAVINGS_GOLD_ACCENT }
+                      : undefined
+                  }
                 >
                   Savings
                 </button>
