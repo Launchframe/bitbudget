@@ -268,7 +268,9 @@ export function TransactionsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
-        <h2 className="text-xl font-semibold text-foreground">All Transactions</h2>
+        <h2 className="text-xl font-semibold text-foreground" data-walkthrough="transactions-nav">
+          All Transactions
+        </h2>
         <div className="flex flex-wrap items-center gap-4 md:gap-6 mt-2">
           <div className="flex flex-col gap-0.5">
             <span className="text-xs text-muted-foreground uppercase tracking-wider">Total</span>
@@ -304,6 +306,7 @@ export function TransactionsPage() {
         <div className="self-start flex items-center gap-2 mt-3">
           <button
             onClick={() => openNewTransaction()}
+            data-walkthrough="new-transaction"
             className="flex items-center gap-2 px-4 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
           >
             <Plus className="h-4 w-4" />

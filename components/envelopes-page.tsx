@@ -231,6 +231,7 @@ export function EnvelopesPage() {
               <button
                 type="button"
                 onClick={() => navigateTo("envelope-allocations")}
+                data-walkthrough="allocations-entry"
                 className="p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333] text-muted-foreground hover:text-foreground hover:border-[#555] transition-colors"
                 title="Adjust allocations"
               >
@@ -241,10 +242,15 @@ export function EnvelopesPage() {
         </div>
       </div>
 
-      <SavingsHeroCard />
+      <div data-walkthrough="savings-hero">
+        <SavingsHeroCard />
+      </div>
 
       {/* Envelope cards grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div
+        data-walkthrough="envelope-grid"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+      >
         {activeEnvelopes.map((env) => {
           const balance = getEnvelopeBalanceAllTime(state.transactions, env.id)
           const progressPct = envelopeBudgetProgressPct(balance, env.monthlyAllotment)

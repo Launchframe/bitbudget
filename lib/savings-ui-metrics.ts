@@ -161,6 +161,10 @@ export const ACHIEVEMENT_LABELS: Record<string, string> = {
   irregular_income_first: "Extra income",
   import_complete: "Past income added",
   year_one: "One year",
+  setup_allocations: "Budget divided",
+  setup_plaid: "Bank connected",
+  setup_receipt_inbox: "Receipt received",
+  setup_account_email: "Email on account",
 }
 
 const GOAL_RING_GRAY = "#737373"

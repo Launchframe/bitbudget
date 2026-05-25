@@ -5,6 +5,8 @@ describe("booleanSettingsFieldError", () => {
   it("returns null when boolean fields are omitted or valid", () => {
     expect(booleanSettingsFieldError({})).toBeNull()
     expect(booleanSettingsFieldError({ walkthroughCompleted: true })).toBeNull()
+    expect(booleanSettingsFieldError({ setupGuideDismissed: false })).toBeNull()
+    expect(booleanSettingsFieldError({ setupGuideShowOnDashboard: true })).toBeNull()
     expect(
       booleanSettingsFieldError({
         onboardingComplete: false,

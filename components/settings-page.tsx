@@ -46,6 +46,7 @@ import { SettingsReferralsCard } from "@/components/settings-referrals-card"
 import { SettingsSavingsCard } from "@/components/settings-savings-card"
 import { IncomeImporterCard } from "@/components/income-importer-dialog"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
+import { SettingsSetupGuideSection } from "@/components/settings-setup-guide-section"
 import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
 type SettingsTab = "general" | "communications" | "savings" | "integrations" | "tags" | "payees" | "data"
@@ -149,6 +150,16 @@ export function SettingsPage() {
       window.removeEventListener("hashchange", syncFromHash)
     }
   }, [])
+
+  useEffect(() => {
+    function onWalkthroughSettingsTab(e: Event) {
+      const tab = (e as CustomEvent<{ tab?: SettingsTab }>).detail?.tab
+      if (tab && tab in SETTINGS_TAB_SLUGS) setSettingsTab(tab)
+    }
+    window.addEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)
+    return () => window.removeEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)
+  }, [])
+  
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importOpen, setImportOpen] = useState(false)
@@ -417,6 +428,7 @@ export function SettingsPage() {
 
   const generalSection = (
     <>
+      <SettingsSetupGuideSection />
       {/* Plan / Tier */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
         <div className="flex items-center gap-3 mb-4">
@@ -662,7 +674,7 @@ export function SettingsPage() {
       </div>
 
       {/* Connections — visible on all plans; free tier opens upgrade flow */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl" data-walkthrough="settings-connections">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-[#F7931A]/20">
             <Building2 className="h-5 w-5 text-[#F7931A]" />

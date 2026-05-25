@@ -36,7 +36,15 @@ export function Sidebar() {
                 if (!isPlaceholder) navigateTo(item.id)
               }}
               title={item.label}
-              {...(item.id === "transactions" ? { "data-walkthrough": "transactions" } : {})}
+              {...(item.id === "transactions"
+                ? { "data-walkthrough": "transactions-nav" }
+                : item.id === "review-inbox"
+                  ? { "data-walkthrough": "review-nav" }
+                  : item.id === "analytics"
+                    ? { "data-walkthrough": "analytics-nav" }
+                    : item.id === "envelopes"
+                      ? { "data-walkthrough": "envelopes-nav" }
+                      : {})}
               className={`relative flex items-center justify-center lg:justify-start gap-4 transition-colors text-left ${
                 isActive
                   ? "text-[#F7931A]"
@@ -78,6 +86,7 @@ export function Sidebar() {
         <button
           onClick={() => setScanOpen(true)}
           title="Scan Receipt"
+          data-walkthrough="scan-receipt"
           className="flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-4 py-2.5 bg-[#1A1A1A] text-foreground rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
         >
           <ScanLine className="h-4 w-4 text-[#F7931A] shrink-0" />

@@ -3,55 +3,46 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
 import { X } from "lucide-react"
 import { useApp } from "@/lib/app-context"
+import { SAVINGS_EXPERIENCE_DISMISSED } from "@/lib/constants"
+import {
+  buildWalkthroughSteps,
+  type WalkthroughStepDef,
+} from "@/lib/walkthrough-steps"
 
-interface WalkthroughStep {
-  target: string
-  title: string
-  description: string
-  position: "right" | "bottom"
-}
-
-function buildWalkthroughSteps(opportunityCostEnabled: boolean): WalkthroughStep[] {
-  return [
-    {
-      target: "transactions",
-      title: "Your Transactions",
-      description: "This is where you'll add and manage your expenses.",
-      position: "right",
-    },
-    {
-      target: "new-transaction",
-      title: "Add a Transaction",
-      description: "Tap here to record your first expense.",
-      position: "right",
-    },
-    {
-      target: "dashboard-area",
-      title: "Your Dashboard",
-      description: opportunityCostEnabled
-        ? "Spending insights and Bitcoin opportunity costs appear here once you have transactions."
-        : "Spending insights appear here once you have transactions.",
-      position: "bottom",
-    },
-  ]
-}
-
-/** Legacy browser-wide key; cleared on dismiss so it cannot block new accounts on the same device. */
 const LEGACY_STORAGE_KEY = "bitbudget-walkthrough-completed"
-
-/** Estimated tooltip size for viewport clamping before/without layout measure */
 const EST_TOOLTIP_W = 300
 const EST_TOOLTIP_H = 200
 const VIEW_PAD = 12
+const NAV_SETTLE_MS = 320
 
 type TooltipVariant = "right" | "below" | "above"
 
 export function WalkthroughOverlay() {
-  const { state, completeWalkthrough } = useApp()
+  const {
+    state,
+    completeWalkthrough,
+    navigateTo,
+    currentPage,
+    pendingCount,
+    hasPremiumFeatures,
+  } = useApp()
+
   const steps = useMemo(
-    () => buildWalkthroughSteps(state.opportunityCostEnabled),
-    [state.opportunityCostEnabled],
+    () =>
+      buildWalkthroughSteps({
+        opportunityCostEnabled: state.opportunityCostEnabled,
+        savingsEngaged: state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED,
+        hasPremiumFeatures,
+        pendingCount,
+      }),
+    [
+      state.opportunityCostEnabled,
+      state.savingsExperience,
+      hasPremiumFeatures,
+      pendingCount,
+    ],
   )
+
   const [currentStep, setCurrentStep] = useState(0)
   const [visible, setVisible] = useState(false)
   const [tooltipPos, setTooltipPos] = useState<{
@@ -62,8 +53,11 @@ export function WalkthroughOverlay() {
   }>({ top: 0, left: 0, centred: false, variant: "right" })
   const tooltipRef = useRef<HTMLDivElement>(null)
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Reset step/visibility when per-user completion changes (e.g. account switch), then schedule show.
+  const step: WalkthroughStepDef | undefined = steps[currentStep]
+  const isLast = currentStep >= steps.length - 1
+
   useEffect(() => {
     let cancelled = false
     const raf = requestAnimationFrame(() => {
@@ -86,17 +80,30 @@ export function WalkthroughOverlay() {
     }
   }, [state.walkthroughCompleted])
 
+  useEffect(() => {
+    if (!visible || !step) return
+    if (step.page !== currentPage) {
+      navigateTo(step.page)
+    }
+    if (step.settingsTab && typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("bitbudget-walkthrough-settings-tab", {
+          detail: { tab: step.settingsTab },
+        }),
+      )
+    }
+  }, [visible, currentStep, step, currentPage, navigateTo])
+
   const positionTooltip = useCallback(() => {
-    const step = steps[currentStep]
+    if (!step) return
     const el = document.querySelector(`[data-walkthrough="${step.target}"]`)
     if (!el) {
-      // Fallback positions when the target element doesn't exist (e.g. on mobile where sidebar items are hidden)
       const cx = window.innerWidth / 2
       const cy = window.innerHeight / 2
-      if (step.target === "new-transaction") {
+      if (step.target === "new-transaction" || step.target === "scan-receipt") {
         setTooltipPos({ top: window.innerHeight - 180, left: cx, centred: true, variant: "above" })
-      } else if (step.target === "dashboard-area") {
-        setTooltipPos({ top: 200, left: cx, centred: true, variant: "above" })
+      } else if (step.target === "dashboard-metrics" || step.target === "dashboard-chart") {
+        setTooltipPos({ top: 160, left: cx, centred: true, variant: "below" })
       } else {
         setTooltipPos({ top: cy - 80, left: cx, centred: true, variant: "above" })
       }
@@ -109,10 +116,9 @@ export function WalkthroughOverlay() {
     if (step.position === "right") {
       let top = rect.top + rect.height / 2
       let left = rect.right + 16
-      // Keep tooltip vertically in view (transform uses translateY(-50%))
       top = Math.max(
         VIEW_PAD + EST_TOOLTIP_H / 2,
-        Math.min(vh - VIEW_PAD - EST_TOOLTIP_H / 2, top)
+        Math.min(vh - VIEW_PAD - EST_TOOLTIP_H / 2, top),
       )
       const measured = tooltipRef.current?.getBoundingClientRect()
       const tipW = measured?.width ?? EST_TOOLTIP_W
@@ -121,14 +127,8 @@ export function WalkthroughOverlay() {
       return
     }
 
-    // "bottom" step: dashboard-area wraps the whole column — rect.bottom is often below the fold.
-    // Anchor near the top of the dashboard content, not below the full column height.
     const rawAnchorY = rect.top + Math.min(96, Math.max(48, rect.height * 0.12))
-    // Keep anchor inside the viewport so the tooltip can always be placed on-screen.
-    const anchorY = Math.max(
-      VIEW_PAD + 80,
-      Math.min(vh - VIEW_PAD - 80, rawAnchorY)
-    )
+    const anchorY = Math.max(VIEW_PAD + 80, Math.min(vh - VIEW_PAD - 80, rawAnchorY))
     const anchorX = rect.left + rect.width / 2
 
     const measured = tooltipRef.current?.getBoundingClientRect()
@@ -142,7 +142,6 @@ export function WalkthroughOverlay() {
     let variant: TooltipVariant = preferBelow ? "below" : "above"
     let top = preferBelow ? anchorY + VIEW_PAD : anchorY - VIEW_PAD
 
-    // If still off-screen, flip
     if (preferBelow && top + tipH > vh - VIEW_PAD) {
       variant = "above"
       top = anchorY - VIEW_PAD
@@ -152,27 +151,30 @@ export function WalkthroughOverlay() {
     }
 
     let left = anchorX
-    left = Math.max(
-      VIEW_PAD + tipW / 2,
-      Math.min(vw - VIEW_PAD - tipW / 2, left)
-    )
+    left = Math.max(VIEW_PAD + tipW / 2, Math.min(vw - VIEW_PAD - tipW / 2, left))
 
     setTooltipPos({ top, left, centred: false, variant })
-  }, [currentStep, steps])
+  }, [step])
 
   useLayoutEffect(() => {
-    if (!visible) return
-    // Defer setState to satisfy react-hooks/set-state-in-effect (avoid sync setState in effect body).
+    if (!visible || !step) return
     let raf2 = 0
     const raf1 = requestAnimationFrame(() => {
-      positionTooltip()
-      raf2 = requestAnimationFrame(() => positionTooltip())
+      if (navTimerRef.current) clearTimeout(navTimerRef.current)
+      navTimerRef.current = setTimeout(() => {
+        positionTooltip()
+        raf2 = requestAnimationFrame(() => positionTooltip())
+      }, NAV_SETTLE_MS)
     })
     return () => {
       cancelAnimationFrame(raf1)
       cancelAnimationFrame(raf2)
+      if (navTimerRef.current) {
+        clearTimeout(navTimerRef.current)
+        navTimerRef.current = null
+      }
     }
-  }, [visible, currentStep, positionTooltip])
+  }, [visible, currentStep, currentPage, positionTooltip, step])
 
   useEffect(() => {
     if (!visible) return
@@ -188,22 +190,25 @@ export function WalkthroughOverlay() {
     }
   }
 
+  function handleBack() {
+    if (currentStep > 0) setCurrentStep(currentStep - 1)
+  }
+
   function dismiss() {
     setVisible(false)
     try {
       localStorage.removeItem(LEGACY_STORAGE_KEY)
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     void completeWalkthrough()
   }
 
-  if (!visible || state.walkthroughCompleted) return null
-
-  const step = steps[currentStep]
-  const isLast = currentStep === steps.length - 1
+  if (!visible || state.walkthroughCompleted || !step) return null
 
   return (
     <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/50" onClick={dismiss} />
+      <div className="absolute inset-0 bg-black/50" onClick={dismiss} aria-hidden />
       <div
         ref={tooltipRef}
         className="absolute bg-[#1A1A1A] border border-[#333] rounded-xl p-4 shadow-xl max-w-xs z-50"
@@ -220,15 +225,19 @@ export function WalkthroughOverlay() {
         }}
       >
         <button
+          type="button"
           onClick={dismiss}
           className="absolute top-2 right-2 text-muted-foreground hover:text-foreground transition-colors"
           aria-label="Skip walkthrough"
         >
           <X className="h-3.5 w-3.5" />
         </button>
-        <h3 className="text-sm font-semibold text-foreground mb-1">{step.title}</h3>
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+          Step {currentStep + 1} of {steps.length}
+        </p>
+        <h3 className="text-sm font-semibold text-foreground mb-1 pr-4">{step.title}</h3>
         <p className="text-xs text-muted-foreground leading-relaxed mb-3">{step.description}</p>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex gap-1">
             {steps.map((_, i) => (
               <div
@@ -239,12 +248,24 @@ export function WalkthroughOverlay() {
               />
             ))}
           </div>
-          <button
-            onClick={handleNext}
-            className="text-xs font-medium text-btc-orange hover:text-btc-orange/80 transition-colors"
-          >
-            {isLast ? "Got it!" : "Next"}
-          </button>
+          <div className="flex items-center gap-2">
+            {currentStep > 0 && (
+              <button
+                type="button"
+                onClick={handleBack}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Back
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleNext}
+              className="text-xs font-medium text-btc-orange hover:text-btc-orange/80 transition-colors"
+            >
+              {isLast ? "Got it!" : "Next"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

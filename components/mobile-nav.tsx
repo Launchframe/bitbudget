@@ -160,7 +160,10 @@ export function MobileNav() {
 
   return (
     <>
-      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-[#0D0D0D] border-t border-[#1F1F1F] pb-[env(safe-area-inset-bottom)]">
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-[#0D0D0D] border-t border-[#1F1F1F] pb-[env(safe-area-inset-bottom)]"
+        data-walkthrough="app-nav"
+      >
         <div className="flex items-center justify-around px-1 h-16">
           {navItems.map((item, i) => {
             const isActive = currentPage === item.id || (item.id === "envelopes" && (currentPage === "envelope-detail" || currentPage === "envelope-allocations"))
@@ -172,6 +175,7 @@ export function MobileNav() {
                 {i === 2 && (
                   <button
                     type="button"
+                    data-walkthrough="new-transaction"
                     className={cn(
                       "flex h-16 w-16 -mt-6 touch-manipulation items-center justify-center rounded-full bg-[#F7931A] text-[#0D0D0D] shadow-lg shadow-[#F7931A]/20 transition-transform duration-300 ease-out will-change-transform",
                       fabNudge && "-translate-y-3",
@@ -184,6 +188,7 @@ export function MobileNav() {
                 )}
                 <button
                   onClick={() => navigateTo(item.id)}
+                  {...(item.id === "transactions" ? { "data-walkthrough": "transactions-nav" } : {})}
                   className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors ${
                     isActive ? "text-[#F7931A]" : "text-[#666] active:text-[#999]"
                   }`}

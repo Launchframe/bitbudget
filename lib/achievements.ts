@@ -31,6 +31,10 @@ export const ACHIEVEMENT_CODES = [
   "irregular_income_first",
   "import_complete",
   "year_one",
+  "setup_allocations",
+  "setup_plaid",
+  "setup_receipt_inbox",
+  "setup_account_email",
 ] as const
 
 export type AchievementCode = (typeof ACHIEVEMENT_CODES)[number]
@@ -214,6 +218,25 @@ async function detectTransactionAchievements(userId: string, savingsId: string):
   return awarded
 }
 
+export type SetupGuideAchievementFlags = {
+  allocations: boolean
+  accountEmail: boolean
+  plaid: boolean
+  receiptInbox: boolean
+}
+
+export async function awardSetupGuideAchievements(
+  userId: string,
+  flags: SetupGuideAchievementFlags,
+): Promise<number> {
+  let awarded = 0
+  if (flags.allocations && (await awardIfMissing(userId, "setup_allocations"))) awarded++
+  if (flags.accountEmail && (await awardIfMissing(userId, "setup_account_email"))) awarded++
+  if (flags.plaid && (await awardIfMissing(userId, "setup_plaid"))) awarded++
+  if (flags.receiptInbox && (await awardIfMissing(userId, "setup_receipt_inbox"))) awarded++
+  return awarded
+}
+
 /**
  * Scan Savings goals and transactions; award any newly earned achievements.
  * Returns count of achievements newly awarded.
@@ -240,5 +263,16 @@ export async function detectAchievementsForUser(userId: string, asOf?: Date): Pr
     if (await awardIfMissing(userId, "year_one")) awarded++
   }
 
+  return awarded
+}
+
+/** Run full achievement scan including setup-guide awards from current user state. */
+export async function detectAllAchievementsForUser(
+  userId: string,
+  setupFlags: SetupGuideAchievementFlags,
+  asOf?: Date,
+): Promise<number> {
+  let awarded = await detectAchievementsForUser(userId, asOf)
+  awarded += await awardSetupGuideAchievements(userId, setupFlags)
   return awarded
 }
