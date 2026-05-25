@@ -260,7 +260,7 @@ BitBudget is a **single Next.js monolith** — one `pnpm dev` process serves the
 
 ### Gotchas
 
-- **Prisma needs TCP connection**: The PostgreSQL `pg_hba.conf` uses `peer` auth for local sockets but `scram-sha-256` for TCP (`127.0.0.1`). The `DATABASE_URL` must use `127.0.0.1` (not `localhost` without a port), and the `bitbudget` user must have a password set (`ALTER USER bitbudget WITH PASSWORD 'bitbudget'`).
+- **Prisma needs a TCP connection to IPv4 loopback**: The PostgreSQL `pg_hba.conf` uses `peer` auth for local Unix sockets but `scram-sha-256` for TCP on `127.0.0.1`. Set `DATABASE_URL` to use host `127.0.0.1` and ensure the `bitbudget` user has a password set (`ALTER USER bitbudget WITH PASSWORD 'bitbudget'`). Do not omit the host, or PostgreSQL may use a local socket and hit `peer` auth instead. `localhost` may also resolve to `::1`; if you want to use `localhost`, make sure IPv6 and `pg_hba.conf` are configured for `::1` as well.
 - **E2E tests build the app**: `pnpm test:e2e` runs `next build` then `next start` on port 3100. Do not run it while `pnpm dev` is actively building — the `.next/dev/lock` conflict will cause failures. Stop `pnpm dev` first or set `PW_WEBSERVER_COMMAND` to reuse it.
 - **Playwright browsers**: Run `pnpm exec playwright install chromium --with-deps` once after `pnpm install` if Chromium is not already cached.
 - **`pnpm.onlyBuiltDependencies`** in `package.json` allows `@prisma/engines`, `@prisma/client`, `prisma`, and `sharp` to run build scripts. Other packages (e.g., `esbuild`, `unrs-resolver`) are intentionally ignored — do not run `pnpm approve-builds`.
