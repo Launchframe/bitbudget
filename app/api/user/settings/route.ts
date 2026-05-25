@@ -14,6 +14,7 @@ import {
 import { assertPayCadencePersistable, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import { PAYDAY_LAST_OF_MONTH } from "@/lib/payday-cadence"
 import { validateDecimal12_2, validateDecimal4_2Positive } from "@/lib/decimal-validation"
+import { booleanSettingsFieldError } from "@/lib/user-settings-validation"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
 type UserSettingsPutBody = Partial<{
@@ -333,6 +334,11 @@ export async function PUT(req: NextRequest) {
     ) {
       return NextResponse.json({ error: "Invalid savingsExperience" }, { status: 400 })
     }
+  }
+
+  const booleanFieldError = booleanSettingsFieldError(body)
+  if (booleanFieldError) {
+    return NextResponse.json({ error: booleanFieldError }, { status: 400 })
   }
 
   // Never allow encryptedPrivacyKey / privacyKeySalt via this route — use POST /api/user/encryption
