@@ -5,7 +5,7 @@ import {
   awardSetupGuideAchievements,
   detectAchievementsForUser,
 } from "@/lib/achievements"
-import type { Envelope, Transaction } from "@/lib/data"
+import type { Envelope, Transaction, TransactionSource } from "@/lib/data"
 import { getCurrentMonthKey } from "@/lib/data"
 import {
   computeSetupGuideTasks,
@@ -110,7 +110,7 @@ export async function GET() {
     payee: t.payee,
     amount: t.amount,
     type: t.type as Transaction["type"],
-    source: t.source ?? undefined,
+    source: (t.source as TransactionSource | null) ?? undefined,
     tags: [],
     excludeFromMainHistory: t.excludeFromMainHistory ?? false,
   }))
@@ -120,8 +120,9 @@ export async function GET() {
     select: { targetAmount: true },
   })
 
-  const savingsGoalSet =
-    (savingsGoal?.targetAmount ?? 0) > 0 || (defaultGoal?.targetAmount ?? 0) > 0
+  const monthTarget = savingsGoal?.targetAmount != null ? Number(savingsGoal.targetAmount) : 0
+  const defaultTarget = defaultGoal?.targetAmount != null ? Number(defaultGoal.targetAmount) : 0
+  const savingsGoalSet = monthTarget > 0 || defaultTarget > 0
 
   const input: SetupGuideClientInput = {
     monthlyIncome: user.monthlyIncome,
