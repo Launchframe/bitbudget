@@ -136,7 +136,21 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { id, name, monthlyAllotment, color, icon, archived, sweepPolicy, sweepCapMultiplier } = await req.json()
+  let id
+  let name
+  let monthlyAllotment
+  let color
+  let icon
+  let archived
+  let sweepPolicy
+  let sweepCapMultiplier
+
+  try {
+    ;({ id, name, monthlyAllotment, color, icon, archived, sweepPolicy, sweepCapMultiplier } = await req.json())
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
+
   if (!id) {
     return NextResponse.json({ error: "Envelope ID is required" }, { status: 400 })
   }
