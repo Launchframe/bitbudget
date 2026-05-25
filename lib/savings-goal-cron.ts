@@ -7,7 +7,6 @@ import {
   savingsEnvelopeBalanceBefore,
 } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
-import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import {
   graceEndsAtForPeriod,
   resolveSavingsGoalTarget,
@@ -106,12 +105,7 @@ export async function openCurrentPeriodGoal(userId: string, todayUtc?: Date): Pr
   })
   if (!user) return false
 
-  await ensureSystemSavingsEnvelope(userId)
-  const savings = await prisma.envelope.findFirst({
-    where: { userId, systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS, archived: false },
-    select: { id: true },
-  })
-  if (!savings) return false
+  const savings = await ensureSystemSavingsEnvelope(userId)
 
   const [y, m] = periodKey.split("-").map(Number)
   const periodStart = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0))

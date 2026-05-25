@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
 
   if (typeof user.publicKey !== "string" || user.publicKey.trim() === "") {
     return NextResponse.json(
-      { error: "Encryption is not configured." },
+      { error: "Finish Secure Your Data setup before importing income." },
       { status: 400 },
     )
   }
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
 
   if (created <= 0) {
     return NextResponse.json(
-      { error: "No income was imported. Entries may already exist or encryption is not configured." },
+      { error: "No income was imported. Each row may already exist, or the file had no valid amounts or dates." },
       { status: 400 },
     )
   }

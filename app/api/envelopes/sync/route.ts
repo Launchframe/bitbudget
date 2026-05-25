@@ -108,6 +108,7 @@ export async function POST(req: NextRequest) {
           await tx.envelope.update({
             where: { id: lone.id },
             data: {
+              archived: false,
               systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS,
               name: RESERVED_SAVINGS_ENVELOPE_NAME,
               monthlyAllotment: 0,

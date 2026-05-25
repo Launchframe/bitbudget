@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
 
   if (!user.publicKey?.trim()) {
     return NextResponse.json(
-      { error: "Encryption keys are not configured for this account." },
+      { error: "Finish Secure Your Data setup before recording irregular income." },
       { status: 400 },
     )
   }
