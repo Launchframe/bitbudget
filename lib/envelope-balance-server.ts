@@ -96,6 +96,64 @@ export async function envelopeBalancesBeforeBatch(
   return result
 }
 
+/**
+ * End-of-month envelope balances for many YYYY-MM keys in one transaction scan.
+ * Each snapshot uses date < month end (same semantics as envelopeBalancesBeforeBatch).
+ */
+export async function envelopeBalancesBeforeMonthEndsBatch(
+  userId: string,
+  envelopeIds: readonly string[],
+  monthKeys: readonly string[],
+): Promise<Map<string, Map<string, number>>> {
+  const result = new Map<string, Map<string, number>>()
+  if (envelopeIds.length === 0 || monthKeys.length === 0) return result
+
+  const endByMonth = new Map<string, Date>()
+  for (const mk of monthKeys) {
+    const bounds = periodBoundsUtc(mk)
+    if (!bounds) continue
+    endByMonth.set(mk, bounds.end)
+  }
+  if (endByMonth.size === 0) return result
+
+  let maxEndMs = 0
+  for (const end of endByMonth.values()) {
+    maxEndMs = Math.max(maxEndMs, end.getTime())
+  }
+
+  const rows = await prisma.transaction.findMany({
+    where: {
+      userId,
+      envelopeId: { in: [...envelopeIds] },
+      date: { lt: new Date(maxEndMs) },
+    },
+    select: { envelopeId: true, date: true, type: true, amount: true },
+    orderBy: [{ date: "asc" }, { id: "asc" }],
+  })
+
+  const running = new Map<string, number>()
+  for (const id of envelopeIds) running.set(id, 0)
+
+  const sortedMonths = [...endByMonth.entries()].sort((a, b) => a[1].getTime() - b[1].getTime())
+  let rowIdx = 0
+
+  for (const [monthKey, end] of sortedMonths) {
+    while (rowIdx < rows.length && rows[rowIdx]!.date < end) {
+      const row = rows[rowIdx]!
+      const delta = row.type === "credit" ? Number(row.amount) : -Number(row.amount)
+      running.set(row.envelopeId, (running.get(row.envelopeId) ?? 0) + delta)
+      rowIdx++
+    }
+    const snap = new Map<string, number>()
+    for (const id of envelopeIds) {
+      snap.set(id, Math.round((running.get(id) ?? 0) * 100) / 100)
+    }
+    result.set(monthKey, snap)
+  }
+
+  return result
+}
+
 /** Month-scoped balances for many envelopes in one query. */
 export async function envelopeBalancesForMonthBatch(
   userId: string,

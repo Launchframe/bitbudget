@@ -7,8 +7,8 @@ import {
   TX_SOURCE_INCOME_IMPORT,
 } from "@/lib/constants"
 import {
-  envelopeBalancesBeforeBatch,
-  periodBoundsUtc,
+  envelopeBalancesBeforeMonthEndsBatch,
+  monthKeyFromDate,
   savingsEnvelopeBalanceAllTime,
 } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
@@ -52,6 +52,14 @@ const STREAK_CODES: Array<{ code: AchievementCode; length: number }> = [
 /** Max closed months to load end-of-period envelope balances for swept_clean_month. */
 const SWEPT_CLEAN_MONTH_BALANCE_LOOKBACK = 24
 
+/** Max closed goal rows scanned for streak / goal achievements. */
+const GOAL_ACHIEVEMENT_LOOKBACK_MONTHS = 36
+
+function minPeriodKeyMonthsAgo(months: number, asOf: Date): string {
+  const d = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() - (months - 1), 1))
+  return monthKeyFromDate(d)
+}
+
 /** Idempotent insert; returns true when a new row was created. */
 export async function awardIfMissing(
   userId: string,
@@ -90,13 +98,20 @@ async function detectBalanceAchievements(userId: string, balance: number): Promi
   return awarded
 }
 
-async function detectGoalAchievements(userId: string): Promise<number> {
+async function detectGoalAchievements(userId: string, asOf: Date): Promise<number> {
   let awarded = 0
+  const minPeriodKey = minPeriodKeyMonthsAgo(GOAL_ACHIEVEMENT_LOOKBACK_MONTHS, asOf)
   const closed = await prisma.savingsGoal.findMany({
     where: {
       userId,
       closedAt: { not: null },
-      periodKey: { not: "default" },
+      periodKey: { not: "default", gte: minPeriodKey },
+    },
+    select: {
+      periodKey: true,
+      achievedGoal: true,
+      progressPct: true,
+      closedAt: true,
     },
     orderBy: { periodKey: "desc" },
   })
@@ -136,18 +151,10 @@ async function detectGoalAchievements(userId: string): Promise<number> {
     .sort((a, b) => b.localeCompare(a))
     .slice(0, SWEPT_CLEAN_MONTH_BALANCE_LOOKBACK)
 
-  const balanceEntries = await Promise.all(
-    closedMonthKeys.map(async (monthKey) => {
-      const bounds = periodBoundsUtc(monthKey)
-      if (!bounds) return null
-      const balances = await envelopeBalancesBeforeBatch(userId, budgetIds, bounds.end)
-      return [monthKey, balances] as const
-    }),
-  )
-  const balancesByMonth = new Map<string, Map<string, number>>()
-  for (const entry of balanceEntries) {
-    if (entry) balancesByMonth.set(entry[0], entry[1])
-  }
+  const balancesByMonth =
+    budgetIds.length > 0 && closedMonthKeys.length > 0
+      ? await envelopeBalancesBeforeMonthEndsBatch(userId, budgetIds, closedMonthKeys)
+      : new Map<string, Map<string, number>>()
 
   for (const goal of closed) {
     if (!/^\d{4}-\d{2}$/.test(goal.periodKey)) continue
@@ -225,7 +232,7 @@ export async function detectAchievementsForUser(userId: string, asOf?: Date): Pr
   const balance = await savingsEnvelopeBalanceAllTime(userId, savings.id)
 
   awarded += await detectBalanceAchievements(userId, balance)
-  awarded += await detectGoalAchievements(userId)
+  awarded += await detectGoalAchievements(userId, now)
   awarded += await detectTransactionAchievements(userId, savings.id)
 
   const oneYearMs = 365 * 24 * 60 * 60 * 1000

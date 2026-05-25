@@ -24,7 +24,9 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/envelope-balance-server", () => ({
   savingsEnvelopeBalanceAllTime: vi.fn().mockResolvedValue(0),
-  envelopeBalancesBeforeBatch: vi.fn().mockResolvedValue(new Map()),
+  envelopeBalancesBeforeMonthEndsBatch: vi.fn().mockResolvedValue(new Map()),
+  monthKeyFromDate: (d: Date) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`,
   periodBoundsUtc: (periodKey: string) => {
     if (!/^\d{4}-\d{2}$/.test(periodKey)) return null
     const [y, m] = periodKey.split("-").map(Number)
@@ -41,7 +43,7 @@ vi.mock("@/lib/envelope-funding", () => ({
 }))
 
 import { prisma } from "@/lib/db"
-import { savingsEnvelopeBalanceAllTime, envelopeBalancesBeforeBatch } from "@/lib/envelope-balance-server"
+import { savingsEnvelopeBalanceAllTime, envelopeBalancesBeforeMonthEndsBatch } from "@/lib/envelope-balance-server"
 import {
   awardIfMissing,
   computeGoalStreakFromClosed,
@@ -152,7 +154,9 @@ describe("achievements", () => {
     ] as never)
     vi.mocked(prisma.envelope.findMany).mockResolvedValue([{ id: "e1", systemRole: null }] as never)
     vi.mocked(prisma.transaction.count).mockResolvedValue(0)
-    vi.mocked(envelopeBalancesBeforeBatch).mockResolvedValue(new Map([["e1", 0]]))
+    vi.mocked(envelopeBalancesBeforeMonthEndsBatch).mockResolvedValue(
+      new Map([["2026-02", new Map([["e1", 0]])]]),
+    )
     vi.mocked(prisma.userAchievement.create).mockResolvedValue({
       id: "x",
       userId: "u1",
@@ -162,11 +166,7 @@ describe("achievements", () => {
     })
 
     await detectAchievementsForUser("u1", new Date("2026-03-01"))
-    expect(envelopeBalancesBeforeBatch).toHaveBeenCalledWith(
-      "u1",
-      ["e1"],
-      new Date(Date.UTC(2026, 2, 1, 0, 0, 0, 0)),
-    )
+    expect(envelopeBalancesBeforeMonthEndsBatch).toHaveBeenCalledWith("u1", ["e1"], ["2026-02"])
     const codes = vi.mocked(prisma.userAchievement.create).mock.calls.map((c) => c[0]?.data.code)
     expect(codes).toContain("swept_clean_month")
   })
