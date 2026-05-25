@@ -91,9 +91,17 @@ export function suggestedManualSweepAmount(params: {
   return 0
 }
 
+/** Coerced via Number() — includes Prisma Decimal on server (toString). */
+export type SweepCapMultiplierInput =
+  | number
+  | string
+  | null
+  | undefined
+  | { toString(): string }
+
 export function resolveSweepCapMultiplier(
-  envelopeCap: number | string | null | undefined,
-  userDefaultCap: number | string | null | undefined,
+  envelopeCap: SweepCapMultiplierInput,
+  userDefaultCap: SweepCapMultiplierInput,
 ): number {
   if (envelopeCap != null) return Number(envelopeCap)
   if (userDefaultCap != null) return Number(userDefaultCap)
