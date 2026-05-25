@@ -35,6 +35,7 @@ import { IncomeImporterLegend } from "@/components/income-importer/legend"
 import { IncomeCellEditDialog, type CellEditState } from "@/components/income-importer/income-cell-edit-dialog"
 import { IncomeReviewStep } from "@/components/income-importer/income-review-step"
 import { IncomeSuccessStep } from "@/components/income-importer/income-success-step"
+import { IncomeCsvImport } from "@/components/income-importer/income-csv-import"
 
 export const INCOME_IMPORTER_DRAFT_KEY = "bitbudget-income-importer-draft"
 
@@ -50,6 +51,19 @@ interface IncomeImporterDraft {
   lastClickedPeriod: string | null
 }
 
+function isStagedEntry(value: unknown): value is StagedImportEntry {
+  if (typeof value !== "object" || value == null) return false
+  const e = value as StagedImportEntry
+  if (typeof e.periodKey !== "string" || !parseIncomePeriodKey(e.periodKey)) return false
+  if (typeof e.amount !== "number" || !Number.isFinite(e.amount) || e.amount <= 0) return false
+  if (e.kind !== "month" && e.kind !== "year") return false
+  if (e.source != null && typeof e.source !== "string") return false
+  if (e.splitCount != null && (!Number.isFinite(e.splitCount) || e.splitCount < 1 || e.splitCount > 52)) {
+    return false
+  }
+  return true
+}
+
 function isDraft(value: unknown): value is IncomeImporterDraft {
   if (typeof value !== "object" || value == null) return false
   const d = value as IncomeImporterDraft
@@ -59,7 +73,8 @@ function isDraft(value: unknown): value is IncomeImporterDraft {
     typeof d.paintAmount === "number" &&
     typeof d.paintSource === "string" &&
     typeof d.scrollYear === "number" &&
-    Array.isArray(d.entries)
+    Array.isArray(d.entries) &&
+    d.entries.every(isStagedEntry)
   )
 }
 
@@ -92,6 +107,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
   }, [editOpen, clearOpen])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [csvStatus, setCsvStatus] = useState<string | null>(null)
   const [successTotal, setSuccessTotal] = useState(0)
 
   const tx0 = useMemo(() => findTransactionHistoryStart(activeTransactions), [activeTransactions])
@@ -144,6 +160,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
     setEntries(new Map())
     setLastClickedPeriod(null)
     setError(null)
+    setCsvStatus(null)
   }, [priorImports, state.monthlyIncome, sumAllotments])
 
   useEffect(() => {
@@ -237,6 +254,26 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
     [entryList],
   )
 
+  const handleCsvImport = useCallback(
+    (result: {
+      entries: StagedImportEntry[]
+      scrollYear: number
+      monthCount: number
+      skippedRows: number
+    }) => {
+      setError(null)
+      setMode("monthly")
+      setScrollYear(result.scrollYear)
+      stageEntries(result.entries)
+      const skipNote =
+        result.skippedRows > 0 ? ` ${result.skippedRows} row${result.skippedRows === 1 ? "" : "s"} skipped.` : ""
+      setCsvStatus(
+        `Loaded ${result.monthCount} month${result.monthCount === 1 ? "" : "s"} from CSV.${skipNote} Review the calendar, then continue to Review import.`,
+      )
+    },
+    [stageEntries],
+  )
+
   const submit = async () => {
     setError(null)
     if (entryList.length === 0) {
@@ -324,6 +361,15 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
                   Clear All
                 </Button>
               )}
+              {step === "calendar" && (
+                <IncomeCsvImport
+                  onImported={handleCsvImport}
+                  onError={(message) => {
+                    setCsvStatus(null)
+                    setError(message)
+                  }}
+                />
+              )}
             </div>
           </DialogHeader>
 
@@ -331,7 +377,8 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
             {step === "calendar" && (
               <>
                 <p className="text-xs text-muted-foreground">
-                  Paint your income history on the calendar. Past periods credit Savings only; current and future
+                  Paint your income history on the calendar, or import a CSV with Date, Amount, and an optional
+                  Source column. Rows are grouped by month. Past periods credit Savings only; current and future
                   periods also fund envelopes.
                 </p>
                 <div className="flex gap-2 p-1 rounded-xl bg-[#111] border border-[#1F1F1F]">
@@ -376,6 +423,11 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
                   onLastClickedPeriodChange={setLastClickedPeriod}
                 />
                 <IncomeImporterLegend />
+                {csvStatus && (
+                  <p className="text-sm text-[#D4AF37]/95" role="status">
+                    {csvStatus}
+                  </p>
+                )}
                 {error && (
                   <p className="text-sm text-amber-400/95" role="alert">
                     {error}

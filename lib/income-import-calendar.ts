@@ -17,6 +17,20 @@ export interface ImportSummary {
 }
 
 const MONTH_KEY_RE = /^\d{4}-\d{2}$/
+const YEAR_KEY_RE = /^\d{4}$/
+
+/** Normalize year keys to a month key for chronological compare against tx0. */
+export function periodCompareKey(periodKey: string): string {
+  if (YEAR_KEY_RE.test(periodKey)) return `${periodKey}-01`
+  return periodKey
+}
+
+/** True when a calendar cell represents the tx0 period (month or year row). */
+export function periodMatchesTx0(periodKey: string, tx0PeriodKey: string): boolean {
+  if (periodKey === tx0PeriodKey) return true
+  if (YEAR_KEY_RE.test(periodKey) && tx0PeriodKey.startsWith(`${periodKey}-`)) return true
+  return false
+}
 
 export function buildCalendarYears(currentYear: number, floor = 1900): number[] {
   const start = Math.max(floor, 1900)
@@ -86,8 +100,8 @@ export function cellState(params: {
   amount: number
 }): CellVisualState {
   const { periodKey, tx0PeriodKey, amount } = params
-  if (tx0PeriodKey && periodKey < tx0PeriodKey) return "preHistory"
-  if (tx0PeriodKey && periodKey === tx0PeriodKey) return "tx0"
+  if (tx0PeriodKey && periodMatchesTx0(periodKey, tx0PeriodKey)) return "tx0"
+  if (tx0PeriodKey && periodCompareKey(periodKey) < tx0PeriodKey) return "preHistory"
   if (amount > 0) return "shaded"
   return "empty"
 }

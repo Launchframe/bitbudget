@@ -31,6 +31,12 @@ describe("income-import-calendar", () => {
     expect(cellState({ periodKey: "2022-07", tx0PeriodKey: "2022-06", amount: 500 })).toBe("shaded")
   })
 
+  it("cellState compares annual year keys against tx0 month", () => {
+    expect(cellState({ periodKey: "2021", tx0PeriodKey: "2022-06", amount: 0 })).toBe("preHistory")
+    expect(cellState({ periodKey: "2022", tx0PeriodKey: "2022-06", amount: 0 })).toBe("tx0")
+    expect(cellState({ periodKey: "2023", tx0PeriodKey: "2022-06", amount: 500 })).toBe("shaded")
+  })
+
   it("summarizeImportEntries totals pending and existing", () => {
     const map = new Map([["2026-01", 1000]])
     const summary = summarizeImportEntries([{ periodKey: "2026-01", amount: 1200 }], map)

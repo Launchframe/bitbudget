@@ -94,6 +94,20 @@ export function IncomeCalendar({
   const didDragRef = useRef(false)
   const [focusPeriod, setFocusPeriod] = useState<string | null>(null)
   const [mobileEditPeriod, setMobileEditPeriod] = useState<string | null>(null)
+  const [rovingPeriod, setRovingPeriod] = useState(() => monthPeriodKey(scrollYear, 0))
+
+  useEffect(() => {
+    const next = mode === "monthly" ? monthPeriodKey(scrollYear, 0) : String(scrollYear)
+    requestAnimationFrame(() => setRovingPeriod(next))
+  }, [mode, scrollYear])
+
+  const focusPeriodCell = useCallback((periodKey: string) => {
+    setRovingPeriod(periodKey)
+    setFocusPeriod(periodKey)
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-period="${periodKey}"]`)?.focus()
+    })
+  }, [])
 
   const stagedAmounts = useMemo(() => [...entries.values()].map((e) => e.amount), [entries])
   const heatmapMax = useMemo(() => maxStagedAmount(stagedAmounts), [stagedAmounts])
@@ -179,7 +193,7 @@ export function IncomeCalendar({
       <div
         key={periodKey}
         role="gridcell"
-        tabIndex={0}
+        tabIndex={rovingPeriod === periodKey ? 0 : -1}
         aria-label={`${label}${amount > 0 ? `, staged ${amount} dollars` : ""}`}
         className={`relative w-full rounded-md touch-none ${options?.compact ? "min-h-10" : "aspect-square min-h-8"} ${cellClass(visual)} group focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/60`}
         style={visual === "shaded" ? cellBackgroundStyle(intensity) : undefined}
@@ -195,7 +209,10 @@ export function IncomeCalendar({
         onPointerEnter={() => {
           if (kind === "month") updateMonthDrag(periodKey)
         }}
-        onFocus={() => setFocusPeriod(periodKey)}
+        onFocus={() => {
+          setFocusPeriod(periodKey)
+          setRovingPeriod(periodKey)
+        }}
         onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
           if (e.key === "Enter" && e.shiftKey && lastClickedPeriod && kind === "month") {
             e.preventDefault()
@@ -225,7 +242,7 @@ export function IncomeCalendar({
           }
           if (next) {
             e.preventDefault()
-            document.querySelector<HTMLElement>(`[data-period="${next}"]`)?.focus()
+            focusPeriodCell(next)
           }
         }}
         data-period={periodKey}
