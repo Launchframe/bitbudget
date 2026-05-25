@@ -3,10 +3,9 @@
  */
 
 import { isPaydayForUser, type PaydayUserFields } from "@/lib/payday-cadence"
+import { pad2 } from "@/lib/pad2"
 
-export function pad2(n: number): string {
-  return String(n).padStart(2, "0")
-}
+export { pad2 } from "@/lib/pad2"
 
 export function daysInUtcMonth(date: Date): number {
   const y = date.getUTCFullYear()

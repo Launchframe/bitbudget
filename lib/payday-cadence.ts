@@ -2,7 +2,7 @@
  * Paycheck timing helpers (UTC). Used by funding cron and onboarding previews.
  */
 
-import { pad2 } from "@/lib/envelope-funding-period"
+import { pad2 } from "@/lib/pad2"
 
 export interface PaydayUserFields {
   payCadence: string
