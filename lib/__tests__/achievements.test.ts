@@ -81,6 +81,15 @@ describe("achievements", () => {
     ).toBe(2)
   })
 
+  it("computeGoalStreakFromClosed breaks on missing months", () => {
+    expect(
+      computeGoalStreakFromClosed([
+        { periodKey: "2026-03", achievedGoal: true },
+        { periodKey: "2026-01", achievedGoal: true },
+      ]),
+    ).toBe(1)
+  })
+
   it("detectAchievementsForUser awards balance thresholds", async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue({
       createdAt: new Date("2020-01-01"),

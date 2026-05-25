@@ -12,13 +12,9 @@ import {
   resolveSavingsGoalTarget,
   SAVINGS_GOAL_DEFAULT_PERIOD,
 } from "@/lib/savings-goal"
+import { previousMonthKey } from "@/lib/savings-goal-streak"
 
-export function previousMonthKey(monthKey: string): string {
-  if (!/^\d{4}-\d{2}$/.test(monthKey)) return monthKey
-  const [y, m] = monthKey.split("-").map(Number)
-  const prev = new Date(Date.UTC(y, m - 2, 1))
-  return monthKeyFromDate(prev)
-}
+export { previousMonthKey } from "@/lib/savings-goal-streak"
 
 export function computeCloseSnapshots(params: {
   startBalance: number

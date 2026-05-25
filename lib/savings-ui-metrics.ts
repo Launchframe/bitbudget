@@ -4,6 +4,7 @@ import {
 } from "@/lib/constants"
 import type { Envelope, Transaction } from "@/lib/data"
 import { getEnvelopeBalanceAllTime, getMonthKey } from "@/lib/data"
+import { currentGoalStreakFromClosed } from "@/lib/savings-goal-streak"
 
 export const SAVINGS_INFLOW_SOURCES = new Set([
   "paycheck",
@@ -101,15 +102,7 @@ export interface SavingsGoalRow {
 }
 
 export function computeGoalStreak(closedGoals: SavingsGoalRow[]): number {
-  const sorted = [...closedGoals]
-    .filter((g) => g.closedAt)
-    .sort((a, b) => b.periodKey.localeCompare(a.periodKey))
-  let streak = 0
-  for (const row of sorted) {
-    if (row.achievedGoal) streak++
-    else break
-  }
-  return streak
+  return currentGoalStreakFromClosed(closedGoals)
 }
 
 export function bestMonthFromGoals(closedGoals: SavingsGoalRow[]): { amount: number; periodKey: string } | null {

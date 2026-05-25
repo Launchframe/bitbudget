@@ -13,6 +13,7 @@ import {
 } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
 import { TX_SOURCE_IRREGULAR_INCOME } from "@/lib/envelope-funding"
+import { currentGoalStreakFromClosed } from "@/lib/savings-goal-streak"
 
 export const ACHIEVEMENT_CODES = [
   "first_dollar",
@@ -73,16 +74,7 @@ export async function awardIfMissing(
 export function computeGoalStreakFromClosed(
   closedGoals: Array<{ periodKey: string; achievedGoal: boolean | null }>,
 ): number {
-  const sorted = [...closedGoals]
-    .filter((g) => /^\d{4}-\d{2}$/.test(g.periodKey))
-    .sort((a, b) => b.periodKey.localeCompare(a.periodKey))
-
-  let streak = 0
-  for (const row of sorted) {
-    if (row.achievedGoal) streak++
-    else break
-  }
-  return streak
+  return currentGoalStreakFromClosed(closedGoals)
 }
 
 async function detectBalanceAchievements(userId: string, balance: number): Promise<number> {

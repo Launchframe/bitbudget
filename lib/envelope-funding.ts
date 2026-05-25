@@ -12,6 +12,8 @@ import {
   allotmentSliceForFundingRun,
   fundingPeriodKeyForDate,
   grossIncomeForFundingRun,
+  grossIncomeForPaydayUser,
+  allotmentSliceForPaydayUser,
 } from "@/lib/envelope-funding-period"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 import {
@@ -145,7 +147,9 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
   const savings = await savingsEnvelopeForUserDb(prisma, userId)
   if (!savings) return 0
 
-  const gross = grossIncomeForFundingRun(user.monthlyIncome, user.payCadence, now, dailyAllowed)
+  const gross = usesPaydayCadence(paydayUser)
+    ? grossIncomeForPaydayUser(user.monthlyIncome, paydayUser, now, dailyAllowed)
+    : grossIncomeForFundingRun(user.monthlyIncome, user.payCadence, now, dailyAllowed)
   if (!Number.isFinite(gross) || gross <= 0) return 0
 
   const envelopeRows = await prisma.envelope.findMany({
@@ -158,12 +162,14 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
   const slices: SliceRow[] = []
   let sumSlices = 0
   for (const e of envelopes) {
-    const slice = allotmentSliceForFundingRun(
-      e.monthlyAllotment,
-      user.payCadence,
-      now,
-      dailyAllowed,
-    )
+    const slice = usesPaydayCadence(paydayUser)
+      ? allotmentSliceForPaydayUser(e.monthlyAllotment, paydayUser, now, dailyAllowed)
+      : allotmentSliceForFundingRun(
+          e.monthlyAllotment,
+          user.payCadence,
+          now,
+          dailyAllowed,
+        )
     if (slice > 0) {
       slices.push({ id: e.id, slice })
       sumSlices += slice

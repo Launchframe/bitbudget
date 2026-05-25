@@ -1,3 +1,5 @@
+import { longestGoalStreakFromClosed } from "@/lib/savings-goal-streak"
+
 type RecapGoalRow = {
   periodKey: string
   actualSavedAmount: number | null
@@ -13,6 +15,15 @@ export interface YearEndRecapStats {
   longestStreak: number
   achievementsEarned: number
   projection2030: number | null
+}
+
+/** Monthly save periods from asOf through December of targetYear (inclusive). */
+export function monthsToSaveThroughYearEnd(asOf: Date, targetYear: number): number {
+  const year = asOf.getUTCFullYear()
+  const month = asOf.getUTCMonth()
+  if (year > targetYear) return 0
+  if (year === targetYear) return 0
+  return (targetYear - year) * 12 + (12 - month)
 }
 
 export function aggregateYearEndRecap(params: {
@@ -40,29 +51,13 @@ export function aggregateYearEndRecap(params: {
     if (!worstMonth || amt < worstMonth.amount) worstMonth = { periodKey: row.periodKey, amount: amt }
   }
 
-  const sorted = [...inYear]
-    .filter((g) => g.closedAt)
-    .sort((a, b) => b.periodKey.localeCompare(a.periodKey))
-
-  let longestStreak = 0
-  let streak = 0
-  for (const row of sorted) {
-    if (row.achievedGoal) {
-      streak++
-      longestStreak = Math.max(longestStreak, streak)
-    } else {
-      streak = 0
-    }
-  }
+  const longestStreak = longestGoalStreakFromClosed(inYear)
 
   const rate = params.monthlySaveRate
   let projection2030: number | null = null
   if (rate > 0) {
     const asOf = params.asOf ?? new Date()
-    const year = asOf.getUTCFullYear()
-    const month = asOf.getUTCMonth()
-    const monthsTo2030 =
-      year > 2030 ? 0 : Math.max(0, (2030 - year) * 12 + (12 - month))
+    const monthsTo2030 = monthsToSaveThroughYearEnd(asOf, 2030)
     projection2030 = Math.round((params.currentSavingsBalance + rate * monthsTo2030) * 100) / 100
   }
 
@@ -88,5 +83,5 @@ export function shouldShowYearEndRecap(now = new Date()): { show: boolean; recap
 }
 
 export function yearEndRecapStorageKey(recapYear: number): string {
-  return `bitbudget-year-recap-${recapYear}`
+  return `bitbudget-year-end-recap-${recapYear}`
 }
