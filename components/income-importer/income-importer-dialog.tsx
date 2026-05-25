@@ -180,7 +180,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
   }, [open, hydrateDefaults])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || step === "success") return
     saveDraft(INCOME_IMPORTER_DRAFT_KEY, {
       step,
       mode,

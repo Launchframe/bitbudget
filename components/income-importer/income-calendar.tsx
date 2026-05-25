@@ -102,10 +102,12 @@ export function IncomeCalendar({
   }, [mode, scrollYear])
 
   const focusPeriodCell = useCallback((periodKey: string) => {
+    const el = document.querySelector<HTMLElement>(`[data-period="${periodKey}"]`)
+    if (!el) return
     setRovingPeriod(periodKey)
     setFocusPeriod(periodKey)
     requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>(`[data-period="${periodKey}"]`)?.focus()
+      el.focus()
     })
   }, [])
 
@@ -176,6 +178,12 @@ export function IncomeCalendar({
     if (periodKey !== dragStartRef.current) didDragRef.current = true
   }
 
+  const displayYears = useMemo(
+    () => [scrollYear, scrollYear - 1, scrollYear - 2],
+    [scrollYear],
+  )
+  const visibleYearSet = useMemo(() => new Set(displayYears), [displayYears])
+
   const renderCell = (
     periodKey: string,
     kind: "month" | "year",
@@ -241,6 +249,8 @@ export function IncomeCalendar({
             next = `${parsed.year + 1}-${String(parsed.month).padStart(2, "0")}`
           }
           if (next) {
+            const nextParsed = parseIncomePeriodKey(next)
+            if (!nextParsed || nextParsed.kind !== "month" || !visibleYearSet.has(nextParsed.year)) return
             e.preventDefault()
             focusPeriodCell(next)
           }
@@ -274,8 +284,6 @@ export function IncomeCalendar({
       </div>
     )
   }
-
-  const displayYears = [scrollYear, scrollYear - 1, scrollYear - 2]
 
   return (
     <div className="flex flex-col gap-3">
@@ -372,7 +380,10 @@ export function IncomeCalendar({
                 role="row"
                 className={`flex items-center gap-3 rounded-xl p-3 touch-none ${cellClass(visual)}`}
                 style={visual === "shaded" ? cellBackgroundStyle(intensity) : undefined}
-                onPointerDown={() => applyPaint([pk], "year")}
+                onPointerDown={(e) => {
+                  if ((e.target as HTMLElement).closest("[data-edit-btn]")) return
+                  applyPaint([pk], "year")
+                }}
               >
                 <span className="w-16 text-sm font-medium">{year}</span>
                 <span className="flex-1 text-xs text-muted-foreground">
@@ -380,6 +391,7 @@ export function IncomeCalendar({
                 </span>
                 <button
                   type="button"
+                  data-edit-btn
                   className="text-[#D4AF37]"
                   aria-label={`Edit ${year}`}
                   onClick={() => onEditCell(pk, "year")}
