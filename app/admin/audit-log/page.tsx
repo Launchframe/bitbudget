@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { AUDIT_LOG_ACTIONS, AUDIT_LOG_ACTION_LABELS } from "@/lib/audit-log-actions"
 
 interface AuditLogRow {
   id: string
@@ -14,10 +15,10 @@ interface AuditLogRow {
 
 const ACTION_OPTIONS = [
   { value: "", label: "All actions" },
-  { value: "sender.created", label: "sender.created" },
-  { value: "sender.deleted", label: "sender.deleted" },
-  { value: "sender.approved", label: "sender.approved" },
-  { value: "sender.dismissed", label: "sender.dismissed" },
+  ...AUDIT_LOG_ACTIONS.map(action => ({
+    value: action,
+    label: AUDIT_LOG_ACTION_LABELS[action],
+  })),
 ]
 
 export default function AdminAuditLogPage() {
