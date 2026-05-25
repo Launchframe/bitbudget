@@ -234,3 +234,33 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **`colSpan` mismatch** — when conditionally rendering table columns (e.g. hiding BTC columns in vanilla mode), update the empty-state row's `colSpan` accordingly.
 - **`react-hooks/set-state-in-effect`** — don’t call `setState` synchronously inside `useEffect` / `useLayoutEffect`; it triggers lint and risks extra renders or cascading updates. See **React effects and `setState`** under Code Conventions for patterns (derive during render, defer with `requestAnimationFrame` / `setTimeout(0)`, refs).
 - **Resetting `onboardingComplete` for users who already have `encryptedPrivacyKey`** — never rely on onboarding to rotate keys. `PUT /api/user/settings` must not accept `encryptedPrivacyKey` / `privacyKeySalt`. Prefer **Skip onboarding** and correct step routing; corrupt keys need a **recovery** path, not a silent `POST` overwrite.
+
+## Cursor Cloud specific instructions
+
+### Services overview
+
+BitBudget is a **single Next.js monolith** — one `pnpm dev` process serves the frontend and all API routes. The only required backing service is **PostgreSQL 16** (already running on the VM on port 5432, database `bitbudget`, user `bitbudget`, password `bitbudget`).
+
+### Environment files
+
+- `.env.local` holds `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`, and `NEXT_PUBLIC_APP_URL`.
+- Prisma CLI reads `.env` (not `.env.local`), so a symlink `.env → .env.local` exists. If `.env.local` is recreated, re-run `ln -sf .env.local .env`.
+- For E2E test mode, start the dev server with `E2E_TEST=true E2E_EMAIL_CODE=424242 pnpm dev` — this enables fixed OTP sign-in for `@bitbudget.test` emails and disables outbound notifications.
+
+### Quick reference
+
+| Task | Command |
+|------|---------|
+| Install deps | `pnpm install` (runs `prisma generate` via postinstall) |
+| Dev server | `pnpm dev` (port 3000) |
+| Lint | `pnpm lint` |
+| Unit tests | `pnpm test` |
+| E2E tests | `pnpm test:e2e` (builds then starts on port 3100; don't run while `pnpm dev` is building) |
+| Migrations | `pnpm exec prisma migrate deploy` |
+
+### Gotchas
+
+- **Prisma needs TCP connection**: The PostgreSQL `pg_hba.conf` uses `peer` auth for local sockets but `scram-sha-256` for TCP (`127.0.0.1`). The `DATABASE_URL` must use `127.0.0.1` (not `localhost` without a port), and the `bitbudget` user must have a password set (`ALTER USER bitbudget WITH PASSWORD 'bitbudget'`).
+- **E2E tests build the app**: `pnpm test:e2e` runs `next build` then `next start` on port 3100. Do not run it while `pnpm dev` is actively building — the `.next/dev/lock` conflict will cause failures. Stop `pnpm dev` first or set `PW_WEBSERVER_COMMAND` to reuse it.
+- **Playwright browsers**: Run `pnpm exec playwright install chromium --with-deps` once after `pnpm install` if Chromium is not already cached.
+- **`pnpm.onlyBuiltDependencies`** in `package.json` allows `@prisma/engines`, `@prisma/client`, `prisma`, and `sharp` to run build scripts. Other packages (e.g., `esbuild`, `unrs-resolver`) are intentionally ignored — do not run `pnpm approve-builds`.
