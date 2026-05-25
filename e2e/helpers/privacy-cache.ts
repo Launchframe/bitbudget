@@ -19,7 +19,6 @@ export async function primePrivacyKeyCache(page: Page, userId: string): Promise<
 
 /** Unlock PIN dialog when cache is missing but server has wrapped key. */
 export async function unlockPassphraseIfNeeded(page: Page): Promise<void> {
-  const dialog = page.getByRole("dialog").filter({ hasText: "Unlock" })
   const pinInput = page.getByPlaceholder("Enter your passphrase")
   if (await pinInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
     await pinInput.fill(E2E_TEST_PASSPHRASE)
