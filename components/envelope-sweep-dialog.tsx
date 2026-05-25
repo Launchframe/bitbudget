@@ -12,6 +12,16 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
+import {
+  resolveEffectiveSweepPolicy,
+  resolveSweepCapMultiplier,
+  suggestedManualSweepAmount,
+} from "@/lib/envelope-sweep"
+import {
+  SWEEP_POLICY_CAPPED,
+  SWEEP_POLICY_CARRY_FORWARD,
+  SWEEP_POLICY_RESET,
+} from "@/lib/constants"
 import { Sparkles } from "lucide-react"
 
 interface SweepRow {
@@ -19,9 +29,98 @@ interface SweepRow {
   name: string
   color: string
   icon?: string | null
+  monthlyAllotment: number
   maxAmount: number
+  suggestedAmount: number
   checked: boolean
   amount: string
+}
+
+function envelopeHealthColor(percentage: number): string {
+  return percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
+}
+
+function SweepEnvelopeHealthBar({
+  name,
+  monthlyAllotment,
+  currentBalance,
+  sweepAmount,
+}: {
+  name: string
+  monthlyAllotment: number
+  currentBalance: number
+  sweepAmount: number
+}) {
+  if (monthlyAllotment <= 0) return null
+
+  const currentPct = Math.min(100, Math.max(0, (currentBalance / monthlyAllotment) * 100))
+  const afterBalance = Math.max(0, currentBalance - sweepAmount)
+  const afterPct = Math.min(100, Math.max(0, (afterBalance / monthlyAllotment) * 100))
+  const sweepPct = Math.max(0, currentPct - afterPct)
+  const afterColor = envelopeHealthColor(afterPct)
+  const currentColor = envelopeHealthColor(currentPct)
+
+  return (
+    <div
+      className="relative h-2 w-full rounded-full bg-[#1F1F1F] overflow-hidden"
+      role="img"
+      aria-label={`${name}: ${Math.round(currentPct)}% budget left now${
+        sweepAmount > 0 ? `, ${Math.round(afterPct)}% after sweep` : ""
+      }`}
+    >
+      {currentPct > 0 && (
+        <div
+          className="absolute inset-y-0 left-0 rounded-full transition-all duration-200"
+          style={{
+            width: `${currentPct}%`,
+            backgroundColor: currentColor,
+            opacity: sweepPct > 0 ? 0.35 : 1,
+          }}
+        />
+      )}
+      {afterPct > 0 && (
+        <div
+          className="absolute inset-y-0 left-0 rounded-full transition-all duration-200"
+          style={{
+            width: `${afterPct}%`,
+            backgroundColor: afterColor,
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+type SweepDefaults = {
+  sweepDefaultPolicy: string
+  sweepDefaultCapMultiplier: number
+}
+
+async function loadSweepDefaults(): Promise<SweepDefaults> {
+  try {
+    const res = await fetch("/api/user/settings")
+    if (!res.ok) {
+      return { sweepDefaultPolicy: SWEEP_POLICY_RESET, sweepDefaultCapMultiplier: 1.5 }
+    }
+    const settings = (await res.json()) as {
+      sweepDefaultPolicy?: string
+      sweepDefaultCapMultiplier?: number | null
+    }
+    const policy =
+      settings.sweepDefaultPolicy === SWEEP_POLICY_RESET ||
+      settings.sweepDefaultPolicy === SWEEP_POLICY_CARRY_FORWARD ||
+      settings.sweepDefaultPolicy === SWEEP_POLICY_CAPPED
+        ? settings.sweepDefaultPolicy
+        : SWEEP_POLICY_RESET
+    const cap =
+      settings.sweepDefaultCapMultiplier != null &&
+      Number.isFinite(settings.sweepDefaultCapMultiplier)
+        ? settings.sweepDefaultCapMultiplier
+        : 1.5
+    return { sweepDefaultPolicy: policy, sweepDefaultCapMultiplier: cap }
+  } catch {
+    return { sweepDefaultPolicy: SWEEP_POLICY_RESET, sweepDefaultCapMultiplier: 1.5 }
+  }
 }
 
 interface EnvelopeSweepDialogProps {
@@ -39,28 +138,55 @@ export function EnvelopeSweepDialog({ open, onOpenChange, onSuccess }: EnvelopeS
 
   const monthKey = getCurrentMonthKey()
 
-  const buildRows = useCallback((): SweepRow[] => {
-    return discretionaryEnvelopes
-      .map((env) => {
-        const balance = getEnvelopeBalance(state.transactions, env.id, monthKey)
-        return {
-          envelopeId: env.id,
-          name: env.name,
-          color: env.color,
-          icon: env.icon,
-          maxAmount: Math.max(0, balance),
-          checked: balance > 0,
-          amount: balance > 0 ? balance.toFixed(2) : "0",
-        }
-      })
-      .filter((r) => r.maxAmount > 0)
-  }, [discretionaryEnvelopes, state.transactions, monthKey])
+  const buildRows = useCallback(
+    (defaults: SweepDefaults): SweepRow[] => {
+      const asOf = new Date()
+      return discretionaryEnvelopes
+        .map((env) => {
+          const balance = getEnvelopeBalance(state.transactions, env.id, monthKey)
+          const maxAmount = Math.max(0, balance)
+          const policy = resolveEffectiveSweepPolicy(env.sweepPolicy, defaults.sweepDefaultPolicy)
+          const capMultiplier = resolveSweepCapMultiplier(
+            env.sweepCapMultiplier,
+            defaults.sweepDefaultCapMultiplier,
+          )
+          const suggestedAmount = suggestedManualSweepAmount({
+            balance,
+            policy,
+            monthlyAllotment: env.monthlyAllotment,
+            capMultiplier,
+            asOf,
+          })
+          return {
+            envelopeId: env.id,
+            name: env.name,
+            color: env.color,
+            icon: env.icon,
+            monthlyAllotment: env.monthlyAllotment,
+            maxAmount,
+            suggestedAmount,
+            checked: suggestedAmount > 0,
+            amount: maxAmount > 0 ? suggestedAmount.toFixed(2) : "0",
+          }
+        })
+        .filter((r) => r.maxAmount > 0)
+    },
+    [discretionaryEnvelopes, state.transactions, monthKey],
+  )
 
   useEffect(() => {
     if (!open) return
-    setRows(buildRows())
-    setError(null)
-    setSuccessFlash(false)
+    let cancelled = false
+    void (async () => {
+      const defaults = await loadSweepDefaults()
+      if (cancelled) return
+      setRows(buildRows(defaults))
+      setError(null)
+      setSuccessFlash(false)
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [open, buildRows])
 
   const totalSweep = useMemo(() => {
@@ -138,14 +264,24 @@ export function EnvelopeSweepDialog({ open, onOpenChange, onSuccess }: EnvelopeS
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4">No envelopes have a positive balance to sweep.</p>
         ) : (
-          <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
-            {rows.map((row) => (
+          <div className="flex flex-col gap-2 max-h-[min(24rem,50vh)] overflow-y-auto">
+            {rows.map((row) => {
+              const sweepAmt = row.checked
+                ? Math.min(
+                    row.maxAmount,
+                    Math.max(0, parseFloat(row.amount) || 0),
+                  )
+                : 0
+              const afterBalance = Math.max(0, row.maxAmount - sweepAmt)
+
+              return (
               <label
                 key={row.envelopeId}
-                className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                className={`flex flex-col gap-2 p-3 rounded-xl border transition-colors ${
                   row.checked ? "border-[#D4AF37]/40 bg-[#D4AF37]/5" : "border-[#1F1F1F] bg-[#111]"
                 } ${successFlash ? "animate-pulse" : ""}`}
               >
+                <div className="flex items-center gap-3">
                 <input
                   type="checkbox"
                   checked={row.checked}
@@ -166,7 +302,9 @@ export function EnvelopeSweepDialog({ open, onOpenChange, onSuccess }: EnvelopeS
                 </div>
                 <div className="flex flex-col min-w-0 flex-1">
                   <span className="text-sm font-medium truncate">{row.name}</span>
-                  <span className="text-xs text-muted-foreground">Up to {formatUsd(row.maxAmount)}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatUsd(row.maxAmount)} → {formatUsd(afterBalance)} left
+                  </span>
                 </div>
                 <Input
                   type="number"
@@ -179,8 +317,17 @@ export function EnvelopeSweepDialog({ open, onOpenChange, onSuccess }: EnvelopeS
                   className="w-24 h-8 bg-[#1A1A1A] border-[#333] text-sm"
                   aria-label={`Amount to sweep from ${row.name}`}
                 />
+                </div>
+                {row.monthlyAllotment > 0 && (
+                  <SweepEnvelopeHealthBar
+                    name={row.name}
+                    monthlyAllotment={row.monthlyAllotment}
+                    currentBalance={row.maxAmount}
+                    sweepAmount={sweepAmt}
+                  />
+                )}
               </label>
-            ))}
+            )})}
           </div>
         )}
 

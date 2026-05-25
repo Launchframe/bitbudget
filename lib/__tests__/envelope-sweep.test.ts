@@ -2,7 +2,9 @@
 import { describe, expect, it } from "vitest"
 import { Prisma } from "@prisma/client"
 import {
+  monthProgressMarkerPct,
   resolveSweepCapMultiplier,
+  suggestedManualSweepAmount,
   sweepAmountForEnvelope,
   sweepFromLabel,
 } from "../envelope-sweep"
@@ -89,5 +91,62 @@ describe("envelope-sweep", () => {
         capMultiplier: 1.5,
       }),
     ).toBe(0)
+  })
+
+  it("monthProgressMarkerPct is 100 on first day and 0 on last day of month", () => {
+    expect(monthProgressMarkerPct(new Date(2026, 4, 1))).toBe(100)
+    expect(monthProgressMarkerPct(new Date(2026, 4, 31))).toBe(0)
+  })
+
+  it("suggestedManualSweepAmount reset aligns surplus above month pace", () => {
+    const midMonth = new Date(2026, 4, 16)
+    expect(
+      suggestedManualSweepAmount({
+        balance: 80,
+        policy: SWEEP_POLICY_RESET,
+        monthlyAllotment: 100,
+        capMultiplier: 1.5,
+        asOf: midMonth,
+      }),
+    ).toBeGreaterThan(0)
+    expect(
+      suggestedManualSweepAmount({
+        balance: 40,
+        policy: SWEEP_POLICY_RESET,
+        monthlyAllotment: 100,
+        capMultiplier: 1.5,
+        asOf: midMonth,
+      }),
+    ).toBe(0)
+  })
+
+  it("suggestedManualSweepAmount carry_forward sweeps above monthly allotment", () => {
+    expect(
+      suggestedManualSweepAmount({
+        balance: 150,
+        policy: SWEEP_POLICY_CARRY_FORWARD,
+        monthlyAllotment: 100,
+        capMultiplier: 1.5,
+      }),
+    ).toBe(50)
+    expect(
+      suggestedManualSweepAmount({
+        balance: 80,
+        policy: SWEEP_POLICY_CARRY_FORWARD,
+        monthlyAllotment: 100,
+        capMultiplier: 1.5,
+      }),
+    ).toBe(0)
+  })
+
+  it("suggestedManualSweepAmount capped matches sweepAmountForEnvelope", () => {
+    expect(
+      suggestedManualSweepAmount({
+        balance: 200,
+        policy: SWEEP_POLICY_CAPPED,
+        monthlyAllotment: 100,
+        capMultiplier: 1.5,
+      }),
+    ).toBe(50)
   })
 })

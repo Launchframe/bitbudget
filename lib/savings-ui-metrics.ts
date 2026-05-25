@@ -148,3 +148,34 @@ export const ACHIEVEMENT_LABELS: Record<string, string> = {
   import_complete: "Income imported",
   year_one: "One year",
 }
+
+const GOAL_RING_GRAY = "#737373"
+const GOAL_RING_RED = "#EF4444"
+const GOAL_RING_YELLOW = "#EAB308"
+const GOAL_RING_GREEN = "#22C55E"
+
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return `#${[r, g, b]
+    .map((c) => Math.round(Math.min(255, Math.max(0, c))).toString(16).padStart(2, "0"))
+    .join("")}`
+}
+
+function lerpHex(from: string, to: string, t: number): string {
+  const a = hexToRgb(from)
+  const b = hexToRgb(to)
+  const u = Math.min(1, Math.max(0, t))
+  return rgbToHex(a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u)
+}
+
+/** 0% gray; 1–100% smooth red → yellow → green (monthly savings goal ring). */
+export function goalProgressRingColor(progress: number): string {
+  const pct = Math.min(1, Math.max(0, progress))
+  if (pct <= 0) return GOAL_RING_GRAY
+  if (pct < 0.5) return lerpHex(GOAL_RING_RED, GOAL_RING_YELLOW, pct * 2)
+  return lerpHex(GOAL_RING_YELLOW, GOAL_RING_GREEN, (pct - 0.5) * 2)
+}

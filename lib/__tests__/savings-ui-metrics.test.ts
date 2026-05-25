@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import type { Envelope, Transaction } from "@/lib/data"
-import { avgMonthlySpendLastNMonths, savingsBalance } from "../savings-ui-metrics"
+import { avgMonthlySpendLastNMonths, goalProgressRingColor, savingsBalance } from "../savings-ui-metrics"
 
 const savingsEnvelope: Envelope = {
   id: "sav-1",
@@ -81,5 +81,18 @@ describe("avgMonthlySpendLastNMonths", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(global as any).Date = realDate
     }
+  })
+})
+
+describe("goalProgressRingColor", () => {
+  it("returns gray at zero progress", () => {
+    expect(goalProgressRingColor(0)).toBe("#737373")
+  })
+
+  it("ramps red through yellow to green", () => {
+    const low = goalProgressRingColor(0.05)
+    expect(low.startsWith("#ef") || low.startsWith("#f0")).toBe(true)
+    expect(goalProgressRingColor(0.5)).toBe("#eab308")
+    expect(goalProgressRingColor(1)).toBe("#22c55e")
   })
 })

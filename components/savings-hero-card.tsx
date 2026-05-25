@@ -18,6 +18,7 @@ import {
   savingsBalance,
   sumEnvelopeSweepCreditsYear,
   type SavingsGoalRow,
+  goalProgressRingColor,
 } from "@/lib/savings-ui-metrics"
 import { IrregularIncomeDialog } from "@/components/irregular-income-dialog"
 import { EnvelopeSweepDialog } from "@/components/envelope-sweep-dialog"
@@ -49,6 +50,7 @@ function GoalProgressRing({ progress }: { progress: number }) {
   const radius = 36
   const circumference = 2 * Math.PI * radius
   const offset = circumference * (1 - pct)
+  const ringColor = goalProgressRingColor(pct)
 
   return (
     <div className="relative w-20 h-20 shrink-0" aria-label={`Goal progress ${Math.round(pct * 100)}%`}>
@@ -59,14 +61,19 @@ function GoalProgressRing({ progress }: { progress: number }) {
           cy="40"
           r={radius}
           fill="none"
-          stroke={SAVINGS_GOLD_ACCENT}
+          stroke={ringColor}
           strokeWidth="6"
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
+          className="transition-[stroke] duration-300"
         />
       </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-foreground">
+      <span
+        className={`absolute inset-0 flex items-center justify-center text-xs font-semibold ${
+          pct <= 0 ? "text-muted-foreground" : "text-foreground"
+        }`}
+      >
         {Math.round(pct * 100)}%
       </span>
     </div>
