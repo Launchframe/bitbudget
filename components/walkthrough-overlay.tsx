@@ -61,11 +61,29 @@ export function WalkthroughOverlay() {
     variant: TooltipVariant
   }>({ top: 0, left: 0, centred: false, variant: "right" })
   const tooltipRef = useRef<HTMLDivElement>(null)
+  const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Reset step/visibility when per-user completion changes (e.g. account switch), then schedule show.
   useEffect(() => {
-    if (state.walkthroughCompleted) return
-    const timer = setTimeout(() => setVisible(true), 800)
-    return () => clearTimeout(timer)
+    let cancelled = false
+    const raf = requestAnimationFrame(() => {
+      if (cancelled) return
+      setVisible(false)
+      setCurrentStep(0)
+      if (!state.walkthroughCompleted) {
+        showTimerRef.current = setTimeout(() => {
+          if (!cancelled) setVisible(true)
+        }, 800)
+      }
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+      if (showTimerRef.current) {
+        clearTimeout(showTimerRef.current)
+        showTimerRef.current = null
+      }
+    }
   }, [state.walkthroughCompleted])
 
   const positionTooltip = useCallback(() => {
