@@ -3,7 +3,7 @@ import {
   SYSTEM_ENVELOPE_ROLE_SAVINGS,
 } from "@/lib/constants"
 import type { Envelope, Transaction } from "@/lib/data"
-import { getCurrentMonthKey, getEnvelopeBalance, getEnvelopeBalanceAllTime, getMonthKey } from "@/lib/data"
+import { getEnvelopeBalanceAllTime, getMonthKey } from "@/lib/data"
 
 export const SAVINGS_INFLOW_SOURCES = new Set([
   "paycheck",
@@ -27,10 +27,9 @@ export function savingsBalance(
 export function sumRemainingDiscretionary(
   transactions: readonly Transaction[],
   discretionaryEnvelopes: readonly Envelope[],
-  monthKey = getCurrentMonthKey(),
 ): number {
   return discretionaryEnvelopes.reduce(
-    (sum, env) => sum + getEnvelopeBalance(transactions as Transaction[], env.id, monthKey),
+    (sum, env) => sum + getEnvelopeBalanceAllTime(transactions as Transaction[], env.id),
     0,
   )
 }

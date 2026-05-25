@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import type { Envelope, Transaction } from "@/lib/data"
-import { avgMonthlySpendLastNMonths, goalProgressRingColor, savingsBalance } from "../savings-ui-metrics"
+import { avgMonthlySpendLastNMonths, goalProgressRingColor, savingsBalance, sumRemainingDiscretionary } from "../savings-ui-metrics"
 
 const savingsEnvelope: Envelope = {
   id: "sav-1",
@@ -43,6 +43,61 @@ describe("savingsBalance", () => {
       },
     ]
     expect(savingsBalance(txns, savingsEnvelope)).toBe(650)
+  })
+})
+
+describe("sumRemainingDiscretionary", () => {
+  const groceries: Envelope = {
+    id: "food",
+    name: "Groceries",
+    monthlyAllotment: 400,
+    color: "#22C55E",
+  }
+
+  it("sums all-time discretionary balances so prior-month carryover is included", () => {
+    const txns: Transaction[] = [
+      {
+        id: "1",
+        envelopeId: "food",
+        date: "2026-01-15",
+        payee: "Funding",
+        amount: 400,
+        type: "credit",
+        tags: [],
+        source: "envelope_funding_in",
+        excludeFromMainHistory: true,
+      },
+      {
+        id: "2",
+        envelopeId: "food",
+        date: "2026-01-20",
+        payee: "Store",
+        amount: 250,
+        type: "expense",
+        tags: [],
+      },
+      {
+        id: "3",
+        envelopeId: "food",
+        date: "2026-02-01",
+        payee: "Funding",
+        amount: 400,
+        type: "credit",
+        tags: [],
+        source: "envelope_funding_in",
+        excludeFromMainHistory: true,
+      },
+      {
+        id: "4",
+        envelopeId: "food",
+        date: "2026-02-10",
+        payee: "Store",
+        amount: 50,
+        type: "expense",
+        tags: [],
+      },
+    ]
+    expect(sumRemainingDiscretionary(txns, [groceries])).toBe(500)
   })
 })
 

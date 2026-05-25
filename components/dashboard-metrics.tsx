@@ -47,7 +47,6 @@ export function DashboardMetrics() {
   const remainingBalances = sumRemainingDiscretionary(
     activeTransactions,
     discretionaryEnvelopes,
-    currentMonth,
   )
 
   const savingsEnvelope = findSavingsEnvelope(state.envelopes)

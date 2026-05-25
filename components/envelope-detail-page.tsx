@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { compareTransactionsDesc, getEnvelopeBalance, getCurrentMonthKey, formatUsd, type Transaction } from "@/lib/data"
+import { compareTransactionsDesc, getEnvelopeBalanceAllTime, formatUsd, type Transaction } from "@/lib/data"
+import { envelopeBudgetProgressPct, envelopeHealthColor } from "@/lib/envelope-card-metrics"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import {
   displayPayeeForTransaction,
@@ -44,8 +45,6 @@ export function EnvelopeDetailPage() {
   const [pageSize, setPageSize] = useState(10)
   const [page, setPage] = useState(1)
   const highlightedRef = useRef<HTMLTableRowElement>(null)
-
-  const currentMonth = getCurrentMonthKey()
 
   const envelopeTransactions = useMemo(
     () => state.transactions.filter((t) => t.envelopeId === selectedEnvelopeId),
@@ -111,23 +110,18 @@ export function EnvelopeDetailPage() {
     )
   }
 
-  const balance = getEnvelopeBalance(state.transactions, envelope.id, currentMonth)
+  const balance = getEnvelopeBalanceAllTime(state.transactions, envelope.id)
   const isSavingsHub = envelope.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS
-  const percentage =
-    !isSavingsHub && envelope.monthlyAllotment > 0
-      ? Math.max(0, (balance / envelope.monthlyAllotment) * 100)
-      : 0
+  const progressPct = !isSavingsHub
+    ? envelopeBudgetProgressPct(balance, envelope.monthlyAllotment)
+    : 0
   const healthColor = isSavingsHub
     ? balance > 0
       ? "#22C55E"
       : balance < 0
         ? "#EF4444"
         : "#A3A3A3"
-    : percentage > 25
-      ? "#22C55E"
-      : percentage > 10
-        ? "#EAB308"
-        : "#EF4444"
+    : envelopeHealthColor(progressPct)
 
   return (
     <div className="flex flex-col gap-6">
@@ -162,7 +156,7 @@ export function EnvelopeDetailPage() {
           {!isSavingsHub && (
             <div className="flex-1 max-w-xs">
               <Progress
-                value={Math.min(100, percentage)}
+                value={Math.min(100, progressPct)}
                 className="h-2.5"
                 style={{
                   // @ts-expect-error - CSS custom properties

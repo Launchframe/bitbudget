@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useRef } from "react"
 import { useApp } from "@/lib/app-context"
-import { getEnvelopeBalance, getCurrentMonthKey, formatUsd } from "@/lib/data"
+import { getEnvelopeBalanceAllTime, formatUsd } from "@/lib/data"
+import { envelopeBudgetProgressPct, envelopeHealthColor } from "@/lib/envelope-card-metrics"
 import { Progress } from "@/components/ui/progress"
 import { Pencil, Trash2, Plus, SlidersHorizontal, Merge, X, Archive, RotateCcw, ChevronDown } from "lucide-react"
 import {
@@ -68,8 +69,6 @@ export function EnvelopesPage() {
     () => state.envelopes.filter(e => e.archived),
     [state.envelopes]
   )
-
-  const currentMonth = getCurrentMonthKey()
 
   // Marker position: 100% on day 1 (full month ahead), 0% on last day.
   // formula: (1 − (dayOfMonth − 1) / (daysInMonth − 1)) × 100
@@ -239,9 +238,9 @@ export function EnvelopesPage() {
       {/* Envelope cards grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {activeEnvelopes.map((env) => {
-          const balance = getEnvelopeBalance(state.transactions, env.id, currentMonth)
-          const percentage = env.monthlyAllotment > 0 ? Math.max(0, (balance / env.monthlyAllotment) * 100) : 0
-          const healthColor = percentage > 25 ? "#22C55E" : percentage > 10 ? "#EAB308" : "#EF4444"
+          const balance = getEnvelopeBalanceAllTime(state.transactions, env.id)
+          const progressPct = envelopeBudgetProgressPct(balance, env.monthlyAllotment)
+          const healthColor = envelopeHealthColor(progressPct)
           return (
             <div
               key={env.id}
@@ -274,7 +273,7 @@ export function EnvelopesPage() {
                     </span>
                   </div>
                   <Progress
-                      value={Math.min(100, percentage)}
+                      value={Math.min(100, progressPct)}
                       markerPct={monthMarkerPct}
                       className="h-2"
                       style={{

@@ -22,6 +22,29 @@ BitBudget treats **pay yourself first** as a non-negotiable budgeting principle,
 - **`User.savingsExperience`** (`engaged` | `dismissed`, default `engaged`) controls the **motivational narrative** only: goals, streaks, achievements, year-end recap, sweep ritual UI. When `dismissed`, the ledger still works; hero/goals/recap UI is hidden; dismissing also sets `sweepDefaultPolicy: carry_forward` so envelopes stop auto-draining on payday.
 - **Do not reintroduce a ledger funding flag.** All server paths (`envelope-funding`, irregular income, cron) assume funding is active.
 
+### Envelope balances: remaining vs current month
+
+Discretionary envelopes and Savings are **running balances** (credits minus expenses over time). Sweep policy (reset / carry forward / capped) and monthly top-ups can leave **unspent money across calendar months** — especially with **carry forward**, which keeps leftovers in the envelope until spent or manually swept.
+
+Use two scopes consistently:
+
+| Concept | Meaning | When to use |
+|--------|---------|-------------|
+| **Remaining** (spendable) | All-time credits − expenses for the envelope, **including carryover** | “$X left”, “Remaining”, “Balance”, sweep amounts, dashboard Remaining tile, Savings total |
+| **Current month** | Net activity dated in `YYYY-MM` only | Monthly Income / Monthly Spend, savings-goal period math, spend analytics buckets, **pacing** (not spendable totals) |
+
+**Helpers (client):**
+
+- **Remaining:** `getEnvelopeBalanceAllTime()` in `lib/data.ts`; `savingsBalance()` and `sumRemainingDiscretionary()` in `lib/savings-ui-metrics.ts`; `envelopeBudgetProgressPct()` / `envelopeHealthColor()` in `lib/envelope-card-metrics.ts` (progress vs monthly allotment; may exceed 100% with carryover).
+- **Current month:** `getEnvelopeBalance(transactions, envelopeId, monthKey)` with `getCurrentMonthKey()` / `getMonthKey()`.
+- **Pacing:** `monthProgressMarkerPct()` and `targetBalanceForMonthPace()` in `lib/envelope-sweep.ts` — compare remaining to where the user “should” be by day-of-month; do not substitute month-scoped balance for remaining.
+
+**Server:** sweep and funding decisions use all-time balances (`envelopeBalancesAllTimeBatch`, `savingsEnvelopeBalanceBefore`, etc. in `lib/envelope-balance-server.ts`). Client remaining UI must match that scope.
+
+**UI pattern:** Envelope cards and detail pages show **remaining (all-time)** for dollar amounts; the progress bar fill uses remaining ÷ monthly allotment, with the white marker for **month pacing** only.
+
+**Do not** use month-scoped balance for remaining labels — it ignores prior-month carryover and diverges from sweep/funding behavior.
+
 ## Project Structure
 
 ```
@@ -291,6 +314,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **Rendering Savings inside the discretionary envelope grid** — use `<SavingsHeroCard>` instead. Grid lists, sweep dialogs, and allotment math should use `discretionaryEnvelopes`, not `activeEnvelopes`.
 - **`activeEnvelopes` vs `discretionaryEnvelopes`** — `activeEnvelopes` includes the system Savings envelope; `discretionaryEnvelopes` filters `systemRole !== 'savings'`. Use the latter for budget envelopes; use Savings-specific helpers (`findSavingsEnvelope`, hero card) for the hub.
 - **Gating ledger funding or Savings accounting** — there is no ledger toggle. Gate motivational Savings UI with `state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED`; never tie funding to `opportunityCostEnabled`.
+- **Month-scoped balance for “remaining”** — `getEnvelopeBalance(..., monthKey)` only counts the current calendar month, so it **under-reports spendable money** when carry-forward or capped policy leaves balance from prior months (and diverges from server sweep math). Use `getEnvelopeBalanceAllTime` for “$X left”, dashboard **Remaining**, Savings totals, and sweep UI; reserve month scope for Monthly Income/Spend, goal periods, and pacing markers (see **Envelope balances: remaining vs current month**).
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
 - **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During dev, prefer **`db push`**; at PR time, consolidate into a new migration. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.
