@@ -9,7 +9,7 @@ import {
   resolveSavingsGoalTarget,
   savingsGoalEditability,
 } from "@/lib/savings-goal"
-import { validateDecimal12_2 } from "@/lib/decimal-validation"
+import { coerceDecimal12_2Input } from "@/lib/decimal-validation"
 
 const PERIOD_KEY_RE = /^\d{4}-\d{2}$/
 
@@ -147,7 +147,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 })
   }
 
-  const { periodKey, targetAmount } = raw as Record<string, unknown>
+  const { periodKey } = raw as Record<string, unknown>
   if (typeof periodKey !== "string") {
     return NextResponse.json({ error: "periodKey is required" }, { status: 400 })
   }
@@ -158,12 +158,11 @@ export async function PUT(req: NextRequest) {
   if (!Object.prototype.hasOwnProperty.call(raw, "targetAmount")) {
     return NextResponse.json({ error: "targetAmount is required" }, { status: 400 })
   }
-  if (typeof targetAmount !== "number" && typeof targetAmount !== "string") {
-    return NextResponse.json({ error: "targetAmount must be a number" }, { status: 400 })
-  }
 
-  const amountNum = typeof targetAmount === "number" ? targetAmount : Number(targetAmount)
-  const validatedAmount = validateDecimal12_2(amountNum, "targetAmount")
+  const validatedAmount = coerceDecimal12_2Input(
+    (raw as Record<string, unknown>).targetAmount,
+    "targetAmount",
+  )
   if (!validatedAmount.ok) {
     return NextResponse.json({ error: validatedAmount.error }, { status: 400 })
   }

@@ -29,6 +29,24 @@ export function validateDecimal12_2(
   return { ok: true, value: rounded }
 }
 
+/** Parse number or numeric string; rejects empty/whitespace strings before coercion. */
+export function coerceDecimal12_2Input(
+  value: unknown,
+  label: string,
+): DecimalValidationResult {
+  if (typeof value === "number") {
+    return validateDecimal12_2(value, label)
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (trimmed === "") {
+      return { ok: false, error: `${label} must be a number` }
+    }
+    return validateDecimal12_2(Number(trimmed), label)
+  }
+  return { ok: false, error: `${label} must be a number` }
+}
+
 export function validateDecimal4_2Positive(
   value: number,
   label: string,
