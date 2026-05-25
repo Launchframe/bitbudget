@@ -7,7 +7,8 @@ import {
   TX_SOURCE_INCOME_IMPORT,
 } from "@/lib/constants"
 import {
-  envelopeBalancesForMonthBatch,
+  envelopeBalancesBeforeBatch,
+  periodBoundsUtc,
   savingsEnvelopeBalanceAllTime,
 } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
@@ -139,9 +140,11 @@ async function detectGoalAchievements(userId: string): Promise<number> {
   ]
   const balancesByMonth = new Map<string, Map<string, number>>()
   for (const monthKey of closedMonthKeys) {
+    const bounds = periodBoundsUtc(monthKey)
+    if (!bounds) continue
     balancesByMonth.set(
       monthKey,
-      await envelopeBalancesForMonthBatch(userId, budgetIds, monthKey),
+      await envelopeBalancesBeforeBatch(userId, budgetIds, bounds.end),
     )
   }
 

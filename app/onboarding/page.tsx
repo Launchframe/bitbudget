@@ -2041,7 +2041,7 @@ export default function OnboardingPage() {
                             onClick={() => {
                               setCadence(key)
                               if (key === "bimonthly" && payDays.length < 2) {
-                                setPayDays(prev => (prev.length >= 2 ? prev : [prev[0] ?? 1, 15]))
+                                setPayDays(prev => (prev.length >= 2 ? prev : [prev[0] ?? 1, 16]))
                               }
                             }}
                             className={`py-2.5 text-sm font-medium rounded-md transition-colors ${

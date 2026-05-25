@@ -40,6 +40,15 @@ describe("payday-cadence", () => {
     expect(isPaydayForUser(user({ payDays: [PAYDAY_LAST_OF_MONTH] }), feb28)).toBe(true)
   })
 
+  it("isPaydayForUser bimonthly defaults to 1st and 16th when payDays empty", () => {
+    const first = new Date(Date.UTC(2026, 4, 1))
+    const mid = new Date(Date.UTC(2026, 4, 15))
+    const secondHalf = new Date(Date.UTC(2026, 4, 16))
+    expect(isPaydayForUser(user({ payCadence: "bimonthly" }), first)).toBe(true)
+    expect(isPaydayForUser(user({ payCadence: "bimonthly" }), mid)).toBe(false)
+    expect(isPaydayForUser(user({ payCadence: "bimonthly" }), secondHalf)).toBe(true)
+  })
+
   it("isPaydayForUser bimonthly uses two configured days", () => {
     const mid = new Date(Date.UTC(2026, 2, 15))
     const other = new Date(Date.UTC(2026, 2, 16))

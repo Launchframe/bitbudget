@@ -48,7 +48,7 @@ export function isPaydayForUser(user: PaydayUserFields, today: Date): boolean {
 
   if (cadence === "bimonthly") {
     const dom = today.getUTCDate()
-    const days = user.payDays.length >= 2 ? user.payDays.slice(0, 2) : [1, 15]
+    const days = user.payDays.length >= 2 ? user.payDays.slice(0, 2) : [1, 16]
     const y = today.getUTCFullYear()
     const m = today.getUTCMonth()
     return days.some(d => effectiveDom(y, m, d) === dom)

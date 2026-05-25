@@ -64,7 +64,8 @@ describe("pay-cadence-server", () => {
       lastPaydayAt: null,
     }
     expect(isFundingDayForUser(user, new Date(Date.UTC(2026, 4, 1)))).toBe(true)
-    expect(isFundingDayForUser(user, new Date(Date.UTC(2026, 4, 15)))).toBe(true)
-    expect(isFundingDayForUser(user, new Date(Date.UTC(2026, 4, 16)))).toBe(false)
+    expect(isFundingDayForUser(user, new Date(Date.UTC(2026, 4, 15)))).toBe(false)
+    expect(isFundingDayForUser(user, new Date(Date.UTC(2026, 4, 16)))).toBe(true)
+    expect(isFundingDayForUser(user, new Date(Date.UTC(2026, 4, 17)))).toBe(false)
   })
 })
