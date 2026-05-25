@@ -151,15 +151,6 @@ export function SettingsPage() {
     }
   }, [])
 
-  useEffect(() => {
-    function onWalkthroughSettingsTab(e: Event) {
-      const tab = (e as CustomEvent<{ tab?: SettingsTab }>).detail?.tab
-      if (tab && tab in SETTINGS_TAB_SLUGS) setSettingsTab(tab)
-    }
-    window.addEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)
-    return () => window.removeEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)
-  }, [])
-  
   const [incomeValue, setIncomeValue] = useState(String(state.monthlyIncome))
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importOpen, setImportOpen] = useState(false)
@@ -425,6 +416,15 @@ export function SettingsPage() {
       </div>
     </>
   )
+  
+  useEffect(() => {
+    function onWalkthroughSettingsTab(e: Event) {
+      const tab = (e as CustomEvent<{ tab?: SettingsTab }>).detail?.tab
+      if (tab && Object.hasOwn(SETTINGS_TAB_SLUGS, tab)) setSettingsTab(tab)
+    }
+    window.addEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)
+    return () => window.removeEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)
+  }, [])
 
   const generalSection = (
     <>
@@ -906,7 +906,9 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <LinkedSignInMethods />
+      <div id="settings-linked-sign-in">
+        <LinkedSignInMethods />
+      </div>
 
       {/* Export — same CSV format as Transactions page (all active transactions) */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">

@@ -9,7 +9,6 @@ import {
   type WalkthroughStepDef,
 } from "@/lib/walkthrough-steps"
 
-const LEGACY_STORAGE_KEY = "bitbudget-walkthrough-completed"
 const EST_TOOLTIP_W = 300
 const EST_TOOLTIP_H = 200
 const VIEW_PAD = 12
@@ -200,11 +199,6 @@ export function WalkthroughOverlay() {
 
   function dismiss() {
     setVisible(false)
-    try {
-      localStorage.removeItem(LEGACY_STORAGE_KEY)
-    } catch {
-      /* ignore */
-    }
     void completeWalkthrough()
   }
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
 import { Compass, RotateCcw } from "lucide-react"
 import { useApp } from "@/lib/app-context"
@@ -14,6 +14,11 @@ import {
   type SetupGuideTaskStatus,
 } from "@/lib/setup-guide-status"
 import { getCurrentMonthKey } from "@/lib/data"
+import {
+  discretionaryAllotmentSignature,
+  fetchSavingsGoalSetForMonth,
+  focusSettingsSection,
+} from "@/lib/setup-guide-client"
 
 type SetupStatusResponse = {
   tasks: SetupGuideTaskStatus[]
@@ -38,6 +43,11 @@ export function SettingsSetupGuideSection() {
   const [savingsGoalSet, setSavingsGoalSet] = useState(false)
   const [upgradeFeature, setUpgradeFeature] = useState<PremiumFeature | null>(null)
 
+  const allotmentSignature = useMemo(
+    () => discretionaryAllotmentSignature(discretionaryEnvelopes),
+    [discretionaryEnvelopes],
+  )
+
   const loadStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/user/setup-status")
@@ -51,27 +61,23 @@ export function SettingsSetupGuideSection() {
   useEffect(() => {
     const t = window.setTimeout(() => void loadStatus(), 0)
     return () => window.clearTimeout(t)
-  }, [loadStatus, activeTransactions.length, state.monthlyIncome, discretionaryEnvelopes])
+  }, [loadStatus, activeTransactions.length, state.monthlyIncome, allotmentSignature])
+
+  const monthKey = getCurrentMonthKey()
+
+  const refreshSavingsGoal = useCallback(async () => {
+    setSavingsGoalSet(await fetchSavingsGoalSetForMonth(monthKey))
+  }, [monthKey])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      try {
-        const month = getCurrentMonthKey()
-        const res = await fetch(
-          `/api/user/savings-goals?from=${encodeURIComponent(month)}&to=${encodeURIComponent(month)}`,
-        )
-        if (!res.ok) return
-        const body = (await res.json()) as { goals?: Array<{ targetAmount?: number }> }
-        if (!cancelled) setSavingsGoalSet((body.goals?.[0]?.targetAmount ?? 0) > 0)
-      } catch {
-        /* ignore */
-      }
-    })()
+    const t = window.setTimeout(() => void refreshSavingsGoal(), 0)
+    const onFocus = () => void refreshSavingsGoal()
+    window.addEventListener("focus", onFocus)
     return () => {
-      cancelled = true
+      window.clearTimeout(t)
+      window.removeEventListener("focus", onFocus)
     }
-  }, [])
+  }, [refreshSavingsGoal])
 
   const clientInput: SetupGuideClientInput = {
     monthlyIncome: state.monthlyIncome,
@@ -117,9 +123,11 @@ export function SettingsSetupGuideSection() {
         navigateTo("envelopes")
         break
       case "account_email":
+        focusSettingsSection("general")
         break
       case "plaid":
       case "receipt_inbox":
+        focusSettingsSection("integrations")
         break
       default:
         break
