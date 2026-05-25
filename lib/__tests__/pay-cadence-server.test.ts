@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { assertPayCadencePersistable, isDailyCadenceBlocked, isDailyPayCadenceAllowed } from "../pay-cadence-server"
+import {
+  assertPayCadencePersistable,
+  isDailyCadenceBlocked,
+  isDailyPayCadenceAllowed,
+  isFundingDayForUser,
+} from "../pay-cadence-server"
+import type { PaydayUserFields } from "../payday-cadence"
 
 describe("pay-cadence-server", () => {
   afterEach(() => {
@@ -37,5 +43,28 @@ describe("pay-cadence-server", () => {
     expect(isDailyCadenceBlocked("daily", false)).toBe(true)
     expect(isDailyCadenceBlocked("daily", true)).toBe(false)
     expect(isDailyCadenceBlocked("weekly", false)).toBe(false)
+  })
+
+  it("isFundingDayForUser is false on non-paydays for monthly users with empty payDays", () => {
+    const user: PaydayUserFields = {
+      payCadence: "monthly",
+      payDays: [],
+      payDayOfWeek: null,
+      lastPaydayAt: null,
+    }
+    expect(isFundingDayForUser(user, new Date(Date.UTC(2026, 4, 1)))).toBe(true)
+    expect(isFundingDayForUser(user, new Date(Date.UTC(2026, 4, 2)))).toBe(false)
+  })
+
+  it("isFundingDayForUser is false on non-paydays for bimonthly users with empty payDays", () => {
+    const user: PaydayUserFields = {
+      payCadence: "bimonthly",
+      payDays: [],
+      payDayOfWeek: null,
+      lastPaydayAt: null,
+    }
+    expect(isFundingDayForUser(user, new Date(Date.UTC(2026, 4, 1)))).toBe(true)
+    expect(isFundingDayForUser(user, new Date(Date.UTC(2026, 4, 15)))).toBe(true)
+    expect(isFundingDayForUser(user, new Date(Date.UTC(2026, 4, 16)))).toBe(false)
   })
 })

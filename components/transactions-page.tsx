@@ -438,15 +438,19 @@ export function TransactionsPage() {
                   type="button"
                   onClick={() => toggleEnvelopeFilter(savingsEnvelope.id)}
                   title={savingsEnvelope.name}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium transition-all border ${
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium transition-all border bg-[#0D0D0D] ${
                     activeEnvelopeFilters.has(savingsEnvelope.id)
-                      ? "border-[#D4AF37] text-[#D4AF37]"
-                      : "bg-[#0D0D0D] border-[#D4AF37]/30 text-muted-foreground hover:border-[#D4AF37]/60 hover:text-[#D4AF37]"
+                      ? ""
+                      : "text-muted-foreground hover:opacity-90"
                   }`}
                   style={
                     activeEnvelopeFilters.has(savingsEnvelope.id)
-                      ? { backgroundColor: `${SAVINGS_GOLD_ACCENT}18` }
-                      : undefined
+                      ? {
+                          borderColor: SAVINGS_GOLD_ACCENT,
+                          color: SAVINGS_GOLD_ACCENT,
+                          backgroundColor: `${SAVINGS_GOLD_ACCENT}18`,
+                        }
+                      : { borderColor: `${SAVINGS_GOLD_ACCENT}4D` }
                   }
                 >
                   <PiggyBank className="h-3 w-3 shrink-0" aria-hidden />

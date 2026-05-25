@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Could not sweep envelopes. Check balances, encryption keys, and that envelopes belong to you.",
+          "Could not sweep to Savings. Make sure envelopes have money to move and finish Secure Your Data setup if you have not yet.",
       },
       { status: 400 },
     )

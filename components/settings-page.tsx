@@ -39,6 +39,7 @@ import { SettingsReferralsCard } from "@/components/settings-referrals-card"
 import { SettingsSavingsCard } from "@/components/settings-savings-card"
 import { IncomeImporterCard } from "@/components/income-importer-dialog"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
+import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
 type SettingsTab = "general" | "savings" | "integrations" | "tags" | "payees" | "data"
 
@@ -322,20 +323,32 @@ export function SettingsPage() {
 
   const tabIconClass = (tab: SettingsTab) => {
     const active = settingsTab === tab
-    if (active && tab === "savings") return "h-3.5 w-3.5 shrink-0 text-[#D4AF37]"
+    if (active && tab === "savings") return "h-3.5 w-3.5 shrink-0"
     return `h-3.5 w-3.5 shrink-0 ${active ? "text-btc-orange" : "text-muted-foreground"}`
+  }
+
+  const tabIconStyle = (tab: SettingsTab): React.CSSProperties | undefined => {
+    if (settingsTab === tab && tab === "savings") return { color: SAVINGS_GOLD_ACCENT }
+    return undefined
   }
 
   const tabButtonClass = (tab: SettingsTab) => {
     const active = settingsTab === tab
     if (active && tab === "savings") {
-      return "flex items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors bg-[#1A1A1A] text-[#D4AF37] border border-[#D4AF37]/25"
+      return "flex items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors bg-[#1A1A1A] border"
     }
     return `flex items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors ${
       active
         ? "bg-[#1A1A1A] text-[#F7931A] border border-[#F7931A]/20"
         : "text-muted-foreground hover:text-foreground hover:bg-[#111111]"
     }`
+  }
+
+  const tabButtonStyle = (tab: SettingsTab): React.CSSProperties | undefined => {
+    if (settingsTab === tab && tab === "savings") {
+      return { color: SAVINGS_GOLD_ACCENT, borderColor: `${SAVINGS_GOLD_ACCENT}40` }
+    }
+    return undefined
   }
 
   const generalSection = (
@@ -919,8 +932,8 @@ export function SettingsPage() {
                 <Settings2 className={tabIconClass("general")} aria-hidden />
                 <span>General</span>
               </button>
-              <button type="button" onClick={() => selectSettingsTab("savings")} className={tabButtonClass("savings")}>
-                <PiggyBank className={tabIconClass("savings")} aria-hidden />
+              <button type="button" onClick={() => selectSettingsTab("savings")} className={tabButtonClass("savings")} style={tabButtonStyle("savings")}>
+                <PiggyBank className={tabIconClass("savings")} style={tabIconStyle("savings")} aria-hidden />
                 <span>Savings tracking</span>
               </button>
               <button type="button" onClick={() => selectSettingsTab("integrations")} className={tabButtonClass("integrations")}>

@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
         icon: e.icon,
         archived: e.archived,
         systemRole: e.systemRole ?? null,
-        sweepPolicy: e.sweepPolicy ?? "reset",
+        sweepPolicy: e.sweepPolicy ?? SWEEP_POLICY_RESET,
         sweepCapMultiplier:
           e.sweepCapMultiplier != null ? Number(e.sweepCapMultiplier) : null,
         transactionCount: e._count.transactions,
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
       icon: e.icon,
       archived: e.archived,
       systemRole: e.systemRole ?? null,
-      sweepPolicy: e.sweepPolicy ?? "reset",
+      sweepPolicy: e.sweepPolicy ?? SWEEP_POLICY_RESET,
       sweepCapMultiplier:
         e.sweepCapMultiplier != null ? Number(e.sweepCapMultiplier) : null,
     })),
@@ -240,7 +240,7 @@ export async function PUT(req: NextRequest) {
     icon: updated.icon,
     archived: updated.archived,
     systemRole: updated.systemRole ?? null,
-    sweepPolicy: updated.sweepPolicy ?? "reset",
+    sweepPolicy: updated.sweepPolicy ?? SWEEP_POLICY_RESET,
     sweepCapMultiplier:
       updated.sweepCapMultiplier != null ? Number(updated.sweepCapMultiplier) : null,
   })

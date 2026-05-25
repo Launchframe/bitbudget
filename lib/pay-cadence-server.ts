@@ -2,6 +2,8 @@
  * Pay cadence helpers — server-only (`NODE_ENV`, optional env flags).
  */
 
+import { isPaydayForUser, usesPaydayCadence, type PaydayUserFields } from "@/lib/payday-cadence"
+
 /** Whether `daily` pay cadence may be stored or honored (never in production unless explicitly flagged). */
 export function isDailyPayCadenceAllowed(): boolean {
   return (
@@ -23,4 +25,15 @@ export function assertPayCadencePersistable(cadence: string): void {
   if (cadence === "daily" && !isDailyPayCadenceAllowed()) {
     throw new Error("PAY_CADENCE_DAILY_DISABLED")
   }
+}
+
+/** True when sweep/fund cron should run for this user on `today` (actual pay days only). */
+export function isFundingDayForUser(user: PaydayUserFields, today: Date): boolean {
+  if (isDailyCadenceBlocked(user.payCadence)) return false
+
+  if (user.payCadence === "monthly" || user.payCadence === "bimonthly" || usesPaydayCadence(user)) {
+    return isPaydayForUser(user, today)
+  }
+
+  return false
 }
