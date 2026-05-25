@@ -122,14 +122,18 @@ export function OpportunityCostChart() {
   }, [savingsChartEnabled, chartMode])
 
   useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
     try {
       const override = sessionStorage.getItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
       if (override === "all") {
         sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
-        setTimeout(() => selectRange("all"), 0)
+        timeoutId = setTimeout(() => selectRange("all"), 0)
       }
     } catch {
       /* ignore */
+    }
+    return () => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId)
     }
   }, [selectRange])
 

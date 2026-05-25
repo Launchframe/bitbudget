@@ -33,6 +33,7 @@ import {
   setCachedPrivacyKeyHex,
 } from "@/lib/privacy-key-storage"
 import { clearAllDrafts } from "@/lib/draft-storage"
+import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 import {
   type ApiTransactionRow,
   type CachedTransaction,
@@ -1348,6 +1349,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.removeItem("nostr-login")
       sessionStorage.removeItem("bitbudget-survey-referrer")
       sessionStorage.removeItem("bitbudget-survey-shown")
+      sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
       clearAllDrafts()
     } catch {
       /* ignore */
