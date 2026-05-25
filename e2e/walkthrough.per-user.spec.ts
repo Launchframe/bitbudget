@@ -12,7 +12,10 @@ test.describe("Dashboard walkthrough", () => {
     const emailA = `e2e-walkthrough-a-${Date.now()}@bitbudget.test`
     const emailB = `e2e-walkthrough-b-${Date.now()}@bitbudget.test`
 
+    const skipWalkthrough = page.getByRole("button", { name: "Skip walkthrough" })
+
     async function signInReadyForWalkthrough(email: string) {
+      await page.context().clearCookies()
       await signInWithE2eEmail(page, origin, email)
       const user = await prisma.user.findUnique({
         where: { email },
@@ -27,32 +30,57 @@ test.describe("Dashboard walkthrough", () => {
       await expect(page.getByText("Monthly Income")).toBeVisible({ timeout: 90_000 })
     }
 
-    const skipWalkthrough = page.getByRole("button", { name: "Skip walkthrough" })
+    async function dismissWalkthroughAndWaitForSave() {
+      const putPromise = page.waitForResponse(
+        (res) => {
+          if (!res.url().includes("/api/user/settings") || res.request().method() !== "PUT") {
+            return false
+          }
+          try {
+            const body = res.request().postDataJSON() as { walkthroughCompleted?: boolean }
+            return body.walkthroughCompleted === true
+          } catch {
+            return false
+          }
+        },
+        { timeout: 15_000 },
+      )
+      await skipWalkthrough.click()
+      const res = await putPromise
+      expect(res.ok(), `walkthrough PUT failed: ${res.status()} ${await res.text()}`).toBeTruthy()
+      await expect(skipWalkthrough).not.toBeVisible()
+    }
 
     await signInReadyForWalkthrough(emailA)
     await expect(skipWalkthrough).toBeVisible({ timeout: 15_000 })
-    await skipWalkthrough.click()
-    await expect(skipWalkthrough).not.toBeVisible()
+    await dismissWalkthroughAndWaitForSave()
 
-    const userA = await prisma.user.findUnique({
-      where: { email: emailA },
-      select: { walkthroughCompleted: true },
-    })
-    expect(userA?.walkthroughCompleted).toBe(true)
+    await expect
+      .poll(async () => {
+        const user = await prisma.user.findUnique({
+          where: { email: emailA },
+          select: { walkthroughCompleted: true },
+        })
+        return user?.walkthroughCompleted
+      })
+      .toBe(true)
 
     await signInReadyForWalkthrough(emailB)
     await expect(skipWalkthrough).toBeVisible({ timeout: 15_000 })
-    await skipWalkthrough.click()
-    await expect(skipWalkthrough).not.toBeVisible()
+    await dismissWalkthroughAndWaitForSave()
 
     await page.reload()
     await expect(page.getByText("Monthly Income")).toBeVisible({ timeout: 90_000 })
     await expect(skipWalkthrough).not.toBeVisible({ timeout: 5_000 })
 
-    const userB = await prisma.user.findUnique({
-      where: { email: emailB },
-      select: { walkthroughCompleted: true },
-    })
-    expect(userB?.walkthroughCompleted).toBe(true)
+    await expect
+      .poll(async () => {
+        const user = await prisma.user.findUnique({
+          where: { email: emailB },
+          select: { walkthroughCompleted: true },
+        })
+        return user?.walkthroughCompleted
+      })
+      .toBe(true)
   })
 })
