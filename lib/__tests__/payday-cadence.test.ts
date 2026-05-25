@@ -78,6 +78,12 @@ describe("payday-cadence", () => {
     )
   })
 
+  it("isPaydayForUser biweekly without lastPaydayAt anchor is never a payday", () => {
+    const friday = new Date(Date.UTC(2026, 4, 8))
+    expect(friday.getUTCDay()).toBe(5)
+    expect(isPaydayForUser(user({ payCadence: "biweekly", payDayOfWeek: 5 }), friday)).toBe(false)
+  })
+
   it("isPaydayForUser returns false for irregular and mixed", () => {
     const run = new Date(Date.UTC(2026, 4, 1))
     expect(isPaydayForUser(user({ payCadence: "irregular" }), run)).toBe(false)

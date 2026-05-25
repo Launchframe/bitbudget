@@ -32,7 +32,7 @@ export const SWEEP_POLICY_DESCRIPTIONS: Record<SweepPolicy, string> = {
     "On each payday, you keep up to a cap in each envelope. Only surplus above that cap sweeps to Savings.",
 }
 
-/** Pick an envelope with positive month balance, else the largest monthly allotment. */
+/** Pick an envelope with positive remaining (all-time) balance, else the largest monthly allotment. */
 export function pickSweepExampleEnvelope(
   envelopes: ReadonlyArray<{ id: string; name: string; monthlyAllotment: number }>,
   getBalance: (envelopeId: string) => number,

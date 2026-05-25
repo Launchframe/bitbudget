@@ -62,7 +62,7 @@ export function isPaydayForUser(user: PaydayUserFields, today: Date): boolean {
     const dow = user.payDayOfWeek ?? 5
     if (today.getUTCDay() !== dow) return false
     const anchor = user.lastPaydayAt
-    if (!anchor) return true
+    if (!anchor) return false
     return Math.abs(daysBetweenUtc(today, anchor)) % 14 === 0
   }
 

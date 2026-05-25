@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { detectAchievementsForUser } from "@/lib/achievements"
 import { processEnvelopeFundingForUser } from "@/lib/envelope-funding"
 import { sweepDiscretionaryEnvelopesForUser } from "@/lib/envelope-sweep"
+import {
+  fundingCronUserWhere,
+  isGoalMaintenanceDay,
+  shouldRunFundingCronForUser,
+} from "@/lib/funding-cron-schedule"
 import { isFundingDayForUser } from "@/lib/pay-cadence-server"
 import { type PaydayUserFields } from "@/lib/payday-cadence"
 import { prisma } from "@/lib/db"
@@ -31,11 +36,9 @@ export interface EnvelopeFundingCronResult {
 /** Daily cron pipeline per user: close goal → open goal → sweep → fund → achievements. */
 export async function processEnvelopeFundingCron(asOf?: Date): Promise<EnvelopeFundingCronResult> {
   const now = asOf ?? new Date()
+  const goalDay = isGoalMaintenanceDay(now)
   const users = await prisma.user.findMany({
-    where: {
-      publicKey: { not: null },
-      NOT: { publicKey: "" },
-    },
+    where: fundingCronUserWhere(now),
     select: {
       id: true,
       payCadence: true,
@@ -46,7 +49,7 @@ export async function processEnvelopeFundingCron(asOf?: Date): Promise<EnvelopeF
   })
 
   const result: EnvelopeFundingCronResult = {
-    usersProcessed: users.length,
+    usersProcessed: 0,
     goalsClosed: 0,
     goalsOpened: 0,
     sweepTransactionsCreated: 0,
@@ -55,17 +58,24 @@ export async function processEnvelopeFundingCron(asOf?: Date): Promise<EnvelopeF
   }
 
   for (const u of users) {
-    const goalClosed = await closePreviousPeriodGoal(u.id, now)
-    if (goalClosed) result.goalsClosed++
-
-    const goalOpened = await openCurrentPeriodGoal(u.id, now)
-    if (goalOpened) result.goalsOpened++
-
     const paydayUser: PaydayUserFields = {
       payCadence: u.payCadence,
       payDays: u.payDays,
       payDayOfWeek: u.payDayOfWeek,
       lastPaydayAt: u.lastPaydayAt,
+    }
+
+    if (!shouldRunFundingCronForUser(paydayUser, now)) continue
+    result.usersProcessed++
+
+    let goalClosed = false
+    let goalOpened = false
+    if (goalDay) {
+      goalClosed = await closePreviousPeriodGoal(u.id, now)
+      if (goalClosed) result.goalsClosed++
+
+      goalOpened = await openCurrentPeriodGoal(u.id, now)
+      if (goalOpened) result.goalsOpened++
     }
 
     let sweepCreated = 0
