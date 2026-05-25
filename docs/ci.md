@@ -24,3 +24,8 @@ GitHub does not block merges from YAML alone. In the repo:
 If the UI shows a different name (e.g. `Lint / eslint`), use exactly that string.
 
 Optional: enable **Require branches to be up to date before merging** so PRs re-run CI after base updates.
+
+## E2E coverage planning
+
+- [E2E v1 coverage plan](./testing/e2e-v1-coverage-plan.md) — product flows to add (onboarding, envelopes, transactions, settings, etc.)
+- [E2E integrations strategy](./testing/e2e-integrations-strategy.md) — Plaid, receipt inbox, SMS, email without paid API calls in CI
