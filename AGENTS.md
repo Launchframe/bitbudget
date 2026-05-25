@@ -154,6 +154,16 @@ Any multi-step or multi-field input flow (onboarding, income import, transaction
 - **Validation:** load helpers must validate the deserialized shape and silently drop drafts that fail (schema bumps must not break the dialog).
 - **Examples:** [`app/onboarding/page.tsx`](app/onboarding/page.tsx) (`ONBOARDING_SESSION_STORAGE_KEY`), [`components/income-importer/income-importer-dialog.tsx`](components/income-importer/income-importer-dialog.tsx) (`bitbudget-income-importer-draft`).
 
+### Nested dialogs and modal stacks
+
+Stacked dialogs (edit sheet on top of a wizard, confirm on top of a form) are easy to get wrong. **Dismissal on the child must never close the parent** unless that is explicit product intent.
+
+- **Nest child dialogs inside the parent `DialogContent`** when they belong to the same flow (see income importer cell edit).
+- **Guard the parent `onOpenChange`:** if a child modal is open, ignore `false` from the parent root (`if (!next && childOpen) return`).
+- **On the child `DialogContent`:** call `e.preventDefault()` on `onInteractOutside` and `onPointerDownOutside` so overlay clicks do not fall through to the parent; call `e.stopPropagation()` on `onEscapeKeyDown`.
+- **Cancel / Save buttons:** use `type="button"`, `e.stopPropagation()` on handlers, and never rely on unscoped `DialogClose` for nested layers.
+- **Header actions vs. close (X):** reserve space for the built-in close control (`pr-10` on `DialogHeader` or similar) so custom buttons (e.g. Clear All) do not overlap the X.
+
 ### React effects and `setState` (`react-hooks/set-state-in-effect`)
 
 ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayoutEffect`** (including via helpers that set state in the same tick as the effect runs). The goal is to avoid **effects whose only job is to copy props/other state into local state**, which tends to cause extra render passes, harder-to-follow data flow, and sometimes **cascading updates** (effect → setState → render → effect → …) or tight loops in Strict Mode.
@@ -389,6 +399,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **Desktop-first breakpoints** — building a wide horizontal layout by default and only wrapping at `lg`/`md` often breaks between 320–640px. Default to mobile layout; enhance upward with `sm:` / `md:` / `lg:`.
 - **Fixed padding and min-widths on cards** — uniform `p-6` plus wide inner flex rows can clip buttons and text on 390px-wide screens. Use responsive padding and `flex-col sm:flex-row` for compound controls.
 - **Multi-field flow without draft persistence** — any non-trivial input flow must follow the **Input persistence for multi-field flows** convention. Closing a dialog must not silently destroy in-progress work; provide **Clear All** with confirmation.
+- **Nested dialog dismiss closes the parent** — guarding the parent with `editOpen` state alone is not enough: Radix may call the parent `onOpenChange(false)` after the child already set state to closed. Use a **ref updated synchronously** when opening/closing children, defer clearing it with `setTimeout(0)`, and follow **Nested dialogs and modal stacks** (nest inside parent content, `preventDefault` on outside interact, `stopPropagation` on Cancel/Escape).
 
 ## Cursor Cloud-specific instructions
 

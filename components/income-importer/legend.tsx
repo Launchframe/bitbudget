@@ -34,7 +34,7 @@ export function IncomeImporterLegend() {
           <span className="h-full flex-1" style={heatmapLegendStyle(0.55)} />
           <span className="h-full flex-1" style={heatmapLegendStyle(1)} />
         </span>
-        <span>Staged income (lighter = less)</span>
+        <span>Staged income (brighter = more)</span>
       </div>
     </div>
   )

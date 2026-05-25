@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { TrendingUp } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import {
@@ -85,6 +85,12 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
   const [editState, setEditState] = useState<CellEditState | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [clearOpen, setClearOpen] = useState(false)
+  /** Sync guard for parent onOpenChange — React state can lag behind Radix dismiss events. */
+  const childModalOpenRef = useRef(false)
+
+  useEffect(() => {
+    childModalOpenRef.current = editOpen || clearOpen
+  }, [editOpen, clearOpen])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successTotal, setSuccessTotal] = useState(0)
@@ -111,14 +117,6 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
     },
     [activeTransactions],
   )
-
-  const existingByPeriod = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const e of entries.values()) {
-      map.set(e.periodKey, sumExistingForPeriod(e.periodKey))
-    }
-    return map
-  }, [entries, sumExistingForPeriod])
 
   const priorImports = useMemo(() => {
     return activeTransactions
@@ -232,7 +230,13 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
     return keys
   }, [editState])
 
+  const closeEdit = () => {
+    setEditOpen(false)
+    setEditState(null)
+  }
+
   const openEdit = (periodKey: string, kind: "month" | "year") => {
+    childModalOpenRef.current = true
     const staged = entries.get(periodKey)
     setEditState({
       kind,
@@ -308,16 +312,31 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex max-h-[95vh] flex-col overflow-hidden bg-[#0D0D0D] border-[#1F1F1F] text-foreground sm:max-w-3xl w-[calc(100vw-1rem)] max-sm:h-[100dvh] max-sm:max-w-none max-sm:rounded-none">
-          <DialogHeader className="flex-shrink-0">
-            <div className="flex items-start justify-between gap-2">
-              <DialogTitle className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-[#D4AF37]" aria-hidden />
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next && childModalOpenRef.current) return
+          onOpenChange(next)
+        }}
+      >
+        <DialogContent className="flex max-h-[95vh] flex-col overflow-hidden bg-[#0D0D0D] border-[#1F1F1F] text-foreground w-[calc(100vw-1rem)] max-sm:h-[100dvh] max-sm:max-w-none max-sm:rounded-none sm:max-w-4xl lg:max-w-5xl">
+          <DialogHeader className="flex-shrink-0 space-y-0 pr-10">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <DialogTitle className="flex min-w-0 flex-1 items-center gap-2">
+                <TrendingUp className="h-4 w-4 shrink-0 text-[#D4AF37]" aria-hidden />
                 Import income
               </DialogTitle>
               {hasDraftChanges && step === "calendar" && (
-                <Button type="button" variant="outline" size="sm" onClick={() => setClearOpen(true)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => {
+                    childModalOpenRef.current = true
+                    setClearOpen(true)
+                  }}
+                >
                   Clear All
                 </Button>
               )}
@@ -364,7 +383,6 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
                   scrollYear={scrollYear}
                   onScrollYearChange={setScrollYear}
                   entries={entries}
-                  existingByPeriod={existingByPeriod}
                   tx0PeriodKey={tx0?.periodKey ?? null}
                   paintAmount={paintAmount}
                   paintSource={paintSource}
@@ -418,36 +436,32 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
               />
             )}
           </div>
+
+          <IncomeCellEditDialog
+            open={editOpen}
+            state={editState}
+            existingTotal={editState ? sumExistingForPeriod(editState.periodKey) : 0}
+            adjacentPeriodKeys={adjacentPeriodKeys}
+            onSave={(entry) => {
+              stageEntries([entry])
+              closeEdit()
+            }}
+            onCancel={closeEdit}
+            onNavigate={(pk) => {
+              if (!editState) return
+              const kind = editState.kind
+              const staged = entries.get(pk)
+              setEditState({
+                kind,
+                periodKey: pk,
+                amount: staged?.amount ?? 0,
+                source: staged?.source ?? paintSource,
+                splitCount: staged?.splitCount ?? 12,
+              })
+            }}
+          />
         </DialogContent>
       </Dialog>
-
-      <IncomeCellEditDialog
-        open={editOpen}
-        state={editState}
-        existingTotal={editState ? sumExistingForPeriod(editState.periodKey) : 0}
-        adjacentPeriodKeys={adjacentPeriodKeys}
-        onSave={(entry) => {
-          stageEntries([entry])
-          setEditOpen(false)
-          setEditState(null)
-        }}
-        onCancel={() => {
-          setEditOpen(false)
-          setEditState(null)
-        }}
-        onNavigate={(pk) => {
-          if (!editState) return
-          const kind = editState.kind
-          const staged = entries.get(pk)
-          setEditState({
-            kind,
-            periodKey: pk,
-            amount: staged?.amount ?? 0,
-            source: staged?.source ?? paintSource,
-            splitCount: staged?.splitCount ?? 12,
-          })
-        }}
-      />
 
       <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
         <AlertDialogContent className="bg-[#0D0D0D] border-[#1F1F1F]">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, type MouseEvent } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import {
   Dialog,
@@ -64,6 +64,11 @@ function CellEditForm({
   const canPrev = idx > 0
   const canNext = idx >= 0 && idx < adjacentPeriodKeys.length - 1
   const title = periodLabel(state.periodKey)
+
+  const handleCancel = (e: MouseEvent) => {
+    e.stopPropagation()
+    onCancel()
+  }
 
   return (
     <>
@@ -137,7 +142,7 @@ function CellEditForm({
       </div>
 
       <DialogFooter className="gap-2 sm:gap-0">
-        <Button type="button" variant="outline" onClick={onCancel}>
+        <Button type="button" variant="outline" onClick={handleCancel}>
           Cancel
         </Button>
         <Button
@@ -176,8 +181,19 @@ export function IncomeCellEditDialog({
   if (!state) return null
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-md" aria-labelledby={title}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel()
+      }}
+    >
+      <DialogContent
+        className="z-[60] bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-md"
+        aria-labelledby={title}
+        onInteractOutside={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.stopPropagation()}
+      >
         <CellEditForm
           key={state.periodKey}
           state={state}

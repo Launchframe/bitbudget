@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Pencil } from "lucide-react"
 import type { IncomeImportEntry } from "@/lib/income-import"
 import { parseIncomePeriodKey } from "@/lib/income-import"
@@ -29,6 +29,14 @@ const MONTHS = [
   { full: "December", short: "Dec", letter: "D" },
 ]
 
+/** Calendar quarters for mobile (3 months per row). */
+const QUARTER_MONTH_INDICES = [
+  [0, 1, 2],
+  [3, 4, 5],
+  [6, 7, 8],
+  [9, 10, 11],
+] as const
+
 export type ImportCalendarMode = "monthly" | "annual"
 
 export interface StagedImportEntry extends IncomeImportEntry {
@@ -40,7 +48,6 @@ interface IncomeCalendarProps {
   scrollYear: number
   onScrollYearChange: (year: number) => void
   entries: Map<string, StagedImportEntry>
-  existingByPeriod: ReadonlyMap<string, number>
   tx0PeriodKey: string | null
   paintAmount: number
   paintSource: string
@@ -72,7 +79,6 @@ export function IncomeCalendar({
   scrollYear,
   onScrollYearChange,
   entries,
-  existingByPeriod,
   tx0PeriodKey,
   paintAmount,
   paintSource,
@@ -83,6 +89,9 @@ export function IncomeCalendar({
 }: IncomeCalendarProps) {
   const years = useMemo(() => buildCalendarYears(new Date().getUTCFullYear()), [])
   const dragStartRef = useRef<string | null>(null)
+  const dragEndRef = useRef<string | null>(null)
+  const isDraggingRef = useRef(false)
+  const didDragRef = useRef(false)
   const [focusPeriod, setFocusPeriod] = useState<string | null>(null)
   const [mobileEditPeriod, setMobileEditPeriod] = useState<string | null>(null)
 
@@ -106,44 +115,65 @@ export function IncomeCalendar({
     [entries, onStageEntries, paintAmount, paintSource],
   )
 
-  const handlePointerDown = (periodKey: string, kind: "month" | "year", shiftKey: boolean) => {
-    if (shiftKey && lastClickedPeriod && kind === "month") {
-      const range = monthsInRangeChronological(lastClickedPeriod, periodKey)
-      applyPaint(range, "month")
-      onLastClickedPeriodChange(periodKey)
-      return
-    }
-    dragStartRef.current = periodKey
-    if (kind === "year") {
-      applyPaint([periodKey], "year")
-      onLastClickedPeriodChange(periodKey)
-    }
-  }
-
-  const handlePointerUp = (periodKey: string, kind: "month" | "year") => {
+  const finishMonthDrag = useCallback(() => {
     const start = dragStartRef.current
+    const end = dragEndRef.current ?? start
     dragStartRef.current = null
-    if (kind === "year" || !start) {
-      if (kind === "month" && start === periodKey) {
-        applyPaint([periodKey], "month")
-        onLastClickedPeriodChange(periodKey)
-      }
+    dragEndRef.current = null
+    isDraggingRef.current = false
+    if (!start || !end) return
+    if (start !== end) didDragRef.current = true
+    if (start === end) {
+      applyPaint([start], "month")
+    } else {
+      applyPaint(monthsInRangeChronological(start, end), "month")
+    }
+    onLastClickedPeriodChange(end)
+  }, [applyPaint, onLastClickedPeriodChange])
+
+  useEffect(() => {
+    const onWindowPointerUp = () => {
+      if (!isDraggingRef.current) return
+      finishMonthDrag()
+    }
+    window.addEventListener("pointerup", onWindowPointerUp)
+    window.addEventListener("pointercancel", onWindowPointerUp)
+    return () => {
+      window.removeEventListener("pointerup", onWindowPointerUp)
+      window.removeEventListener("pointercancel", onWindowPointerUp)
+    }
+  }, [finishMonthDrag])
+
+  const beginMonthDrag = (periodKey: string, shiftKey: boolean) => {
+    if (shiftKey && lastClickedPeriod) {
+      applyPaint(monthsInRangeChronological(lastClickedPeriod, periodKey), "month")
+      onLastClickedPeriodChange(periodKey)
       return
     }
-    if (start === periodKey) {
-      applyPaint([periodKey], "month")
-    } else {
-      applyPaint(monthsInRangeChronological(start, periodKey), "month")
-    }
-    onLastClickedPeriodChange(periodKey)
+    didDragRef.current = false
+    isDraggingRef.current = true
+    dragStartRef.current = periodKey
+    dragEndRef.current = periodKey
   }
 
-  const renderCell = (periodKey: string, kind: "month" | "year", label: string) => {
+  const updateMonthDrag = (periodKey: string) => {
+    if (!isDraggingRef.current) return
+    dragEndRef.current = periodKey
+    if (periodKey !== dragStartRef.current) didDragRef.current = true
+  }
+
+  const renderCell = (
+    periodKey: string,
+    kind: "month" | "year",
+    label: string,
+    options?: { compact?: boolean; showMonthShort?: boolean },
+  ) => {
     const staged = entries.get(periodKey)
     const amount = staged?.amount ?? 0
     const intensity = heatmapIntensity(amount, heatmapMax)
     const visual = cellState({ periodKey, tx0PeriodKey, amount, intensity })
     const showEdit = mobileEditPeriod === periodKey
+    const monthIdx = kind === "month" ? parseInt(periodKey.split("-")[1]!, 10) - 1 : -1
 
     return (
       <div
@@ -151,13 +181,20 @@ export function IncomeCalendar({
         role="gridcell"
         tabIndex={0}
         aria-label={`${label}${amount > 0 ? `, staged ${amount} dollars` : ""}`}
-        className={`relative aspect-square min-h-8 rounded-md ${cellClass(visual)} group focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/60`}
+        className={`relative w-full rounded-md touch-none ${options?.compact ? "min-h-10" : "aspect-square min-h-8"} ${cellClass(visual)} group focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/60`}
         style={visual === "shaded" ? cellBackgroundStyle(intensity) : undefined}
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest("[data-edit-btn]")) return
-          handlePointerDown(periodKey, kind, e.shiftKey)
+          if (kind === "month") {
+            beginMonthDrag(periodKey, e.shiftKey)
+            return
+          }
+          applyPaint([periodKey], "year")
+          onLastClickedPeriodChange(periodKey)
         }}
-        onPointerUp={() => handlePointerUp(periodKey, kind)}
+        onPointerEnter={() => {
+          if (kind === "month") updateMonthDrag(periodKey)
+        }}
         onFocus={() => setFocusPeriod(periodKey)}
         onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
           if (e.key === "Enter" && e.shiftKey && lastClickedPeriod && kind === "month") {
@@ -192,11 +229,17 @@ export function IncomeCalendar({
           }
         }}
         data-period={periodKey}
-        onClick={() => setMobileEditPeriod(periodKey)}
+        onClick={() => {
+          if (didDragRef.current) {
+            didDragRef.current = false
+            return
+          }
+          setMobileEditPeriod(periodKey)
+        }}
       >
-        {kind === "month" && (
-          <span className="absolute bottom-0.5 right-0.5 text-[9px] text-muted-foreground pointer-events-none sm:hidden">
-            {MONTHS[(parseInt(periodKey.split("-")[1]!, 10) - 1)]?.letter}
+        {options?.showMonthShort && monthIdx >= 0 && (
+          <span className="pointer-events-none absolute left-1 top-0.5 text-[9px] text-muted-foreground">
+            {MONTHS[monthIdx]?.short}
           </span>
         )}
         <button
@@ -214,6 +257,8 @@ export function IncomeCalendar({
       </div>
     )
   }
+
+  const displayYears = [scrollYear, scrollYear - 1, scrollYear - 2]
 
   return (
     <div className="flex flex-col gap-3">
@@ -236,51 +281,81 @@ export function IncomeCalendar({
       </div>
 
       {mode === "monthly" ? (
-        <div role="grid" aria-label="Income calendar by month" className="overflow-x-auto">
-          <div className="grid min-w-[640px] xl:min-w-[960px] grid-cols-[2.5rem_repeat(12,minmax(0,1fr))] gap-1">
-            <div />
-            {MONTHS.map((m) => (
-              <div
-                key={m.full}
-                className="min-w-0 truncate text-center text-[10px] leading-tight text-muted-foreground sm:text-xs"
-                role="columnheader"
-                title={m.full}
-              >
-                <span className="sm:hidden">{m.letter}</span>
-                <span className="hidden sm:inline xl:hidden">{m.short}</span>
-                <span className="hidden xl:inline">{m.full}</span>
-              </div>
-            ))}
-            {[scrollYear, scrollYear - 1, scrollYear - 2].map((year) => (
-              <div key={year} className="contents" role="row">
-                <div className="flex items-center text-xs font-medium text-muted-foreground" role="rowheader">
+        <>
+          {/* Mobile: quarter rows (3 months), no horizontal scroll */}
+          <div className="flex flex-col gap-4 md:hidden" role="grid" aria-label="Income calendar by month">
+            {displayYears.map((year) => (
+              <div key={year} className="flex flex-col gap-2" role="rowgroup">
+                <div className="text-xs font-semibold text-foreground" role="rowheader">
                   {year}
                 </div>
-                {MONTHS.map((_, mi) => {
-                  const pk = monthPeriodKey(year, mi)
-                  return renderCell(pk, "month", `${MONTHS[mi]!.full} ${year}`)
-                })}
+                {QUARTER_MONTH_INDICES.map((quarter, qi) => (
+                  <div key={`${year}-q${qi}`} role="row" className="grid grid-cols-3 gap-2">
+                    {quarter.map((mi) => {
+                      const pk = monthPeriodKey(year, mi)
+                      return (
+                        <div key={pk} className="flex min-w-0 flex-col gap-1">
+                          <span className="text-center text-[10px] text-muted-foreground" role="columnheader">
+                            {MONTHS[mi]!.short}
+                          </span>
+                          {renderCell(pk, "month", `${MONTHS[mi]!.full} ${year}`, { compact: true })}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
-        </div>
+
+          {/* Desktop: full year row, fit container width */}
+          <div
+            className="hidden w-full md:block"
+            role="grid"
+            aria-label="Income calendar by month"
+          >
+            <div className="grid w-full grid-cols-[2.5rem_repeat(12,minmax(0,1fr))] gap-1">
+              <div />
+              {MONTHS.map((m) => (
+                <div
+                  key={m.full}
+                  className="min-w-0 truncate text-center text-[10px] leading-tight text-muted-foreground lg:text-xs"
+                  role="columnheader"
+                  title={m.full}
+                >
+                  <span className="lg:hidden">{m.short}</span>
+                  <span className="hidden lg:inline">{m.full}</span>
+                </div>
+              ))}
+              {displayYears.map((year) => (
+                <div key={year} className="contents" role="row">
+                  <div className="flex items-center text-xs font-medium text-muted-foreground" role="rowheader">
+                    {year}
+                  </div>
+                  {MONTHS.map((_, mi) => {
+                    const pk = monthPeriodKey(year, mi)
+                    return renderCell(pk, "month", `${MONTHS[mi]!.full} ${year}`)
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
       ) : (
         <div role="grid" aria-label="Income calendar by year" className="flex flex-col gap-2">
           {[scrollYear, scrollYear - 1, scrollYear - 2, scrollYear - 3, scrollYear - 4].map((year) => {
             const pk = String(year)
-            const existing = existingByPeriod.get(pk) ?? 0
             const staged = entries.get(pk)
             const amount = staged?.amount ?? 0
             const intensity = heatmapIntensity(amount, heatmapMax)
-            const visual = cellState({ periodKey: pk, tx0PeriodKey, amount: amount || existing, intensity })
+            const visual = cellState({ periodKey: pk, tx0PeriodKey, amount, intensity })
             return (
               <div
                 key={year}
                 role="row"
-                className={`flex items-center gap-3 rounded-xl p-3 ${cellClass(visual)}`}
+                className={`flex items-center gap-3 rounded-xl p-3 touch-none ${cellClass(visual)}`}
                 style={visual === "shaded" ? cellBackgroundStyle(intensity) : undefined}
-                onPointerDown={() => handlePointerDown(pk, "year", false)}
-                onPointerUp={() => handlePointerUp(pk, "year")}
+                onPointerDown={() => applyPaint([pk], "year")}
               >
                 <span className="w-16 text-sm font-medium">{year}</span>
                 <span className="flex-1 text-xs text-muted-foreground">
