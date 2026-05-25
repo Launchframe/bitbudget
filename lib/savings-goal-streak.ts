@@ -8,7 +8,7 @@ export function previousMonthKey(monthKey: string): string {
 
 type GoalStreakRow = {
   periodKey: string
-  achievedGoal: boolean | null
+  achievedGoal?: boolean | null
   closedAt?: Date | string | null
 }
 
