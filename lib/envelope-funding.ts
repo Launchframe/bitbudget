@@ -26,7 +26,7 @@ import {
   computeIrregularIncomeSplits,
   sumAllocatedIrregularCents,
 } from "@/lib/irregular-income-split"
-import { savingsEnvelopeForUserDb } from "@/lib/ensure-system-savings-envelope"
+import { ensureSystemSavingsEnvelope, savingsEnvelopeForUserDb } from "@/lib/ensure-system-savings-envelope"
 
 export { ensureSystemSavingsEnvelope } from "@/lib/ensure-system-savings-envelope"
 
@@ -309,8 +309,7 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
   const mi = user.monthlyIncome
   if (!Number.isFinite(mi) || mi <= 0) return 0
 
-  const savings = await savingsEnvelopeForUserDb(prisma, input.userId)
-  if (!savings) return 0
+  const savings = await ensureSystemSavingsEnvelope(input.userId)
 
   const envelopeRows = await prisma.envelope.findMany({
     where: budgetEnvelopeWhere(input.userId),
@@ -458,8 +457,8 @@ export async function repairIrregularIncomeFundingLegs(
   const mi = user.monthlyIncome
   if (!Number.isFinite(mi) || mi <= 0) return 0
 
-  const savings = await savingsEnvelopeForUserDb(prisma, userId)
-  if (!savings || incomeRow.envelopeId !== savings.id) return 0
+  const savings = await ensureSystemSavingsEnvelope(userId)
+  if (incomeRow.envelopeId !== savings.id) return 0
 
   const envelopeRows = await prisma.envelope.findMany({
     where: budgetEnvelopeWhere(userId),

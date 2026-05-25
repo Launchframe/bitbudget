@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { formatUsd } from "@/lib/data"
-import { SAVINGS_EXPERIENCE_DISMISSED } from "@/lib/constants"
+import { SAVINGS_EXPERIENCE_DISMISSED, SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 import { ACHIEVEMENT_LABELS, findSavingsEnvelope, savingsBalance } from "@/lib/savings-ui-metrics"
 import {
   aggregateYearEndRecap,
@@ -123,7 +123,7 @@ export function YearEndRecapModal() {
       <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-[#D4AF37]" aria-hidden />
+            <Sparkles className="h-4 w-4" style={{ color: SAVINGS_GOLD_ACCENT }} aria-hidden />
             Your {recapYear} savings recap
           </DialogTitle>
         </DialogHeader>
@@ -136,7 +136,7 @@ export function YearEndRecapModal() {
         <dl className="grid grid-cols-1 gap-3 text-sm">
           <div className="flex justify-between gap-2">
             <dt className="text-muted-foreground">Total saved</dt>
-            <dd className="font-semibold text-[#D4AF37]">{formatUsd(stats.totalSaved)}</dd>
+            <dd className="font-semibold" style={{ color: SAVINGS_GOLD_ACCENT }}>{formatUsd(stats.totalSaved)}</dd>
           </div>
           {stats.bestMonth && (
             <div className="flex justify-between gap-2">
@@ -157,7 +157,7 @@ export function YearEndRecapModal() {
           <div className="flex justify-between gap-2">
             <dt className="text-muted-foreground">Achievements</dt>
             <dd className="flex items-center gap-1">
-              <Trophy className="h-3.5 w-3.5 text-[#D4AF37]" aria-hidden />
+              <Trophy className="h-3.5 w-3.5" style={{ color: SAVINGS_GOLD_ACCENT }} aria-hidden />
               {stats.achievementsEarned}
             </dd>
           </div>
@@ -174,7 +174,12 @@ export function YearEndRecapModal() {
             {achievementsInRecapYear.map((a) => (
               <span
                 key={a.code}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/30"
+                className="text-[10px] px-2 py-0.5 rounded-full border"
+                style={{
+                  backgroundColor: `${SAVINGS_GOLD_ACCENT}26`,
+                  color: SAVINGS_GOLD_ACCENT,
+                  borderColor: `${SAVINGS_GOLD_ACCENT}4D`,
+                }}
               >
                 {ACHIEVEMENT_LABELS[a.code] ?? a.code}
               </span>
@@ -183,7 +188,12 @@ export function YearEndRecapModal() {
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" className="bg-[#D4AF37] text-[#0D0D0D] hover:bg-[#D4AF37]/90" onClick={dismiss}>
+          <Button
+            type="button"
+            className="text-[#0D0D0D] hover:opacity-90"
+            style={{ backgroundColor: SAVINGS_GOLD_ACCENT }}
+            onClick={dismiss}
+          >
             Continue
           </Button>
         </div>

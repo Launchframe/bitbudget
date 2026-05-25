@@ -59,10 +59,10 @@ export function aggregateYearEndRecap(params: {
   let projection2030: number | null = null
   if (rate > 0) {
     const asOf = params.asOf ?? new Date()
-    const monthsTo2030 = Math.max(
-      0,
-      (2030 - asOf.getUTCFullYear()) * 12 - asOf.getUTCMonth(),
-    )
+    const year = asOf.getUTCFullYear()
+    const month = asOf.getUTCMonth()
+    const monthsTo2030 =
+      year > 2030 ? 0 : Math.max(0, (2030 - year) * 12 + (12 - month))
     projection2030 = Math.round((params.currentSavingsBalance + rate * monthsTo2030) * 100) / 100
   }
 

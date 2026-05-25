@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import { SAVINGS_EXPERIENCE_DISMISSED } from "@/lib/constants"
+import { SAVINGS_EXPERIENCE_DISMISSED, SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 import { formatPeriodKeyLabel } from "@/lib/savings-ui-metrics"
 
 const GOAL_HIT_SEEN_KEY = "bitbudget-goal-hit-seen"
@@ -61,7 +61,8 @@ export function GoalHitCelebration() {
   return (
     <div
       role="status"
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-[#D4AF37] text-[#0D0D0D] text-sm font-semibold shadow-lg animate-bounce"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl text-[#0D0D0D] text-sm font-semibold shadow-lg animate-bounce"
+      style={{ backgroundColor: SAVINGS_GOLD_ACCENT }}
     >
       {message}
     </div>

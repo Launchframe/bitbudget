@@ -1,4 +1,5 @@
 import { formatUsd } from "@/lib/data"
+import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 import type { YearEndRecapStats } from "@/lib/year-end-recap"
 
 function escapeHtml(s: string): string {
@@ -43,7 +44,7 @@ export function buildYearEndRecapEmailHtml(payload: YearEndRecapEmailPayload): s
 
   return `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
-      <h2 style="color: #D4AF37; margin-bottom: 8px;">Your ${payload.year} savings recap</h2>
+      <h2 style="color: ${SAVINGS_GOLD_ACCENT}; margin-bottom: 8px;">Your ${payload.year} savings recap</h2>
       <p style="color: #ccc; font-size: 15px;">Here&apos;s how your Savings journey looked last year.</p>
       <div style="background: #111; border-radius: 12px; padding: 20px; margin: 24px 0;">
         <p style="color: #ccc; margin: 0 0 8px;"><strong>Total saved:</strong> ${escapeHtml(formatUsd(payload.totalSaved))}</p>

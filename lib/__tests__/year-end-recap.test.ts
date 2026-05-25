@@ -20,7 +20,7 @@ describe("aggregateYearEndRecap", () => {
       asOf: new Date("2026-01-15T00:00:00.000Z"),
     })
 
-    // Jan 2026 → Dec 2030: 48 months at $100/mo on $1000 base
-    expect(stats.projection2030).toBe(5800)
+    // Jan 2026 → Dec 2030: 60 monthly saves at $100/mo on $1000 base
+    expect(stats.projection2030).toBe(7000)
   })
 })
