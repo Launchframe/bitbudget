@@ -255,8 +255,10 @@ export async function PUT(req: NextRequest) {
     },
   })
 
+  const communicationPreferences = emailPreferencesFromUser(updated)
   return NextResponse.json({
     ...updated,
-    emailPreferences: emailPreferencesFromUser(updated),
+    emailPreferences: communicationPreferences,
+    communicationPreferences,
   })
 }

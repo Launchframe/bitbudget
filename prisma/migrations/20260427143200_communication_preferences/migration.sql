@@ -1,5 +1,7 @@
 -- Communication preferences default to enabled for new and existing accounts.
 
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
 ALTER TABLE "User"
   ADD COLUMN IF NOT EXISTS "emailFeatureUpdates" BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS "emailFeedbackRequests" BOOLEAN NOT NULL DEFAULT true,

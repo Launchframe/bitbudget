@@ -91,6 +91,13 @@ export function unsubscribeUrl(token: string, category: CommunicationEmailCatego
   return url.toString()
 }
 
+/** Inserts markup immediately before the last `</div>` (outer email wrapper). */
+export function insertBeforeLastClosingDiv(html: string, insertion: string): string {
+  const closeIdx = html.lastIndexOf("</div>")
+  if (closeIdx === -1) return html
+  return html.slice(0, closeIdx) + insertion + html.slice(closeIdx + "</div>".length)
+}
+
 function withEmailFooter(html: string, options?: PreferenceEmailOptions): string {
   const category = options?.category
   const token = options?.unsubscribeToken?.trim()
@@ -98,17 +105,15 @@ function withEmailFooter(html: string, options?: PreferenceEmailOptions): string
   const url = unsubscribeUrl(token, category)
   if (!url) return html
   const preference = communicationPreferenceForCategory(category)
-  return html.replace(
-    "</div>",
-    `
+  const footer = `
       <div style="border-top: 1px solid #333; margin-top: 28px; padding-top: 16px;">
         <p style="color: #999; font-size: 12px; line-height: 1.5; margin: 0 0 12px;">
           You are receiving this because ${escapeHtml(preference.emailReason)}.
         </p>
         <a href="${escapeHtml(url)}" style="display: inline-block; background: #1A1A1A; color: #F7931A; border: 1px solid #333; border-radius: 10px; padding: 10px 14px; font-size: 13px; text-decoration: none;">Unsubscribe</a>
       </div>
-    </div>`,
-  )
+    </div>`
+  return insertBeforeLastClosingDiv(html, footer)
 }
 
 async function sendHtmlMail(to: string, subject: string, html: string, options?: PreferenceEmailOptions): Promise<boolean> {
