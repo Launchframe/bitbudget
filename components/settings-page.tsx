@@ -334,10 +334,12 @@ export function SettingsPage() {
 
   const tabButtonClass = (tab: SettingsTab) => {
     const active = settingsTab === tab
+    const base =
+      "flex w-full items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors"
     if (active && tab === "savings") {
-      return "flex items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors bg-[#1A1A1A] border"
+      return `${base} bg-[#1A1A1A] border`
     }
-    return `flex items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors ${
+    return `${base} ${
       active
         ? "bg-[#1A1A1A] text-[#F7931A] border border-[#F7931A]/20"
         : "text-muted-foreground hover:text-foreground hover:bg-[#111111]"
@@ -922,12 +924,12 @@ export function SettingsPage() {
   )
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 w-full max-w-full flex-col gap-6">
       <h2 className="text-2xl font-bold text-foreground">Settings</h2>
-      <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="lg:sticky lg:top-6 self-start">
+      <div className="grid min-w-0 w-full max-w-full gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <aside className="min-w-0 w-full max-w-full lg:sticky lg:top-6 self-start">
           <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-2">
-            <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
+            <div className="flex flex-col gap-2">
               <button type="button" onClick={() => selectSettingsTab("general")} className={tabButtonClass("general")}>
                 <Settings2 className={tabIconClass("general")} aria-hidden />
                 <span>General</span>
@@ -956,7 +958,7 @@ export function SettingsPage() {
           </div>
         </aside>
 
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 w-full max-w-full flex-col gap-6">
           {settingsTab === "general" && generalSection}
           {settingsTab === "savings" && savingsSection}
           {settingsTab === "integrations" && integrationsSection}
