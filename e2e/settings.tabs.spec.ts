@@ -1,8 +1,6 @@
 import "./load-env"
-import path from "node:path"
 import { test, expect } from "@playwright/test"
 import { E2E_APP_USER_EMAIL, E2E_PREMIUM_USER_EMAIL } from "./fixtures/app-e2e-constants"
-import { signInWithE2eEmail } from "./helpers/auth-email"
 import { signInAppUser } from "./helpers/app-session"
 
 test.describe("Settings tabs", () => {
