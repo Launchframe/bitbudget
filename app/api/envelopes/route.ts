@@ -151,12 +151,13 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
-  if (!id) {
-    return NextResponse.json({ error: "Envelope ID is required" }, { status: 400 })
+  if (typeof id !== "string" || id.trim() === "") {
+    return NextResponse.json({ error: "Envelope ID must be a non-empty string" }, { status: 400 })
   }
+  const envelopeId = id.trim()
 
   const existing = await prisma.envelope.findFirst({
-    where: { id, userId: session.user.id },
+    where: { id: envelopeId, userId: session.user.id },
   })
   if (!existing) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
@@ -220,7 +221,7 @@ export async function PUT(req: NextRequest) {
   let updated
   try {
     updated = await prisma.envelope.update({
-      where: { id },
+      where: { id: envelopeId },
       data: {
         ...(existing.systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS && name !== undefined ? { name: name.trim() } : {}),
         ...(monthlyAllotment !== undefined ? { monthlyAllotment } : {}),

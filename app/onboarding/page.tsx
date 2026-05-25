@@ -3003,6 +3003,7 @@ export default function OnboardingPage() {
                         accentColor={env.color}
                         ariaLabel={`Fine adjust ${env.name} monthly allotment`}
                         value={env.monthlyAllotment}
+                        maxValue={sliderMax}
                         onGestureStart={() => {
                           setActiveEnvIdx(idx)
                           allocSliderGestureKindRef.current = "fine"

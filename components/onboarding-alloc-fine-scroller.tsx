@@ -17,6 +17,7 @@ type OnboardingAllocFineScrollerProps = {
   accentColor: string
   ariaLabel: string
   value: number
+  maxValue: number
   onGestureStart: () => void
   onNudge: (deltaSteps: number) => void
   onGestureEnd: () => void
@@ -26,6 +27,7 @@ export function OnboardingAllocFineScroller({
   accentColor,
   ariaLabel,
   value,
+  maxValue,
   onGestureStart,
   onNudge,
   onGestureEnd,
@@ -104,6 +106,7 @@ export function OnboardingAllocFineScroller({
       aria-valuenow={value}
       aria-valuetext={`${formatUsd(value)} per month`}
       aria-valuemin={0}
+      aria-valuemax={Math.max(0, maxValue)}
       aria-describedby={hintId}
       className="relative flex w-7 shrink-0 touch-none select-none items-center justify-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#F7931A] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D0D0D]"
       style={{
@@ -175,10 +178,9 @@ export function OnboardingAllocFineScroller({
           backgroundColor: isPressed ? `${accentColor}28` : "#141414",
         }}
       >
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-label={`Increase by $${ONBOARDING_ALLOCATE_FINE_STEP}`}
+        <div
+          role="presentation"
+          aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-1/2 items-start justify-center pt-0.5"
         >
           <ChevronUp
@@ -186,16 +188,15 @@ export function OnboardingAllocFineScroller({
             style={{ color: accentColor }}
             aria-hidden
           />
-        </button>
+        </div>
         <div
           className={`mx-auto my-1 w-1 flex-1 rounded-full transition-opacity ${isPressed ? "opacity-70" : "opacity-40"}`}
           style={{ backgroundColor: accentColor }}
           aria-hidden
         />
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-label={`Decrease by $${ONBOARDING_ALLOCATE_FINE_STEP}`}
+        <div
+          role="presentation"
+          aria-hidden
           className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex h-1/2 items-end justify-center pb-0.5"
         >
           <ChevronDown
@@ -203,7 +204,7 @@ export function OnboardingAllocFineScroller({
             style={{ color: accentColor }}
             aria-hidden
           />
-        </button>
+        </div>
       </div>
     </div>
   )
