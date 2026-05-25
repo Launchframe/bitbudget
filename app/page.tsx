@@ -27,6 +27,7 @@ import { TransactionLoadingIndicator } from "@/components/transaction-loading-in
 import { TrialWelcomeBanner } from "@/components/trial-welcome-banner"
 import { ReferralPlaidReminderBanner } from "@/components/referral-plaid-reminder-banner"
 import { SurveySheetHost } from "@/components/survey-sheet"
+import { OfflineStatusBanner } from "@/components/offline-status-banner"
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -174,6 +175,7 @@ export default function Dashboard() {
                   <Sidebar />
                   <div className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
                     <NotificationBanner />
+                    <OfflineStatusBanner />
                     <ReferralPlaidReminderBanner />
                     <TrialWelcomeBanner />
                     <TransactionLoadingIndicator />

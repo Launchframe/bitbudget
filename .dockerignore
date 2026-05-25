@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.github
+e2e
+playwright-report
+test-results
+coverage
+*.md
+!README.md
+.env
+.env.*
+!.env.docker.example
+terminals
+.cursor
+*.log
+.DS_Store

@@ -1,0 +1,51 @@
+# BitBudget self-host stack — see docs/self-hosting.md (VPN access, cron, offline/PWA).
+#
+# Quick start:
+#   cp .env.docker.example .env
+#   Edit .env (AUTH_SECRET, URLs for how you reach the server)
+#   docker compose up -d --build
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bitbudget}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bitbudget}
+      POSTGRES_DB: ${POSTGRES_DB:-bitbudget}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bitbudget} -d ${POSTGRES_DB:-bitbudget}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # LAN-only: do not publish 5432 unless you intend remote DB admin.
+    # ports:
+    #   - "5432:5432"
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bitbudget}:${POSTGRES_PASSWORD:-bitbudget}@db:5432/${POSTGRES_DB:-bitbudget}
+      DATABASE_URL_UNPOOLED: postgresql://${POSTGRES_USER:-bitbudget}:${POSTGRES_PASSWORD:-bitbudget}@db:5432/${POSTGRES_DB:-bitbudget}
+      NODE_ENV: production
+      AUTH_TRUST_HOST: "true"
+    ports:
+      # Default: all interfaces on 3000 (reachable on LAN). Use firewall or override to 127.0.0.1 only.
+      # From phone: connect VPN first, then open http://<home-server-lan-ip>:3000
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  pgdata:

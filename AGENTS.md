@@ -65,7 +65,18 @@ lib/                     Shared logic — types, crypto, contexts, helpers
 prisma/                  Schema, migrations, seeds
 public/                  Static assets (icons, onboarding screenshots)
 styles/                  Tailwind globals
+docs/                    Operator and product docs (index: docs/README.md)
+shells/                  Capacitor / Tauri scaffold (commercial store clients)
+Dockerfile, docker-compose.yml   Self-host container stack
 ```
+
+## Documentation
+
+Product and deployment docs live under **`docs/`** — start at [docs/README.md](docs/README.md). Highlights:
+
+- **Commercial** (hosted premium, store clients): [docs/commercial-clients-proposal.md](docs/commercial-clients-proposal.md), [docs/entitlement-api.md](docs/entitlement-api.md), [docs/native-shells.md](docs/native-shells.md)
+- **Self-host** (Docker, VPN): [docs/self-hosting.md](docs/self-hosting.md), [docs/self-hosting-plan.md](docs/self-hosting-plan.md)
+- **StartOS** (deferred): [docs/startos-packaging.md](docs/startos-packaging.md)
 
 ## Tech Stack
 

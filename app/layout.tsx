@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/next"
 import { SessionProvider } from "@/components/session-provider"
 import { ReturningUserCookie } from "@/components/returning-user-cookie"
 import { PlatformProvider } from "@/lib/platform-context"
+import { PwaRegister } from "@/components/pwa-register"
 import "./globals.css"
 
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"] })
@@ -17,9 +18,14 @@ export const metadata: Metadata = {
   title: "BitBudget - Bitcoin Opportunity Cost Tracker",
   description:
     "Track your spending and analyze the opportunity cost of your purchases--in Bitcoin terms. Budget smarter by understanding what your dollars could have been worth.",
+  manifest: "/manifest.webmanifest",
   icons: {
     icon: { url: "/icon.svg", type: "image/svg+xml" },
     apple: "/apple-icon.svg",
+  },
+  appleWebApp: {
+    capable: true,
+    title: "BitBudget",
   },
 }
 
@@ -37,6 +43,7 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={`${spaceGrotesk.className} ${ibmPlexMono.variable} antialiased`}>
         <SessionProvider>
+          <PwaRegister />
           <ReturningUserCookie />
           <PlatformProvider>{children}</PlatformProvider>
         </SessionProvider>

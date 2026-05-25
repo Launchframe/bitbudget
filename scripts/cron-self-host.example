@@ -1,0 +1,27 @@
+#!/bin/sh
+# Example host crontab for self-hosted BitBudget (adjust BASE and CRON_SECRET).
+# Install: crontab -e and paste lines below (or run via systemd timer).
+#
+# BASE must be reachable from this host (Docker publish port or reverse proxy).
+# CRON_SECRET must match .env
+
+BASE="${BITBUDGET_BASE_URL:-http://127.0.0.1:3000}"
+SECRET="${CRON_SECRET:?Set CRON_SECRET}"
+
+auth="Authorization: Bearer ${SECRET}"
+
+# Daily recurring (06:00 UTC) — matches vercel.json
+0 6 * * * curl -fsS -X POST -H "$auth" "${BASE}/api/cron/recurring"
+
+# Payday envelope funding (06:30 UTC)
+30 6 * * * curl -fsS -X POST -H "$auth" "${BASE}/api/cron/envelope-funding"
+
+# BTC price backfill (every 6 hours)
+0 */6 * * * curl -fsS -X POST -H "$auth" "${BASE}/api/cron/btc-backfill"
+
+# Reminders (hourly)
+0 * * * * curl -fsS -X POST -H "$auth" "${BASE}/api/cron/reminders"
+
+# Referral digest / expiry (optional)
+0 8 * * * curl -fsS -X POST -H "$auth" "${BASE}/api/cron/referral-digest"
+0 9 * * * curl -fsS -X POST -H "$auth" "${BASE}/api/cron/referral-expiry"
