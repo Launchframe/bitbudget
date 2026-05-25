@@ -72,42 +72,49 @@ function formatMonthLabel(monthKey: string): string {
   return d.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })
 }
 
-function sumDiscretionaryExpenses(
+function buildDailyDiscretionaryExpenseTotals(
   transactions: readonly Transaction[],
   discretionaryIds: ReadonlySet<string>,
   monthKey: string,
-  fromDom: number,
-  throughDom: number,
-): number {
-  let sum = 0
+): Map<number, number> {
+  const byDom = new Map<number, number>()
   for (const t of transactions) {
     if (t.excludeFromMainHistory) continue
     if (t.type !== "expense") continue
     if (!discretionaryIds.has(t.envelopeId)) continue
     if (getMonthKey(t.date) !== monthKey) continue
     const dom = Number(t.date.slice(8, 10))
-    if (!Number.isFinite(dom) || dom < fromDom || dom > throughDom) continue
-    sum += t.amount
+    if (!Number.isFinite(dom)) continue
+    byDom.set(dom, (byDom.get(dom) ?? 0) + t.amount)
   }
-  return sum
+  return byDom
 }
 
-function savingsBalanceThroughDom(
+function buildDailySavingsNetTotals(
   transactions: readonly Transaction[],
   savingsEnvelopeId: string,
   monthKey: string,
-  throughDom: number,
-): number {
-  let balance = 0
+): Map<number, number> {
+  const byDom = new Map<number, number>()
   for (const t of transactions) {
     if (getMonthKey(t.date) !== monthKey) continue
     if (t.envelopeId !== savingsEnvelopeId) continue
     const dom = Number(t.date.slice(8, 10))
-    if (!Number.isFinite(dom) || dom > throughDom) continue
-    if (t.type === "credit") balance += t.amount
-    else balance -= t.amount
+    if (!Number.isFinite(dom)) continue
+    const delta = t.type === "credit" ? t.amount : -t.amount
+    byDom.set(dom, (byDom.get(dom) ?? 0) + delta)
   }
-  return balance
+  return byDom
+}
+
+/** Prefix sums: index 0 = 0, index d = sum of daily totals for days 1..d. */
+function cumulativeTotalsByDom(dim: number, daily: Map<number, number>): number[] {
+  const cum = new Array<number>(dim + 1)
+  cum[0] = 0
+  for (let d = 1; d <= dim; d++) {
+    cum[d] = cum[d - 1]! + (daily.get(d) ?? 0)
+  }
+  return cum
 }
 
 function buildSeriesForMonth(params: {
@@ -129,6 +136,29 @@ function buildSeriesForMonth(params: {
   const lastDay =
     params.isLatest && params.todayDom != null ? Math.min(dim, params.todayDom) : dim
 
+  const expenseCum =
+    params.mode === "cash_flow"
+      ? cumulativeTotalsByDom(
+          dim,
+          buildDailyDiscretionaryExpenseTotals(
+            params.transactions,
+            params.discretionaryEnvelopeIds,
+            params.monthKey,
+          ),
+        )
+      : null
+  const savingsCum =
+    params.mode === "savings" && params.savingsEnvelopeId
+      ? cumulativeTotalsByDom(
+          dim,
+          buildDailySavingsNetTotals(
+            params.transactions,
+            params.savingsEnvelopeId,
+            params.monthKey,
+          ),
+        )
+      : null
+
   const points: MonthOverlayPoint[] = []
 
   for (let day = 1; day <= 31; day++) {
@@ -145,25 +175,11 @@ function buildSeriesForMonth(params: {
       continue
     }
 
-    if (params.mode === "cash_flow") {
-      const spent = sumDiscretionaryExpenses(
-        params.transactions,
-        params.discretionaryEnvelopeIds,
-        params.monthKey,
-        firstPayday,
-        day,
-      )
+    if (params.mode === "cash_flow" && expenseCum) {
+      const spent = expenseCum[day]! - expenseCum[firstPayday - 1]!
       points.push({ day, value: params.monthlyBudget - spent })
-    } else if (params.savingsEnvelopeId) {
-      points.push({
-        day,
-        value: savingsBalanceThroughDom(
-          params.transactions,
-          params.savingsEnvelopeId,
-          params.monthKey,
-          day,
-        ),
-      })
+    } else if (savingsCum) {
+      points.push({ day, value: savingsCum[day]! })
     } else {
       points.push({ day, value: null })
     }

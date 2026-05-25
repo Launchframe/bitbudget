@@ -49,6 +49,9 @@ const STREAK_CODES: Array<{ code: AchievementCode; length: number }> = [
   { code: "streak_12", length: 12 },
 ]
 
+/** Max closed months to load end-of-period envelope balances for swept_clean_month. */
+const SWEPT_CLEAN_MONTH_BALANCE_LOOKBACK = 24
+
 /** Idempotent insert; returns true when a new row was created. */
 export async function awardIfMissing(
   userId: string,
@@ -130,14 +133,20 @@ async function detectGoalAchievements(userId: string): Promise<number> {
       closed.map((g) => g.periodKey).filter((pk) => /^\d{4}-\d{2}$/.test(pk)),
     ),
   ]
+    .sort((a, b) => b.localeCompare(a))
+    .slice(0, SWEPT_CLEAN_MONTH_BALANCE_LOOKBACK)
+
+  const balanceEntries = await Promise.all(
+    closedMonthKeys.map(async (monthKey) => {
+      const bounds = periodBoundsUtc(monthKey)
+      if (!bounds) return null
+      const balances = await envelopeBalancesBeforeBatch(userId, budgetIds, bounds.end)
+      return [monthKey, balances] as const
+    }),
+  )
   const balancesByMonth = new Map<string, Map<string, number>>()
-  for (const monthKey of closedMonthKeys) {
-    const bounds = periodBoundsUtc(monthKey)
-    if (!bounds) continue
-    balancesByMonth.set(
-      monthKey,
-      await envelopeBalancesBeforeBatch(userId, budgetIds, bounds.end),
-    )
+  for (const entry of balanceEntries) {
+    if (entry) balancesByMonth.set(entry[0], entry[1])
   }
 
   for (const goal of closed) {
