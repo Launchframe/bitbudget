@@ -11,7 +11,7 @@ import {
   SYSTEM_ENVELOPE_ROLE_SAVINGS,
   TX_SOURCE_ENVELOPE_SWEEP,
 } from "@/lib/constants"
-import { envelopeBalancesForMonthBatch, monthKeyFromDate } from "@/lib/envelope-balance-server"
+import { envelopeBalancesAllTimeBatch } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
 import { fundingPeriodKeyForDate } from "@/lib/envelope-funding-period"
 import { isDailyCadenceBlocked, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
@@ -176,7 +176,6 @@ export async function sweepDiscretionaryEnvelopesForUser(
   if (!periodKey) return 0
 
   const savings = await ensureSystemSavingsEnvelope(userId)
-  const monthKey = monthKeyFromDate(now)
 
   const envelopeRows = await prisma.envelope.findMany({
     where: {
@@ -195,10 +194,9 @@ export async function sweepDiscretionaryEnvelopesForUser(
   })
 
   const budgetRows = envelopeRows.filter((env) => isBudgetEnvelope(env.systemRole))
-  const balances = await envelopeBalancesForMonthBatch(
+  const balances = await envelopeBalancesAllTimeBatch(
     userId,
     budgetRows.map((env) => env.id),
-    monthKey,
   )
 
   type SweepEntry = { envelopeId: string; name: string; amount: number }
@@ -384,7 +382,6 @@ export async function createManualEnvelopeSweep(
   if (!pk) return 0
 
   const savings = await ensureSystemSavingsEnvelope(userId)
-  const monthKey = monthKeyFromDate(now)
 
   const envelopeIds = [...new Set(entries.map((e) => e.envelopeId))]
   const envelopeRows = await prisma.envelope.findMany({
@@ -402,10 +399,9 @@ export async function createManualEnvelopeSweep(
     const env = envelopeById.get(entry.envelopeId)
     return env != null && isBudgetEnvelope(env.systemRole)
   })
-  const balances = await envelopeBalancesForMonthBatch(
+  const balances = await envelopeBalancesAllTimeBatch(
     userId,
     validEntries.map((e) => e.envelopeId),
-    monthKey,
   )
 
   type ResolvedEntry = { envelopeId: string; name: string; amount: number }

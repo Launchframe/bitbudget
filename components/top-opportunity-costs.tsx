@@ -13,7 +13,7 @@ import {
   subscribeDashboardChartMode,
 } from "@/lib/dashboard-chart-mode"
 import { findSavingsEnvelope, isSavingsInflowCredit } from "@/lib/savings-ui-metrics"
-import { SAVINGS_EXPERIENCE_DISMISSED } from "@/lib/constants"
+import { SAVINGS_EXPERIENCE_DISMISSED, SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
 import type { Transaction } from "@/lib/data"
 
@@ -159,7 +159,10 @@ export function TopOpportunityCosts() {
                   </td>
                   <td className={`py-3 text-right ${savingsMode ? "pr-2 rounded-r-xl" : ""}`}>
                     <div className="flex items-center justify-end gap-2">
-                      <span className={`text-sm font-semibold ${gained ? "text-[#D4AF37]" : "text-[#22C55E]"}`}>
+                      <span
+                        className={`text-sm font-semibold ${gained ? "" : "text-[#22C55E]"}`}
+                        style={gained ? { color: SAVINGS_GOLD_ACCENT } : undefined}
+                      >
                         {formatUsd(txn.btcValueToday)}
                       </span>
                       {txn.btcValueToday > 0 && (

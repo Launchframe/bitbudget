@@ -57,6 +57,45 @@ export async function savingsEnvelopeBalanceBefore(
   })
 }
 
+/** All-time net balances for many envelopes (credits minus expenses). */
+export async function envelopeBalancesAllTimeBatch(
+  userId: string,
+  envelopeIds: readonly string[],
+): Promise<Map<string, number>> {
+  return envelopeBalancesBeforeBatch(userId, envelopeIds)
+}
+
+/** Envelope balances before a UTC instant (half-open: date < beforeExclusive). Omit for all-time. */
+export async function envelopeBalancesBeforeBatch(
+  userId: string,
+  envelopeIds: readonly string[],
+  beforeExclusive?: Date,
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>()
+  if (envelopeIds.length === 0) return result
+  for (const id of envelopeIds) result.set(id, 0)
+
+  const rows = await prisma.transaction.groupBy({
+    by: ["envelopeId", "type"],
+    where: {
+      userId,
+      envelopeId: { in: [...envelopeIds] },
+      ...(beforeExclusive ? { date: { lt: beforeExclusive } } : {}),
+    },
+    _sum: { amount: true },
+  })
+  for (const row of rows) {
+    const cur = result.get(row.envelopeId) ?? 0
+    const sum = row._sum.amount != null ? Number(row._sum.amount) : 0
+    const delta = row.type === "credit" ? sum : -sum
+    result.set(row.envelopeId, cur + delta)
+  }
+  for (const [id, value] of result) {
+    result.set(id, Math.round(value * 100) / 100)
+  }
+  return result
+}
+
 /** Month-scoped balances for many envelopes in one query. */
 export async function envelopeBalancesForMonthBatch(
   userId: string,

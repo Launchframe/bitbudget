@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import { getCurrentMonthKey, getEnvelopeBalance, formatUsd } from "@/lib/data"
+import { getEnvelopeBalanceAllTime, formatUsd } from "@/lib/data"
 import {
   Dialog,
   DialogContent,
@@ -136,14 +136,12 @@ export function EnvelopeSweepDialog({ open, onOpenChange, onSuccess }: EnvelopeS
   const [error, setError] = useState<string | null>(null)
   const [successFlash, setSuccessFlash] = useState(false)
 
-  const monthKey = getCurrentMonthKey()
-
   const buildRows = useCallback(
     (defaults: SweepDefaults): SweepRow[] => {
       const asOf = new Date()
       return discretionaryEnvelopes
         .map((env) => {
-          const balance = getEnvelopeBalance(state.transactions, env.id, monthKey)
+          const balance = getEnvelopeBalanceAllTime(state.transactions, env.id)
           const maxAmount = Math.max(0, balance)
           const policy = resolveEffectiveSweepPolicy(env.sweepPolicy, defaults.sweepDefaultPolicy)
           const capMultiplier = resolveSweepCapMultiplier(
@@ -171,7 +169,7 @@ export function EnvelopeSweepDialog({ open, onOpenChange, onSuccess }: EnvelopeS
         })
         .filter((r) => r.maxAmount > 0)
     },
-    [discretionaryEnvelopes, state.transactions, monthKey],
+    [discretionaryEnvelopes, state.transactions],
   )
 
   useEffect(() => {

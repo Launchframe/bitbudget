@@ -67,7 +67,7 @@ export function avgMonthlySpendLastNMonths(
   const now = new Date()
   const monthKeys = new Set<string>()
   for (let i = 0; i < months; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))
     monthKeys.add(getMonthKey(d.toISOString().split("T")[0]!))
   }
 
