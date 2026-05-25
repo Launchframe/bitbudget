@@ -48,6 +48,8 @@ import {
 } from "@/lib/txn-cache"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { transactionSyncUserMessage } from "@/lib/transaction-sync-user-message"
+import { enqueuePendingCreate, isBrowserOffline, shouldQueueMutation } from "@/lib/offline-queue"
+import { flushOfflineQueue } from "@/lib/offline-sync"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
 
 export type PageId =
@@ -916,12 +918,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("popstate", onPopState)
   }, [])
 
+  const applySyncedCreate = useCallback(
+    async (optimisticId: string, created: ApiTransactionRow) => {
+      const uid = currentUserIdRef.current
+      const lockedSession = pendingLockedRef.current && !privacyKeyRef.current
+      const secretKey = privacyKeyRef.current
+      const [cached] = await processApiTransactions([created], { lockedSession, secretKey })
+      if (uid) {
+        await putMany(uid, [cached])
+        const prevSync = await getLastSyncIso(uid)
+        const nextSync = mergeLastSyncIso(prevSync, cached.updatedAt)
+        if (nextSync) await setLastSyncIso(uid, nextSync)
+      }
+      setState(prev => ({
+        ...prev,
+        transactions: prev.transactions.map(t =>
+          t.id === optimisticId ? cachedToClientTransaction(cached) : t,
+        ),
+      }))
+    },
+    [],
+  )
+
+  const queueTransactionOffline = useCallback(async (optimisticId: string, txn: Omit<Transaction, "id">) => {
+    const uid = currentUserIdRef.current
+    if (!uid) return false
+    await enqueuePendingCreate(uid, optimisticId, txn)
+    setState(prev => ({
+      ...prev,
+      transactions: prev.transactions.map(t =>
+        t.id === optimisticId ? { ...t, pendingSync: true } : t,
+      ),
+    }))
+    return true
+  }, [])
+
   const addTransaction = useCallback(async (txn: Omit<Transaction, "id">) => {
     const optimisticId = generateId()
     setState(prev => ({
       ...prev,
-      transactions: [{ ...txn, id: optimisticId }, ...prev.transactions],
+      transactions: [{ ...txn, id: optimisticId, pendingSync: isBrowserOffline() }, ...prev.transactions],
     }))
+
+    if (isBrowserOffline()) {
+      await queueTransactionOffline(optimisticId, txn)
+      return
+    }
 
     try {
       const payload = { ...txn }
@@ -937,35 +979,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       if (res.ok) {
         const created = await res.json() as ApiTransactionRow
-        const uid = currentUserIdRef.current
-        const lockedSession = pendingLockedRef.current && !privacyKeyRef.current
-        const secretKey = privacyKeyRef.current
-        const [cached] = await processApiTransactions([created], { lockedSession, secretKey })
-        if (uid) {
-          await putMany(uid, [cached])
-          const prevSync = await getLastSyncIso(uid)
-          const nextSync = mergeLastSyncIso(prevSync, cached.updatedAt)
-          if (nextSync) await setLastSyncIso(uid, nextSync)
-        }
-        setState(prev => ({
-          ...prev,
-          transactions: prev.transactions.map(t =>
-            t.id === optimisticId ? cachedToClientTransaction(cached) : t,
-          ),
-        }))
+        await applySyncedCreate(optimisticId, created)
+      } else if (res.status >= 500) {
+        await queueTransactionOffline(optimisticId, txn)
       } else {
         setState(prev => ({
           ...prev,
           transactions: prev.transactions.filter(t => t.id !== optimisticId),
         }))
       }
-    } catch {
+    } catch (err) {
+      if (shouldQueueMutation(err)) {
+        await queueTransactionOffline(optimisticId, txn)
+        return
+      }
       setState(prev => ({
         ...prev,
         transactions: prev.transactions.filter(t => t.id !== optimisticId),
       }))
     }
-  }, [])
+  }, [applySyncedCreate, queueTransactionOffline])
+
+  const syncOfflineQueue = useCallback(async () => {
+    const uid = currentUserIdRef.current
+    if (!uid || isBrowserOffline()) return
+    await flushOfflineQueue({
+      userId: uid,
+      publicKey: publicKeyRef.current,
+      onSynced: async (mutation, created) => {
+        await applySyncedCreate(mutation.clientTxnId, created)
+      },
+    })
+  }, [applySyncedCreate])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const onOnline = () => {
+      void syncOfflineQueue()
+    }
+    window.addEventListener("online", onOnline)
+    return () => window.removeEventListener("online", onOnline)
+  }, [syncOfflineQueue])
+
+  useEffect(() => {
+    if (encryption.ready && currentUserIdRef.current) {
+      void syncOfflineQueue()
+    }
+  }, [encryption.ready, syncOfflineQueue])
 
   const editTransaction = useCallback(async (id: string, updates: Partial<Omit<Transaction, "id">>) => {
     setState(prev => ({

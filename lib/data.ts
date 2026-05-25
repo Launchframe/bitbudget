@@ -38,6 +38,8 @@ export interface Transaction {
   updatedAt?: string
   /** Client: false when payee/notes are not shown in cleartext (locked or pending decrypt). */
   isDecrypted?: boolean
+  /** Client: queued in IndexedDB until POST succeeds (offline / flaky network). */
+  pendingSync?: boolean
 }
 
 export interface PendingTransaction {
