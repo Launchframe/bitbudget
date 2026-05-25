@@ -6,9 +6,11 @@ Internal knowledge base for packaging BitBudget (and related services) as StartO
 
 **Deferred** — we are not actively building a `bitbudget-startos` package yet.
 
-**Why:** On older StartOS (0.3.x), reaching a home server from away from home often meant **Tor-only** `.onion` URLs. That is a poor fit for BitBudget today (browser UX, OAuth redirects, Plaid/webhooks, email/SMS integrations, and routine mobile use off-LAN).
+**Near-term path:** Standard **open source + Docker** for home PC/server installs. See **[self-hosting-plan.md](./self-hosting-plan.md)** (license, compose, cron, remote access from phone).
 
-**Revisit when:** StartOS **0.4.x** networking matures (see [Future: StartOS 0.4 networking](#future-startos-04-networking) below). A WireGuard VPN back to the server, clearnet domain + TLS, or StartTunnel could make “use my budget from my phone” viable without Tor as the only path.
+**Why StartOS waits:** On older StartOS (0.3.x), reaching a home server from away from home often meant **Tor-only** `.onion` URLs. That is a poor fit for BitBudget today (browser UX, OAuth redirects, Plaid/webhooks, email/SMS integrations, and routine mobile use off-LAN).
+
+**Revisit when:** StartOS **0.4.x** networking matures (see [Future: StartOS 0.4 networking](#future-startos-04-networking) below). A WireGuard VPN back to the server, clearnet domain + TLS, or StartTunnel could make “use my budget from my phone” viable without Tor as the only path — overlapping with VPN/tunnel options in the self-hosting plan.
 
 ---
 
@@ -477,5 +479,6 @@ Watch: 0.4 is beta; backup format and services break from 0.3.5.x — any future
 
 ## Related internal docs
 
+- [Self-hosting plan (OSS + Docker)](./self-hosting-plan.md) — primary distribution path while StartOS is deferred.
 - [CI](./ci.md) — GitHub Actions for this application repo (separate from StartOS package CI on the fork).
 - [AGENTS.md](../AGENTS.md) — privacy, encryption, and product constraints that apply to any StartOS build.
