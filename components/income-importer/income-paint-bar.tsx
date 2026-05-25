@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { OnboardingAllocFineScroller } from "@/components/onboarding-alloc-fine-scroller"
@@ -24,7 +24,17 @@ export function IncomePaintBar({
   onSourceChange,
 }: IncomePaintBarProps) {
   const fineStep = useMemo(() => incomeRelativeFineStep(suggestedIncome), [suggestedIncome])
-  const amountText = amount > 0 ? String(amount) : ""
+  const [amountText, setAmountText] = useState(amount > 0 ? String(amount) : "")
+  const skipAmountSyncRef = useRef(false)
+
+  useEffect(() => {
+    if (skipAmountSyncRef.current) {
+      skipAmountSyncRef.current = false
+      return
+    }
+    const external = amount > 0 ? String(amount) : ""
+    requestAnimationFrame(() => setAmountText(external))
+  }, [amount])
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-[#1F1F1F] bg-[#111] p-4">
@@ -42,7 +52,10 @@ export function IncomePaintBar({
               step="0.01"
               value={amountText}
               onChange={(e) => {
-                const v = parseFloat(e.target.value)
+                skipAmountSyncRef.current = true
+                const next = e.target.value
+                setAmountText(next)
+                const v = parseFloat(next)
                 onAmountChange(Number.isFinite(v) && v > 0 ? v : 0)
               }}
               className="bg-[#1A1A1A] border-[#333]"

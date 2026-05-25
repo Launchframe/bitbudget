@@ -174,6 +174,9 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
       setScrollYear(draft.scrollYear)
       setEntries(entriesFromDraft(draft.entries))
       setLastClickedPeriod(draft.lastClickedPeriod)
+      setError(null)
+      setCsvStatus(null)
+      setSubmitting(false)
     } else {
       hydrateDefaults()
     }
