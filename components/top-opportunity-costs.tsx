@@ -40,6 +40,7 @@ export function TopOpportunityCosts() {
   )
 
   const savingsMode =
+    state.opportunityCostEnabled &&
     chartMode === "savings" &&
     state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED &&
     savingsEnvelope != null
@@ -81,7 +82,7 @@ export function TopOpportunityCosts() {
     }))
   }, [savingsMode, rankedSavingsInflows, rankedExpenseOpportunity])
 
-  if (!state.opportunityCostEnabled && !savingsMode) {
+  if (!state.opportunityCostEnabled) {
     return null
   }
 
