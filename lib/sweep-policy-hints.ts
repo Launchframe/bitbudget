@@ -103,7 +103,7 @@ function exampleForAllotmentCap(
     return `${env.name} has ${formatUsd(env.balance)} left — under ${capLabel}. On payday, nothing sweeps. After your next refill, you start the cycle at that balance plus your new allocation.`
   }
 
-  return `${env.name} has no leftover this month. With ${capLabel}, up to ${formatUsd(cap)} can roll over; surplus above that sweeps to Savings.`
+  return `${env.name} has no leftover this month. With ${capLabel}, up to ${formatUsd(cap)} can roll over; surplus above that sweeps to Savings — e.g. ${formatUsd(sampleBalance)} left would sweep ${formatUsd(sampleSweep)} and leave ${formatUsd(sampleKeep)}.`
 }
 
 function exampleForCarryForward(env: SweepExampleEnvelope): string | null {
