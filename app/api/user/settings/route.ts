@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { referralStatsForUser } from "@/lib/referral"
+import { referralStatsForUser, canRedeemReferralInSettings } from "@/lib/referral"
 import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
 import {
   SAVINGS_EXPERIENCE_DISMISSED,
@@ -82,6 +82,7 @@ const userSettingsSelect = {
   sweepDefaultCapMultiplier: true,
   savingsExperience: true,
   onboardingComplete: true,
+  onboardingCompletedAt: true,
   btcDisplayUnit: true,
   opportunityCostEnabled: true,
   nostrPubkey: true,
@@ -179,6 +180,13 @@ export async function GET() {
       ? refereeTrialMonthsForReferrerSubscription(refereeReferralRow.referrer.subscriptionTier)
       : null
 
+  const referralRefereeRedeemed = !!refereeReferralRow
+  const referralRefereeCanRedeem = canRedeemReferralInSettings({
+    onboardingComplete: user.onboardingComplete,
+    onboardingCompletedAt: user.onboardingCompletedAt,
+    alreadyRedeemed: referralRefereeRedeemed,
+  })
+
   let referralPayload: Record<string, unknown> | null = null
   if (user.onboardingComplete) {
     const stats = await referralStatsForUser(session.user.id, new Date(), {
@@ -206,8 +214,11 @@ export async function GET() {
 
   return NextResponse.json({
     ...serializeUserSettings(user),
+    onboardingCompletedAt: user.onboardingCompletedAt?.toISOString() ?? null,
     effectiveTier,
     referralRefereePendingBankLink: isRefereePendingBankLink,
+    referralRefereeRedeemed,
+    referralRefereeCanRedeem,
     referralRefereeTrialMonths,
     referral: referralPayload,
     dailyCadenceAllowed: isDailyPayCadenceAllowed(),
@@ -323,6 +334,14 @@ export async function PUT(req: NextRequest) {
 
   // Never allow encryptedPrivacyKey / privacyKeySalt via this route — use POST /api/user/encryption
   // (guarded) so existing keys cannot be clobbered by mistake or a buggy client.
+  let prevUser: { onboardingComplete: boolean; onboardingCompletedAt: Date | null } | null = null
+  if (body.onboardingComplete === true) {
+    prevUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { onboardingComplete: true, onboardingCompletedAt: true },
+    })
+  }
+
   const data: Record<string, unknown> = {}
   for (const field of ALLOWED_SETTINGS_PUT_FIELDS) {
     if (body[field] === undefined) continue
@@ -356,6 +375,15 @@ export async function PUT(req: NextRequest) {
       continue
     }
     data[field] = body[field]
+  }
+
+  if (
+    body.onboardingComplete === true &&
+    prevUser &&
+    !prevUser.onboardingComplete &&
+    prevUser.onboardingCompletedAt == null
+  ) {
+    data.onboardingCompletedAt = new Date()
   }
 
   if (Object.keys(data).length === 0) {

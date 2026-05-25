@@ -5,6 +5,7 @@ import {
   displayPayeeForTransaction,
   displayTypeLabelForTransaction,
   incomeTransactionForBatch,
+  incomeTransactionsByFundingBatchId,
   isEnvelopeFundingLeg,
   transactionMatchesTypeFilter,
 } from "../ledger-funding-display"
@@ -49,6 +50,20 @@ describe("ledger-funding-display", () => {
       txn({ id: "leg", envelopeId: "rent", source: "envelope_funding_in", fundingBatchId: batch }),
     ]
     expect(displayPayeeForTransaction(rows[1]!, rows)).toBe("From Income · Freelance")
+  })
+
+  it("displayPayeeForTransaction uses batch index without rescanning all rows", () => {
+    const batch = "batch-1"
+    const income = txn({
+      id: "inc",
+      envelopeId: "sav",
+      source: "irregular_income",
+      fundingBatchId: batch,
+      payee: "Freelance",
+    })
+    const leg = txn({ id: "leg", envelopeId: "rent", source: "envelope_funding_in", fundingBatchId: batch })
+    const index = incomeTransactionsByFundingBatchId([income, leg])
+    expect(displayPayeeForTransaction(leg, [], index)).toBe("From Income · Freelance")
   })
 
   it("does not derive funding leg labels when session is locked", () => {

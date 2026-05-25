@@ -82,7 +82,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { name, monthlyAllotment, color, icon } = await req.json()
+  let name: unknown
+  let monthlyAllotment: unknown
+  let color: unknown
+  let icon: unknown
+
+  try {
+    ;({ name, monthlyAllotment, color, icon } = await req.json())
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
+
   if (typeof name !== "string" || !name.trim()) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 })
   }
@@ -95,15 +105,43 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  if (
+    monthlyAllotment !== undefined &&
+    monthlyAllotment !== null &&
+    (typeof monthlyAllotment !== "number" ||
+      !Number.isFinite(monthlyAllotment) ||
+      monthlyAllotment < 0)
+  ) {
+    return NextResponse.json(
+      { error: "monthlyAllotment must be a non-negative number" },
+      { status: 400 },
+    )
+  }
+
+  if (color !== undefined && color !== null && typeof color !== "string") {
+    return NextResponse.json({ error: "color must be a string" }, { status: 400 })
+  }
+
+  if (icon !== undefined && icon !== null && typeof icon !== "string") {
+    return NextResponse.json({ error: "icon must be a string" }, { status: 400 })
+  }
+
+  const allotment =
+    typeof monthlyAllotment === "number" && Number.isFinite(monthlyAllotment)
+      ? Math.max(0, monthlyAllotment)
+      : 0
+  const envelopeColor = typeof color === "string" && color.trim() ? color : "#F7931A"
+  const envelopeIcon = typeof icon === "string" ? icon : null
+
   let envelope
   try {
     envelope = await prisma.envelope.create({
       data: {
         userId: session.user.id,
         name: trimmedName,
-        monthlyAllotment: monthlyAllotment || 0,
-        color: color || "#F7931A",
-        icon,
+        monthlyAllotment: allotment,
+        color: envelopeColor,
+        icon: envelopeIcon,
       },
     })
   } catch (e) {

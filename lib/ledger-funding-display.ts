@@ -22,6 +22,33 @@ export function incomeTransactionForBatch(
   )
 }
 
+/** O(n) index for repeated payee lookups (e.g. transaction list search). */
+export function incomeTransactionsByFundingBatchId(
+  transactions: readonly Transaction[],
+): Map<string, Transaction> {
+  const map = new Map<string, Transaction>()
+  for (const t of transactions) {
+    if (
+      t.fundingBatchId &&
+      isIncomeHeaderTransaction(t) &&
+      t.type === "credit"
+    ) {
+      map.set(t.fundingBatchId, t)
+    }
+  }
+  return map
+}
+
+function incomeForBatch(
+  txn: Pick<Transaction, "fundingBatchId">,
+  transactions: readonly Transaction[],
+  incomeByBatch?: ReadonlyMap<string, Transaction>,
+): Transaction | undefined {
+  if (!txn.fundingBatchId) return undefined
+  if (incomeByBatch) return incomeByBatch.get(txn.fundingBatchId)
+  return incomeTransactionForBatch(transactions, txn.fundingBatchId)
+}
+
 function incomeSourceLabel(income: Transaction | undefined): string {
   if (!income) return "Income"
   if (income.source === "paycheck") return "Income"
@@ -34,15 +61,16 @@ function incomeSourceLabel(income: Transaction | undefined): string {
 export function displayPayeeForTransaction(
   txn: Transaction,
   transactions: readonly Transaction[],
+  incomeByBatch?: ReadonlyMap<string, Transaction>,
 ): string {
   if (txn.isDecrypted === false) return txn.payee
   if (txn.source === "envelope_funding_in") {
-    const income = incomeTransactionForBatch(transactions, txn.fundingBatchId)
+    const income = incomeForBatch(txn, transactions, incomeByBatch)
     const src = incomeSourceLabel(income)
     return src === "Income" ? "From Income" : `From Income · ${src}`
   }
   if (txn.source === "envelope_funding_out") {
-    const income = incomeTransactionForBatch(transactions, txn.fundingBatchId)
+    const income = incomeForBatch(txn, transactions, incomeByBatch)
     const src = incomeSourceLabel(income)
     return src === "Income" ? "To envelopes" : `To envelopes · ${src}`
   }

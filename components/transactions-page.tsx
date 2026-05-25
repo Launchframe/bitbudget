@@ -6,6 +6,7 @@ import { useBtcPrices } from "@/lib/btc-price-context"
 import { compareTransactionsDesc, formatUsd, formatUsdPrecise, transactionsForTransactionList, type BtcDisplayUnit } from "@/lib/data"
 import {
   displayPayeeForTransaction,
+  incomeTransactionsByFundingBatchId,
   displayTypeLabelForTransaction,
   typeBadgeClassForTransaction,
   transactionMatchesTypeFilter,
@@ -112,6 +113,11 @@ export function TransactionsPage() {
     [activeTransactions, activeEnvelopeFilters],
   )
 
+  const incomeByFundingBatchId = useMemo(
+    () => incomeTransactionsByFundingBatchId(activeTransactions),
+    [activeTransactions],
+  )
+
   const availableTags = useMemo(() => {
     const tags = new Set<string>()
     for (const txn of listTransactions) {
@@ -126,7 +132,7 @@ export function TransactionsPage() {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter((t) => {
-        const displayPayee = displayPayeeForTransaction(t, activeTransactions)
+        const displayPayee = displayPayeeForTransaction(t, activeTransactions, incomeByFundingBatchId)
         return (
           displayPayee.toLowerCase().includes(q) ||
           t.payee.toLowerCase().includes(q)
@@ -154,7 +160,7 @@ export function TransactionsPage() {
     }
 
     return [...result].sort(compareTransactionsDesc)
-  }, [listTransactions, activeTransactions, searchQuery, typeFilter, activeEnvelopeFilters, tagFilters, startDate, endDate])
+  }, [listTransactions, activeTransactions, incomeByFundingBatchId, searchQuery, typeFilter, activeEnvelopeFilters, tagFilters, startDate, endDate])
 
   useEffect(() => {
     if (!highlightTransactionId) return
