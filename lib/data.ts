@@ -2,7 +2,20 @@
 
 export type TransactionType = "expense" | "credit"
 
-export type TransactionSource = "manual" | "voice" | "receipt_scan" | "sms" | "email_forward" | "email_scan" | "plaid"
+export type TransactionSource =
+  | "manual"
+  | "voice"
+  | "receipt_scan"
+  | "sms"
+  | "email_forward"
+  | "email_scan"
+  | "plaid"
+  | "paycheck"
+  | "irregular_income"
+  | "envelope_funding_out"
+  | "envelope_funding_in"
+  | "income_import"
+  | "envelope_sweep"
 
 export interface Transaction {
   id: string
@@ -16,6 +29,9 @@ export interface Transaction {
   satsAmount?: number | null
   recurringId?: string | null
   source?: TransactionSource
+  /** Funding allocation legs hidden from global transaction lists */
+  excludeFromMainHistory?: boolean
+  fundingBatchId?: string | null
   /** Server creation timestamp for ordering same-day transactions. */
   createdAt?: string
   /** Server row version for delta sync (ISO 8601). */
@@ -45,6 +61,10 @@ export interface Envelope {
   color: string
   icon?: string | null
   archived?: boolean
+  /** Server: system-managed Savings envelope (always present after first session) */
+  systemRole?: string | null
+  sweepPolicy?: string
+  sweepCapMultiplier?: number | null
 }
 
 export interface Tag {
@@ -82,6 +102,7 @@ export interface AppState {
   monthlyIncome: number
   btcDisplayUnit: BtcDisplayUnit
   opportunityCostEnabled: boolean
+  savingsExperience: string
 }
 
 export function compareTransactionsDesc(a: Transaction, b: Transaction): number {
@@ -255,6 +276,7 @@ export function getDefaultState(): AppState {
     monthlyIncome: 0,
     btcDisplayUnit: "sats",
     opportunityCostEnabled: false,
+    savingsExperience: "engaged",
   }
 }
 
@@ -274,7 +296,7 @@ export function getCurrentMonthKey(): string {
 }
 
 export function getTransactionsForEnvelope(
-  transactions: Transaction[],
+  transactions: readonly Transaction[],
   envelopeId: string,
   monthKey?: string,
 ): Transaction[] {
@@ -286,13 +308,46 @@ export function getTransactionsForEnvelope(
 }
 
 export function getEnvelopeBalance(
-  transactions: Transaction[],
+  transactions: readonly Transaction[],
   envelopeId: string,
   monthKey: string,
-  allotment: number,
 ): number {
   const monthTxns = getTransactionsForEnvelope(transactions, envelopeId, monthKey)
   const expenses = monthTxns.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0)
   const credits = monthTxns.filter(t => t.type === "credit").reduce((sum, t) => sum + t.amount, 0)
-  return allotment - expenses + credits
+  return credits - expenses
+}
+
+/** All-time envelope balance (Savings hub total; not month-scoped). */
+export function getEnvelopeBalanceAllTime(
+  transactions: readonly Transaction[],
+  envelopeId: string,
+): number {
+  const txns = getTransactionsForEnvelope(transactions, envelopeId)
+  const expenses = txns.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0)
+  const credits = txns.filter(t => t.type === "credit").reduce((sum, t) => sum + t.amount, 0)
+  return credits - expenses
+}
+
+/** Exclude ledger funding allocation legs from global-style feeds (dashboard recent, transactions page). */
+export function transactionsVisibleInMainHistory(transactions: readonly Transaction[]): Transaction[] {
+  return transactions.filter((t) => !t.excludeFromMainHistory)
+}
+
+/**
+ * Transaction list feed: global history hides funding legs; envelope-scoped views include them
+ * so envelope balances tie back to visible Income rows on Savings.
+ */
+export function transactionsForTransactionList(
+  transactions: readonly Transaction[],
+  envelopeIds?: ReadonlySet<string>,
+): Transaction[] {
+  if (!envelopeIds || envelopeIds.size === 0) {
+    return transactionsVisibleInMainHistory(transactions)
+  }
+  return transactions.filter((t) => {
+    if (!envelopeIds.has(t.envelopeId)) return false
+    if (!t.excludeFromMainHistory) return true
+    return t.source === "envelope_funding_in" || t.source === "envelope_funding_out"
+  })
 }

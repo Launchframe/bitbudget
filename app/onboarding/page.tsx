@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { signOut } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
@@ -8,7 +8,7 @@ import { DocumentFavicon } from "@/components/document-favicon"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck, Gift, Building2 } from "lucide-react"
+import { Plus, Trash2, Pencil, ChevronRight, ChevronLeft, Lock, Wallet, DollarSign, PiggyBank, PieChart, Upload, X, ShieldCheck, Gift, Building2, Target } from "lucide-react"
 import { EnvelopeAppearancePicker } from "@/components/envelope-appearance-picker"
 import {
   filterSuggestions,
@@ -19,11 +19,18 @@ import {
 } from "@/lib/envelope-icons"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
+import {
+  ONBOARDING_HINT_ENVELOPES,
+  ONBOARDING_HINT_REFERRAL_BANK,
+  ONBOARDING_HINT_REFERRAL_COMPLETE,
+  ONBOARDING_HINT_SAVINGS_GOAL,
+  ONBOARDING_HINT_SAVINGS_SWEEP,
+  OnboardingDismissibleHint,
+} from "@/components/onboarding-dismissible-hint"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -48,10 +55,48 @@ import {
   hasNsecOnboardingIntent,
   clearNsecOnboardingIntent,
 } from "@/lib/nostr-local-signer"
+import { OnboardingAllocFineScroller } from "@/components/onboarding-alloc-fine-scroller"
 import {
+  applyUnboundedOnboardingSliderDrag,
+  bumpUnboundedOnboardingSliderVisitedMax,
+  unboundedOnboardingSliderMaxForGestureWithVisited,
+  unboundedOnboardingSliderVisitedMax,
+  unboundedOnboardingSliderThumbPct,
+  defaultOnboardingSavingsGoalAmount,
+  isUnboundedOnboardingAllocation,
   monthlyBudgetForAllocation,
+  monthlyCapacityFromAnnualEstimate,
+  nudgeOnboardingAllocationAmount,
+  onboardingAllocationCapForRow,
+  onboardingOverrideDisplayAmount,
+  ONBOARDING_ALLOCATE_FINE_STEP,
+  ONBOARDING_ALLOCATE_SLIDER_STEP,
+  onboardingSavingsGoalAmountFromPercent,
+  onboardingSavingsGoalCapacity,
+  onboardingSavingsGoalFromManualInput,
+  onboardingSavingsGoalPercentOfCapacity,
+  onboardingSavingsGoalSliderMaxPct,
+  scaleOnboardingAllocationsToBudget,
+  ONBOARDING_SAVINGS_GOAL_DEFAULT_PCT,
+  ONBOARDING_UNBOUNDED_INPUT_MAX,
+  onboardingSliderMaxForRow,
+  savingsGoalPercentOfPaycheck,
   snapOnboardingAllocationToStep,
+  type OnboardingPayCadence,
 } from "@/lib/onboarding-allocate-budget"
+import {
+  isOnboardingDraftBudgetEnvelope,
+  withoutSystemSavingsEnvelope,
+} from "@/lib/onboarding-draft-envelopes"
+import {
+  PAYDAY_LAST_OF_MONTH,
+} from "@/lib/payday-cadence"
+import {
+  SAVINGS_EXPERIENCE_DISMISSED,
+  SAVINGS_GOLD_ACCENT,
+  SWEEP_POLICY_CARRY_FORWARD,
+} from "@/lib/constants"
+import { SAVINGS_GOAL_DEFAULT_PERIOD } from "@/lib/savings-goal"
 import {
   cadenceDisplayInteger,
   fromMonthly,
@@ -72,12 +117,40 @@ type Step =
   | "income"
   | "envelopes"
   | "allocations"
+  | "savings-game-plan"
   | "import"
   | "complete"
   | "referral-bank"
 
+type IncomeMode = "regular" | "irregular" | "mix"
+type AllocPhase = "budget" | "savings-goal"
+
 // Opportunity cost is set from entry point (/welcome or / → vanilla off; /landing → btc on), not a separate step.
-const STEPS: Step[] = ["referral", "security", "income", "envelopes", "allocations", "import", "complete"]
+const STEPS: Step[] = [
+  "referral",
+  "security",
+  "income",
+  "envelopes",
+  "allocations",
+  "savings-game-plan",
+  "import",
+  "complete",
+]
+
+const WEEKDAY_OPTIONS = [
+  { value: 0, label: "Sun" },
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+]
+
+const PAYDAY_DOM_OPTIONS = [
+  ...Array.from({ length: 28 }, (_, i) => i + 1),
+  PAYDAY_LAST_OF_MONTH,
+] as const
 const ENVELOPE_COLORS = ["#F7931A", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#EAB308", "#EC4899", "#06B6D4"]
 
 /** Stacked allocation bar: smooth width when envelope totals change ($50 bucket steps). */
@@ -107,7 +180,8 @@ function OnboardingSkipBar({
   return (
     <div className="mt-6 pt-4 border-t border-[#1F1F1F]">
       <p className="text-xs text-muted-foreground text-center mb-2">
-        Already have data in BitBudget? Exit onboarding and return to your dashboard without changing settings here.
+        If you do not have more transactions you want to import, you can{" "}
+        <span className="font-bold">skip ahead to finish onboarding</span>.
       </p>
       <button
         type="button"
@@ -115,7 +189,7 @@ function OnboardingSkipBar({
         onClick={onSkip}
         className="w-full py-2.5 text-sm font-medium text-muted-foreground border border-[#333] rounded-xl hover:bg-[#1A1A1A] hover:text-foreground transition-colors disabled:opacity-50"
       >
-        Skip onboarding — go to dashboard
+        Skip
       </button>
     </div>
   )
@@ -135,10 +209,27 @@ export default function OnboardingPage() {
   const [pinError, setPinError] = useState("")
 
   // Income
+  const [incomeMode, setIncomeMode] = useState<IncomeMode>("regular")
   const [income, setIncome] = useState("")
-  const [cadence, setCadence] = useState<"monthly" | "bimonthly">("monthly")
+  const [cadence, setCadence] = useState<OnboardingPayCadence>("monthly")
+  const [payDays, setPayDays] = useState<number[]>([1])
+  const [payDayOfWeek, setPayDayOfWeek] = useState(5)
+  const [lastPaydayAt, setLastPaydayAt] = useState(() => new Date().toISOString().split("T")[0]!)
+  const [estimatedAnnualIncome, setEstimatedAnnualIncome] = useState("")
 
-  // Envelopes
+  // Allocations
+  const [allocPhase, setAllocPhase] = useState<AllocPhase>("budget")
+  const [dismissedOnboardingHints, setDismissedOnboardingHints] = useState<Set<string>>(() => new Set())
+  const dismissOnboardingHint = useCallback((hintId: string) => {
+    setDismissedOnboardingHints(prev => {
+      if (prev.has(hintId)) return prev
+      const next = new Set(prev)
+      next.add(hintId)
+      return next
+    })
+  }, [])
+  const [savingsGoalAmount, setSavingsGoalAmount] = useState(0)
+  const [savingsGoalPct, setSavingsGoalPct] = useState(10)
   const [envelopes, setEnvelopes] = useState<DraftEnvelope[]>(() => {
     const used = new Set<string>()
     const iconFor = (name: string) => {
@@ -170,12 +261,73 @@ export default function OnboardingPage() {
     idx: number
     raw: number
   } | null>(null)
+  /** Sync mirror of override — release/commit read this within the same pointer event as nudge. */
+  const allocSliderRawOverrideRef = useRef<{ idx: number; raw: number } | null>(null)
+  const syncAllocSliderRawOverride = useCallback(
+    (
+      update:
+        | { idx: number; raw: number }
+        | null
+        | ((
+            prev: { idx: number; raw: number } | null,
+          ) => { idx: number; raw: number } | null),
+    ) => {
+      if (typeof update === "function") {
+        setAllocSliderRawOverride(prev => {
+          const next = update(prev)
+          allocSliderRawOverrideRef.current = next
+          return next
+        })
+      } else {
+        allocSliderRawOverrideRef.current = update
+        setAllocSliderRawOverride(update)
+      }
+    },
+    [],
+  )
+  const allocSliderRawForRow = useCallback((rowIdx: number, fallback: number) => {
+    const override = allocSliderRawOverrideRef.current
+    return override?.idx === rowIdx ? override.raw : fallback
+  }, [])
   const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
+  const allocSliderRangeInputRefs = useRef<(HTMLInputElement | null)[]>([])
+  const allocSliderPointerRef = useRef<{ pointerId: number; idx: number } | null>(null)
+  /** Coarse horizontal slider vs fine scroller — controls snap step and live display. */
+  const allocSliderGestureKindRef = useRef<"coarse" | "fine" | null>(null)
+  const allocSliderDragSessionRef = useRef<{
+    idx: number
+    lockedMax: number
+    expandedFrom: Set<number>
+  } | null>(null)
+  const [allocSliderLockedMax, setAllocSliderLockedMax] = useState<{ idx: number; max: number } | null>(
+    null,
+  )
+  /** Unbounded onboarding: largest slider range reached per envelope row (expand-only for the session). */
+  const [allocSliderUnboundedVisitedMax, setAllocSliderUnboundedVisitedMax] = useState<
+    Record<number, number>
+  >({})
+  const allocSliderSkipBlurCommitRef = useRef<number | null>(null)
+
+  const bumpUnboundedSliderVisitedMaxForRow = useCallback((rowIdx: number, candidate: number) => {
+    setAllocSliderUnboundedVisitedMax(prev => ({
+      ...prev,
+      [rowIdx]: bumpUnboundedOnboardingSliderVisitedMax(prev[rowIdx], candidate),
+    }))
+  }, [])
+
+  const clearUnboundedSliderVisitedMaxForRow = useCallback((rowIdx: number) => {
+    setAllocSliderUnboundedVisitedMax(prev => {
+      if (prev[rowIdx] == null) return prev
+      const next = { ...prev }
+      delete next[rowIdx]
+      return next
+    })
+  }, [])
 
   /** Append one draft envelope from trimmed name (shared by Add button and Continue). */
   function appendDraftEnvelope(prev: DraftEnvelope[], rawName: string): DraftEnvelope[] {
     const trimmed = rawName.trim()
-    if (!trimmed) return prev
+    if (!trimmed || !isOnboardingDraftBudgetEnvelope({ name: trimmed })) return prev
     const usedColors = new Set(prev.map(e => e.color))
     const nextColor = ENVELOPE_COLORS.find(c => !usedColors.has(c))
       ?? ENVELOPE_COLORS[prev.length % ENVELOPE_COLORS.length]
@@ -200,6 +352,7 @@ export default function OnboardingPage() {
   function enterAllocations(envelopeList?: DraftEnvelope[]) {
     if (envelopeList) setEnvelopes(envelopeList)
     setActiveEnvIdx(null)
+    setAllocPhase("budget")
     setStep("allocations")
   }
 
@@ -229,12 +382,9 @@ export default function OnboardingPage() {
   const [restoredSession, setRestoredSession] = useState(false)
   /** After first encryption + settings fetch (avoids flashing Secure Your Data when keys already exist). */
   const [bootstrapped, setBootstrapped] = useState(false)
-  /** False until settings confirm the user still needs onboarding (blocks back-nav into a finished flow). */
-  const [onboardingAccessChecked, setOnboardingAccessChecked] = useState(false)
   const [hasExistingEncryption, setHasExistingEncryption] = useState(false)
   /** Shown when user already has transactions — safe escape if onboardingComplete was reset by mistake. */
   const [canSkipOnboarding, setCanSkipOnboarding] = useState(false)
-  const [skipOnboardingError, setSkipOnboardingError] = useState<string | null>(null)
   const [envelopeStepError, setEnvelopeStepError] = useState<string | null>(null)
   /** Server-side tx / recurring counts per envelope id — used for delete confirmation copy. */
   const [envelopeUsageById, setEnvelopeUsageById] = useState<
@@ -264,7 +414,6 @@ export default function OnboardingPage() {
   const [refCodeInput, setRefCodeInput] = useState("")
   const [refValidating, setRefValidating] = useState(false)
   const [refError, setRefError] = useState<string | null>(null)
-  const [completeReferralOpen, setCompleteReferralOpen] = useState(false)
 
   const refreshEnvelopeUsage = useCallback(async () => {
     setEnvelopeUsageLoading(true)
@@ -323,18 +472,59 @@ export default function OnboardingPage() {
           })
         }
         if (saved.income) setIncome(saved.income)
+        if (saved.incomeMode) setIncomeMode(saved.incomeMode)
         if (saved.cadence) setCadence(saved.cadence)
-        if (saved.envelopes?.length) setEnvelopes(
-          saved.envelopes.map((e: { id?: string; allocationCadence?: string; monthlyAllotment?: number }) => {
-            const raw = typeof e.monthlyAllotment === "number" ? e.monthlyAllotment : 0
-            return {
-              ...e,
-              id: typeof e.id === "string" && e.id.length > 0 ? e.id : undefined,
-              allocationCadence: e.allocationCadence ?? "monthly",
-              monthlyAllotment: Math.round(raw / 5) * 5,
-            }
-          })
-        )
+        if (Array.isArray(saved.payDays) && saved.payDays.length > 0) setPayDays(saved.payDays)
+        if (typeof saved.payDayOfWeek === "number") setPayDayOfWeek(saved.payDayOfWeek)
+        if (typeof saved.lastPaydayAt === "string") setLastPaydayAt(saved.lastPaydayAt)
+        if (saved.estimatedAnnualIncome) setEstimatedAnnualIncome(saved.estimatedAnnualIncome)
+        if (saved.allocPhase) setAllocPhase(saved.allocPhase)
+        if (typeof saved.savingsGoalAmount === "number") {
+          setSavingsGoalAmount(saved.savingsGoalAmount)
+        } else if (saved.allocPhase === "savings-goal") {
+          const regular =
+            saved.incomeMode !== "irregular"
+              ? monthlyBudgetForAllocation(parseFloat(saved.income) || 0, saved.cadence ?? "monthly")
+              : 0
+          const irregular =
+            saved.incomeMode === "irregular" || saved.incomeMode === "mix"
+              ? monthlyCapacityFromAnnualEstimate(parseFloat(saved.estimatedAnnualIncome) || 0)
+              : 0
+          const budget = regular + irregular
+          const restoredTotal =
+            saved.envelopes?.reduce(
+              (sum: number, e: { monthlyAllotment?: number }) =>
+                sum + (typeof e.monthlyAllotment === "number" ? e.monthlyAllotment : 0),
+              0,
+            ) ?? 0
+          const capacity = onboardingSavingsGoalCapacity(budget, restoredTotal)
+          const defaultGoal = defaultOnboardingSavingsGoalAmount(capacity)
+          setSavingsGoalAmount(defaultGoal)
+          setSavingsGoalPct(
+            capacity > 0
+              ? onboardingSavingsGoalPercentOfCapacity(defaultGoal, capacity)
+              : ONBOARDING_SAVINGS_GOAL_DEFAULT_PCT,
+          )
+        }
+        if (typeof saved.savingsGoalPct === "number") {
+          setSavingsGoalPct(saved.savingsGoalPct)
+        }
+        if (saved.envelopes?.length) {
+          setEnvelopes(
+            withoutSystemSavingsEnvelope(
+              saved.envelopes.map((e: { id?: string; allocationCadence?: string; monthlyAllotment?: number; name?: string }) => {
+                const raw = typeof e.monthlyAllotment === "number" ? e.monthlyAllotment : 0
+                return {
+                  ...e,
+                  name: typeof e.name === "string" ? e.name : "",
+                  id: typeof e.id === "string" && e.id.length > 0 ? e.id : undefined,
+                  allocationCadence: e.allocationCadence ?? "monthly",
+                  monthlyAllotment: Math.round(raw / 5) * 5,
+                }
+              }),
+            ),
+          )
+        }
       }
     } catch { /* ignore corrupt data */ }
     setHydrated(true)
@@ -346,12 +536,30 @@ export default function OnboardingPage() {
       sessionStorage.setItem(ONBOARDING_SESSION_STORAGE_KEY, JSON.stringify({
         step,
         income,
+        incomeMode,
         cadence,
+        payDays,
+        payDayOfWeek,
+        lastPaydayAt,
+        estimatedAnnualIncome,
+        allocPhase,
+        savingsGoalAmount,
+        savingsGoalPct,
         envelopes,
         pendingReferral,
       }))
     } catch { /* storage full or unavailable */ }
-  }, [hydrated, step, income, cadence, envelopes, pendingReferral])
+  }, [hydrated, step, income, incomeMode, cadence, payDays, payDayOfWeek, lastPaydayAt, estimatedAnnualIncome, allocPhase, savingsGoalAmount, savingsGoalPct, envelopes, pendingReferral])
+
+  /** Drop system Savings if it leaked into draft state (server bootstrap or session restore). */
+  useEffect(() => {
+    if (!hydrated) return
+    if (step !== "envelopes" && step !== "allocations") return
+    setEnvelopes(prev => {
+      const filtered = withoutSystemSavingsEnvelope(prev)
+      return filtered.length === prev.length ? prev : filtered
+    })
+  }, [hydrated, step])
 
   /** Clear chosen file + native input when navigating onto the import step (avoids stale File after back/forward or re-import). */
   useEffect(() => {
@@ -420,72 +628,6 @@ export default function OnboardingPage() {
     void tryApplyReferralFromCookie(parsed)
   }, [hydrated, pendingReferral?.code, tryApplyReferralFromCookie])
 
-  const applyReferralCodeFromInput = useCallback(async (): Promise<boolean> => {
-    const code = refCodeInput.trim()
-    if (!code) return false
-    setRefError(null)
-    setRefValidating(true)
-    try {
-      const r = await fetch(`/api/referral/validate?code=${encodeURIComponent(code)}`)
-      if (!r.ok) {
-        setRefError("Could not validate that code. Try again.")
-        return false
-      }
-      let j: {
-        valid?: boolean
-        refereeTrialMonths?: 1 | 3
-        referrerOpportunityCostEnabled?: boolean
-      }
-      try {
-        j = (await r.json()) as typeof j
-      } catch {
-        setRefError("Could not validate that code. Try again.")
-        return false
-      }
-      if (!j.valid) {
-        setRefError("It looks like that code is invalid, expired, or already taken.")
-        return false
-      }
-      const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
-      const referrerOpportunityCostEnabled =
-        typeof j.referrerOpportunityCostEnabled === "boolean"
-          ? j.referrerOpportunityCostEnabled
-          : false
-      setPendingReferral({
-        code,
-        shareMethod: "direct",
-        refereeTrialMonths,
-        referrerOpportunityCostEnabled,
-      })
-      try {
-        document.cookie = `bitbudget_ref=${encodeURIComponent(`${code}:direct`)}; path=/; max-age=${86400 * 30}`
-      } catch {
-        /* ignore */
-      }
-      setCompleteReferralOpen(false)
-      return true
-    } catch {
-      setRefError("Could not validate that code. Try again.")
-      return false
-    } finally {
-      setRefValidating(false)
-    }
-  }, [refCodeInput])
-
-  /** Continue on referral step: apply typed code first, then advance or show validation error. */
-  const handleReferralStepContinue = useCallback(async () => {
-    if (pendingReferral) {
-      setStep("security")
-      return
-    }
-    if (refCodeInput.trim()) {
-      const ok = await applyReferralCodeFromInput()
-      if (ok) setStep("security")
-      return
-    }
-    setStep("security")
-  }, [pendingReferral, refCodeInput, applyReferralCodeFromInput])
-
   /** Backfill trial length and referrer OC for older sessionStorage blobs that only stored the code. */
   useEffect(() => {
     if (!hydrated || !pendingReferral?.code) return
@@ -520,37 +662,6 @@ export default function OnboardingPage() {
     }
   }, [hydrated, pendingReferral?.code, pendingReferral?.refereeTrialMonths, pendingReferral?.referrerOpportunityCostEnabled])
 
-  /** Browser back/forward cache can restore onboarding without re-running bootstrap — re-check access. */
-  useEffect(() => {
-    if (!hydrated) return
-    const onPageShow = (event: PageTransitionEvent) => {
-      if (!event.persisted) return
-      void (async () => {
-        try {
-          const res = await fetch("/api/user/settings")
-          if (res.status === 401 || res.status === 403) {
-            await signOut({ callbackUrl: "/auth" })
-            return
-          }
-          if (!res.ok) return
-          const data = (await res.json()) as { onboardingComplete?: boolean }
-          if (data.onboardingComplete !== true) return
-          try {
-            sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
-            sessionStorage.removeItem("onboardingSource")
-          } catch {
-            /* ignore */
-          }
-          router.replace("/")
-        } catch {
-          /* ignore */
-        }
-      })()
-    }
-    window.addEventListener("pageshow", onPageShow)
-    return () => window.removeEventListener("pageshow", onPageShow)
-  }, [hydrated, router])
-
   /** Extra step count for referees (avoid `document`/cookie in render — prevents SSR/client mismatch). */
   const referralBankQueued = !!pendingReferral?.code || step === "referral-bank"
 
@@ -564,7 +675,6 @@ export default function OnboardingPage() {
     let cancelled = false
 
     async function bootstrapOnboarding() {
-      let leaveOnboarding = false
       try {
         const [encRes, settingsRes] = await Promise.all([
           fetch("/api/user/encryption"),
@@ -577,26 +687,8 @@ export default function OnboardingPage() {
           settingsRes.status === 401 ||
           settingsRes.status === 403
         ) {
-          leaveOnboarding = true
           signOut({ callbackUrl: "/auth" })
           return
-        }
-
-        type SettingsPayload = { onboardingComplete?: boolean; transactionCount?: unknown }
-        let settings: SettingsPayload | null = null
-        if (settingsRes.ok) {
-          settings = (await settingsRes.json()) as SettingsPayload
-          if (settings.onboardingComplete === true) {
-            leaveOnboarding = true
-            try {
-              sessionStorage.removeItem(ONBOARDING_SESSION_STORAGE_KEY)
-              sessionStorage.removeItem("onboardingSource")
-            } catch {
-              /* ignore */
-            }
-            router.replace("/")
-            return
-          }
         }
 
         type EncPayload = {
@@ -617,7 +709,8 @@ export default function OnboardingPage() {
         if (hasPendingNsec) setIsNsecFallback(true)
 
         let txCount = 0
-        if (settings) {
+        if (settingsRes.ok) {
+          const settings = (await settingsRes.json()) as { transactionCount?: unknown }
           txCount = typeof settings.transactionCount === "number" ? settings.transactionCount : 0
         }
         setCanSkipOnboarding(txCount >= 1)
@@ -696,10 +789,7 @@ export default function OnboardingPage() {
       } catch {
         /* continue */
       } finally {
-        if (!cancelled && !leaveOnboarding) {
-          setBootstrapped(true)
-          setOnboardingAccessChecked(true)
-        }
+        if (!cancelled) setBootstrapped(true)
       }
     }
 
@@ -707,7 +797,7 @@ export default function OnboardingPage() {
     return () => {
       cancelled = true
     }
-  }, [hydrated, router])
+  }, [hydrated])
 
   function referralPayloadForRedeem(): { code: string; shareMethod: string } | null {
     if (pendingReferral?.code) return pendingReferral
@@ -755,33 +845,9 @@ export default function OnboardingPage() {
     router.refresh()
   }
 
-  async function skipOnboardingToDashboard() {
-    setSkipOnboardingError(null)
-    setLoading(true)
-    try {
-      const res = await fetch("/api/user/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ onboardingComplete: true, opportunityCostEnabled }),
-      })
-      if (res.status === 401 || res.status === 403) {
-        await signOut({ callbackUrl: "/auth" })
-        return
-      }
-      if (!res.ok) {
-        setSkipOnboardingError("Could not save settings. Try again or sign out and back in.")
-        return
-      }
-      const hadReferralCode = !!referralPayloadForRedeem()?.code
-      const redeemOk = await redeemPendingReferralIfAny()
-      if (hadReferralCode && redeemOk) {
-        setStep("referral-bank")
-        return
-      }
-      finishOnboardingExit()
-    } finally {
-      setLoading(false)
-    }
+  function skipOnboardingToComplete() {
+    setImportDialogOpen(false)
+    setStep("complete")
   }
 
   async function handleSecuritySetup() {
@@ -859,13 +925,53 @@ export default function OnboardingPage() {
     setLoading(true)
     try {
       const rawIncome = parseFloat(income) || 0
+      const annualEstimate = parseFloat(estimatedAnnualIncome) || 0
+      const regularMonthly =
+        incomeMode !== "irregular"
+          ? monthlyBudgetForAllocation(rawIncome, cadence)
+          : 0
+      const irregularMonthly =
+        incomeMode === "irregular" || incomeMode === "mix"
+          ? monthlyCapacityFromAnnualEstimate(annualEstimate)
+          : 0
+      const monthlyIncome = regularMonthly + irregularMonthly
+
+      let payCadence: string = cadence
+      if (incomeMode === "irregular") payCadence = "irregular"
+      else if (incomeMode === "mix") payCadence = "mixed"
+
+      const body: Record<string, unknown> = {
+        monthlyIncome,
+        payCadence,
+        estimatedAnnualIncome:
+          incomeMode === "irregular" || incomeMode === "mix"
+            ? annualEstimate > 0
+              ? annualEstimate
+              : null
+            : null,
+      }
+
+      if (incomeMode !== "irregular") {
+        if (cadence === "monthly" || cadence === "bimonthly") {
+          body.payDays = payDays
+          body.payDayOfWeek = null
+          body.lastPaydayAt = null
+        } else {
+          body.payDays = []
+          body.payDayOfWeek = payDayOfWeek
+          body.lastPaydayAt =
+            cadence === "biweekly" && lastPaydayAt ? `${lastPaydayAt}T12:00:00.000Z` : null
+        }
+      } else {
+        body.payDays = []
+        body.payDayOfWeek = null
+        body.lastPaydayAt = null
+      }
+
       await fetch("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          monthlyIncome: monthlyBudgetForAllocation(rawIncome, cadence),
-          payCadence: cadence,
-        }),
+        body: JSON.stringify(body),
       })
       setStep("envelopes")
     } finally {
@@ -951,6 +1057,7 @@ export default function OnboardingPage() {
       icon: string | null
       monthlyAllotment: number
       archived: boolean
+      systemRole: string | null
     }>
     try {
       const parsed: unknown = await res.json()
@@ -962,18 +1069,19 @@ export default function OnboardingPage() {
         icon: string | null
         monthlyAllotment: number
         archived: boolean
+        systemRole: string | null
       }>
     } catch {
       return false
     }
-    const active = all.filter(e => !e.archived)
+    const active = all.filter(e => !e.archived && isOnboardingDraftBudgetEnvelope(e))
 
     setEnvelopes(prev => {
       const seenIds = new Set<string>()
       const out: DraftEnvelope[] = []
 
       for (const p of prev) {
-        if (!p.id) continue
+        if (!p.id || !isOnboardingDraftBudgetEnvelope(p)) continue
         const se = active.find(e => e.id === p.id)
         if (!se) continue
         seenIds.add(se.id)
@@ -1005,9 +1113,9 @@ export default function OnboardingPage() {
   }
 
   async function handleEnvelopesSave() {
-    let list = envelopes
+    let list = withoutSystemSavingsEnvelope(envelopes)
     if (newEnvName.trim()) {
-      list = appendDraftEnvelope(envelopes, newEnvName)
+      list = appendDraftEnvelope(list, newEnvName)
       setEnvelopes(list)
       setNewEnvName("")
     }
@@ -1062,40 +1170,102 @@ export default function OnboardingPage() {
           color: string
           icon: string | null
           monthlyAllotment: number
+          systemRole?: string | null
         }>
       }
-      const merged: DraftEnvelope[] = data.envelopes.map((se, i) => ({
-        id: se.id,
-        name: se.name,
-        color: se.color,
-        icon: listForSync[i]?.icon ?? se.icon ?? pickEnvelopeIconForName(se.name, []),
-        monthlyAllotment: listForSync[i]?.monthlyAllotment ?? se.monthlyAllotment,
-        allocationCadence: listForSync[i]?.allocationCadence ?? "monthly",
-      }))
+      const merged: DraftEnvelope[] = withoutSystemSavingsEnvelope(
+        data.envelopes.map((se, i) => ({
+          id: se.id,
+          name: se.name,
+          color: se.color,
+          icon: listForSync[i]?.icon ?? se.icon ?? pickEnvelopeIconForName(se.name, []),
+          monthlyAllotment: listForSync[i]?.monthlyAllotment ?? se.monthlyAllotment,
+          allocationCadence: listForSync[i]?.allocationCadence ?? "monthly",
+        })),
+      )
       enterAllocations(merged)
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleAllocationsSave() {
+  async function saveEnvelopeAllocations(): Promise<boolean> {
+    for (const env of envelopes) {
+      if (!env.id || !isOnboardingDraftBudgetEnvelope(env)) continue
+      const res = await fetch("/api/envelopes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: env.id,
+          monthlyAllotment: env.monthlyAllotment,
+        }),
+      })
+      if (!res.ok) return false
+    }
+    return true
+  }
+
+  async function handleBudgetAllocationsContinue() {
     setLoading(true)
     try {
-      for (const env of envelopes) {
-        if (!env.id) continue
-        await fetch("/api/envelopes", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: env.id,
-            monthlyAllotment: env.monthlyAllotment,
-          }),
-        })
-      }
+      const ok = await saveEnvelopeAllocations()
+      if (!ok) return
+      const capacity = onboardingSavingsGoalCapacity(allocateMonthlyBudget, totalAllocated)
+      const defaultGoal = defaultOnboardingSavingsGoalAmount(capacity)
+      setSavingsGoalAmount(defaultGoal)
+      setSavingsGoalPct(
+        capacity > 0
+          ? onboardingSavingsGoalPercentOfCapacity(defaultGoal, capacity)
+          : ONBOARDING_SAVINGS_GOAL_DEFAULT_PCT,
+      )
+      setAllocPhase("savings-goal")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function skipSavingsTracking() {
+    setLoading(true)
+    try {
+      await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          savingsExperience: SAVINGS_EXPERIENCE_DISMISSED,
+          sweepDefaultPolicy: SWEEP_POLICY_CARRY_FORWARD,
+        }),
+      })
+      setAllocPhase("budget")
       setStep(importResult !== null ? "complete" : "import")
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleSavingsGoalContinue() {
+    setLoading(true)
+    try {
+      await fetch("/api/user/savings-goal", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          periodKey: SAVINGS_GOAL_DEFAULT_PERIOD,
+          targetAmount: savingsGoalAmount,
+        }),
+      })
+      setAllocPhase("budget")
+      setStep("savings-game-plan")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleAllocationsSave() {
+    if (allocPhase === "savings-goal") {
+      await handleSavingsGoalContinue()
+      return
+    }
+    await handleBudgetAllocationsContinue()
   }
 
   function handleImport() {
@@ -1135,10 +1305,104 @@ export default function OnboardingPage() {
   }
 
   const totalAllocated = envelopes.reduce((s, e) => s + e.monthlyAllotment, 0)
-  const allocateMonthlyBudget = monthlyBudgetForAllocation(parseFloat(income) || 0, cadence)
+  const allocateMonthlyBudget = useMemo(() => {
+    const regular =
+      incomeMode !== "irregular"
+        ? monthlyBudgetForAllocation(parseFloat(income) || 0, cadence)
+        : 0
+    const irregular =
+      incomeMode === "irregular" || incomeMode === "mix"
+        ? monthlyCapacityFromAnnualEstimate(parseFloat(estimatedAnnualIncome) || 0)
+        : 0
+    return regular + irregular
+  }, [incomeMode, income, cadence, estimatedAnnualIncome])
+  const savingsGoalPaycheckPct = useMemo(() => {
+    if (incomeMode === "irregular") return null
+    return savingsGoalPercentOfPaycheck(savingsGoalAmount, parseFloat(income) || 0)
+  }, [incomeMode, income, savingsGoalAmount])
   const savings = Math.max(0, allocateMonthlyBudget - totalAllocated)
-  const savingsPct =
-    allocateMonthlyBudget > 0 ? Math.round((savings / allocateMonthlyBudget) * 100) : 0
+  const unboundedAlloc = isUnboundedOnboardingAllocation(allocateMonthlyBudget)
+  /** Live stack-bar / savings display while a slider is mid-drag (unbounded defers envelope commits). */
+  const envelopeDisplayAllotments = useMemo((): number[] => {
+    return envelopes.map((env, idx) => {
+      if (allocSliderRawOverride?.idx !== idx) return env.monthlyAllotment
+      const lockedGestureMax =
+        unboundedAlloc && allocSliderLockedMax?.idx === idx
+          ? allocSliderLockedMax.max
+          : null
+      const otherAllocated = envelopes.reduce(
+        (s, e, j) => s + (j === idx ? 0 : e.monthlyAllotment),
+        0,
+      )
+      const sliderMax =
+        lockedGestureMax ??
+        (unboundedAlloc
+          ? unboundedOnboardingSliderVisitedMax(
+              allocSliderUnboundedVisitedMax[idx],
+              env.monthlyAllotment,
+            )
+          : onboardingSliderMaxForRow(
+              env.monthlyAllotment,
+              Math.max(0, allocateMonthlyBudget - otherAllocated),
+              allocateMonthlyBudget,
+            ))
+      return onboardingOverrideDisplayAmount(
+        allocSliderRawOverride.raw,
+        sliderMax,
+        allocSliderGestureKindRef.current === "fine" ? "fine" : "coarse",
+      )
+    })
+  }, [
+    allocateMonthlyBudget,
+    allocSliderLockedMax,
+    allocSliderRawOverride,
+    allocSliderUnboundedVisitedMax,
+    envelopes,
+    unboundedAlloc,
+  ])
+  const totalAllocatedDisplay = envelopeDisplayAllotments.reduce((s, a) => s + a, 0)
+  const showAllocStackBar = allocateMonthlyBudget > 0 || totalAllocatedDisplay > 0
+  const allocStackBarTotal =
+    allocateMonthlyBudget > 0 ? allocateMonthlyBudget : totalAllocatedDisplay
+  const savingsDisplay = Math.max(0, allocateMonthlyBudget - totalAllocatedDisplay)
+  const savingsPctDisplay =
+    allocateMonthlyBudget > 0
+      ? Math.round((savingsDisplay / allocateMonthlyBudget) * 100)
+      : 0
+  const savingsGoalCapacity = onboardingSavingsGoalCapacity(allocateMonthlyBudget, totalAllocated)
+  const savingsGoalSliderMaxPct = useMemo(
+    () =>
+      onboardingSavingsGoalSliderMaxPct(
+        savingsGoalPct,
+        savingsGoalCapacity,
+        savingsGoalAmount,
+      ),
+    [savingsGoalAmount, savingsGoalCapacity, savingsGoalPct],
+  )
+
+  /** Fit envelope totals when entering bounded allocation (e.g. unbounded → estimated income). */
+  useEffect(() => {
+    if (step !== "allocations") return
+    if (isUnboundedOnboardingAllocation(allocateMonthlyBudget)) return
+
+    let didScale = false
+    setEnvelopes(prev => {
+      const total = prev.reduce((s, e) => s + e.monthlyAllotment, 0)
+      if (total <= allocateMonthlyBudget) return prev
+
+      const scaled = scaleOnboardingAllocationsToBudget(
+        prev.map(e => e.monthlyAllotment),
+        allocateMonthlyBudget,
+      )
+      if (scaled.every((a, i) => a === prev[i].monthlyAllotment)) return prev
+      didScale = true
+      return prev.map((e, i) => ({ ...e, monthlyAllotment: scaled[i] }))
+    })
+    if (didScale) {
+      syncAllocSliderRawOverride(null)
+      setAllocSliderUnboundedVisitedMax({})
+    }
+  }, [step, allocateMonthlyBudget, syncAllocSliderRawOverride])
 
   const pendingDeleteEnv =
     pendingDeleteEnvelopeIdx !== null ? envelopes[pendingDeleteEnvelopeIdx] : undefined
@@ -1158,35 +1422,235 @@ export default function OnboardingPage() {
    * Usually a no-op during drag (bucket updates on midpoint crossings); used on release/blur to clamp.
    */
   const commitOnboardingSliderSnap = useCallback(
-    (rowIdx: number, input: HTMLInputElement) => {
-      const raw = parseInt(input.value, 10)
-      const v = Number.isFinite(raw) ? raw : 0
+    (
+      rowIdx: number,
+      input: HTMLInputElement | null,
+      pendingRaw?: number,
+      snapStep: number = ONBOARDING_ALLOCATE_SLIDER_STEP,
+    ) => {
+      const parsed =
+        pendingRaw != null && Number.isFinite(pendingRaw)
+          ? pendingRaw
+          : input
+            ? parseInt(input.value, 10)
+            : 0
+      const v = Number.isFinite(parsed) ? parsed : 0
+      const lockedMax =
+        allocSliderDragSessionRef.current?.idx === rowIdx
+          ? allocSliderDragSessionRef.current.lockedMax
+          : allocSliderLockedMax?.idx === rowIdx
+            ? allocSliderLockedMax.max
+            : null
       setEnvelopes(prev => {
-        const maxForRow =
-          allocateMonthlyBudget -
-          prev.reduce((s, x, j) => s + (j === rowIdx ? 0 : x.monthlyAllotment), 0)
-        const snapped = snapOnboardingAllocationToStep(v, maxForRow)
+        const row = prev[rowIdx]
+        if (!row) return prev
+        const otherAllocated = prev.reduce((s, x, j) => s + (j === rowIdx ? 0 : x.monthlyAllotment), 0)
+        const rowCap = onboardingAllocationCapForRow(allocateMonthlyBudget, otherAllocated)
+        const snapMax = isUnboundedOnboardingAllocation(allocateMonthlyBudget)
+          ? Math.max(
+              lockedMax ??
+                unboundedOnboardingSliderMaxForGestureWithVisited(
+                  row.monthlyAllotment,
+                  allocSliderUnboundedVisitedMax[rowIdx],
+                ),
+              unboundedOnboardingSliderVisitedMax(
+                allocSliderUnboundedVisitedMax[rowIdx],
+                row.monthlyAllotment,
+              ),
+            )
+          : rowCap
+        const snapped = snapOnboardingAllocationToStep(Math.min(snapMax, v), snapMax, snapStep)
         return prev.map((en, i) => (i === rowIdx ? { ...en, monthlyAllotment: snapped } : en))
       })
+      syncAllocSliderRawOverride(prev => (prev?.idx === rowIdx ? null : prev))
+      allocSliderPointerRef.current = null
+      allocSliderGestureKindRef.current = null
+      allocSliderDragSessionRef.current = null
+      setAllocSliderLockedMax(prev => (prev?.idx === rowIdx ? null : prev))
     },
-    [allocateMonthlyBudget],
+    [allocateMonthlyBudget, allocSliderLockedMax, allocSliderUnboundedVisitedMax, syncAllocSliderRawOverride],
   )
 
-  const completeStepReferralCode =
-    step === "complete"
-      ? pendingReferral?.code ??
-        parseBitbudgetRefCookie(typeof document !== "undefined" ? document.cookie : "")?.code
-      : undefined
-  const hasReferralOnComplete = !!completeStepReferralCode
+  const releaseAllocSliderRow = useCallback(
+    (
+      rowIdx: number,
+      input: HTMLInputElement | null,
+      unbounded: boolean,
+    ) => {
+      const session = allocSliderDragSessionRef.current
+      const snapStep =
+        allocSliderGestureKindRef.current === "fine"
+          ? ONBOARDING_ALLOCATE_FINE_STEP
+          : ONBOARDING_ALLOCATE_SLIDER_STEP
+      const pendingRaw =
+        allocSliderRawOverrideRef.current?.idx === rowIdx
+          ? allocSliderRawOverrideRef.current.raw
+          : undefined
+      const lockedMax =
+        session?.idx === rowIdx
+          ? session.lockedMax
+          : allocSliderLockedMax?.idx === rowIdx
+            ? allocSliderLockedMax.max
+            : null
 
-  if (!hydrated || !onboardingAccessChecked) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
-        <DocumentFavicon href={opportunityCostEnabled ? "/icon.svg" : "/icon-vanilla.svg"} />
-        <Spinner className="h-8 w-8 text-[#F7931A]" />
-      </div>
-    )
-  }
+      if (input || pendingRaw != null) {
+        commitOnboardingSliderSnap(rowIdx, input, pendingRaw, snapStep)
+      }
+
+      if (unbounded && lockedMax != null) {
+        bumpUnboundedSliderVisitedMaxForRow(rowIdx, lockedMax)
+      }
+    },
+    [
+      allocSliderLockedMax,
+      bumpUnboundedSliderVisitedMaxForRow,
+      commitOnboardingSliderSnap,
+    ],
+  )
+
+  const beginAllocSliderGesture = useCallback(
+    (rowIdx: number, initialRaw: number, gestureMax: number) => {
+      if (isUnboundedOnboardingAllocation(allocateMonthlyBudget)) {
+        allocSliderDragSessionRef.current = {
+          idx: rowIdx,
+          lockedMax: gestureMax,
+          expandedFrom: new Set(),
+        }
+        setAllocSliderLockedMax({ idx: rowIdx, max: gestureMax })
+      } else {
+        allocSliderDragSessionRef.current = null
+        setAllocSliderLockedMax(prev => (prev?.idx === rowIdx ? null : prev))
+      }
+      syncAllocSliderRawOverride({ idx: rowIdx, raw: initialRaw })
+    },
+    [allocateMonthlyBudget, syncAllocSliderRawOverride],
+  )
+
+  const applyOnboardingAllocSliderValue = useCallback(
+    (
+      rowIdx: number,
+      parsedVal: number,
+      ctx: {
+        sliderMax: number
+        committedAllotment: number
+        isGestureActive: boolean
+        commitNow: boolean
+      },
+    ) => {
+      const session = allocSliderDragSessionRef.current
+      const prevRaw = allocSliderRawForRow(rowIdx, ctx.committedAllotment)
+      const isDraggingThisRow =
+        ctx.isGestureActive || allocSliderPointerRef.current?.idx === rowIdx
+      const activeMax =
+        isUnboundedOnboardingAllocation(allocateMonthlyBudget) && session?.idx === rowIdx
+          ? session.lockedMax
+          : ctx.sliderMax
+
+      let val = Math.max(0, parsedVal)
+
+      if (
+        isUnboundedOnboardingAllocation(allocateMonthlyBudget) &&
+        isDraggingThisRow &&
+        session?.idx === rowIdx
+      ) {
+        const drag = applyUnboundedOnboardingSliderDrag({
+          prevRaw,
+          val: parsedVal,
+          activeMax,
+          expandedFromMaxes: session.expandedFrom,
+        })
+        val = drag.val
+        session.lockedMax = drag.activeMax
+        session.expandedFrom = drag.expandedFromMaxes
+        if (drag.didExpand) {
+          setAllocSliderLockedMax({ idx: rowIdx, max: drag.activeMax })
+          bumpUnboundedSliderVisitedMaxForRow(rowIdx, drag.activeMax)
+        }
+      } else {
+        val = Math.min(activeMax, val)
+      }
+
+      if (isDraggingThisRow) {
+        syncAllocSliderRawOverride({ idx: rowIdx, raw: val })
+        if (!isUnboundedOnboardingAllocation(allocateMonthlyBudget)) {
+          const newBucket = snapOnboardingAllocationToStep(val, activeMax)
+          if (newBucket !== ctx.committedAllotment) {
+            setEnvelopes(prev => prev.map((en, i) =>
+              i === rowIdx ? { ...en, monthlyAllotment: newBucket } : en,
+            ))
+          }
+        }
+      } else if (ctx.commitNow) {
+        const newBucket = snapOnboardingAllocationToStep(val, activeMax)
+        if (newBucket !== ctx.committedAllotment) {
+          setEnvelopes(prev => prev.map((en, i) =>
+            i === rowIdx ? { ...en, monthlyAllotment: newBucket } : en,
+          ))
+        }
+      }
+    },
+    [
+      allocateMonthlyBudget,
+      allocSliderRawForRow,
+      bumpUnboundedSliderVisitedMaxForRow,
+      syncAllocSliderRawOverride,
+    ],
+  )
+
+  const nudgeAllocSliderRow = useCallback(
+    (
+      rowIdx: number,
+      deltaSteps: number,
+      ctx: { sliderMax: number; committedAllotment: number },
+    ) => {
+      const session = allocSliderDragSessionRef.current
+      const prevRaw = allocSliderRawForRow(rowIdx, ctx.committedAllotment)
+      const activeMax =
+        isUnboundedOnboardingAllocation(allocateMonthlyBudget) && session?.idx === rowIdx
+          ? session.lockedMax
+          : ctx.sliderMax
+
+      let parsedVal = nudgeOnboardingAllocationAmount(prevRaw, deltaSteps, activeMax)
+
+      if (
+        isUnboundedOnboardingAllocation(allocateMonthlyBudget) &&
+        session?.idx === rowIdx &&
+        deltaSteps > 0 &&
+        parsedVal >= activeMax &&
+        prevRaw >= activeMax - ONBOARDING_ALLOCATE_FINE_STEP
+      ) {
+        const drag = applyUnboundedOnboardingSliderDrag({
+          prevRaw: Math.max(0, activeMax - ONBOARDING_ALLOCATE_FINE_STEP),
+          val: activeMax,
+          activeMax: session.lockedMax,
+          expandedFromMaxes: session.expandedFrom,
+        })
+        session.lockedMax = drag.activeMax
+        session.expandedFrom = drag.expandedFromMaxes
+        if (drag.didExpand) {
+          setAllocSliderLockedMax({ idx: rowIdx, max: drag.activeMax })
+          bumpUnboundedSliderVisitedMaxForRow(rowIdx, drag.activeMax)
+          parsedVal = nudgeOnboardingAllocationAmount(prevRaw, deltaSteps, drag.activeMax)
+        }
+      }
+
+      applyOnboardingAllocSliderValue(rowIdx, parsedVal, {
+        ...ctx,
+        isGestureActive: true,
+        commitNow: false,
+      })
+    },
+    [
+      allocateMonthlyBudget,
+      allocSliderRawForRow,
+      applyOnboardingAllocSliderValue,
+      bumpUnboundedSliderVisitedMaxForRow,
+    ],
+  )
+
+  const refereeTrialExplainerOnComplete =
+    step === "complete" &&
+    !!(pendingReferral?.code || (typeof document !== "undefined" && parseBitbudgetRefCookie(document.cookie)?.code))
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center p-6">
@@ -1201,13 +1665,7 @@ export default function OnboardingPage() {
 
         <Progress value={progress} className="h-1.5" />
 
-        {skipOnboardingError && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-            {skipOnboardingError}
-          </div>
-        )}
-
-        <div className="bg-[#0D0D0D] rounded-2xl py-8 px-4 sm:p-8">
+        <div className="bg-[#0D0D0D] rounded-2xl p-2">
           {restoredSession && !isNostr && step !== "referral" && step !== "security" && step !== "complete" && step !== "referral-bank" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
@@ -1215,7 +1673,7 @@ export default function OnboardingPage() {
                 <p className="text-sm text-[#93C5FD] leading-snug">
                   Your progress was restored.
                   {hasExistingEncryption && bootstrapped
-                    ? " Your account already has encryption — use Skip onboarding to return to the app and unlock with your existing passphrase."
+                    ? " Your account already has encryption — use Skip to jump to the final onboarding step, then continue to your dashboard."
                     : " Don\u2019t remember your passphrase?"}
                 </p>
                 {bootstrapped && !hasExistingEncryption && (
@@ -1282,16 +1740,7 @@ export default function OnboardingPage() {
                   <div className="flex gap-2">
                     <Input
                       value={refCodeInput}
-                      onChange={e => {
-                        setRefCodeInput(e.target.value)
-                        if (refError) setRefError(null)
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === "Enter") {
-                          e.preventDefault()
-                          void handleReferralStepContinue()
-                        }
-                      }}
+                      onChange={e => setRefCodeInput(e.target.value)}
                       placeholder="Enter code"
                       className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] flex-1"
                     />
@@ -1301,7 +1750,43 @@ export default function OnboardingPage() {
                       disabled={refValidating || !refCodeInput.trim()}
                       className="shrink-0 border-[#333] bg-[#1A1A1A]"
                       onClick={() => {
-                        void applyReferralCodeFromInput()
+                        void (async () => {
+                          setRefError(null)
+                          setRefValidating(true)
+                          try {
+                            const r = await fetch(
+                              `/api/referral/validate?code=${encodeURIComponent(refCodeInput.trim())}`,
+                            )
+                            const j = (await r.json()) as {
+                              valid?: boolean
+                              refereeTrialMonths?: 1 | 3
+                              referrerOpportunityCostEnabled?: boolean
+                            }
+                            if (!j.valid) {
+                              setRefError("It looks like that code is invalid, expired, or has already been used.")
+                              return
+                            }
+                            const code = refCodeInput.trim()
+                            const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
+                            const referrerOpportunityCostEnabled =
+                              typeof j.referrerOpportunityCostEnabled === "boolean"
+                                ? j.referrerOpportunityCostEnabled
+                                : false
+                            setPendingReferral({
+                              code,
+                              shareMethod: "direct",
+                              refereeTrialMonths,
+                              referrerOpportunityCostEnabled,
+                            })
+                            try {
+                              document.cookie = `bitbudget_ref=${encodeURIComponent(`${code}:direct`)}; path=/; max-age=${86400 * 30}`
+                            } catch {
+                              /* ignore */
+                            }
+                          } finally {
+                            setRefValidating(false)
+                          }
+                        })()
                       }}
                     >
                       {refValidating ? "…" : "Apply"}
@@ -1313,24 +1798,11 @@ export default function OnboardingPage() {
               <div className="flex flex-col gap-3">
                 <button
                   type="button"
-                  disabled={refValidating}
-                  aria-busy={refValidating}
-                  onClick={() => {
-                    void handleReferralStepContinue()
-                  }}
-                  className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+                  onClick={() => setStep("security")}
+                  className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors flex items-center justify-center gap-2"
                 >
-                  {refValidating ? (
-                    <>
-                      <Spinner className="h-4 w-4" />
-                      Applying…
-                    </>
-                  ) : (
-                    <>
-                      Continue
-                      <ChevronRight className="h-4 w-4" />
-                    </>
-                  )}
+                  Continue
+                  <ChevronRight className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
@@ -1396,7 +1868,7 @@ export default function OnboardingPage() {
                 <OnboardingSkipBar
                   show={canSkipOnboarding}
                   disabled={loading}
-                  onSkip={skipOnboardingToDashboard}
+                  onSkip={skipOnboardingToComplete}
                 />
               </div>
             )
@@ -1481,7 +1953,7 @@ export default function OnboardingPage() {
                 <OnboardingSkipBar
                   show={canSkipOnboarding}
                   disabled={loading}
-                  onSkip={skipOnboardingToDashboard}
+                  onSkip={skipOnboardingToComplete}
                 />
               </form>
             ) : null
@@ -1489,67 +1961,200 @@ export default function OnboardingPage() {
 
           {/* Income Step */}
           {step === "income" && (
-            <form onSubmit={e => { e.preventDefault(); if (income) handleIncomeSave() }} className="flex flex-col gap-6">
+            <form
+              onSubmit={e => {
+                e.preventDefault()
+                if (incomeMode === "irregular" || income) handleIncomeSave()
+              }}
+              className="flex flex-col gap-6"
+            >
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#22C55E]/10">
                   <DollarSign className="h-6 w-6 text-[#22C55E]" />
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your income</h2>
-                  <p className="text-sm text-muted-foreground">How much do you take home after taxes?</p>
+                  <p className="text-sm text-muted-foreground">Tell us how money arrives so your budget refills on your actual paydays</p>
                 </div>
               </div>
 
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                {"Can be an exact amount or an estimate. You can always adjust this later."}
-              </p>
+              <div className="flex rounded-lg bg-[#1A1A1A] p-1">
+                {(
+                  [
+                    { key: "regular" as const, label: "Regular paycheck" },
+                    { key: "irregular" as const, label: "No regular income" },
+                    { key: "mix" as const, label: "Mixed timing" },
+                  ] as const
+                ).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={incomeMode === key}
+                    onClick={() => setIncomeMode(key)}
+                    className={`flex-1 py-2.5 px-2 text-xs sm:text-sm font-medium rounded-md transition-colors ${
+                      incomeMode === key
+                        ? "bg-[#F7931A] text-[#0D0D0D]"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
 
               <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">
-                    Take-home pay after taxes (USD)
-                  </Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                    <Input
-                      type="number"
-                      value={income}
-                      onChange={e => setIncome(e.target.value)}
-                      placeholder="5,000"
-                      className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7 text-lg"
-                      min="0"
-                      step="any"
-                    />
-                  </div>
-                </div>
+                {(incomeMode === "regular" || incomeMode === "mix") && (
+                  <>
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-muted-foreground text-xs uppercase tracking-wider">
+                        After-Tax Paycheck (USD)
+                      </Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                        <Input
+                          type="number"
+                          value={income}
+                          onChange={e => setIncome(e.target.value)}
+                          placeholder="2,500"
+                          className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7 text-lg"
+                          min="0"
+                          step="any"
+                        />
+                      </div>
+                    </div>
 
-                <div className="flex flex-col gap-2">
-                  <Label className="text-muted-foreground text-xs uppercase tracking-wider">Pay Frequency</Label>
-                  <div className="flex rounded-lg bg-[#1A1A1A] p-1">
-                    <button
-                      type="button"
-                      onClick={() => setCadence("monthly")}
-                      className={`flex-1 py-2.5 text-sm font-medium rounded-md transition-colors ${
-                        cadence === "monthly"
-                          ? "bg-[#F7931A] text-[#0D0D0D]"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Monthly
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCadence("bimonthly")}
-                      className={`flex-1 py-2.5 text-sm font-medium rounded-md transition-colors ${
-                        cadence === "bimonthly"
-                          ? "bg-[#F7931A] text-[#0D0D0D]"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Bi-Monthly
-                    </button>
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-muted-foreground text-xs uppercase tracking-wider">Pay frequency</Label>
+                      <div className="grid grid-cols-2 gap-1 rounded-lg bg-[#1A1A1A] p-1">
+                        {(
+                          [
+                            { key: "monthly" as const, label: "Monthly" },
+                            { key: "bimonthly" as const, label: "Bi-monthly" },
+                            { key: "weekly" as const, label: "Weekly" },
+                            { key: "biweekly" as const, label: "Bi-weekly" },
+                          ] as const
+                        ).map(({ key, label }) => (
+                          <button
+                            key={key}
+                            type="button"
+                            aria-pressed={cadence === key}
+                            onClick={() => {
+                              setCadence(key)
+                              if (key === "bimonthly" && payDays.length < 2) {
+                                setPayDays(prev => (prev.length >= 2 ? prev : [prev[0] ?? 1, 16]))
+                              }
+                            }}
+                            className={`py-2.5 text-sm font-medium rounded-md transition-colors ${
+                              cadence === key
+                                ? "bg-[#F7931A] text-[#0D0D0D]"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {(cadence === "monthly" || cadence === "bimonthly") && (
+                      <div className="flex flex-col gap-2">
+                        <Label className="text-muted-foreground text-xs uppercase tracking-wider">
+                          {cadence === "monthly" ? "Pay day of month" : "Pay days of month"}
+                        </Label>
+                        <div className="flex flex-wrap gap-2">
+                          {(cadence === "monthly" ? [0] : [0, 1]).map(slot => (
+                            <select
+                              key={slot}
+                              value={payDays[slot] ?? (slot === 0 ? 1 : 15)}
+                              onChange={e => {
+                                const val = Number(e.target.value)
+                                setPayDays(prev => {
+                                  const next = [...prev]
+                                  next[slot] = val
+                                  return next
+                                })
+                              }}
+                              className="bg-[#1A1A1A] border border-[#333] rounded-lg px-3 py-2 text-sm text-foreground"
+                              aria-label={cadence === "monthly" ? "Pay day of month" : `Pay day ${slot + 1}`}
+                            >
+                              {PAYDAY_DOM_OPTIONS.map(day => (
+                                <option key={day} value={day}>
+                                  {day === PAYDAY_LAST_OF_MONTH ? "Last day" : `${day}${day === 1 ? "st" : day === 2 ? "nd" : day === 3 ? "rd" : "th"}`}
+                                </option>
+                              ))}
+                            </select>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(cadence === "weekly" || cadence === "biweekly") && (
+                      <>
+                        <div className="flex flex-col gap-2">
+                          <Label className="text-muted-foreground text-xs uppercase tracking-wider">Pay day of week</Label>
+                          <div className="flex flex-wrap gap-1">
+                            {WEEKDAY_OPTIONS.map(({ value, label }) => (
+                              <button
+                                key={value}
+                                type="button"
+                                aria-pressed={payDayOfWeek === value}
+                                onClick={() => setPayDayOfWeek(value)}
+                                className={`px-3 py-2 text-xs font-medium rounded-md transition-colors ${
+                                  payDayOfWeek === value
+                                    ? "bg-[#F7931A] text-[#0D0D0D]"
+                                    : "bg-[#1A1A1A] text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {cadence === "biweekly" && (
+                          <div className="flex flex-col gap-2">
+                            <Label className="text-muted-foreground text-xs uppercase tracking-wider">
+                              Most recent payday
+                            </Label>
+                            <Input
+                              type="date"
+                              value={lastPaydayAt}
+                              onChange={e => setLastPaydayAt(e.target.value)}
+                              className="bg-[#1A1A1A] border-[#333] text-foreground"
+                            />
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+
+                {(incomeMode === "irregular" || incomeMode === "mix") && (
+                  <div className="flex flex-col gap-2">
+                    {incomeMode === "irregular" && (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        No regular paycheck? No problem — we&apos;ll learn your rhythm as transactions come in.
+                      </p>
+                    )}
+                    <Label className="text-muted-foreground text-xs uppercase tracking-wider">
+                      Estimated annual income (optional)
+                    </Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                      <Input
+                        type="number"
+                        value={estimatedAnnualIncome}
+                        onChange={e => setEstimatedAnnualIncome(e.target.value)}
+                        placeholder="60,000"
+                        className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7"
+                        min="0"
+                        step="any"
+                      />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      We will use this to help build a rough budget for you. You can leave this blank if you are not sure.
+                    </p>
                   </div>
-                </div>
+                )}
               </div>
 
               <div className="flex gap-3">
@@ -1564,7 +2169,7 @@ export default function OnboardingPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || !income}
+                  disabled={loading || (incomeMode !== "irregular" && !income)}
                   className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {loading ? "Saving..." : "Continue"}
@@ -1574,7 +2179,7 @@ export default function OnboardingPage() {
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}
-                onSkip={skipOnboardingToDashboard}
+                onSkip={skipOnboardingToComplete}
               />
             </form>
           )}
@@ -1594,13 +2199,20 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your envelopes</h2>
-                  <p className="text-sm text-muted-foreground">Create your spending categories — you&apos;ll set budget amounts in the next step</p>
+                  <p className="text-sm text-muted-foreground">These are your spending categories. Add as many or as few as you like - but we recommend not having more than 10 to 12.</p>
                 </div>
               </div>
 
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Add envelopes for each area you spend money on. Don&apos;t worry about amounts yet — the next step lets you allocate your income across these envelopes. Anything you don&apos;t allocate automatically goes into <span className="text-[#22C55E] font-medium">Savings</span>.
-              </p>
+              <OnboardingDismissibleHint
+                hintId={ONBOARDING_HINT_ENVELOPES}
+                dismissed={dismissedOnboardingHints.has(ONBOARDING_HINT_ENVELOPES)}
+                onDismiss={dismissOnboardingHint}
+                className="border border-[#252525] bg-[#1A1A1A]/60"
+              >
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Add envelopes for each area you spend money on. Don&apos;t worry about amounts yet — the next step lets you allocate your income across these envelopes.
+                </p>
+              </OnboardingDismissibleHint>
 
               <div className="flex flex-col gap-2">
                 {envelopes.map((env, idx) => {
@@ -1647,7 +2259,7 @@ export default function OnboardingPage() {
                                 const duplicate = prev.some(
                                   (o, j) => j !== idx && o.name.toLowerCase() === t.toLowerCase(),
                                 )
-                                if (!t || duplicate) {
+                                if (!t || duplicate || !isOnboardingDraftBudgetEnvelope({ name: t })) {
                                   return {
                                     ...e,
                                     name: revertedName,
@@ -1815,14 +2427,14 @@ export default function OnboardingPage() {
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}
-                onSkip={skipOnboardingToDashboard}
+                onSkip={skipOnboardingToComplete}
               />
             </form>
           )}
 
           {/* Allocations Step */}
           {step === "allocations" && (
-            <form onSubmit={e => { e.preventDefault(); handleAllocationsSave() }} className="flex flex-col gap-6">
+            <form onSubmit={e => { e.preventDefault(); handleAllocationsSave() }} className="flex min-w-0 flex-col gap-6">
               <style>{`
                 input[type="range"].alloc-slider {
                   -webkit-appearance: none;
@@ -1832,7 +2444,7 @@ export default function OnboardingPage() {
                   border-radius: 3px;
                   outline: none;
                   cursor: pointer;
-                  touch-action: none;
+                  touch-action: pan-y;
                 }
                 input[type="range"].alloc-slider::-webkit-slider-thumb {
                   -webkit-appearance: none;
@@ -1889,6 +2501,139 @@ export default function OnboardingPage() {
                 }
               `}</style>
 
+              {allocPhase === "savings-goal" ? (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-xl" style={{ backgroundColor: `${SAVINGS_GOLD_ACCENT}22` }}>
+                      <Target className="h-6 w-6" style={{ color: SAVINGS_GOLD_ACCENT }} />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-foreground">Your savings goal</h2>
+                      <p className="text-sm text-muted-foreground">
+                        Pay yourself first. Let&apos;s set your first monthly savings goal.
+                      </p>
+                    </div>
+                  </div>
+
+                  <OnboardingDismissibleHint
+                    hintId={ONBOARDING_HINT_SAVINGS_GOAL}
+                    dismissed={dismissedOnboardingHints.has(ONBOARDING_HINT_SAVINGS_GOAL)}
+                    onDismiss={dismissOnboardingHint}
+                    className="border bg-transparent"
+                    style={{
+                      borderColor: `${SAVINGS_GOLD_ACCENT}44`,
+                      backgroundColor: `${SAVINGS_GOLD_ACCENT}14`,
+                    }}
+                  >
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      BitBudget is a full ledger-style budgeting app. Your income goes right into Savings, and then Savings is drawn down to cover expenses and to fill your envelopes each month.
+                    </p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      Pick a ballpark target for now. You can adjust it anytime as your budget takes shape.
+                    </p>
+                  </OnboardingDismissibleHint>
+
+                  <div className="rounded-xl border border-[#252525] bg-[#1A1A1A] p-5 flex flex-col gap-4">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-sm text-muted-foreground">Target</span>
+                      <span className="text-2xl font-semibold" style={{ color: SAVINGS_GOLD_ACCENT }}>
+                        ${savingsGoalAmount.toLocaleString()}/mo
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={savingsGoalSliderMaxPct}
+                      step={1}
+                      value={savingsGoalPct}
+                      aria-label={
+                        unboundedAlloc
+                          ? "Savings goal percentage of estimated monthly spend"
+                          : "Savings goal percentage of monthly income"
+                      }
+                      onChange={e => {
+                        const pct = Number(e.target.value)
+                        setSavingsGoalPct(pct)
+                        setSavingsGoalAmount(
+                          onboardingSavingsGoalAmountFromPercent(savingsGoalCapacity, pct),
+                        )
+                      }}
+                      className="w-full accent-[#D4AF37]"
+                    />
+                    <div className="flex flex-col gap-0.5 text-center">
+                      {savingsGoalCapacity > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {unboundedAlloc
+                            ? `${savingsGoalPct}% of estimated monthly spend`
+                            : `${savingsGoalPct}% of monthly capacity`}
+                        </p>
+                      )}
+                      {savingsGoalPaycheckPct != null && (
+                        <p className="text-xs text-muted-foreground">
+                          {savingsGoalPaycheckPct}% of each paycheck
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-center gap-1.5 pt-1">
+                      <label htmlFor="onboarding-savings-goal-amount" className="sr-only">
+                        Monthly savings goal amount
+                      </label>
+                      <span className="text-xs text-muted-foreground">$</span>
+                      <input
+                        id="onboarding-savings-goal-amount"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        value={savingsGoalAmount > 0 ? String(Math.round(savingsGoalAmount)) : ""}
+                        onChange={e => {
+                          const monthly = monthlyFromDigitOnlyInput(
+                            e.target.value,
+                            "monthly",
+                            ONBOARDING_UNBOUNDED_INPUT_MAX,
+                          )
+                          const { amount, pct } = onboardingSavingsGoalFromManualInput(
+                            monthly,
+                            savingsGoalCapacity,
+                          )
+                          setSavingsGoalAmount(amount)
+                          setSavingsGoalPct(pct)
+                        }}
+                        placeholder="0"
+                        className="w-28 bg-transparent border-b border-[#333] text-center text-foreground text-sm font-semibold py-0.5 focus:outline-none focus:border-[#D4AF37] transition-colors"
+                      />
+                      <span className="text-xs text-muted-foreground">/mo</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => void skipSavingsTracking()}
+                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 mx-auto"
+                  >
+                    Not for me — I&apos;ll stick to my budget
+                  </button>
+
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAllocPhase("budget")}
+                      className="flex-1 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
+                    >
+                      <ChevronLeft className="h-4 w-4" /> Back
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {loading ? "Saving..." : "Continue"}
+                      {!loading && <ChevronRight className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#3B82F6]/10">
                   <PieChart className="h-6 w-6 text-[#3B82F6]" />
@@ -1896,29 +2641,31 @@ export default function OnboardingPage() {
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your budget</h2>
                   <p className="text-sm text-muted-foreground">
-                    How do you use your{" "}
-                    <span className="text-foreground font-medium">
-                      ${allocateMonthlyBudget.toLocaleString()}
-                    </span>{" "}
-                    of income each month? 
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    You can always adjust this later.
+                      What would you estimate you spend in each of these categories each month?
                   </p>
                 </div>
               </div>
 
-              {/* Stacked bar — sticky while scrolling envelope sliders */}
-              {allocateMonthlyBudget > 0 && (
+              {/* Stacked bar + sliders — scrollable on small screens so Continue stays reachable */}
+              <div className="flex min-w-0 flex-col gap-4 max-md:max-h-[calc(100dvh-13rem)] max-md:overflow-x-hidden max-md:overflow-y-auto max-md:overscroll-y-contain max-md:[-webkit-overflow-scrolling:touch]">
+              {showAllocStackBar && (
                 <div
-                  className="sticky top-0 z-20 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+                  className="sticky top-0 z-20 max-md:mx-0 max-md:px-0 -mx-8 px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
                 >
                   <div className="flex flex-col gap-2">
                   <div className="flex h-10 w-full flex-row rounded-xl overflow-hidden bg-[#1A1A1A]">
                     {envelopes.map((env, idx) => {
-                      if (env.monthlyAllotment <= 0) return null
-                      const pct = (env.monthlyAllotment / allocateMonthlyBudget) * 100
-                      const amt = Math.round(env.monthlyAllotment)
+                      const displayAllotment = envelopeDisplayAllotments[idx] ?? 0
+                      if (displayAllotment <= 0) return null
+                      const pct =
+                        allocStackBarTotal > 0
+                          ? (displayAllotment / allocStackBarTotal) * 100
+                          : 0
+                      const amt = Math.round(displayAllotment)
+                      const sharePct =
+                        unboundedAlloc && totalAllocatedDisplay > 0
+                          ? Math.round((displayAllotment / totalAllocatedDisplay) * 100)
+                          : Math.round(pct)
                       return (
                         <Tooltip key={idx} delayDuration={200}>
                           <TooltipTrigger asChild>
@@ -1956,27 +2703,27 @@ export default function OnboardingPage() {
                             <p className="text-sm font-semibold leading-tight">{env.name}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">
                               ${amt.toLocaleString()}/mo allocated
-                              <span className="text-muted-foreground/80"> · {Math.round(pct)}%</span>
+                              <span className="text-muted-foreground/80"> · {sharePct}%</span>
                             </p>
                           </TooltipContent>
                         </Tooltip>
                       )
                     })}
-                    {savings > 0 && (
+                    {!unboundedAlloc && savingsDisplay > 0 && (
                       <Tooltip delayDuration={200}>
                         <TooltipTrigger asChild>
                           <button
                             type="button"
                             className="flex min-w-0 shrink-0 items-center justify-center cursor-default box-border"
                             style={{
-                              width: `${(savings / allocateMonthlyBudget) * 100}%`,
+                              width: `${(savingsDisplay / allocateMonthlyBudget) * 100}%`,
                               minWidth: 4,
                               backgroundColor: "rgba(34, 197, 94, 0.25)",
                               transition: ALLOC_STACK_BAR_WIDTH_TRANSITION,
                             }}
-                            aria-label={`Savings, $${Math.round(savings).toLocaleString()} per month, ${savingsPct}% of budget`}
+                            aria-label={`Savings, $${Math.round(savingsDisplay).toLocaleString()} per month, ${savingsPctDisplay}% of budget`}
                           >
-                            {savingsPct > 8 && <PiggyBank className="h-4 w-4 text-[#22C55E]/60" />}
+                            {savingsPctDisplay > 8 && <PiggyBank className="h-4 w-4 text-[#22C55E]/60" />}
                           </button>
                         </TooltipTrigger>
                         <TooltipContent
@@ -1986,47 +2733,106 @@ export default function OnboardingPage() {
                         >
                           <p className="text-sm font-semibold leading-tight">Savings</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            ${Math.round(savings).toLocaleString()}/mo unallocated
-                            <span className="text-muted-foreground/80"> · {savingsPct}%</span>
+                            ${Math.round(savingsDisplay).toLocaleString()}/mo unallocated
+                            <span className="text-muted-foreground/80"> · {savingsPctDisplay}%</span>
                           </p>
                         </TooltipContent>
                       </Tooltip>
                     )}
                   </div>
                   <div className="flex items-center justify-between text-xs text-muted-foreground px-1 transition-[color] duration-300">
-                    <span className="tabular-nums">
-                      ${totalAllocated.toLocaleString()} allocated
-                    </span>
-                    <span className="tabular-nums">${allocateMonthlyBudget.toLocaleString()} monthly budget</span>
+                    {unboundedAlloc ? (
+                      <span className="tabular-nums mx-auto">
+                        ${totalAllocatedDisplay.toLocaleString()} estimated monthly spend
+                      </span>
+                    ) : (
+                      <>
+                        <span className="tabular-nums">
+                          ${totalAllocatedDisplay.toLocaleString()} allocated
+                        </span>
+                        <span className="tabular-nums">
+                          ${allocateMonthlyBudget.toLocaleString()} monthly budget
+                        </span>
+                      </>
+                    )}
                   </div>
                   </div>
                 </div>
               )}
 
               {/* Per-envelope slider rows */}
-              <div className="flex flex-col gap-4">
+              <div className="flex min-w-0 flex-col gap-4">
                 {envelopes.map((env, idx) => {
-                  const sliderMax = env.monthlyAllotment + savings
+                  const lockedGestureMax =
+                    unboundedAlloc && allocSliderLockedMax?.idx === idx
+                      ? allocSliderLockedMax.max
+                      : null
+                  const sliderMax =
+                    lockedGestureMax ??
+                    (unboundedAlloc
+                      ? unboundedOnboardingSliderVisitedMax(
+                          allocSliderUnboundedVisitedMax[idx],
+                          env.monthlyAllotment,
+                        )
+                      : onboardingSliderMaxForRow(
+                          env.monthlyAllotment,
+                          savings,
+                          allocateMonthlyBudget,
+                        ))
+                  const rowCap = onboardingAllocationCapForRow(
+                    allocateMonthlyBudget,
+                    totalAllocated - env.monthlyAllotment,
+                  )
+                  const sliderVisualRaw =
+                    allocSliderRawOverride?.idx === idx
+                      ? allocSliderRawOverride.raw
+                      : env.monthlyAllotment
+                  const rowAllotmentForDisplay =
+                    allocSliderRawOverride?.idx === idx
+                      ? onboardingOverrideDisplayAmount(
+                          allocSliderRawOverride.raw,
+                          sliderMax,
+                          allocSliderGestureKindRef.current === "fine" ? "fine" : "coarse",
+                        )
+                      : env.monthlyAllotment
                   const pct =
                     allocateMonthlyBudget > 0
-                      ? Math.round((env.monthlyAllotment / allocateMonthlyBudget) * 100)
+                      ? Math.round((rowAllotmentForDisplay / allocateMonthlyBudget) * 100)
                       : 0
                   const sliderValueClamped =
                     sliderMax <= 0
                       ? 0
-                      : allocSliderRawOverride?.idx === idx
-                        ? Math.min(
-                            sliderMax,
-                            Math.max(0, Math.round(allocSliderRawOverride.raw)),
-                          )
-                        : Math.min(sliderMax, Math.max(0, Math.round(env.monthlyAllotment)))
-                  const sliderPct = sliderMax > 0 ? (sliderValueClamped / sliderMax) * 100 : 0
+                      : Math.min(sliderMax, Math.max(0, Math.round(sliderVisualRaw)))
+                  const dragSession =
+                    allocSliderDragSessionRef.current?.idx === idx
+                      ? allocSliderDragSessionRef.current
+                      : null
+                  const isPinnedAtExpandedCeiling =
+                    isUnboundedOnboardingAllocation(allocateMonthlyBudget) &&
+                    allocSliderRawOverride?.idx === idx &&
+                    dragSession != null &&
+                    dragSession.expandedFrom.has(sliderValueClamped) &&
+                    sliderValueClamped < sliderMax
+                  const rangeInputValue = isPinnedAtExpandedCeiling
+                    ? sliderMax
+                    : sliderValueClamped
+                  const sliderPct =
+                    isUnboundedOnboardingAllocation(allocateMonthlyBudget) &&
+                    allocSliderRawOverride?.idx === idx
+                      ? unboundedOnboardingSliderThumbPct(
+                          sliderValueClamped,
+                          sliderMax,
+                          dragSession?.expandedFrom,
+                        )
+                      : sliderMax > 0
+                        ? (sliderValueClamped / sliderMax) * 100
+                        : 0
 
                   return (
                     <div
                       key={idx}
                       ref={el => { sliderRowRefs.current[idx] = el }}
-                      className={`flex flex-col gap-2 p-3 rounded-xl transition-colors ${
+                      className={`flex min-w-0 flex-col gap-2 p-3 rounded-xl transition-colors ${
                         activeEnvIdx === idx ? "bg-[#1A1A1A]" : "bg-transparent"
                       }`}
                       onClick={() => setActiveEnvIdx(idx)}
@@ -2035,7 +2841,7 @@ export default function OnboardingPage() {
                       <p className="sm:hidden text-xs font-semibold text-foreground leading-snug truncate">
                         {env.name}
                       </p>
-                      <div className="flex items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
                         <div
                           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                           style={{ backgroundColor: `${env.color}22` }}
@@ -2057,15 +2863,16 @@ export default function OnboardingPage() {
                             inputMode="numeric"
                             autoComplete="off"
                             value={cadenceDisplayInteger(
-                              env.monthlyAllotment,
+                              rowAllotmentForDisplay,
                               env.allocationCadence ?? "monthly",
                             )}
                             onChange={e => {
-                              setAllocSliderRawOverride(prev =>
+                              syncAllocSliderRawOverride(prev =>
                                 prev?.idx === idx ? null : prev,
                               )
+                              clearUnboundedSliderVisitedMaxForRow(idx)
                               const cadence = (env.allocationCadence ?? "monthly") as AllocationCadence
-                              const monthly = monthlyFromDigitOnlyInput(e.target.value, cadence, sliderMax)
+                              const monthly = monthlyFromDigitOnlyInput(e.target.value, cadence, rowCap)
                               setEnvelopes(prev => prev.map((en, i) =>
                                 i === idx ? { ...en, monthlyAllotment: monthly } : en,
                               ))
@@ -2077,9 +2884,10 @@ export default function OnboardingPage() {
                             value={env.allocationCadence ?? "monthly"}
                             onChange={e => {
                               const newCadence = e.target.value as "weekly" | "biweekly" | "monthly"
-                              setAllocSliderRawOverride(prev =>
+                              syncAllocSliderRawOverride(prev =>
                                 prev?.idx === idx ? null : prev,
                               )
+                              clearUnboundedSliderVisitedMaxForRow(idx)
                               setEnvelopes(prev => prev.map((en, i) => {
                                 if (i !== idx) return en
                                 const oldCadence = en.allocationCadence ?? "monthly"
@@ -2088,7 +2896,10 @@ export default function OnboardingPage() {
                                 let newMonthly = toMonthly(displayAmount, newCadence)
                                 const rowTotal = prev.reduce((s, x) => s + x.monthlyAllotment, 0)
                                 const otherAllocated = rowTotal - en.monthlyAllotment
-                                const maxMonthly = Math.max(0, allocateMonthlyBudget - otherAllocated)
+                                const maxMonthly = onboardingAllocationCapForRow(
+                                  allocateMonthlyBudget,
+                                  otherAllocated,
+                                )
                                 newMonthly = Math.round(
                                   Math.min(maxMonthly, Math.max(0, newMonthly)),
                                 )
@@ -2109,33 +2920,44 @@ export default function OnboardingPage() {
                         </div>
                       </div>
 
+                      <div className="flex min-w-0 items-center gap-2">
                       <input
                         type="range"
-                        className="alloc-slider"
+                        ref={el => { allocSliderRangeInputRefs.current[idx] = el }}
+                        className="alloc-slider min-w-0 flex-1"
                         min={0}
                         max={Math.max(0, sliderMax)}
                         step={1}
-                        value={sliderValueClamped}
+                        value={rangeInputValue}
                         aria-label={`${env.name} monthly allotment`}
                         onChange={e => {
                           const rawParsed = parseInt(e.target.value, 10)
-                          const val = Number.isFinite(rawParsed)
-                            ? Math.min(sliderMax, Math.max(0, rawParsed))
-                            : 0
-                          setAllocSliderRawOverride({ idx, raw: val })
-                          const newBucket = snapOnboardingAllocationToStep(val, sliderMax)
-                          if (newBucket !== env.monthlyAllotment) {
-                            setEnvelopes(prev => prev.map((en, i) =>
-                              i === idx ? { ...en, monthlyAllotment: newBucket } : en,
-                            ))
-                          }
+                          const parsedVal = Number.isFinite(rawParsed) ? Math.max(0, rawParsed) : 0
+                          applyOnboardingAllocSliderValue(idx, parsedVal, {
+                            sliderMax,
+                            committedAllotment: env.monthlyAllotment,
+                            isGestureActive: allocSliderPointerRef.current?.idx === idx,
+                            commitNow: allocSliderPointerRef.current?.idx !== idx,
+                          })
                         }}
                         onPointerDown={e => {
+                          const gestureMax = unboundedAlloc
+                            ? unboundedOnboardingSliderMaxForGestureWithVisited(
+                                env.monthlyAllotment,
+                                allocSliderUnboundedVisitedMax[idx],
+                              )
+                            : onboardingSliderMaxForRow(
+                                env.monthlyAllotment,
+                                savings,
+                                allocateMonthlyBudget,
+                              )
                           const rawInit = parseInt(e.currentTarget.value, 10)
                           const init = Number.isFinite(rawInit)
-                            ? Math.min(sliderMax, Math.max(0, rawInit))
+                            ? Math.min(gestureMax, Math.max(0, rawInit))
                             : 0
-                          setAllocSliderRawOverride({ idx, raw: init })
+                          beginAllocSliderGesture(idx, init, gestureMax)
+                          allocSliderGestureKindRef.current = "coarse"
+                          allocSliderPointerRef.current = { pointerId: e.pointerId, idx }
                           try {
                             e.currentTarget.setPointerCapture(e.pointerId)
                           } catch {
@@ -2143,22 +2965,32 @@ export default function OnboardingPage() {
                           }
                         }}
                         onPointerUp={e => {
-                          try {
-                            e.currentTarget.releasePointerCapture(e.pointerId)
-                          } catch {
-                            /* noop */
+                          if (allocSliderPointerRef.current?.pointerId === e.pointerId) {
+                            try {
+                              e.currentTarget.releasePointerCapture(e.pointerId)
+                            } catch {
+                              /* noop */
+                            }
                           }
-                          commitOnboardingSliderSnap(idx, e.currentTarget)
+                          releaseAllocSliderRow(idx, e.currentTarget, unboundedAlloc)
+                          allocSliderSkipBlurCommitRef.current = idx
                         }}
                         onPointerCancel={e => {
-                          try {
-                            e.currentTarget.releasePointerCapture(e.pointerId)
-                          } catch {
-                            /* noop */
+                          if (allocSliderPointerRef.current?.pointerId === e.pointerId) {
+                            try {
+                              e.currentTarget.releasePointerCapture(e.pointerId)
+                            } catch {
+                              /* noop */
+                            }
                           }
-                          commitOnboardingSliderSnap(idx, e.currentTarget)
+                          releaseAllocSliderRow(idx, e.currentTarget, unboundedAlloc)
+                          allocSliderSkipBlurCommitRef.current = idx
                         }}
                         onBlur={e => {
+                          if (allocSliderSkipBlurCommitRef.current === idx) {
+                            allocSliderSkipBlurCommitRef.current = null
+                            return
+                          }
                           commitOnboardingSliderSnap(idx, e.currentTarget)
                         }}
                         onFocus={() => setActiveEnvIdx(idx)}
@@ -2167,9 +2999,49 @@ export default function OnboardingPage() {
                           "--slider-pct": `${sliderPct}%`,
                         } as React.CSSProperties}
                       />
-                      {env.allocationCadence !== "monthly" && env.monthlyAllotment > 0 && (
+                      <OnboardingAllocFineScroller
+                        accentColor={env.color}
+                        ariaLabel={`Fine adjust ${env.name} monthly allotment`}
+                        value={env.monthlyAllotment}
+                        maxValue={sliderMax}
+                        onGestureStart={() => {
+                          setActiveEnvIdx(idx)
+                          allocSliderGestureKindRef.current = "fine"
+                          const gestureMax = unboundedAlloc
+                            ? unboundedOnboardingSliderMaxForGestureWithVisited(
+                                env.monthlyAllotment,
+                                allocSliderUnboundedVisitedMax[idx],
+                              )
+                            : onboardingSliderMaxForRow(
+                                env.monthlyAllotment,
+                                savings,
+                                allocateMonthlyBudget,
+                              )
+                          const currentRaw = allocSliderRawForRow(idx, env.monthlyAllotment)
+                          beginAllocSliderGesture(
+                            idx,
+                            Math.min(gestureMax, Math.max(0, currentRaw)),
+                            gestureMax,
+                          )
+                        }}
+                        onNudge={deltaSteps => {
+                          nudgeAllocSliderRow(idx, deltaSteps, {
+                            sliderMax,
+                            committedAllotment: env.monthlyAllotment,
+                          })
+                        }}
+                        onGestureEnd={() => {
+                          releaseAllocSliderRow(
+                            idx,
+                            allocSliderRangeInputRefs.current[idx],
+                            unboundedAlloc,
+                          )
+                        }}
+                      />
+                      </div>
+                      {env.allocationCadence !== "monthly" && rowAllotmentForDisplay > 0 && (
                         <span className="text-[10px] text-muted-foreground mt-0.5">
-                          = ${Math.round(env.monthlyAllotment).toLocaleString()}/mo
+                          = ${Math.round(rowAllotmentForDisplay).toLocaleString()}/mo
                         </span>
                       )}
                     </div>
@@ -2177,21 +3049,23 @@ export default function OnboardingPage() {
                 })}
               </div>
 
-              {/* Implicit Savings row */}
+              {!unboundedAlloc && (
               <div className="flex items-center gap-3 p-3 rounded-xl bg-[#1A1A1A]/60 border border-[#1F1F1F]">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-[#22C55E]/10">
                   <PiggyBank className="h-4 w-4 text-[#22C55E]" />
                 </div>
                 <span className="flex-1 text-sm font-medium text-muted-foreground">Savings</span>
                 <div className="flex items-baseline gap-1.5 shrink-0">
-                  <span className="text-sm font-semibold text-[#22C55E]">${savings.toLocaleString()}</span>
-                  <span className="text-xs text-muted-foreground w-10 text-right">{savingsPct}%</span>
+                  <span className="text-sm font-semibold text-[#22C55E]">${savingsDisplay.toLocaleString()}</span>
+                  <span className="text-xs text-muted-foreground w-10 text-right">{savingsPctDisplay}%</span>
                 </div>
               </div>
-
-              {savings === 0 && totalAllocated > 0 && (
-                <p className="text-xs text-amber-400/80 text-center">That piggybank is looking a bit empty :&apos;(</p>
               )}
+
+              {savingsDisplay === 0 && totalAllocatedDisplay > 0 && !unboundedAlloc && (
+                <p className="text-xs text-amber-400/80 text-center">All income allocated — nothing goes to savings</p>
+              )}
+              </div>
 
               <div className="flex gap-3">
                 <button
@@ -2210,12 +3084,67 @@ export default function OnboardingPage() {
                   {!loading && <ChevronRight className="h-4 w-4" />}
                 </button>
               </div>
+                </>
+              )}
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}
-                onSkip={skipOnboardingToDashboard}
+                onSkip={skipOnboardingToComplete}
               />
             </form>
+          )}
+
+          {/* Savings game plan affirmation */}
+          {step === "savings-game-plan" && (
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col items-center text-center gap-3 py-2">
+                <div className="p-4 rounded-full" style={{ backgroundColor: `${SAVINGS_GOLD_ACCENT}18` }}>
+                  <PiggyBank className="h-10 w-10" style={{ color: SAVINGS_GOLD_ACCENT }} />
+                </div>
+                <h2 className="text-2xl font-bold text-foreground">Your Savings game plan</h2>
+                <p className="text-3xl font-semibold text-foreground">
+                  You&apos;ll save{" "}
+                  <span style={{ color: SAVINGS_GOLD_ACCENT }}>
+                    ${Math.max(savingsGoalAmount, savings).toLocaleString()}
+                  </span>
+                  /month.
+                </p>
+                <p className="text-sm text-muted-foreground max-w-sm">
+                  In a year, that&apos;s{" "}
+                  <span className="text-foreground font-medium">
+                    ${(Math.max(savingsGoalAmount, savings) * 12).toLocaleString()}
+                  </span>
+                  {onboardingSource === "btc" && " — every dollar saved is a vote for your future."}
+                </p>
+                <p className="text-sm text-muted-foreground italic">Your future self thanks you.</p>
+              </div>
+
+              <OnboardingDismissibleHint
+                hintId={ONBOARDING_HINT_SAVINGS_SWEEP}
+                dismissed={dismissedOnboardingHints.has(ONBOARDING_HINT_SAVINGS_SWEEP)}
+                onDismiss={dismissOnboardingHint}
+                className="border border-[#252525] bg-[#1A1A1A]/60"
+              >
+                <p className="text-xs text-muted-foreground text-center leading-relaxed">
+                  We&apos;ll sweep leftover envelope balances to Savings on each payday — you can change this in Settings anytime.
+                </p>
+              </OnboardingDismissibleHint>
+
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => setStep(importResult !== null ? "complete" : "import")}
+                className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                Continue
+                <ChevronRight className="h-4 w-4" />
+              </button>
+              <OnboardingSkipBar
+                show={canSkipOnboarding && bootstrapped}
+                disabled={loading}
+                onSkip={skipOnboardingToComplete}
+              />
+            </div>
           )}
 
           {/* Import Step */}
@@ -2255,7 +3184,7 @@ export default function OnboardingPage() {
               <div className="grid w-full min-w-0 grid-cols-2 gap-3">
                 <button
                   type="button"
-                  onClick={() => setStep("allocations")}
+                  onClick={() => setStep("savings-game-plan")}
                   className="min-w-0 py-3 bg-[#1A1A1A] text-foreground rounded-xl font-semibold text-sm hover:bg-[#222] transition-colors border border-[#333] flex items-center justify-center gap-2"
                 >
                   <ChevronLeft className="h-4 w-4 shrink-0" /> Back
@@ -2271,7 +3200,7 @@ export default function OnboardingPage() {
               <OnboardingSkipBar
                 show={canSkipOnboarding && bootstrapped}
                 disabled={loading}
-                onSkip={skipOnboardingToDashboard}
+                onSkip={skipOnboardingToComplete}
               />
             </form>
           )}
@@ -2288,72 +3217,40 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground text-center">
                 Your envelopes are ready and your data is secured.
               </p>
-              {hasReferralOnComplete ? (
-                <div className="w-full rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 text-sm text-[#86EFAC]">
-                  Referral code successfully applied!
-                </div>
-              ) : (
-                <Collapsible
-                  open={completeReferralOpen}
-                  onOpenChange={setCompleteReferralOpen}
-                  className="w-full max-w-sm space-y-3"
+              {refereeTrialExplainerOnComplete ? (
+                <OnboardingDismissibleHint
+                  hintId={ONBOARDING_HINT_REFERRAL_COMPLETE}
+                  dismissed={dismissedOnboardingHints.has(ONBOARDING_HINT_REFERRAL_COMPLETE)}
+                  onDismiss={dismissOnboardingHint}
+                  className="w-full text-left"
                 >
-                  <p className="text-xs text-muted-foreground text-center">
-                    Wait! Did you have a referral code?
+                  <p className="text-sm text-foreground font-medium">Your referral</p>
+                  <p className="text-sm text-muted-foreground">
+                    <strong className="text-foreground">
+                      {pendingReferral?.refereeTrialMonths === 1 || pendingReferral?.refereeTrialMonths === 3
+                        ? refereePremiumExperienceCarrot(pendingReferral.refereeTrialMonths)
+                        : REFEREE_PREMIUM_CARROT_FALLBACK}
+                    </strong>{" "}
+                    Next, you&apos;ll connect your bank in a dedicated step. Your premium trial only starts after a successful link—take your time
+                    exploring BitBudget first if you like.
                   </p>
-                  <CollapsibleTrigger asChild>
-                    <button
-                      type="button"
-                      className="mx-auto block text-sm font-medium text-[#F7931A] hover:text-[#F7931A]/90 underline underline-offset-2 transition-colors"
-                      aria-expanded={completeReferralOpen}
-                    >
-                      Enter referral code
-                    </button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-2 pt-1">
-                    <Label htmlFor="complete-referral-code" className="text-muted-foreground text-xs uppercase tracking-wider">
-                      Code
-                    </Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="complete-referral-code"
-                        value={refCodeInput}
-                        onChange={e => {
-                          setRefCodeInput(e.target.value)
-                          if (refError) setRefError(null)
-                        }}
-                        placeholder="Enter code"
-                        className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] flex-1"
-                      />
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        disabled={refValidating || !refCodeInput.trim()}
-                        className="shrink-0 border-[#333] bg-[#1A1A1A]"
-                        onClick={() => {
-                          void applyReferralCodeFromInput()
-                        }}
-                      >
-                        {refValidating ? "…" : "Apply"}
-                      </Button>
-                    </div>
-                    {refError && (
-                      <div
-                        role="alert"
-                        className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
-                      >
-                        {refError}
-                      </div>
-                    )}
-                  </CollapsibleContent>
-                </Collapsible>
+                  <p className="text-xs text-muted-foreground">
+                    Until you link a bank, Plan may show <strong className="text-foreground">Free</strong> — that&apos;s expected. Receipt inbox and SMS
+                    unlock when your trial starts.
+                  </p>
+                </OnboardingDismissibleHint>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center max-w-sm">
+                  Invited by a friend? Use <strong className="text-foreground">Back</strong> to the referral step or open their invite link in
+                  this browser before you continue so your trial can apply.
+                </p>
               )}
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
               >
-                {loading ? "Finishing..." : hasReferralOnComplete ? "Continue" : "Go to Dashboard"}
+                {loading ? "Finishing..." : refereeTrialExplainerOnComplete ? "Continue" : "Go to Dashboard"}
               </button>
             </form>
           )}
@@ -2372,7 +3269,11 @@ export default function OnboardingPage() {
                   </p>
                 </div>
               </div>
-              <div className="rounded-xl border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-4 py-3 space-y-2">
+              <OnboardingDismissibleHint
+                hintId={ONBOARDING_HINT_REFERRAL_BANK}
+                dismissed={dismissedOnboardingHints.has(ONBOARDING_HINT_REFERRAL_BANK)}
+                onDismiss={dismissOnboardingHint}
+              >
                 <p className="text-sm text-muted-foreground">
                   <strong className="text-foreground">
                     {pendingReferral?.refereeTrialMonths === 1 || pendingReferral?.refereeTrialMonths === 3
@@ -2384,7 +3285,7 @@ export default function OnboardingPage() {
                   Your premium trial clock starts only after your first successful bank link. You can also connect anytime under Settings →
                   Integrations.
                 </p>
-              </div>
+              </OnboardingDismissibleHint>
               <div className="flex flex-col items-stretch gap-2">
                 <p className="text-xs text-muted-foreground text-center">Bank sync (Plaid)</p>
                 <div className="flex justify-center">

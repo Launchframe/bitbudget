@@ -97,6 +97,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       ? [GitHub({ clientId: process.env.GITHUB_CLIENT_ID, clientSecret: process.env.GITHUB_CLIENT_SECRET! })]
       : []),
   ],
+  events: {
+    async signIn({ user }) {
+      if (typeof user?.id !== "string") return
+      try {
+        const { ensureSystemSavingsEnvelope } = await import("@/lib/ensure-system-savings-envelope")
+        await ensureSystemSavingsEnvelope(user.id)
+      } catch {
+        /* non-fatal — envelope ensure retried on funding/import paths */
+      }
+    },
+  },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {

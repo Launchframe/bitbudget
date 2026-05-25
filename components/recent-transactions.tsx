@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
-import { compareTransactionsDesc, formatUsd } from "@/lib/data"
+import { compareTransactionsDesc, formatUsd, transactionsVisibleInMainHistory } from "@/lib/data"
 import type { Transaction } from "@/lib/data"
 import { Badge } from "@/components/ui/badge"
 import { ChevronLeft, ChevronRight, Repeat, Trash2 } from "lucide-react"
@@ -25,9 +25,14 @@ export function RecentTransactions() {
     return map
   }, [state.envelopes])
 
-  const sorted = useMemo(
-    () => [...activeTransactions].sort(compareTransactionsDesc),
+  const visible = useMemo(
+    () => transactionsVisibleInMainHistory(activeTransactions),
     [activeTransactions],
+  )
+
+  const sorted = useMemo(
+    () => [...visible].sort(compareTransactionsDesc),
+    [visible],
   )
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))

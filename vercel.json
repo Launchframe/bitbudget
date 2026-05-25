@@ -5,6 +5,10 @@
       "schedule": "0 6 * * *"
     },
     {
+      "path": "/api/cron/envelope-funding",
+      "schedule": "30 6 * * *"
+    },
+    {
       "path": "/api/cron/btc-backfill",
       "schedule": "0 */6 * * *"
     },

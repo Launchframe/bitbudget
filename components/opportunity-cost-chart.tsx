@@ -1,16 +1,25 @@
 "use client"
 
-import { useMemo, useState, useCallback, useSyncExternalStore } from "react"
+import { useMemo, useState, useCallback, useSyncExternalStore, useEffect } from "react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Legend } from "recharts"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
+import { findSavingsEnvelope, isSavingsInflowCredit } from "@/lib/savings-ui-metrics"
+import {
+  getDashboardChartMode,
+  setDashboardChartMode,
+  subscribeDashboardChartMode,
+  type DashboardChartMode,
+} from "@/lib/dashboard-chart-mode"
+import { SAVINGS_GOLD_ACCENT, SAVINGS_EXPERIENCE_DISMISSED } from "@/lib/constants"
 // Shared tick rules (incl. short spans / 5Y imported history) live in `lib/chart-x-axis-format.ts`.
 import { formatExpenseChartXAxisTick } from "@/lib/chart-x-axis-format"
 import { BarChart3 } from "lucide-react"
 import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 
 type RangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "5y" | "all"
+type ChartMode = DashboardChartMode
 
 const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
   { key: "mtd", label: "MTD" },
@@ -79,6 +88,14 @@ export function OpportunityCostChart() {
   const { activeTransactions, state } = useApp()
   const { getPriceOnDate, currentPrice, priceHistory } = useBtcPrices()
   const [activeRange, setActiveRange] = useState<RangeKey>("12m")
+  const chartMode = useSyncExternalStore(
+    subscribeDashboardChartMode,
+    getDashboardChartMode,
+    () => "spending" as ChartMode,
+  )
+  const setChartMode = useCallback((mode: ChartMode) => {
+    setDashboardChartMode(mode)
+  }, [])
   const [startDate, setStartDate] = useState(() => getStartDateForRange("12m"))
   const isMobile = useIsMobile()
   const ocEnabled = state.opportunityCostEnabled
@@ -88,10 +105,32 @@ export function OpportunityCostChart() {
     setStartDate(getStartDateForRange(key))
   }, [])
 
+  const savingsEnvelope = useMemo(
+    () => findSavingsEnvelope(state.envelopes),
+    [state.envelopes],
+  )
+
+  const savingsChartEnabled =
+    state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED && savingsEnvelope != null
+  const effectiveChartMode: ChartMode = savingsChartEnabled ? chartMode : "spending"
+
+  useEffect(() => {
+    if (!savingsChartEnabled && chartMode === "savings") {
+      setDashboardChartMode("spending")
+    }
+  }, [savingsChartEnabled, chartMode])
+
   const hasAnyExpenses = useMemo(
     () => activeTransactions.some((t) => t.type === "expense"),
     [activeTransactions],
   )
+
+  const hasAnySavingsInflows = useMemo(() => {
+    if (!savingsEnvelope) return false
+    return activeTransactions.some(
+      (t) => isSavingsInflowCredit(t, savingsEnvelope.id) && t.date.split("T")[0] >= startDate,
+    )
+  }, [activeTransactions, savingsEnvelope, startDate])
 
   // Full OC data (spent + btcValue) — only computed when OC is enabled
   const ocData = useMemo(() => {
@@ -149,6 +188,67 @@ export function OpportunityCostChart() {
     return points
   }, [ocEnabled, activeTransactions, currentPrice, priceHistory, getPriceOnDate, startDate])
 
+  const savingsOcData = useMemo(() => {
+    if (!ocEnabled || effectiveChartMode !== "savings") return []
+    if (!savingsEnvelope || !currentPrice || activeTransactions.length === 0 || priceHistory.length === 0) {
+      return []
+    }
+
+    const credits = activeTransactions
+      .filter(
+        (t) =>
+          isSavingsInflowCredit(t, savingsEnvelope.id) &&
+          t.date.split("T")[0] >= startDate,
+      )
+      .sort((a, b) => a.date.localeCompare(b.date))
+
+    if (credits.length === 0) return []
+
+    const dailyTxns = new Map<string, { usd: number; sats: number }>()
+    for (const txn of credits) {
+      const day = txn.date.split("T")[0]
+      const entry = dailyTxns.get(day) ?? { usd: 0, sats: 0 }
+      entry.usd += txn.amount
+      if (txn.satsAmount != null) {
+        entry.sats += txn.satsAmount
+      } else {
+        const price = getPriceOnDate(day)
+        if (price > 0) entry.sats += Math.round((txn.amount / price) * SATS_PER_BTC)
+      }
+      dailyTxns.set(day, entry)
+    }
+
+    const txnDays = Array.from(dailyTxns.keys()).sort()
+    const firstTxnDate = txnDays[0]
+    const today = new Date().toISOString().split("T")[0]
+
+    const priceDates = priceHistory
+      .filter((p) => p.date >= firstTxnDate && p.date <= today)
+      .map((p) => p.date)
+
+    const allDates = new Set([...priceDates, ...txnDays])
+    const sortedDates = Array.from(allDates).sort()
+
+    let cumUsd = 0
+    let cumSats = 0
+    let txnIdx = 0
+    const points: { date: string; spent: number; btcValue: number }[] = []
+
+    for (const day of sortedDates) {
+      while (txnIdx < txnDays.length && txnDays[txnIdx] <= day) {
+        const d = dailyTxns.get(txnDays[txnIdx])!
+        cumUsd += d.usd
+        cumSats += d.sats
+        txnIdx++
+      }
+      const priceOnDay = getPriceOnDate(day)
+      const btcValue = (cumSats / SATS_PER_BTC) * priceOnDay
+      points.push({ date: day, spent: Math.round(cumUsd), btcValue: Math.round(btcValue) })
+    }
+
+    return points
+  }, [ocEnabled, effectiveChartMode, activeTransactions, savingsEnvelope, currentPrice, priceHistory, getPriceOnDate, startDate])
+
   // Vanilla data — cumulative spent only, no BTC prices required
   const vanillaData = useMemo(() => {
     if (ocEnabled) return []
@@ -173,7 +273,41 @@ export function OpportunityCostChart() {
     })
   }, [ocEnabled, activeTransactions, startDate])
 
-  const filteredData = ocEnabled ? ocData : vanillaData
+  const savingsVanillaData = useMemo(() => {
+    if (ocEnabled || effectiveChartMode !== "savings" || !savingsEnvelope) return []
+
+    const credits = activeTransactions
+      .filter(
+        (t) =>
+          isSavingsInflowCredit(t, savingsEnvelope.id) &&
+          t.date.split("T")[0] >= startDate,
+      )
+      .sort((a, b) => a.date.localeCompare(b.date))
+
+    if (credits.length === 0) return []
+
+    const dailyUsd = new Map<string, number>()
+    for (const txn of credits) {
+      const day = txn.date.split("T")[0]
+      dailyUsd.set(day, (dailyUsd.get(day) ?? 0) + txn.amount)
+    }
+
+    const days = Array.from(dailyUsd.keys()).sort()
+    let cumUsd = 0
+    return days.map((day) => {
+      cumUsd += dailyUsd.get(day)!
+      return { date: day, spent: Math.round(cumUsd), btcValue: 0 }
+    })
+  }, [ocEnabled, effectiveChartMode, activeTransactions, savingsEnvelope, startDate])
+
+  const filteredData =
+    effectiveChartMode === "savings"
+      ? ocEnabled
+        ? savingsOcData
+        : savingsVanillaData
+      : ocEnabled
+        ? ocData
+        : vanillaData
 
   const yDomain = useMemo(() => {
     if (filteredData.length === 0) return [0, 100]
@@ -204,12 +338,31 @@ export function OpportunityCostChart() {
     return { spent: last.spent, btcValue: last.btcValue, diff }
   }, [filteredData, ocEnabled])
 
-  const title = ocEnabled ? "Opportunity Cost" : "Your expenses"
-  const emptyMessage = activeTransactions.length === 0
-    ? "Add transactions to see your spending trends."
-    : !hasAnyExpenses
-      ? "No expense transactions to display."
-      : "No expense transactions in this timeframe."
+  const title =
+    effectiveChartMode === "savings"
+      ? ocEnabled
+        ? "Cumulative Savings"
+        : "Your savings"
+      : ocEnabled
+        ? "Opportunity Cost"
+        : "Your expenses"
+
+  const emptyMessage =
+    effectiveChartMode === "savings"
+      ? activeTransactions.length === 0
+        ? "Add transactions to see your savings trends."
+        : !hasAnySavingsInflows
+          ? "No savings inflows to display."
+          : "No savings inflows in this timeframe."
+      : activeTransactions.length === 0
+        ? "Add transactions to see your spending trends."
+        : !hasAnyExpenses
+          ? "No expense transactions to display."
+          : "No expense transactions in this timeframe."
+
+  const spentLabel = effectiveChartMode === "savings" ? "Saved" : "Spent"
+  const btcLineName = effectiveChartMode === "savings" ? "Equivalent BTC Savings" : "Equivalent BTC Savings"
+  const areaStroke = effectiveChartMode === "savings" ? SAVINGS_GOLD_ACCENT : "#888"
 
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
@@ -217,10 +370,49 @@ export function OpportunityCostChart() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <h2 className="text-xl font-semibold text-foreground">{title}</h2>
 
+          <div className="flex flex-wrap items-center gap-2">
+            {savingsChartEnabled && (
+              <div
+                className="flex items-center gap-1 bg-[#1A1A1A] rounded-lg p-1"
+                role="group"
+                aria-label="Chart mode"
+              >
+                <button
+                  type="button"
+                  onClick={() => setChartMode("spending")}
+                  aria-pressed={effectiveChartMode === "spending"}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    effectiveChartMode === "spending"
+                      ? "bg-[#F7931A] text-[#0D0D0D]"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Spending
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartMode("savings")}
+                  aria-pressed={effectiveChartMode === "savings"}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    effectiveChartMode === "savings"
+                      ? "text-[#0D0D0D]"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  style={
+                    effectiveChartMode === "savings"
+                      ? { backgroundColor: SAVINGS_GOLD_ACCENT }
+                      : undefined
+                  }
+                >
+                  Savings
+                </button>
+              </div>
+            )}
+
           {spread && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
               <span className="text-muted-foreground">
-                Spent: <span className="text-foreground font-medium">{formatUsd(spread.spent)}</span>
+                {spentLabel}: <span className="text-foreground font-medium">{formatUsd(spread.spent)}</span>
               </span>
               {ocEnabled && (
                 <span className="text-muted-foreground inline-flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -238,6 +430,7 @@ export function OpportunityCostChart() {
               )}
             </div>
           )}
+          </div>
         </div>
 
         <div className="flex items-center gap-1 bg-[#1A1A1A] rounded-lg p-1 w-fit overflow-x-auto no-scrollbar">
@@ -311,7 +504,7 @@ export function OpportunityCostChart() {
                       <div className="flex flex-col gap-1">
                         <p className="text-sm">
                           <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#888] mr-2" />
-                          <span className="text-muted-foreground">Spent: </span>
+                          <span className="text-muted-foreground">{spentLabel}: </span>
                           <span className="text-foreground font-medium">{formatUsd(point.spent)}</span>
                         </p>
                         {ocEnabled && (
@@ -352,8 +545,8 @@ export function OpportunityCostChart() {
               <Area
                 type="monotone"
                 dataKey="spent"
-                name="Cumulative Spent (USD)"
-                stroke="#888"
+                name={effectiveChartMode === "savings" ? "Cumulative Saved (USD)" : "Cumulative Spent (USD)"}
+                stroke={areaStroke}
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#colorSpent)"
@@ -362,8 +555,8 @@ export function OpportunityCostChart() {
                 <Area
                   type="monotone"
                   dataKey="btcValue"
-                  name="Equivalent BTC Savings"
-                  stroke="#F7931A"
+                  name={btcLineName}
+                  stroke={effectiveChartMode === "savings" ? SAVINGS_GOLD_ACCENT : "#F7931A"}
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#colorBtcValue)"

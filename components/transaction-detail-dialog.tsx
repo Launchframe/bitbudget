@@ -7,6 +7,13 @@ import { formatUsd } from "@/lib/data"
 import { FormattedBtcAmount } from "@/components/formatted-btc-sats-amount"
 import type { Transaction, TransactionType } from "@/lib/data"
 import {
+  displayPayeeForTransaction,
+  displayTypeLabelForTransaction,
+  incomeTransactionForBatch,
+  isEnvelopeFundingLeg,
+  typeBadgeClassForTransaction,
+} from "@/lib/ledger-funding-display"
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -38,10 +45,17 @@ interface TransactionDetailDialogProps {
   transaction: Transaction | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** When set (e.g. Transactions page), jump to linked Income in-place instead of route navigation. */
+  onNavigateToLinkedIncome?: (income: Transaction) => void
 }
 
-export function TransactionDetailDialog({ transaction, open, onOpenChange }: TransactionDetailDialogProps) {
-  const { state, activeEnvelopes, editTransaction, deleteTransaction, addTag } = useApp()
+export function TransactionDetailDialog({
+  transaction,
+  open,
+  onOpenChange,
+  onNavigateToLinkedIncome,
+}: TransactionDetailDialogProps) {
+  const { state, activeEnvelopes, editTransaction, deleteTransaction, addTag, navigateTo } = useApp()
   const { getPriceOnDate, currentPrice, calculateOpportunityCost } = useBtcPrices()
 
   const [editing, setEditing] = useState(false)
@@ -72,6 +86,13 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
   if (!transaction) return null
 
   const envelope = state.envelopes.find((e) => e.id === transaction.envelopeId)
+  const systemFundingLeg = isEnvelopeFundingLeg(transaction)
+  const linkedIncome = incomeTransactionForBatch(state.transactions, transaction.fundingBatchId)
+  const linkedIncomePeer =
+    linkedIncome && linkedIncome.id !== transaction.id && isEnvelopeFundingLeg(transaction)
+      ? linkedIncome
+      : undefined
+  const displayPayee = displayPayeeForTransaction(transaction, state.transactions)
   const btcPrice = getPriceOnDate(transaction.date)
   const btcEquiv = btcPrice > 0 ? transaction.amount / btcPrice : 0
   const btcValueToday = currentPrice && btcPrice > 0 ? (transaction.amount / btcPrice) * currentPrice : 0
@@ -285,7 +306,25 @@ export function TransactionDetailDialog({ transaction, open, onOpenChange }: Tra
             currentPrice={currentPrice}
             onDelete={handleDelete}
             onEdit={() => setEditing(true)}
-            canEdit={transaction.isDecrypted !== false}
+            canEdit={transaction.isDecrypted !== false && !systemFundingLeg}
+            displayPayee={displayPayee}
+            linkedIncome={linkedIncomePeer}
+            onViewLinkedIncome={
+              linkedIncomePeer
+                ? () => {
+                    if (onNavigateToLinkedIncome) {
+                      onNavigateToLinkedIncome(linkedIncomePeer)
+                    } else {
+                      navigateTo("transactions", undefined, {
+                        highlightTxnId: linkedIncomePeer.id,
+                        envelopeFilter: linkedIncomePeer.envelopeId,
+                      })
+                      handleClose()
+                    }
+                  }
+                : undefined
+            }
+            onDeleteDisabled={systemFundingLeg}
           />
         )}
       </DialogContent>
@@ -313,6 +352,10 @@ function ViewMode({
   onDelete,
   onEdit,
   canEdit,
+  displayPayee,
+  linkedIncome,
+  onViewLinkedIncome,
+  onDeleteDisabled,
 }: {
   transaction: Transaction
   envelope?: { name: string; color: string; monthlyAllotment: number }
@@ -324,6 +367,10 @@ function ViewMode({
   onDelete: () => void
   onEdit: () => void
   canEdit: boolean
+  displayPayee: string
+  linkedIncome?: Transaction
+  onViewLinkedIncome?: () => void
+  onDeleteDisabled?: boolean
 }) {
   const { state, recurringTransactions } = useApp()
   const recurringRule = transaction.recurringId
@@ -338,17 +385,32 @@ function ViewMode({
       {/* Transaction details */}
       <div className="flex flex-col gap-3.5">
         <DetailRow
-          label="Payee"
+          label={transaction.source === "envelope_funding_in" ? "Description" : "Payee"}
           value={
             <span className="font-medium">
               {transaction.isDecrypted === false ? (
                 <span className="text-muted-foreground italic">{ENCRYPTED_DISPLAY}</span>
               ) : (
-                transaction.payee
+                displayPayee
               )}
             </span>
           }
         />
+        {linkedIncome && onViewLinkedIncome && (
+          <DetailRow
+            label="Income entry"
+            value={
+              <button
+                type="button"
+                onClick={onViewLinkedIncome}
+                className="text-[#F7931A] hover:underline text-sm font-medium"
+              >
+                View {formatUsd(linkedIncome.amount)} on{" "}
+                {state.envelopes.find((e) => e.id === linkedIncome.envelopeId)?.name ?? "Savings"}
+              </button>
+            }
+          />
+        )}
         <DetailRow
           label="Date"
           value={new Date(transaction.date + "T00:00:00").toLocaleDateString("en-US", {
@@ -360,13 +422,9 @@ function ViewMode({
           value={
             <Badge
               variant="outline"
-              className={
-                transaction.type === "expense"
-                  ? "border-[#F7931A]/30 text-[#F7931A] bg-[#F7931A]/5"
-                  : "border-[#22C55E]/30 text-[#22C55E] bg-[#22C55E]/5"
-              }
+              className={typeBadgeClassForTransaction(transaction)}
             >
-              {transaction.type === "expense" ? "Expense" : "Credit"}
+              {displayTypeLabelForTransaction(transaction)}
               {transaction.recurringId && (
                 <span className="ml-1 inline-flex"><Repeat className="h-3 w-3" /></span>
               )}
@@ -494,7 +552,9 @@ function ViewMode({
         <div className="w-px h-5 bg-[#1A1A1A]" />
         <button
           onClick={onDelete}
-          className="flex-1 flex items-center justify-center gap-1.5 py-4 text-xs text-muted-foreground hover:text-[#EF4444] hover:bg-[#1A1A1A] transition-colors"
+          disabled={onDeleteDisabled}
+          title={onDeleteDisabled ? "Income allocation rows are managed by your Income entry" : undefined}
+          className="flex-1 flex items-center justify-center gap-1.5 py-4 text-xs text-muted-foreground hover:text-[#EF4444] hover:bg-[#1A1A1A] transition-colors disabled:opacity-40 disabled:pointer-events-none"
         >
           <Trash2 className="h-3 w-3" /> Delete
         </button>
