@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db"
 import { awardIfMissing, detectAchievementsForUser } from "@/lib/achievements"
 import {
   type IncomeImportEntry,
+  entriesNeedMonthlyIncome,
   parseIncomePeriodKey,
   processIncomeImport,
 } from "@/lib/income-import"
@@ -72,9 +73,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  if (!Number.isFinite(user.monthlyIncome) || user.monthlyIncome <= 0) {
+  if (
+    entriesNeedMonthlyIncome(entries) &&
+    (!Number.isFinite(user.monthlyIncome) || user.monthlyIncome <= 0)
+  ) {
     return NextResponse.json(
-      { error: "Set a positive Monthly Income before importing income." },
+      {
+        error:
+          "Set a positive Monthly Income in Settings before importing the current month or future periods.",
+      },
       { status: 400 },
     )
   }

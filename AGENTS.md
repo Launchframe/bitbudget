@@ -143,6 +143,17 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
 - `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **should** be called within `BtcPriceProvider`. If it runs outside the provider (e.g. vanilla mode or a missing wrapper), it returns **`NOOP_PRICES`** (zeros / no-op helpers) and logs a **dev-time warning** — it does not throw. Still wrap components that need real BTC data in `BtcPriceProvider` when `opportunityCostEnabled` is on.
 
+### Input persistence for multi-field flows
+
+Any multi-step or multi-field input flow (onboarding, income import, transaction batch entry, future wizards) **must** cache in-progress state so accidentally closing the dialog or refreshing the page does not destroy the user's work.
+
+- **Default storage tier:** `sessionStorage` via [`lib/draft-storage.ts`](lib/draft-storage.ts). Survives accidental close + page refresh; dies on browser close. Use `localStorage` only when the value is explicitly meant to persist across sessions (e.g. dashboard chart prefs).
+- **Required UI affordance:** a visible **Clear All** (or **Reset**) button whenever working state diverges from defaults. It must trigger an `<AlertDialog>` confirmation explaining what will be discarded before clearing.
+- **Lifecycle:** save on every change (debounced ~400ms); hydrate on open; clear on successful submit, on Clear All confirm, and on logout (`clearAllDrafts()` in `AppContext.logout`).
+- **Privacy:** never persist decrypted sensitive data (PINs, raw nsec, decrypted transaction notes) in drafts. Source labels and amounts are fine.
+- **Validation:** load helpers must validate the deserialized shape and silently drop drafts that fail (schema bumps must not break the dialog).
+- **Examples:** [`app/onboarding/page.tsx`](app/onboarding/page.tsx) (`ONBOARDING_SESSION_STORAGE_KEY`), [`components/income-importer/income-importer-dialog.tsx`](components/income-importer/income-importer-dialog.tsx) (`bitbudget-income-importer-draft`).
+
 ### React effects and `setState` (`react-hooks/set-state-in-effect`)
 
 ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayoutEffect`** (including via helpers that set state in the same tick as the effect runs). The goal is to avoid **effects whose only job is to copy props/other state into local state**, which tends to cause extra render passes, harder-to-follow data flow, and sometimes **cascading updates** (effect → setState → render → effect → …) or tight loops in Strict Mode.
@@ -377,6 +388,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **Missing `min-w-0` in flex/grid layouts** — a child row (tabs, toolbars, input+button pairs) expands the page horizontally on phones. Add `min-w-0 w-full max-w-full` down the layout chain, or stack on mobile. **`overflow-x-auto` without a bounded parent does not fix this.**
 - **Desktop-first breakpoints** — building a wide horizontal layout by default and only wrapping at `lg`/`md` often breaks between 320–640px. Default to mobile layout; enhance upward with `sm:` / `md:` / `lg:`.
 - **Fixed padding and min-widths on cards** — uniform `p-6` plus wide inner flex rows can clip buttons and text on 390px-wide screens. Use responsive padding and `flex-col sm:flex-row` for compound controls.
+- **Multi-field flow without draft persistence** — any non-trivial input flow must follow the **Input persistence for multi-field flows** convention. Closing a dialog must not silently destroy in-progress work; provide **Clear All** with confirmation.
 
 ## Cursor Cloud-specific instructions
 

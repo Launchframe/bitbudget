@@ -64,6 +64,11 @@ export function currentYearUtc(now = new Date()): number {
   return now.getUTCFullYear()
 }
 
+/** True when any import row targets the current month/year or later (envelope funding applies). */
+export function entriesNeedMonthlyIncome(entries: readonly IncomeImportEntry[], now = new Date()): boolean {
+  return entries.some((e) => isPeriodCurrentOrFuture(e.periodKey, now))
+}
+
 /** True when the period is the current month/year or later (envelope funding applies). */
 export function isPeriodCurrentOrFuture(periodKey: string, now = new Date()): boolean {
   const parsed = parseIncomePeriodKey(periodKey)
@@ -72,9 +77,33 @@ export function isPeriodCurrentOrFuture(periodKey: string, now = new Date()): bo
   return parsed.periodKey >= currentMonthKeyUtc(now)
 }
 
-export function importBatchPeriodKey(userId: string, periodKey: string, amount: number): string {
-  const cents = Math.round(amount * 100)
-  return `import-${userId}-${periodKey}-${cents}`
+/** One import batch per user+period (overwrite on re-import). */
+export function importBatchPeriodKey(userId: string, periodKey: string): string {
+  return `import-${userId}-${periodKey}`
+}
+
+/** Remove prior income-import batch for a period (Savings credits + allocation legs). */
+export async function deletePriorImportForPeriod(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  periodKey: string,
+): Promise<void> {
+  const batchKey = importBatchPeriodKey(userId, periodKey)
+  const legacyPrefix = `${batchKey}-`
+
+  const batches = await tx.envelopeFundingBatch.findMany({
+    where: {
+      userId,
+      kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+      OR: [{ periodKey: batchKey }, { periodKey: { startsWith: legacyPrefix } }],
+    },
+    select: { id: true },
+  })
+
+  for (const batch of batches) {
+    await tx.transaction.deleteMany({ where: { fundingBatchId: batch.id } })
+    await tx.envelopeFundingBatch.delete({ where: { id: batch.id } })
+  }
 }
 
 export function resolveImportPayDay(payDays: readonly number[]): number {
@@ -241,7 +270,10 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
   if (!pk) return 0
 
   const mi = input.monthlyIncome
-  if (!Number.isFinite(mi) || mi <= 0) return 0
+  const now = new Date()
+  const needsMonthlyIncome = entriesNeedMonthlyIncome(input.entries, now)
+  if (!Number.isFinite(mi) || mi < 0) return 0
+  if (needsMonthlyIncome && mi <= 0) return 0
 
   const savings = await ensureSystemSavingsEnvelope(input.userId)
   const payDay = resolveImportPayDay(input.payDays)
@@ -266,7 +298,6 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
   const encAllocIn = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
   if (!encAllocOut || !encAllocIn) return 0
 
-  const now = new Date()
   let totalCreated = 0
   const btcPrices = await prefetchBtcPricesForImportEntries(input.entries, payDay)
 
@@ -278,17 +309,8 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
       const parsed = parseIncomePeriodKey(entry.periodKey)
       if (!parsed) continue
 
-      const batchKey = importBatchPeriodKey(input.userId, entry.periodKey, amount)
-      const dup = await tx.envelopeFundingBatch.findUnique({
-        where: {
-          userId_periodKey_kind: {
-            userId: input.userId,
-            periodKey: batchKey,
-            kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
-          },
-        },
-      })
-      if (dup) continue
+      const batchKey = importBatchPeriodKey(input.userId, entry.periodKey)
+      await deletePriorImportForPeriod(tx, input.userId, entry.periodKey)
 
       const label = entry.source?.trim() || INCOME_IMPORT_PAYEE_DEFAULT
       const encPayee = encryptFieldForUser(label, pk)

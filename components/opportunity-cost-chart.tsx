@@ -120,6 +120,18 @@ export function OpportunityCostChart() {
     }
   }, [savingsChartEnabled, chartMode])
 
+  useEffect(() => {
+    try {
+      const override = sessionStorage.getItem("dashboard-chart-range-override")
+      if (override === "all") {
+        sessionStorage.removeItem("dashboard-chart-range-override")
+        setTimeout(() => selectRange("all"), 0)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [selectRange])
+
   const hasAnyExpenses = useMemo(
     () => activeTransactions.some((t) => t.type === "expense"),
     [activeTransactions],

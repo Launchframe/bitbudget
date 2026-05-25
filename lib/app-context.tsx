@@ -32,6 +32,7 @@ import {
   getValidCachedPrivacyKeyHex,
   setCachedPrivacyKeyHex,
 } from "@/lib/privacy-key-storage"
+import { clearAllDrafts } from "@/lib/draft-storage"
 import {
   type ApiTransactionRow,
   type CachedTransaction,
@@ -1347,6 +1348,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.removeItem("nostr-login")
       sessionStorage.removeItem("bitbudget-survey-referrer")
       sessionStorage.removeItem("bitbudget-survey-shown")
+      clearAllDrafts()
     } catch {
       /* ignore */
     }
