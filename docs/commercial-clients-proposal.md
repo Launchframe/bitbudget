@@ -303,5 +303,8 @@ One senior web developer can own Capacitor v1 with a contractor for store submis
 
 ## Related docs
 
+- [entitlement-api.md](./entitlement-api.md) — Stripe + store IAP server contract (proposed + current)
+- [native-shells.md](./native-shells.md) — Capacitor / Tauri setup; [`shells/`](../shells/) scaffold
 - [self-hosting.md](./self-hosting.md) — Docker, VPN, offline (community path)
+- [README.md](./README.md) — full docs index
 - [AGENTS.md](../AGENTS.md) — encryption, premium gating, feature flags
