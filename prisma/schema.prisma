@@ -37,6 +37,7 @@ model User {
   savingsExperience       String   @default("engaged") // engaged | dismissed
   onboardingComplete      Boolean  @default(false)
   onboardingCompletedAt   DateTime?
+  walkthroughCompleted      Boolean  @default(false)
   btcDisplayUnit          String   @default("sats") // "sats" | "btc"
   opportunityCostEnabled  Boolean  @default(false)
   role      String? @default("user")

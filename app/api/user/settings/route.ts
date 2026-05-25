@@ -20,6 +20,7 @@ type UserSettingsPutBody = Partial<{
   monthlyIncome: number
   payCadence: string
   onboardingComplete: boolean
+  walkthroughCompleted: boolean
   btcDisplayUnit: string
   opportunityCostEnabled: boolean
   receiptInboxToken: string | null
@@ -58,6 +59,7 @@ const ALLOWED_SETTINGS_PUT_FIELDS = [
   "monthlyIncome",
   "payCadence",
   "onboardingComplete",
+  "walkthroughCompleted",
   "btcDisplayUnit",
   "opportunityCostEnabled",
   "receiptInboxToken",
@@ -83,6 +85,7 @@ const userSettingsSelect = {
   savingsExperience: true,
   onboardingComplete: true,
   onboardingCompletedAt: true,
+  walkthroughCompleted: true,
   btcDisplayUnit: true,
   opportunityCostEnabled: true,
   nostrPubkey: true,
@@ -407,6 +410,7 @@ export async function PUT(req: NextRequest) {
       sweepDefaultCapMultiplier: true,
       savingsExperience: true,
       onboardingComplete: true,
+      walkthroughCompleted: true,
       btcDisplayUnit: true,
       opportunityCostEnabled: true,
       receiptInboxToken: true,

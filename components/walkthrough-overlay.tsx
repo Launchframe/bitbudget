@@ -36,7 +36,8 @@ function buildWalkthroughSteps(opportunityCostEnabled: boolean): WalkthroughStep
   ]
 }
 
-const STORAGE_KEY = "bitbudget-walkthrough-completed"
+/** Legacy browser-wide key; cleared on dismiss so it cannot block new accounts on the same device. */
+const LEGACY_STORAGE_KEY = "bitbudget-walkthrough-completed"
 
 /** Estimated tooltip size for viewport clamping before/without layout measure */
 const EST_TOOLTIP_W = 300
@@ -46,7 +47,7 @@ const VIEW_PAD = 12
 type TooltipVariant = "right" | "below" | "above"
 
 export function WalkthroughOverlay() {
-  const { state } = useApp()
+  const { state, completeWalkthrough } = useApp()
   const steps = useMemo(
     () => buildWalkthroughSteps(state.opportunityCostEnabled),
     [state.opportunityCostEnabled],
@@ -62,12 +63,10 @@ export function WalkthroughOverlay() {
   const tooltipRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    try {
-      if (localStorage.getItem(STORAGE_KEY)) return
-    } catch { return }
+    if (state.walkthroughCompleted) return
     const timer = setTimeout(() => setVisible(true), 800)
     return () => clearTimeout(timer)
-  }, [])
+  }, [state.walkthroughCompleted])
 
   const positionTooltip = useCallback(() => {
     const step = steps[currentStep]
@@ -173,10 +172,13 @@ export function WalkthroughOverlay() {
 
   function dismiss() {
     setVisible(false)
-    try { localStorage.setItem(STORAGE_KEY, "1") } catch {}
+    try {
+      localStorage.removeItem(LEGACY_STORAGE_KEY)
+    } catch { /* ignore */ }
+    void completeWalkthrough()
   }
 
-  if (!visible) return null
+  if (!visible || state.walkthroughCompleted) return null
 
   const step = steps[currentStep]
   const isLast = currentStep === steps.length - 1
