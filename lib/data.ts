@@ -54,20 +54,9 @@ export interface Tag {
 
 export type BtcDisplayUnit = "sats" | "btc"
 
-export type CommunicationPreferenceKey =
-  | "featureUpdates"
-  | "feedbackRequests"
-  | "recurringReminders"
-  | "renewalReminders"
-  | "importAlerts"
+import type { CommunicationPreferences } from "./communication-preferences"
 
-export interface CommunicationPreferences {
-  featureUpdates: boolean
-  feedbackRequests: boolean
-  recurringReminders: boolean
-  renewalReminders: boolean
-  importAlerts: boolean
-}
+export type { CommunicationPreferenceKey, CommunicationPreferences } from "./communication-preferences"
 
 export type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 

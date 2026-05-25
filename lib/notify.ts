@@ -227,9 +227,10 @@ export async function notifyGratisExpiredUser(userId: string): Promise<void> {
     select: COMMUNICATION_EMAIL_SELECT,
   })
   if (!u) return
-  await dispatchToUser(
+  await dispatchPreferenceEmailToUser(
     u,
-    (to) => sendGratisExpiredEmail(to),
+    "renewal_reminders",
+    (to, options) => sendGratisExpiredEmail(to, options),
     () => sendGratisExpiredDm(u.nostrPubkey!),
   )
 }
@@ -257,9 +258,10 @@ export async function notifyTrialExpiredUser(userId: string): Promise<void> {
     select: COMMUNICATION_EMAIL_SELECT,
   })
   if (!u) return
-  await dispatchToUser(
+  await dispatchPreferenceEmailToUser(
     u,
-    (to) => sendTrialExpiredEmail(to),
+    "renewal_reminders",
+    (to, options) => sendTrialExpiredEmail(to, options),
     () => sendTrialExpiredDm(u.nostrPubkey!),
   )
 }

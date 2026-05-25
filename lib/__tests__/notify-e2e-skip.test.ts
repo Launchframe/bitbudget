@@ -12,14 +12,17 @@ vi.mock("@/lib/db", () => ({
   },
 }))
 
+const sendGratisExpiredEmail = vi.fn()
+const sendTrialExpiredEmail = vi.fn()
+
 vi.mock("@/lib/email", () => ({
   sendReferralAcceptedEmail,
   sendReferralActivatedEmail,
   sendAdminDigestEmail: vi.fn(),
-  sendGratisExpiredEmail: vi.fn(),
+  sendGratisExpiredEmail,
   sendGratisExpiringEmail: vi.fn(),
   sendSurveyCompletedAdminEmail: vi.fn(),
-  sendTrialExpiredEmail: vi.fn(),
+  sendTrialExpiredEmail,
   sendTrialEndingEmail: vi.fn(),
 }))
 
@@ -200,5 +203,52 @@ describe("notify — communication preferences", () => {
 
     expect(sendReferralAcceptedEmail).toHaveBeenCalledTimes(1)
     expect(sendReferralAcceptedDm).not.toHaveBeenCalled()
+  })
+
+  it("skips gratis expired email when renewal reminders disabled", async () => {
+    const { prisma } = await import("@/lib/db")
+    sendGratisExpiredEmail.mockClear()
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: "user@example.com",
+      notificationEmails: [],
+      nostrPubkey: null,
+      nostrDmEnabled: false,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: false,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyGratisExpiredUser } = await import("../notify")
+    await notifyGratisExpiredUser("u1")
+
+    expect(sendGratisExpiredEmail).not.toHaveBeenCalled()
+  })
+
+  it("passes unsubscribe metadata for trial expired email", async () => {
+    const { prisma } = await import("@/lib/db")
+    sendTrialExpiredEmail.mockClear()
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: "user@example.com",
+      notificationEmails: [],
+      nostrPubkey: null,
+      nostrDmEnabled: false,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyTrialExpiredUser } = await import("../notify")
+    await notifyTrialExpiredUser("u1")
+
+    expect(sendTrialExpiredEmail).toHaveBeenCalledWith("user@example.com", {
+      category: "renewal_reminders",
+      unsubscribeToken: "tok",
+    })
   })
 })

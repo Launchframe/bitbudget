@@ -165,14 +165,14 @@ export async function sendGratisExpiringEmail(to: string, expiryDate: string, da
   await sendHtmlMail(to, subject, html, options)
 }
 
-export async function sendGratisExpiredEmail(to: string): Promise<void> {
+export async function sendGratisExpiredEmail(to: string, options?: PreferenceEmailOptions): Promise<void> {
   const subject = "Your bonus premium period has ended"
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
       <h2 style="color: #F7931A;">Bonus premium ended</h2>
       <p style="color: #ccc;">Your referral bonus premium access has ended. Thanks for growing BitBudget.</p>
     </div>`
-  await sendHtmlMail(to, subject, html)
+  await sendHtmlMail(to, subject, html, options)
 }
 
 export async function sendTrialEndingEmail(to: string, expiryDate: string, daysRemaining: number, options?: PreferenceEmailOptions): Promise<void> {
@@ -185,14 +185,14 @@ export async function sendTrialEndingEmail(to: string, expiryDate: string, daysR
   await sendHtmlMail(to, subject, html, options)
 }
 
-export async function sendTrialExpiredEmail(to: string): Promise<void> {
+export async function sendTrialExpiredEmail(to: string, options?: PreferenceEmailOptions): Promise<void> {
   const subject = "Your premium trial has ended"
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
       <h2 style="color: #F7931A;">Trial ended</h2>
       <p style="color: #ccc;">Your premium trial has ended. Upgrade anytime to keep Plaid, receipt inbox, and SMS alerts.</p>
     </div>`
-  await sendHtmlMail(to, subject, html)
+  await sendHtmlMail(to, subject, html, options)
 }
 
 export interface SurveyCompletedEmailPayload {

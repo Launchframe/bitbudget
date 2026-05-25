@@ -328,7 +328,8 @@ Use this checklist when enabling outbound messaging in a new environment (previe
 ### Phase 2 — Nostr DMs
 
 - [ ] Generate environment-specific service `nsec`; store as `BITBUDGET_NOSTR_NSEC` (Sensitive, server-only)
-- [ ] Optionally set `BITBUDGET_NOSTR_RELAYS`
+- [ ] **MVP:** omit `BITBUDGET_NOSTR_RELAYS` or use public clearnet relays only (see [Tor-only relays](#tor-only-relays-post-mvp))
+- [ ] Optionally set `BITBUDGET_NOSTR_RELAYS` (not `.onion` until Tor publisher is implemented)
 - [ ] Test user: `nostrPubkey` set, `nostrDmEnabled` true in Settings
 - [ ] Trigger `notifyReferralAccepted` or cron path → confirm kind 4 received on relays
 - [ ] Confirm DMs still send when user also has notification emails linked (both channels)
@@ -415,6 +416,7 @@ Expect JSON summary; users in warning/expiry windows receive email and/or DM per
 | Duplicate emails | Multiple linked addresses | By design; remove extras in Settings |
 | Preview emails real users | Shared prod DB or mailbox | Separate DB + dev sender per environment |
 | CI sends mail | `E2E_TEST` set in Vercel | Remove from Preview/Production |
+| DM `publish failed` to `.onion` | Tor not wired in app | Use public relays for MVP; see [Tor-only relays](#tor-only-relays-post-mvp) |
 
 ---
 

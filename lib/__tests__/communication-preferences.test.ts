@@ -3,6 +3,7 @@ import {
   COMMUNICATION_PREFERENCE_KEYS,
   emailPreferenceUpdateData,
   normalizeCommunicationPreferences,
+  parseUnsubscribePreference,
   preferenceColumnForCategory,
   userAllowsCommunicationEmail,
 } from "../communication-preferences"
@@ -42,5 +43,14 @@ describe("communication preferences", () => {
       "renewalReminders",
       "importAlerts",
     ])
+  })
+
+  it("parses unsubscribe query params in camelCase or snake_case", () => {
+    expect(parseUnsubscribePreference("all")).toBe("all")
+    expect(parseUnsubscribePreference("renewalReminders")).toBe("renewalReminders")
+    expect(parseUnsubscribePreference("renewal_reminders")).toBe("renewalReminders")
+    expect(parseUnsubscribePreference("feature_updates")).toBe("featureUpdates")
+    expect(parseUnsubscribePreference("invalid")).toBeNull()
+    expect(parseUnsubscribePreference(null)).toBeNull()
   })
 })

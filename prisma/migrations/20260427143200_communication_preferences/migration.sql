@@ -9,7 +9,7 @@ ALTER TABLE "User"
   ADD COLUMN IF NOT EXISTS "emailUnsubscribeToken" TEXT;
 
 UPDATE "User"
-SET "emailUnsubscribeToken" = COALESCE("emailUnsubscribeToken", md5(random()::text || clock_timestamp()::text || id))
+SET "emailUnsubscribeToken" = COALESCE("emailUnsubscribeToken", gen_random_uuid()::text)
 WHERE "emailUnsubscribeToken" IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS "User_emailUnsubscribeToken_key" ON "User"("emailUnsubscribeToken");

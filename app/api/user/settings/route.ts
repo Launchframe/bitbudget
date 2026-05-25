@@ -134,9 +134,12 @@ export async function GET() {
     }
   }
 
+  const communicationPreferences = emailPreferencesFromUser(rest)
+
   return NextResponse.json({
     ...rest,
-    emailPreferences: emailPreferencesFromUser(rest),
+    emailPreferences: communicationPreferences,
+    communicationPreferences,
     premiumGratisUntil: premiumGratisUntil?.toISOString() ?? null,
     premiumTrialUntil: premiumTrialUntil?.toISOString() ?? null,
     effectiveTier,

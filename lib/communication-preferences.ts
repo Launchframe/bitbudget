@@ -133,6 +133,18 @@ export function isCommunicationEmailCategory(value: unknown): value is Communica
   return Object.prototype.hasOwnProperty.call(COMMUNICATION_EMAIL_CATEGORY_KEYS, value)
 }
 
+/** Parses `preference` or `category` query values from unsubscribe links (camelCase or snake_case). */
+export function parseUnsubscribePreference(
+  raw: string | null | undefined,
+): CommunicationPreferenceKey | "all" | null {
+  const trimmed = raw?.trim()
+  if (!trimmed) return null
+  if (trimmed === "all") return "all"
+  if (isCommunicationPreferenceKey(trimmed)) return trimmed
+  if (isCommunicationEmailCategory(trimmed)) return communicationKeyForCategory(trimmed)
+  return null
+}
+
 export function communicationKeyForCategory(category: CommunicationEmailCategory): CommunicationPreferenceKey {
   return COMMUNICATION_EMAIL_CATEGORY_KEYS[category]
 }

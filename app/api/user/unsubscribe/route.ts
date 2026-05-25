@@ -1,22 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import {
-  type CommunicationPreferenceKey,
   COMMUNICATION_PREFERENCE_KEYS,
   communicationPreferenceForKey,
-  isCommunicationPreferenceKey,
+  parseUnsubscribePreference,
 } from "@/lib/communication-preferences"
-
-function parsePreference(raw: string | null): CommunicationPreferenceKey | "all" | null {
-  if (raw === "all") return "all"
-  if (isCommunicationPreferenceKey(raw)) return raw
-  return null
-}
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token")?.trim()
   const rawPreference = req.nextUrl.searchParams.get("preference") ?? req.nextUrl.searchParams.get("category")
-  const preference = parsePreference(rawPreference)
+  const preference = parseUnsubscribePreference(rawPreference)
 
   if (!token || !preference) {
     return NextResponse.json({ error: "Invalid unsubscribe link" }, { status: 400 })
