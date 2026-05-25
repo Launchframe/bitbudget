@@ -1,5 +1,6 @@
 import "./load-env"
 import { execSync } from "node:child_process"
+import { seedAppE2e } from "./seed-app-e2e"
 import { seedRecurringE2e } from "./seed-recurring-e2e"
 import { seedReferralE2e } from "./seed-referral-e2e"
 
@@ -13,6 +14,7 @@ async function globalSetup(): Promise<void> {
   })
   await seedReferralE2e()
   await seedRecurringE2e()
+  await seedAppE2e()
 }
 
 export default globalSetup
