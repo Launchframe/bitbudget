@@ -50,7 +50,7 @@ test.describe("Income importer (UI)", () => {
     await page.getByRole("button", { name: "Review import" }).click()
     await expect(page.getByText("Review staged income before importing.")).toBeVisible()
     await expect(page.getByRole("columnheader", { name: "Was" })).toBeVisible()
-    await expect(page.getByRole("row", { name: new RegExp(`Edit ${febLabel}`, "i") })).toBeVisible()
+    await expect(page.getByRole("button", { name: new RegExp(`Edit ${febLabel}`, "i") })).toBeVisible()
 
     const user = await prisma.user.findUnique({
       where: { email: E2E_INCOME_IMPORT_USER_EMAIL },
