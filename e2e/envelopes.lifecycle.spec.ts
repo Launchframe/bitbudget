@@ -11,7 +11,7 @@ test.describe("Envelope lifecycle", () => {
     await expect(page.getByText("E2E Groceries").first()).toBeVisible({ timeout: 90_000 })
   })
 
-  test("create, edit, merge, archive, restore, and permanently delete", async ({ page }) => {
+  test("create, edit, and merge envelopes", async ({ page }) => {
     const stamp = Date.now()
     const name = `E2E Hobby ${stamp}`
     const edited = `${name} Edited`
