@@ -209,17 +209,17 @@ export function CommunicationChannelsCard() {
 
             <ul className="mt-4 flex flex-col gap-2">
               {hasLoginEmail && (
-                <li className="flex items-center justify-between gap-3 rounded-lg border border-[#1F1F1F] bg-[#0D0D0D] px-3 py-2 text-sm">
-                  <span className="truncate text-foreground">{contact.loginEmail}</span>
+                <li className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-[#1F1F1F] bg-[#0D0D0D] px-3 py-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate text-foreground">{contact.loginEmail}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">Sign-in email</span>
                 </li>
               )}
               {contact.notificationEmails.map((entry) => (
                 <li
                   key={entry.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-[#1F1F1F] bg-[#0D0D0D] px-3 py-2 text-sm"
+                  className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-[#1F1F1F] bg-[#0D0D0D] px-3 py-2 text-sm"
                 >
-                  <span className="truncate text-foreground">{entry.email}</span>
+                  <span className="min-w-0 flex-1 truncate text-foreground">{entry.email}</span>
                   <button
                     type="button"
                     onClick={() => removeNotificationEmail(entry)}
