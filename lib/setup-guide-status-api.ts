@@ -55,7 +55,7 @@ export async function buildSetupStatusPayload(userId: string): Promise<SetupStat
   const envelopes = await loadSetupGuideEnvelopes(userId)
   const savingsId = findSavingsEnvelopeId(envelopes)
 
-  const [transactionSignals, savingsGoal, defaultGoal, plaidCount, receiptPending] =
+  const [transactionSignals, savingsGoal, defaultGoal, plaidCount, receiptPending, receiptPosted] =
     await Promise.all([
       loadSetupGuideTransactionSignals(userId, savingsId, monthKey),
       prisma.savingsGoal.findUnique({
@@ -67,11 +67,20 @@ export async function buildSetupStatusPayload(userId: string): Promise<SetupStat
         select: { targetAmount: true },
       }),
       prisma.plaidItem.count({ where: { userId } }),
-      prisma.pendingTransaction.count({
+      prisma.pendingTransaction.findFirst({
         where: {
           userId,
           source: { in: [...RECEIPT_INBOX_SOURCES] },
         },
+        select: { id: true },
+      }),
+      prisma.transaction.findFirst({
+        where: {
+          userId,
+          excludeFromMainHistory: false,
+          source: { in: [...RECEIPT_INBOX_SOURCES] },
+        },
+        select: { id: true },
       }),
     ])
 
@@ -87,7 +96,7 @@ export async function buildSetupStatusPayload(userId: string): Promise<SetupStat
     hasPremiumFeatures,
     savingsGoalSet,
     hasPlaidLink: plaidCount > 0,
-    hasReceiptInboxActivity: receiptPending > 0,
+    hasReceiptInboxActivity: receiptPending != null || receiptPosted != null,
   })
   const progress = setupGuideProgress(tasks)
 

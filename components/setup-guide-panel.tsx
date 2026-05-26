@@ -231,7 +231,7 @@ export function SetupGuidePanel({
                   <p className="text-xs text-muted-foreground">{row.helper}</p>
                   {achievementLabel && !row.complete && (
                     <p className="text-[10px] text-muted-foreground/80 mt-1 flex items-center gap-1">
-                      <Trophy className="h-3 w-3 shrink-0" style={{ color: SAVINGS_GOLD_ACCENT }} />
+                      <Trophy className="h-3 w-3 shrink-0" style={{ color: SAVINGS_GOLD_ACCENT }} aria-hidden />
                       Unlocks: {achievementLabel}
                     </p>
                   )}

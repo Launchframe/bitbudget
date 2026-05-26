@@ -75,13 +75,14 @@ export function SettingsSetupGuideSection() {
   }, [applyStatus])
 
   useEffect(() => {
-    const t = window.setTimeout(() => void loadStatus(), 0)
     const onFocus = () => void loadStatus()
     window.addEventListener("focus", onFocus)
-    return () => {
-      window.clearTimeout(t)
-      window.removeEventListener("focus", onFocus)
-    }
+    return () => window.removeEventListener("focus", onFocus)
+  }, [loadStatus])
+
+  useEffect(() => {
+    const t = window.setTimeout(() => void loadStatus(), 0)
+    return () => window.clearTimeout(t)
   }, [loadStatus, activeTransactions.length, state.monthlyIncome, allotmentSignature])
 
   const progress = remote ? setupGuideProgress(remote.tasks) : null
