@@ -5,6 +5,8 @@ const txQueryRaw = vi.hoisted(() => vi.fn())
 const txNotificationFindUnique = vi.hoisted(() => vi.fn())
 const txNotificationCount = vi.hoisted(() => vi.fn())
 const txNotificationUpsert = vi.hoisted(() => vi.fn())
+const txEmailCodeUpdateMany = vi.hoisted(() => vi.fn())
+const txEmailCodeFindUnique = vi.hoisted(() => vi.fn())
 const txEmailCodeDeleteMany = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/db", () => ({
@@ -38,16 +40,28 @@ import {
 const userFindUnique = vi.mocked(prisma.user.findUnique)
 const userFindFirst = vi.mocked(prisma.user.findFirst)
 const emailCodeFindFirst = vi.mocked(prisma.emailCode.findFirst)
-const emailCodeUpdate = vi.mocked(prisma.emailCode.update)
-const emailCodeDeleteMany = vi.mocked(prisma.emailCode.deleteMany)
-const notificationFindUnique = vi.mocked(prisma.userNotificationEmail.findUnique)
 const transaction = vi.mocked(prisma.$transaction)
+
+function mockTransactionTx() {
+  return {
+    $queryRaw: txQueryRaw,
+    userNotificationEmail: {
+      findUnique: txNotificationFindUnique,
+      count: txNotificationCount,
+      upsert: txNotificationUpsert,
+    },
+    emailCode: {
+      updateMany: txEmailCodeUpdateMany,
+      findUnique: txEmailCodeFindUnique,
+      deleteMany: txEmailCodeDeleteMany,
+    },
+  }
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
   userFindFirst.mockResolvedValue(null)
   userFindUnique.mockResolvedValue({ email: null } as never)
-  notificationFindUnique.mockResolvedValue(null)
   txQueryRaw.mockResolvedValue([])
   txNotificationFindUnique.mockResolvedValue(null)
   txNotificationCount.mockResolvedValue(0)
@@ -56,18 +70,10 @@ beforeEach(() => {
     email: "notify@example.com",
     verifiedAt: new Date("2026-01-01"),
   } as never)
-  txEmailCodeDeleteMany.mockResolvedValue({ count: 1 } as never)
-  transaction.mockImplementation(async (fn) =>
-    fn({
-      $queryRaw: txQueryRaw,
-      userNotificationEmail: {
-        findUnique: txNotificationFindUnique,
-        count: txNotificationCount,
-        upsert: txNotificationUpsert,
-      },
-      emailCode: { deleteMany: txEmailCodeDeleteMany },
-    } as never),
-  )
+  txEmailCodeUpdateMany.mockResolvedValue({ count: 1 })
+  txEmailCodeFindUnique.mockResolvedValue({ failedAttempts: 1 })
+  txEmailCodeDeleteMany.mockResolvedValue({ count: 1 })
+  transaction.mockImplementation(async (fn) => fn(mockTransactionTx() as never))
 })
 
 describe("verifyNotificationEmailLink", () => {
@@ -77,15 +83,23 @@ describe("verifyNotificationEmailLink", () => {
       code: "111111",
       failedAttempts: 0,
     } as never)
-    emailCodeUpdate.mockResolvedValue({} as never)
+    txEmailCodeUpdateMany.mockResolvedValue({ count: 1 })
+    txEmailCodeFindUnique.mockResolvedValue({ failedAttempts: 1 })
 
     await expect(
       verifyNotificationEmailLink("user-1", "notify@example.com", "222222"),
     ).rejects.toMatchObject({ code: "INVALID_CODE" })
 
-    expect(emailCodeUpdate).toHaveBeenCalledWith({
+    expect(txEmailCodeUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: "code-1",
+        failedAttempts: { lt: MAX_VERIFY_CODE_ATTEMPTS },
+      },
+      data: { failedAttempts: { increment: 1 } },
+    })
+    expect(txEmailCodeFindUnique).toHaveBeenCalledWith({
       where: { id: "code-1" },
-      data: { failedAttempts: 1 },
+      select: { failedAttempts: true },
     })
   })
 
@@ -95,7 +109,10 @@ describe("verifyNotificationEmailLink", () => {
       code: "111111",
       failedAttempts: MAX_VERIFY_CODE_ATTEMPTS - 1,
     } as never)
-    emailCodeDeleteMany.mockResolvedValue({ count: 1 } as never)
+    txEmailCodeUpdateMany.mockResolvedValue({ count: 1 })
+    txEmailCodeFindUnique.mockResolvedValue({
+      failedAttempts: MAX_VERIFY_CODE_ATTEMPTS,
+    })
 
     await expect(
       verifyNotificationEmailLink("user-1", "notify@example.com", "222222"),
@@ -104,10 +121,30 @@ describe("verifyNotificationEmailLink", () => {
       status: 429,
     })
 
-    expect(emailCodeDeleteMany).toHaveBeenCalledWith({
+    expect(txEmailCodeDeleteMany).toHaveBeenCalledWith({
       where: { email: "notify@example.com" },
     })
-    expect(emailCodeUpdate).not.toHaveBeenCalled()
+  })
+
+  it("rate-limits when updateMany cannot increment further", async () => {
+    emailCodeFindFirst.mockResolvedValue({
+      id: "code-1",
+      code: "111111",
+      failedAttempts: MAX_VERIFY_CODE_ATTEMPTS,
+    } as never)
+    txEmailCodeUpdateMany.mockResolvedValue({ count: 0 })
+
+    await expect(
+      verifyNotificationEmailLink("user-1", "notify@example.com", "222222"),
+    ).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      status: 429,
+    })
+
+    expect(txEmailCodeDeleteMany).toHaveBeenCalledWith({
+      where: { email: "notify@example.com" },
+    })
+    expect(txEmailCodeFindUnique).not.toHaveBeenCalled()
   })
 
   it("locks the user row and re-counts before linking a new notification email", async () => {
