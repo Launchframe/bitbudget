@@ -1,3 +1,7 @@
+import type { CommunicationPreferences } from "./communication-preferences"
+
+export type { CommunicationPreferenceKey, CommunicationPreferences } from "./communication-preferences"
+
 // ─── Types ───────────────────────────────────────────────────────────
 
 export type TransactionType = "expense" | "credit"
@@ -73,10 +77,6 @@ export interface Tag {
 }
 
 export type BtcDisplayUnit = "sats" | "btc"
-
-import type { CommunicationPreferences } from "./communication-preferences"
-
-export type { CommunicationPreferenceKey, CommunicationPreferences } from "./communication-preferences"
 
 export type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 

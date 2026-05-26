@@ -374,41 +374,44 @@ export function SettingsPage() {
     <>
       <CommunicationChannelsCard />
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 rounded-lg bg-[#3B82F6]/10">
-          <MessageSquare className="h-5 w-5 text-[#3B82F6]" />
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-[#3B82F6]/10">
+            <MessageSquare className="h-5 w-5 text-[#3B82F6]" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Communication Preferences</h3>
+            <p className="text-sm text-muted-foreground">
+              Choose which non-transactional messages BitBudget may send you.
+            </p>
+          </div>
         </div>
-        <div>
-          <h3 className="text-lg font-semibold text-foreground">Communication Preferences</h3>
-          <p className="text-sm text-muted-foreground">
-            Choose which non-transactional messages BitBudget may send you.
-          </p>
-        </div>
-      </div>
-      <div className="flex flex-col divide-y divide-[#1F1F1F] rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]">
-        {COMMUNICATION_PREFERENCE_DETAILS.map((preference) => {
-          const checked = state.communicationPreferences[preference.key]
-          return (
-            <div key={preference.key} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="pr-2">
-                <p className="font-medium text-foreground">{preference.label}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{preference.description}</p>
+        <div className="flex flex-col divide-y divide-[#1F1F1F] rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]">
+          {COMMUNICATION_PREFERENCE_DETAILS.map((preference) => {
+            const checked = state.communicationPreferences[preference.key]
+            return (
+              <div
+                key={preference.key}
+                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between"
+              >
+                <div className="pr-2">
+                  <p className="font-medium text-foreground">{preference.label}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{preference.description}</p>
+                </div>
+                <Switch
+                  checked={checked}
+                  onCheckedChange={(enabled) => toggleCommunicationPreference(preference.key, enabled)}
+                  aria-label={`${checked ? "Disable" : "Enable"} ${preference.label}`}
+                  className="mt-0.5 data-[state=checked]:bg-[#F7931A]"
+                />
               </div>
-              <Switch
-                checked={checked}
-                onCheckedChange={(enabled) => toggleCommunicationPreference(preference.key, enabled)}
-                aria-label={`${checked ? "Disable" : "Enable"} ${preference.label}`}
-                className="mt-0.5 data-[state=checked]:bg-[#F7931A]"
-              />
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
+        <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+          Account security notices, including new-device access alerts and login codes, are always sent when needed.
+          Unsubscribe buttons in emails update these same preferences.
+        </p>
       </div>
-      <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
-        Account security notices, including new-device access alerts and login codes, are always sent when needed.
-        Unsubscribe buttons in emails update these same preferences.
-      </p>
-    </div>
     </>
   )
 

@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer"
+import { resolveEmailAppUrl } from "@/lib/app-url"
 import {
   type CommunicationEmailCategory,
   communicationPreferenceForCategory,
@@ -6,7 +7,6 @@ import {
 
 const GMAIL_USER = process.env.GMAIL_USER
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD
-const APP_URL = process.env.NEXTAUTH_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL
 
 function getTransport() {
   if (GMAIL_USER && GMAIL_APP_PASSWORD) {
@@ -83,8 +83,8 @@ export interface PreferenceEmailOptions {
 
 export function unsubscribeUrl(token: string, category: CommunicationEmailCategory): string | null {
   const trimmed = token.trim()
-  if (!trimmed || !APP_URL) return null
-  const base = APP_URL.startsWith("http") ? APP_URL : `https://${APP_URL}`
+  const base = resolveEmailAppUrl()
+  if (!trimmed || !base) return null
   const url = new URL("/api/user/unsubscribe", base)
   url.searchParams.set("token", trimmed)
   url.searchParams.set("category", category)

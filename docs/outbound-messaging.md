@@ -93,7 +93,7 @@ Copy from [`.env.example`](../.env.example). Minimum for local app boot: `DATABA
 
 If `GMAIL_USER` / `GMAIL_APP_PASSWORD` are unset, `lib/email.ts` logs to the server console instead of sending mail: **subject and recipient** for general HTML mail, and the **6-digit code only** for auth/notification verification emails (not full message bodies). That is the expected local-dev default.
 
-**Also uses `NEXTAUTH_URL`** (fallback: `VERCEL_PROJECT_PRODUCTION_URL`, then `VERCEL_URL`) to build unsubscribe URLs in product emails.
+**Also uses `NEXTAUTH_URL`** when set; otherwise `resolveEmailAppUrl()` in `lib/app-url.ts` picks `VERCEL_URL` on preview deploys and `VERCEL_PROJECT_PRODUCTION_URL` only when `VERCEL_ENV=production`.
 
 ### Nostr (service account DMs)
 
