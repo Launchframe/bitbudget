@@ -18,28 +18,33 @@ let currentRange: DashboardChartRange = {
 }
 
 export function getStartDateForRange(key: Exclude<DashboardChartRangeKey, "custom">): string {
-  const d = new Date()
+  const now = new Date()
+  const y = now.getUTCFullYear()
+  const m = now.getUTCMonth()
   switch (key) {
     case "mtd":
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`
-    case "1m":
-      d.setMonth(d.getMonth() - 1)
-      break
-    case "3m":
-      d.setMonth(d.getMonth() - 3)
-      break
-    case "12m":
-      d.setFullYear(d.getFullYear() - 1)
-      break
+      return `${y}-${String(m + 1).padStart(2, "0")}-01`
+    case "1m": {
+      const d = new Date(Date.UTC(y, m - 1, 1))
+      return d.toISOString().split("T")[0]!
+    }
+    case "3m": {
+      const d = new Date(Date.UTC(y, m - 3, 1))
+      return d.toISOString().split("T")[0]!
+    }
+    case "12m": {
+      const d = new Date(Date.UTC(y - 1, m, 1))
+      return d.toISOString().split("T")[0]!
+    }
     case "ytd":
-      return `${d.getFullYear()}-01-01`
-    case "5y":
-      d.setFullYear(d.getFullYear() - 5)
-      break
+      return `${y}-01-01`
+    case "5y": {
+      const d = new Date(Date.UTC(y - 5, m, 1))
+      return d.toISOString().split("T")[0]!
+    }
     case "all":
       return "2009-01-03"
   }
-  return d.toISOString().split("T")[0]!
 }
 
 export function getDashboardChartRange(): DashboardChartRange {

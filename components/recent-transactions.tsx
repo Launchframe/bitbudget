@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useSyncExternalStore } from "react"
+import { useState, useMemo, useSyncExternalStore, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { compareTransactionsDesc, formatUsd, transactionsVisibleInMainHistory } from "@/lib/data"
 import type { Transaction } from "@/lib/data"
@@ -31,17 +31,11 @@ export function RecentTransactions() {
     () => getDashboardChartRange(),
   )
   const rangeKey = `${chartRange.startDate}:${chartRange.endDate}:${chartRange.activeRange}`
-  const [pageState, setPageState] = useState({ rangeKey, page: 1 })
-  if (pageState.rangeKey !== rangeKey) {
-    setPageState({ rangeKey, page: 1 })
-  }
-  const page = pageState.page
-  const setPage = (next: number | ((prev: number) => number)) => {
-    setPageState((prev) => ({
-      rangeKey: prev.rangeKey,
-      page: typeof next === "function" ? next(prev.page) : next,
-    }))
-  }
+  const [page, setPage] = useState(1)
+
+  useEffect(() => {
+    requestAnimationFrame(() => setPage(1))
+  }, [rangeKey])
 
   const envelopeMap = useMemo(() => {
     const map: Record<string, { name: string; color: string }> = {}

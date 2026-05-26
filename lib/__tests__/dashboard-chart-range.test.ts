@@ -17,6 +17,7 @@ describe("dashboard-chart-range", () => {
     vi.setSystemTime(new Date("2026-05-26T15:00:00Z"))
     expect(getStartDateForRange("mtd")).toBe("2026-05-01")
     expect(getStartDateForRange("ytd")).toBe("2026-01-01")
+    expect(getStartDateForRange("12m")).toBe("2025-05-01")
     expect(getStartDateForRange("all")).toBe("2009-01-03")
     vi.useRealTimers()
   })

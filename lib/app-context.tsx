@@ -1052,15 +1052,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const deleteTransaction = useCallback(async (id: string) => {
     setState(prev => {
       const txn = prev.transactions.find(t => t.id === id)
-      let idsToRemove = [id]
+      let idsToRemove = new Set([id])
       if (txn && shouldCascadeDeleteFundingBatch(txn) && txn.fundingBatchId) {
-        idsToRemove = prev.transactions
-          .filter(t => t.fundingBatchId === txn.fundingBatchId)
-          .map(t => t.id)
+        for (const t of prev.transactions) {
+          if (t.fundingBatchId === txn.fundingBatchId) idsToRemove.add(t.id)
+        }
       }
       return {
         ...prev,
-        transactions: prev.transactions.filter(t => !idsToRemove.includes(t.id)),
+        transactions: prev.transactions.filter(t => !idsToRemove.has(t.id)),
       }
     })
 
@@ -1069,13 +1069,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (res.ok && currentUserIdRef.current) {
         const body = (await res.json().catch(() => ({}))) as { deletedIds?: string[] }
         const deletedIds = Array.isArray(body.deletedIds) && body.deletedIds.length > 0 ? body.deletedIds : [id]
+        const deletedSet = new Set(deletedIds)
         setState(prev => ({
           ...prev,
-          transactions: prev.transactions.filter(t => !deletedIds.includes(t.id)),
+          transactions: prev.transactions.filter(t => !deletedSet.has(t.id)),
         }))
-        for (const deletedId of deletedIds) {
-          await deleteCachedTransaction(currentUserIdRef.current, deletedId)
-        }
+        await Promise.all(
+          deletedIds.map((deletedId) =>
+            deleteCachedTransaction(currentUserIdRef.current!, deletedId),
+          ),
+        )
       } else if (!res.ok) {
         await refreshData()
       }
