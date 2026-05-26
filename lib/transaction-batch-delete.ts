@@ -2,6 +2,13 @@ import type { Transaction } from "@/lib/data"
 import { TX_SOURCE_INCOME_IMPORT } from "@/lib/constants"
 import { isEnvelopeFundingLeg, isIncomeHeaderTransaction } from "@/lib/ledger-funding-display"
 
+/** Funding legs are batch-managed via their income header; hide list delete. */
+export function canDeleteTransactionFromList(
+  txn: Pick<Transaction, "source">,
+): boolean {
+  return !isEnvelopeFundingLeg(txn)
+}
+
 /** Income header deletes remove the whole funding batch (income + allocation legs). */
 export function shouldCascadeDeleteFundingBatch(
   txn: Pick<Transaction, "type" | "source" | "fundingBatchId">,

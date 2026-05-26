@@ -18,6 +18,7 @@ import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { formatTransactionTableDate } from "@/lib/transaction-dates"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { useTransactionDeleteConfirm } from "@/components/use-transaction-delete-confirm"
+import { canDeleteTransactionFromList } from "@/lib/transaction-batch-delete"
 import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
@@ -308,13 +309,15 @@ export function EnvelopeDetailPage() {
                       </td>
                     )}
                     <td className="py-3.5 px-4 text-right">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); requestDelete(txn) }}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-all"
-                        aria-label={`Delete transaction ${txn.payee}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      {canDeleteTransactionFromList(txn) && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); requestDelete(txn) }}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-all"
+                          aria-label={`Delete transaction ${txn.payee}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )

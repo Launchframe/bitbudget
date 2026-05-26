@@ -20,6 +20,7 @@ import {
   sumAllocatedIrregularCents,
 } from "@/lib/irregular-income-split"
 import { encryptFieldForUser } from "@/lib/server-encrypt"
+import { todayUtcIso } from "@/lib/transaction-visibility"
 
 export const INCOME_IMPORT_PAYEE_DEFAULT = "Imported income"
 
@@ -83,6 +84,28 @@ export function isImportPeriodFuture(periodKey: string, now = new Date()): boole
   if (!parsed) return false
   if (parsed.kind === "year") return parsed.year > currentYearUtc(now)
   return parsed.periodKey > currentMonthKeyUtc(now)
+}
+
+/** Drop paycheck dates after today so annual/current-year imports cannot create future credits. */
+export function filterImportDatesThroughToday(
+  dates: readonly string[],
+  now = new Date(),
+): string[] {
+  const today = todayUtcIso(now)
+  return dates.filter((d) => d <= today)
+}
+
+/** Envelope funding on import applies to the current month only (not future slices of a year row). */
+export function shouldFundEnvelopeSliceOnImport(
+  periodKey: string,
+  dateIso: string,
+  now = new Date(),
+): boolean {
+  if (!isPeriodCurrent(periodKey, now)) return false
+  const parsed = parseIncomePeriodKey(periodKey)
+  if (!parsed) return false
+  if (parsed.kind === "month") return true
+  return dateIso.startsWith(currentMonthKeyUtc(now))
 }
 
 /** True when the period is the current month/year or later (envelope funding applies). */
@@ -453,9 +476,12 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
       const encPayee = encryptFieldForUser(label, pk)
       if (!encPayee) continue
 
-      const fundEnvelopes = isPeriodCurrent(entry.periodKey, now)
       const splitCount = parsed.kind === "year" ? Math.max(1, entry.splitCount ?? 1) : 1
-      const dates = distributeImportDates({ periodKey: entry.periodKey, payDay, splitCount })
+      const dates = filterImportDatesThroughToday(
+        distributeImportDates({ periodKey: entry.periodKey, payDay, splitCount }),
+        now,
+      )
+      if (dates.length === 0) continue
       const amounts = splitAmountAcrossChecks(amount, dates.length)
 
       for (let i = 0; i < dates.length; i++) {
@@ -483,7 +509,7 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
         })
         totalCreated++
 
-        if (!fundEnvelopes) continue
+        if (!shouldFundEnvelopeSliceOnImport(entry.periodKey, dateIso, now)) continue
         if (sumAllot > mi + 0.015) continue
 
         const split = computeIrregularIncomeSplits({

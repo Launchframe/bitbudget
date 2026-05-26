@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { Transaction } from "@/lib/data"
 import {
+  canDeleteTransactionFromList,
   incomeBatchDeleteConfirmMessage,
   incomeBatchHasFundingLegs,
   shouldCascadeDeleteFundingBatch,
@@ -61,5 +62,11 @@ describe("transaction-batch-delete", () => {
   it("incomeBatchDeleteConfirmMessage varies by source", () => {
     expect(incomeBatchDeleteConfirmMessage("income_import")).toMatch(/imported income/)
     expect(incomeBatchDeleteConfirmMessage("irregular_income")).toMatch(/envelope funding/)
+  })
+
+  it("canDeleteTransactionFromList blocks funding legs", () => {
+    expect(canDeleteTransactionFromList({ source: "manual" })).toBe(true)
+    expect(canDeleteTransactionFromList({ source: "envelope_funding_in" })).toBe(false)
+    expect(canDeleteTransactionFromList({ source: "envelope_funding_out" })).toBe(false)
   })
 })
