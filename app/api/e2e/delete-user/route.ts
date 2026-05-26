@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
+import { isE2eApiTokenValid, isE2eTestApiEnabled } from "@/lib/e2e-api-guard"
 
 /**
  * Deletes a test user by email. Only @bitbudget.test addresses when E2E_TEST is set.
  */
 export async function POST(req: NextRequest) {
-  if (process.env.E2E_TEST !== "true") {
+  if (!isE2eTestApiEnabled() || !isE2eApiTokenValid(req)) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
 
