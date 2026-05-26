@@ -13,18 +13,18 @@ describe("isE2eTestApiEnabled", () => {
     expect(isE2eTestApiEnabled()).toBe(false)
   })
 
-  it("is false in production NODE_ENV even when E2E_TEST is true", () => {
+  it("is true when NODE_ENV is production (next start) and E2E_TEST is set", () => {
     process.env = { ...env, E2E_TEST: "true", NODE_ENV: "production", VERCEL_ENV: undefined }
-    expect(isE2eTestApiEnabled()).toBe(false)
+    expect(isE2eTestApiEnabled()).toBe(true)
   })
 
   it("is false when VERCEL_ENV is production", () => {
-    process.env = { ...env, E2E_TEST: "true", NODE_ENV: "test", VERCEL_ENV: "production" }
+    process.env = { ...env, E2E_TEST: "true", NODE_ENV: "production", VERCEL_ENV: "production" }
     expect(isE2eTestApiEnabled()).toBe(false)
   })
 
-  it("is true in test env with E2E_TEST", () => {
-    process.env = { ...env, E2E_TEST: "true", NODE_ENV: "test", VERCEL_ENV: "preview" }
+  it("is true on Vercel preview with E2E_TEST", () => {
+    process.env = { ...env, E2E_TEST: "true", NODE_ENV: "production", VERCEL_ENV: "preview" }
     expect(isE2eTestApiEnabled()).toBe(true)
   })
 })

@@ -5,7 +5,7 @@
 
 export function isE2eTestApiEnabled(): boolean {
   if (process.env.E2E_TEST !== "true") return false
-  if (process.env.NODE_ENV === "production") return false
+  // Playwright runs `next start` (NODE_ENV=production) with E2E_TEST=true — do not gate on NODE_ENV.
   if (process.env.VERCEL_ENV === "production") return false
   return true
 }
