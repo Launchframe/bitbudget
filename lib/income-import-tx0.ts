@@ -7,6 +7,8 @@ export interface Tx0Result {
   year: number
   month: number
   periodKey: PeriodKey
+  /** Earliest real credit date (YYYY-MM-DD). */
+  dateIso: string
 }
 
 const EXCLUDED_SOURCES = new Set([
@@ -44,5 +46,6 @@ export function findTransactionHistoryStart(transactions: readonly TxLike[]): Tx
     year: y,
     month: m,
     periodKey: `${y}-${String(m).padStart(2, "0")}`,
+    dateIso: earliest,
   }
 }

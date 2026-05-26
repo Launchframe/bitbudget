@@ -1,0 +1,43 @@
+import type { Transaction } from "@/lib/data"
+import { TX_SOURCE_INCOME_IMPORT } from "@/lib/constants"
+import { isEnvelopeFundingLeg, isIncomeHeaderTransaction } from "@/lib/ledger-funding-display"
+
+/** Income header deletes remove the whole funding batch (income + allocation legs). */
+export function shouldCascadeDeleteFundingBatch(
+  txn: Pick<Transaction, "type" | "source" | "fundingBatchId">,
+): boolean {
+  return (
+    txn.type === "credit" &&
+    txn.fundingBatchId != null &&
+    txn.fundingBatchId.length > 0 &&
+    isIncomeHeaderTransaction(txn)
+  )
+}
+
+export function incomeBatchHasFundingLegs(
+  fundingBatchId: string | null | undefined,
+  txnId: string,
+  transactions: readonly Transaction[],
+): boolean {
+  if (!fundingBatchId) return false
+  return transactions.some(
+    (t) => t.fundingBatchId === fundingBatchId && t.id !== txnId && isEnvelopeFundingLeg(t),
+  )
+}
+
+export function shouldConfirmIncomeBatchDelete(
+  txn: Transaction,
+  transactions: readonly Transaction[],
+): boolean {
+  return (
+    shouldCascadeDeleteFundingBatch(txn) &&
+    incomeBatchHasFundingLegs(txn.fundingBatchId, txn.id, transactions)
+  )
+}
+
+export function incomeBatchDeleteConfirmMessage(source: Transaction["source"]): string {
+  if (source === TX_SOURCE_INCOME_IMPORT) {
+    return "Deleting this imported income will also remove its envelope funding entries for that period. This keeps your chart and envelope balances in sync."
+  }
+  return "Deleting this income will also remove its envelope funding entries. This keeps your chart and envelope balances in sync."
+}

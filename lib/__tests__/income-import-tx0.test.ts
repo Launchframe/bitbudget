@@ -8,7 +8,7 @@ describe("income-import-tx0", () => {
       { date: "2022-06-01", type: "credit", source: "manual" },
       { date: "2022-05-01", type: "credit", source: "envelope_funding_in", excludeFromMainHistory: true },
     ])
-    expect(tx0).toEqual({ year: 2022, month: 6, periodKey: "2022-06" })
+    expect(tx0).toEqual({ year: 2022, month: 6, periodKey: "2022-06", dateIso: "2022-06-01" })
   })
 
   it("returns null when only synthetic credits exist", () => {
