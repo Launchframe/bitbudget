@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+const txQueryRaw = vi.hoisted(() => vi.fn())
+const txNotificationFindUnique = vi.hoisted(() => vi.fn())
+const txNotificationCount = vi.hoisted(() => vi.fn())
+const txNotificationUpsert = vi.hoisted(() => vi.fn())
+const txEmailCodeDeleteMany = vi.hoisted(() => vi.fn())
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     user: { findUnique: vi.fn(), findFirst: vi.fn() },
@@ -15,6 +21,7 @@ vi.mock("@/lib/db", () => ({
       update: vi.fn(),
       deleteMany: vi.fn(),
     },
+    $transaction: vi.fn(),
   },
 }))
 
@@ -34,15 +41,33 @@ const emailCodeFindFirst = vi.mocked(prisma.emailCode.findFirst)
 const emailCodeUpdate = vi.mocked(prisma.emailCode.update)
 const emailCodeDeleteMany = vi.mocked(prisma.emailCode.deleteMany)
 const notificationFindUnique = vi.mocked(prisma.userNotificationEmail.findUnique)
+const transaction = vi.mocked(prisma.$transaction)
 
 beforeEach(() => {
   vi.clearAllMocks()
   userFindFirst.mockResolvedValue(null)
-  userFindUnique.mockResolvedValue({
-    email: null,
-    _count: { notificationEmails: 0 },
-  } as never)
+  userFindUnique.mockResolvedValue({ email: null } as never)
   notificationFindUnique.mockResolvedValue(null)
+  txQueryRaw.mockResolvedValue([])
+  txNotificationFindUnique.mockResolvedValue(null)
+  txNotificationCount.mockResolvedValue(0)
+  txNotificationUpsert.mockResolvedValue({
+    id: "row-1",
+    email: "notify@example.com",
+    verifiedAt: new Date("2026-01-01"),
+  } as never)
+  txEmailCodeDeleteMany.mockResolvedValue({ count: 1 } as never)
+  transaction.mockImplementation(async (fn) =>
+    fn({
+      $queryRaw: txQueryRaw,
+      userNotificationEmail: {
+        findUnique: txNotificationFindUnique,
+        count: txNotificationCount,
+        upsert: txNotificationUpsert,
+      },
+      emailCode: { deleteMany: txEmailCodeDeleteMany },
+    } as never),
+  )
 })
 
 describe("verifyNotificationEmailLink", () => {
@@ -83,5 +108,24 @@ describe("verifyNotificationEmailLink", () => {
       where: { email: "notify@example.com" },
     })
     expect(emailCodeUpdate).not.toHaveBeenCalled()
+  })
+
+  it("locks the user row and re-counts before linking a new notification email", async () => {
+    emailCodeFindFirst.mockResolvedValue({
+      id: "code-1",
+      code: "123456",
+      failedAttempts: 0,
+    } as never)
+    vi.mocked(prisma.userNotificationEmail.findMany).mockResolvedValue([])
+
+    await verifyNotificationEmailLink("user-1", "notify@example.com", "123456")
+
+    expect(transaction).toHaveBeenCalled()
+    expect(txQueryRaw).toHaveBeenCalled()
+    expect(txNotificationCount).toHaveBeenCalledWith({ where: { userId: "user-1" } })
+    expect(txNotificationUpsert).toHaveBeenCalled()
+    expect(txEmailCodeDeleteMany).toHaveBeenCalledWith({
+      where: { email: "notify@example.com" },
+    })
   })
 })

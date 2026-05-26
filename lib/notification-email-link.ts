@@ -154,10 +154,7 @@ export async function verifyNotificationEmailLink(userId: string, email: string,
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: {
-      email: true,
-      _count: { select: { notificationEmails: true } },
-    },
+    select: { email: true },
   })
   if (!user) {
     throw new NotificationEmailLinkError("UNAUTHORIZED", "Unauthorized", 401)
@@ -193,29 +190,37 @@ export async function verifyNotificationEmailLink(userId: string, email: string,
     throw new NotificationEmailLinkError("INVALID_CODE", "Invalid or expired code")
   }
 
-  const existing = await prisma.userNotificationEmail.findUnique({
-    where: { userId_email: { userId, email: normalizedEmail } },
-    select: { id: true },
-  })
-  if (!existing && user._count.notificationEmails >= MAX_NOTIFICATION_EMAILS_PER_USER) {
-    throw new NotificationEmailLinkError(
-      "LIMIT_REACHED",
-      `You can link up to ${MAX_NOTIFICATION_EMAILS_PER_USER} notification email addresses.`,
-      400,
-    )
-  }
+  const row = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT 1 FROM "User" WHERE "id" = ${userId} FOR UPDATE`
 
-  const row = await prisma.userNotificationEmail.upsert({
-    where: { userId_email: { userId, email: normalizedEmail } },
-    create: {
-      userId,
-      email: normalizedEmail,
-      verifiedAt: new Date(),
-    },
-    update: { verifiedAt: new Date() },
-    select: { id: true, email: true, verifiedAt: true },
+    const existing = await tx.userNotificationEmail.findUnique({
+      where: { userId_email: { userId, email: normalizedEmail } },
+      select: { id: true },
+    })
+    if (!existing) {
+      const count = await tx.userNotificationEmail.count({ where: { userId } })
+      if (count >= MAX_NOTIFICATION_EMAILS_PER_USER) {
+        throw new NotificationEmailLinkError(
+          "LIMIT_REACHED",
+          `You can link up to ${MAX_NOTIFICATION_EMAILS_PER_USER} notification email addresses.`,
+          400,
+        )
+      }
+    }
+
+    const linked = await tx.userNotificationEmail.upsert({
+      where: { userId_email: { userId, email: normalizedEmail } },
+      create: {
+        userId,
+        email: normalizedEmail,
+        verifiedAt: new Date(),
+      },
+      update: { verifiedAt: new Date() },
+      select: { id: true, email: true, verifiedAt: true },
+    })
+    await tx.emailCode.deleteMany({ where: { email: normalizedEmail } })
+    return linked
   })
-  await prisma.emailCode.deleteMany({ where: { email: normalizedEmail } })
 
   const notificationEmails = await listUserNotificationEmails(userId)
   return {

@@ -1,6 +1,6 @@
 # Outbound messaging (email & Nostr)
 
-BitBudget sends **non-transactional** product messages (referrals, premium trial/gratis reminders, admin digests, notification-email verification codes, login OTPs) through two optional server channels:
+BitBudget sends **optional product notifications** (referrals, premium trial/gratis reminders, admin digests, notification-email verification codes, and similar) through two server channels. **Login OTPs** are security messages on the same SMTP stack; they are always sent when needed and are **not** controlled by Communications preference toggles.
 
 | Channel | Implementation | User opt-in |
 |---------|----------------|-------------|
@@ -91,7 +91,7 @@ Copy from [`.env.example`](../.env.example). Minimum for local app boot: `DATABA
 | `GMAIL_APP_PASSWORD` | For real sends | [Google App Password](https://myaccount.google.com/apppasswords) (not your main Gmail password) |
 | `NEXTAUTH_URL` | For unsubscribe links | Canonical app URL (see [Preview vs production](#preview-vs-production)) |
 
-If `GMAIL_USER` / `GMAIL_APP_PASSWORD` are unset, `lib/email.ts` **logs OTP and message bodies to the server console** instead of sending mail. That is the expected local-dev default.
+If `GMAIL_USER` / `GMAIL_APP_PASSWORD` are unset, `lib/email.ts` logs to the server console instead of sending mail: **subject and recipient** for general HTML mail, and the **6-digit code only** for auth/notification verification emails (not full message bodies). That is the expected local-dev default.
 
 **Also uses `NEXTAUTH_URL`** (fallback: `VERCEL_PROJECT_PRODUCTION_URL`, then `VERCEL_URL`) to build unsubscribe URLs in product emails.
 
