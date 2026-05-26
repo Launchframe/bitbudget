@@ -1,23 +1,52 @@
 // @vitest-environment jsdom
-import { describe, expect, it, beforeEach, afterEach } from "vitest"
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest"
 import { findWalkthroughTarget } from "@/lib/walkthrough-target"
+
+function mockRect(el: Element, width: number, height: number) {
+  vi.spyOn(el, "getBoundingClientRect").mockReturnValue({
+    width,
+    height,
+    top: 0,
+    left: 0,
+    right: width,
+    bottom: height,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  } as DOMRect)
+}
 
 describe("findWalkthroughTarget", () => {
   beforeEach(() => {
     document.body.innerHTML = `
-      <nav data-walkthrough="demo-target" style="width:10px;height:10px"></nav>
+      <nav data-walkthrough="demo-target" id="nav"></nav>
       <main>
-        <div data-walkthrough="demo-target" style="width:10px;height:10px"></div>
+        <div data-walkthrough="demo-target" id="main-target"></div>
       </main>
     `
+    mockRect(document.getElementById("nav")!, 10, 10)
+    mockRect(document.getElementById("main-target")!, 10, 10)
   })
 
   afterEach(() => {
     document.body.innerHTML = ""
+    vi.restoreAllMocks()
   })
 
-  it("prefers the anchor inside main when duplicates exist", () => {
+  it("prefers the visible anchor inside main when duplicates exist", () => {
     const el = findWalkthroughTarget("demo-target")
-    expect(el?.closest("main")).not.toBeNull()
+    expect(el?.id).toBe("main-target")
+  })
+
+  it("skips hidden anchors when a visible duplicate exists", () => {
+    document.body.innerHTML = `
+      <nav data-walkthrough="app-nav" id="sidebar" style="display:none"></nav>
+      <nav data-walkthrough="app-nav" id="mobile"></nav>
+    `
+    mockRect(document.getElementById("sidebar")!, 0, 0)
+    mockRect(document.getElementById("mobile")!, 48, 48)
+
+    const el = findWalkthroughTarget("app-nav")
+    expect(el?.id).toBe("mobile")
   })
 })
