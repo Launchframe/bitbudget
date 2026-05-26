@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useSyncExternalStore } from "react"
 import { useApp } from "@/lib/app-context"
 import { compareTransactionsDesc, formatUsd, transactionsVisibleInMainHistory } from "@/lib/data"
 import type { Transaction } from "@/lib/data"
@@ -11,6 +11,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { formatTransactionTableDate } from "@/lib/transaction-dates"
 import { useTransactionDeleteConfirm } from "@/components/use-transaction-delete-confirm"
+import {
+  getDashboardChartRange,
+  subscribeDashboardChartRange,
+  transactionInDashboardChartRange,
+} from "@/lib/dashboard-chart-range"
 
 const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
@@ -20,7 +25,23 @@ export function RecentTransactions() {
   const { requestDelete, confirmDialog } = useTransactionDeleteConfirm()
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
   const [pageSize, setPageSize] = useState(15)
-  const [page, setPage] = useState(1)
+  const chartRange = useSyncExternalStore(
+    subscribeDashboardChartRange,
+    getDashboardChartRange,
+    () => getDashboardChartRange(),
+  )
+  const rangeKey = `${chartRange.startDate}:${chartRange.endDate}:${chartRange.activeRange}`
+  const [pageState, setPageState] = useState({ rangeKey, page: 1 })
+  if (pageState.rangeKey !== rangeKey) {
+    setPageState({ rangeKey, page: 1 })
+  }
+  const page = pageState.page
+  const setPage = (next: number | ((prev: number) => number)) => {
+    setPageState((prev) => ({
+      rangeKey: prev.rangeKey,
+      page: typeof next === "function" ? next(prev.page) : next,
+    }))
+  }
 
   const envelopeMap = useMemo(() => {
     const map: Record<string, { name: string; color: string }> = {}
@@ -29,8 +50,11 @@ export function RecentTransactions() {
   }, [state.envelopes])
 
   const visible = useMemo(
-    () => transactionsVisibleInMainHistory(activeTransactions),
-    [activeTransactions],
+    () =>
+      transactionsVisibleInMainHistory(activeTransactions).filter((t) =>
+        transactionInDashboardChartRange(t.date, chartRange),
+      ),
+    [activeTransactions, chartRange],
   )
 
   const sorted = useMemo(
@@ -141,7 +165,9 @@ export function RecentTransactions() {
             {paginated.length === 0 && (
               <tr>
                 <td colSpan={6} className="py-10 text-center text-muted-foreground text-sm">
-                  No transactions yet. Add one to get started.
+                  {visible.length === 0 && activeTransactions.length > 0
+                    ? "No transactions in this timeframe."
+                    : "No transactions yet. Add one to get started."}
                 </td>
               </tr>
             )}

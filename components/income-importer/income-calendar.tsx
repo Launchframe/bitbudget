@@ -106,17 +106,24 @@ export function IncomeCalendar({
   const annualBottomSentinelRef = useRef<HTMLDivElement>(null)
   const annualScrollAnchorRef = useRef<number | null>(null)
   const currentYear = useMemo(() => new Date().getUTCFullYear(), [])
+  const annualViewKey = mode === "annual" ? `${scrollYear}:${currentYear}` : null
   const [annualRange, setAnnualRange] = useState(() => ({
     end: currentYear,
     start: Math.max(ANNUAL_YEAR_FLOOR, currentYear - ANNUAL_INITIAL_SPAN + 1),
   }))
+  const [lastAnnualViewKey, setLastAnnualViewKey] = useState<string | null>(null)
+
+  if (annualViewKey !== null && annualViewKey !== lastAnnualViewKey) {
+    const minStart = Math.max(ANNUAL_YEAR_FLOOR, currentYear - ANNUAL_INITIAL_SPAN + 1)
+    setLastAnnualViewKey(annualViewKey)
+    setAnnualRange((prev) => ({
+      end: currentYear,
+      start: Math.min(prev.start, minStart),
+    }))
+  }
 
   useEffect(() => {
     if (mode !== "annual") return
-    setAnnualRange((prev) => ({
-      end: currentYear,
-      start: Math.min(prev.start, Math.max(ANNUAL_YEAR_FLOOR, currentYear - ANNUAL_INITIAL_SPAN + 1)),
-    }))
     requestAnimationFrame(() => {
       annualScrollRef.current
         ?.querySelector<HTMLElement>(`[data-annual-year="${Math.min(scrollYear, currentYear)}"]`)
@@ -130,7 +137,10 @@ export function IncomeCalendar({
     return years
   }, [annualRange.end, annualRange.start])
   const annualRangeRef = useRef(annualRange)
-  annualRangeRef.current = annualRange
+
+  useEffect(() => {
+    annualRangeRef.current = annualRange
+  }, [annualRange])
 
   useEffect(() => {
     if (mode !== "annual") return

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type MouseEvent } from "react"
+import { useMemo, useState, type MouseEvent } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import {
   Dialog,
@@ -58,6 +58,29 @@ function periodPillLabel(mode: ImportEditMode, periodKey: string): string {
 const CELL_EDIT_TITLE_ID = "income-cell-edit-title"
 const EDIT_STEP = 3
 
+function initialNavState(initial: CellEditState) {
+  const mode: ImportEditMode = initial.kind === "year" ? "annual" : "monthly"
+  const keys = buildEditPeriodKeys(mode, initial.periodKey)
+  return {
+    mode,
+    anchor: initial.periodKey,
+    stepIndex: Math.max(0, keys.indexOf(initial.periodKey)),
+  }
+}
+
+function stagedFieldDefaults(
+  focusedKey: string,
+  entries: Map<string, StagedImportEntry>,
+  paintSource: string,
+) {
+  const staged = entries.get(focusedKey)
+  return {
+    amount: staged && staged.amount > 0 ? String(staged.amount) : "",
+    source: staged?.source ?? paintSource,
+    splitCount: staged?.splitCount ?? 12,
+  }
+}
+
 function CellEditForm({
   initial,
   entries,
@@ -73,17 +96,10 @@ function CellEditForm({
   onSave: (entry: StagedImportEntry) => void
   onCancel: () => void
 }) {
-  const [mode, setMode] = useState<ImportEditMode>(initial.kind === "year" ? "annual" : "monthly")
-  const [anchor, setAnchor] = useState(initial.periodKey)
-  const [stepIndex, setStepIndex] = useState(0)
-
-  useEffect(() => {
-    const nextMode: ImportEditMode = initial.kind === "year" ? "annual" : "monthly"
-    const keys = buildEditPeriodKeys(nextMode, initial.periodKey)
-    setMode(nextMode)
-    setAnchor(initial.periodKey)
-    setStepIndex(Math.max(0, keys.indexOf(initial.periodKey)))
-  }, [initial.kind, initial.periodKey])
+  const initialNav = initialNavState(initial)
+  const [mode, setMode] = useState<ImportEditMode>(initialNav.mode)
+  const [anchor, setAnchor] = useState(initialNav.anchor)
+  const [stepIndex, setStepIndex] = useState(initialNav.stepIndex)
 
   const periodKeys = useMemo(() => buildEditPeriodKeys(mode, anchor), [mode, anchor])
   const focusedKey = periodKeys[stepIndex] ?? periodKeys[0] ?? anchor
@@ -92,16 +108,33 @@ function CellEditForm({
   const focusedIsFuture = isImportPeriodFuture(focusedKey)
   const canStepForward = !isImportPeriodFuture(stepEditAnchor(mode, anchor, EDIT_STEP))
 
-  const [amount, setAmount] = useState("")
-  const [source, setSource] = useState("")
-  const [splitCount, setSplitCount] = useState(12)
+  const [fieldOverrides, setFieldOverrides] = useState<
+    Record<string, { amount?: string; source?: string; splitCount?: number }>
+  >({})
+  const stagedDefaults = stagedFieldDefaults(focusedKey, entries, paintSource)
+  const fieldOverride = fieldOverrides[focusedKey]
+  const amount = fieldOverride?.amount ?? stagedDefaults.amount
+  const source = fieldOverride?.source ?? stagedDefaults.source
+  const splitCount = fieldOverride?.splitCount ?? stagedDefaults.splitCount
 
-  useEffect(() => {
-    const staged = entries.get(focusedKey)
-    setAmount(staged && staged.amount > 0 ? String(staged.amount) : "")
-    setSource(staged?.source ?? paintSource)
-    setSplitCount(staged?.splitCount ?? 12)
-  }, [focusedKey, entries, paintSource])
+  const setAmount = (value: string) => {
+    setFieldOverrides((prev) => ({
+      ...prev,
+      [focusedKey]: { ...prev[focusedKey], amount: value },
+    }))
+  }
+  const setSource = (value: string) => {
+    setFieldOverrides((prev) => ({
+      ...prev,
+      [focusedKey]: { ...prev[focusedKey], source: value },
+    }))
+  }
+  const setSplitCount = (value: number) => {
+    setFieldOverrides((prev) => ({
+      ...prev,
+      [focusedKey]: { ...prev[focusedKey], splitCount: value },
+    }))
+  }
 
   const handleModeChange = (next: ImportEditMode) => {
     setMode(next)

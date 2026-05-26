@@ -13,7 +13,7 @@ export function calendarDaysBetweenIsoExclusive(a: string, b: string): number {
   )
 }
 
-export type ExpenseChartRangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "5y" | "all"
+export type ExpenseChartRangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "5y" | "all" | "custom"
 
 /**
  * X-axis tick labels for the dashboard expense / opportunity-cost chart.
@@ -37,7 +37,8 @@ export function formatExpenseChartXAxisTick(
     args.activeRange === "1m" ||
     args.activeRange === "3m" ||
     args.activeRange === "12m" ||
-    args.activeRange === "ytd"
+    args.activeRange === "ytd" ||
+    args.activeRange === "custom"
 
   /** Long window but history is still “short” — avoid repeating bare years. */
   const useMonthDayStyle = shortPreset || spanDays <= 800

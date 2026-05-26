@@ -1,7 +1,7 @@
 "use client"
 
-import { useMemo, useState, useCallback, useSyncExternalStore, useEffect } from "react"
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Legend, ReferenceLine } from "recharts"
+import { useMemo, useState, useCallback, useSyncExternalStore, useEffect, useRef } from "react"
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, Legend, ReferenceLine, ReferenceArea } from "recharts"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
 import { formatUsd } from "@/lib/data"
@@ -21,16 +21,24 @@ import {
   subscribeDashboardChartMode,
   type DashboardChartMode,
 } from "@/lib/dashboard-chart-mode"
+import {
+  getDashboardChartRange,
+  setDashboardChartCustomRange,
+  setDashboardChartPresetRange,
+  subscribeDashboardChartRange,
+  type DashboardChartRangeKey,
+} from "@/lib/dashboard-chart-range"
+import { parseIsoDateLocal } from "@/lib/chart-x-axis-format"
 import { SAVINGS_GOLD_ACCENT, SAVINGS_EXPERIENCE_DISMISSED } from "@/lib/constants"
 // Shared tick rules (incl. short spans / 5Y imported history) live in `lib/chart-x-axis-format.ts`.
 import { formatExpenseChartXAxisTick } from "@/lib/chart-x-axis-format"
 import { BarChart3 } from "lucide-react"
 import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 
-type RangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "5y" | "all"
+type PresetRangeKey = Exclude<DashboardChartRangeKey, "custom">
 type ChartMode = DashboardChartMode
 
-const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
+const RANGE_OPTIONS: { key: PresetRangeKey; label: string }[] = [
   { key: "mtd", label: "MTD" },
   { key: "1m", label: "1M" },
   { key: "3m", label: "3M" },
@@ -40,18 +48,21 @@ const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
   { key: "all", label: "All" },
 ]
 
-function getStartDateForRange(key: RangeKey): string {
-  const d = new Date()
-  switch (key) {
-    case "mtd": return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`
-    case "1m": d.setMonth(d.getMonth() - 1); break
-    case "3m": d.setMonth(d.getMonth() - 3); break
-    case "12m": d.setFullYear(d.getFullYear() - 1); break
-    case "ytd": return `${d.getFullYear()}-01-01`
-    case "5y": d.setFullYear(d.getFullYear() - 5); break
-    case "all": return "2009-01-03"
-  }
-  return d.toISOString().split("T")[0]
+function formatCustomRangeLabel(startDate: string, endDate: string): string {
+  const start = parseIsoDateLocal(startDate)
+  const end = parseIsoDateLocal(endDate)
+  const sameYear = start.getFullYear() === end.getFullYear()
+  const startFmt = start.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  })
+  const endFmt = end.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+  return `${startFmt} – ${endFmt}`
 }
 
 function useIsMobile(breakpoint = 640) {
@@ -94,7 +105,12 @@ function useIsMobile(breakpoint = 640) {
 export function OpportunityCostChart() {
   const { activeTransactions, state, accountCreatedAtIso } = useApp()
   const { getPriceOnDate, currentPrice, priceHistory } = useBtcPrices()
-  const [activeRange, setActiveRange] = useState<RangeKey>("12m")
+  const chartRange = useSyncExternalStore(
+    subscribeDashboardChartRange,
+    getDashboardChartRange,
+    () => getDashboardChartRange(),
+  )
+  const { activeRange, startDate, endDate } = chartRange
   const chartMode = useSyncExternalStore(
     subscribeDashboardChartMode,
     getDashboardChartMode,
@@ -103,14 +119,21 @@ export function OpportunityCostChart() {
   const setChartMode = useCallback((mode: ChartMode) => {
     setDashboardChartMode(mode)
   }, [])
-  const [startDate, setStartDate] = useState(() => getStartDateForRange("12m"))
+  const [dragStartDate, setDragStartDate] = useState<string | null>(null)
+  const [dragEndDate, setDragEndDate] = useState<string | null>(null)
+  const isDraggingRef = useRef(false)
   const isMobile = useIsMobile()
   const ocEnabled = state.opportunityCostEnabled
 
-  const selectRange = useCallback((key: RangeKey) => {
-    setActiveRange(key)
-    setStartDate(getStartDateForRange(key))
+  const selectRange = useCallback((key: PresetRangeKey) => {
+    setDashboardChartPresetRange(key)
   }, [])
+
+  const filterSeriesToRange = useCallback(
+    <T extends { date: string }>(series: T[]): T[] =>
+      series.filter((p) => p.date >= startDate && p.date <= endDate),
+    [startDate, endDate],
+  )
 
   const savingsEnvelope = useMemo(
     () => findSavingsEnvelope(state.envelopes),
@@ -166,8 +189,8 @@ export function OpportunityCostChart() {
       transactions: activeTransactions,
       startDate: "2009-01-03",
     })
-    return series.filter((p) => p.date >= startDate)
-  }, [activeTransactions, startDate])
+    return filterSeriesToRange(series)
+  }, [activeTransactions, filterSeriesToRange])
 
   const savingsChartData = useMemo(() => {
     if (!savingsEnvelope || !accountCreatedAtIso) return []
@@ -180,7 +203,7 @@ export function OpportunityCostChart() {
       getPriceOnDate: canOc ? getPriceOnDate : undefined,
       priceHistory: canOc ? priceHistory : undefined,
     })
-    return series.filter((p) => p.date >= startDate)
+    return filterSeriesToRange(series)
   }, [
     activeTransactions,
     savingsEnvelope,
@@ -190,7 +213,7 @@ export function OpportunityCostChart() {
     currentPrice,
     priceHistory,
     getPriceOnDate,
-    startDate,
+    filterSeriesToRange,
   ])
 
   const hasAnySavingsInflows = useMemo(() => {
@@ -228,8 +251,51 @@ export function OpportunityCostChart() {
   const filteredData = useMemo(() => {
     if (effectiveChartMode === "cashflow") return cashFlowData
     if (effectiveChartMode === "savings") return savingsChartData
-    return ocEnabled ? ocData : vanillaData
-  }, [effectiveChartMode, cashFlowData, savingsChartData, ocEnabled, ocData, vanillaData])
+    const spendingData = ocEnabled ? ocData : vanillaData
+    return filterSeriesToRange(spendingData)
+  }, [effectiveChartMode, cashFlowData, savingsChartData, ocEnabled, ocData, vanillaData, filterSeriesToRange])
+
+  const beginDragSelection = useCallback((date: string) => {
+    isDraggingRef.current = true
+    setDragStartDate(date)
+    setDragEndDate(date)
+  }, [])
+
+  const updateDragSelection = useCallback((date: string) => {
+    if (!isDraggingRef.current) return
+    setDragEndDate(date)
+  }, [])
+
+  const finishDragSelection = useCallback(() => {
+    if (!isDraggingRef.current) {
+      setDragStartDate(null)
+      setDragEndDate(null)
+      return
+    }
+    isDraggingRef.current = false
+    const start = dragStartDate
+    const end = dragEndDate ?? dragStartDate
+    setDragStartDate(null)
+    setDragEndDate(null)
+    if (!start || !end || start === end) return
+    setDashboardChartCustomRange(start, end)
+  }, [dragStartDate, dragEndDate])
+
+  const handleChartMouseDown = useCallback(
+    (state: { activeLabel?: string | number }) => {
+      if (!state?.activeLabel || typeof state.activeLabel !== "string") return
+      beginDragSelection(state.activeLabel)
+    },
+    [beginDragSelection],
+  )
+
+  const handleChartMouseMove = useCallback(
+    (state: { activeLabel?: string | number }) => {
+      if (!state?.activeLabel || typeof state.activeLabel !== "string") return
+      updateDragSelection(state.activeLabel)
+    },
+    [updateDragSelection],
+  )
 
   const showBtcOverlay = ocEnabled && effectiveChartMode !== "cashflow"
 
@@ -399,20 +465,31 @@ export function OpportunityCostChart() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1 bg-[#1A1A1A] rounded-lg p-1 w-fit overflow-x-auto no-scrollbar">
-          {RANGE_OPTIONS.map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => selectRange(key)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                activeRange === key
-                  ? "bg-[#F7931A] text-[#0D0D0D]"
-                  : "text-muted-foreground hover:text-foreground"
-              } ${key === "3m" ? "hidden xs:block" : ""}`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 bg-[#1A1A1A] rounded-lg p-1 w-fit overflow-x-auto no-scrollbar">
+            {RANGE_OPTIONS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => selectRange(key)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  activeRange === key
+                    ? "bg-[#F7931A] text-[#0D0D0D]"
+                    : "text-muted-foreground hover:text-foreground"
+                } ${key === "3m" ? "hidden xs:block" : ""}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {activeRange === "custom" && (
+            <span className="text-xs text-muted-foreground">
+              {formatCustomRangeLabel(startDate, endDate)}
+            </span>
+          )}
+          <span className="text-xs text-muted-foreground hidden sm:inline">
+            Drag across the chart to zoom in
+          </span>
         </div>
       </div>
 
@@ -422,9 +499,16 @@ export function OpportunityCostChart() {
           <p className="text-sm text-center max-w-xs">{emptyMessage}</p>
         </div>
       ) : (
-        <div className="h-[250px] md:h-[350px] w-full">
+        <div className="h-[250px] md:h-[350px] w-full select-none">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={filteredData}>
+            <AreaChart
+              data={filteredData}
+              onMouseDown={handleChartMouseDown}
+              onMouseMove={handleChartMouseMove}
+              onMouseUp={finishDragSelection}
+              onMouseLeave={finishDragSelection}
+              style={{ cursor: "crosshair" }}
+            >
               <defs>
                 <linearGradient id="colorSpent" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#666" stopOpacity={0.15} />
@@ -530,6 +614,16 @@ export function OpportunityCostChart() {
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#colorBtcValue)"
+                />
+              )}
+              {dragStartDate && dragEndDate && dragStartDate !== dragEndDate && (
+                <ReferenceArea
+                  x1={dragStartDate}
+                  x2={dragEndDate}
+                  stroke="#F7931A"
+                  strokeOpacity={0.8}
+                  fill="#F7931A"
+                  fillOpacity={0.15}
                 />
               )}
             </AreaChart>
