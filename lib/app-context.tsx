@@ -1052,7 +1052,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const deleteTransaction = useCallback(async (id: string) => {
     setState(prev => {
       const txn = prev.transactions.find(t => t.id === id)
-      let idsToRemove = new Set([id])
+      const idsToRemove = new Set([id])
       if (txn && shouldCascadeDeleteFundingBatch(txn) && txn.fundingBatchId) {
         for (const t of prev.transactions) {
           if (t.fundingBatchId === txn.fundingBatchId) idsToRemove.add(t.id)

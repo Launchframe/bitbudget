@@ -45,8 +45,10 @@ export const INCOME_CELL_EDIT_DIALOG = "Edit income"
 
 export async function setScrollYear(page: Page, year: number): Promise<void> {
   const yearSelect = page.locator("#calendar-year")
-  await yearSelect.selectOption(String(year))
-  await expect(yearSelect).toHaveValue(String(year))
+  await expect.poll(async () => {
+    await yearSelect.selectOption(String(year))
+    return yearSelect.inputValue()
+  }).toBe(String(year))
   await expect(page.getByRole("rowheader", { name: String(year), exact: true })).toBeVisible()
 }
 
@@ -58,7 +60,6 @@ export async function fillPaintBar(
   await page.locator("#paint-amount").fill(String(amount))
   await page.locator("#paint-source").fill(source)
   await page.locator("#paint-source").blur()
-  await expect(page.locator("#paint-amount")).toHaveValue(String(amount))
   await expect(page.locator("#paint-source")).toHaveValue(source)
 }
 

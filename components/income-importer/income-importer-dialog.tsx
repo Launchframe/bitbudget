@@ -110,6 +110,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
   const [clearOpen, setClearOpen] = useState(false)
   /** Sync guard for parent onOpenChange — React state can lag behind Radix dismiss events. */
   const childModalOpenRef = useRef(false)
+  const openHydratedRef = useRef(false)
 
   useEffect(() => {
     childModalOpenRef.current = editOpen || clearOpen
@@ -173,7 +174,13 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
   }, [priorImports, state.monthlyIncome, sumAllotments])
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      openHydratedRef.current = false
+      return
+    }
+    if (openHydratedRef.current) return
+    openHydratedRef.current = true
+
     const draft = loadDraft(INCOME_IMPORTER_DRAFT_KEY, isDraft)
     if (draft) {
       setStep(draft.step === "success" ? "calendar" : draft.step)
