@@ -40,13 +40,15 @@ describe("setupGuideSnoozedUntilError", () => {
     expect(setupGuideSnoozedUntilError(null)).toBeNull()
   })
 
-  it("accepts valid ISO strings", () => {
+  it("accepts valid ISO date-time strings", () => {
     expect(setupGuideSnoozedUntilError("2026-05-25T12:00:00.000Z")).toBeNull()
+    expect(setupGuideSnoozedUntilError("2026-05-25T12:00:00Z")).toBeNull()
+    expect(setupGuideSnoozedUntilError("2026-05-25T12:00:00+00:00")).toBeNull()
   })
 
   it("rejects non-string and invalid dates", () => {
     expect(setupGuideSnoozedUntilError(123)).toContain("ISO 8601")
-    expect(setupGuideSnoozedUntilError("not-a-date")).toContain("valid ISO")
+    expect(setupGuideSnoozedUntilError("not-a-date")).toContain("ISO 8601")
   })
 
   it("rejects date-only strings that are not full ISO UTC", () => {

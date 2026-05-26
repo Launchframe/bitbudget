@@ -215,7 +215,6 @@ interface AppContextValue {
     setupGuideDismissed?: boolean
     setupGuideShowOnDashboard?: boolean
   }) => Promise<void>
-  refreshSetupGuideStatus: () => Promise<void>
   addTag: (tag: string) => void
   deleteTag: (id: string) => void
   refreshData: () => Promise<void>
@@ -1378,14 +1377,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [refreshData],
   )
 
-  const refreshSetupGuideStatus = useCallback(async () => {
-    try {
-      await fetch("/api/user/setup-status", { method: "POST" })
-    } catch {
-      /* ignore */
-    }
-  }, [])
-
   const addTag = useCallback(async (tag: string) => {
     const trimmed = tag.trim()
     if (!trimmed) return
@@ -1696,7 +1687,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         completeWalkthrough,
         restartWalkthrough,
         updateSetupGuidePrefs,
-        refreshSetupGuideStatus,
         addTag,
         deleteTag,
         refreshData,

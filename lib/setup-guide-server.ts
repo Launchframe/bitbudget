@@ -6,14 +6,12 @@ import {
 import type { Envelope } from "@/lib/data"
 import { getCurrentMonthKey } from "@/lib/data"
 import { MONTHLY_INCOME_SOURCES } from "@/lib/savings-ui-metrics"
+import {
+  SETUP_GUIDE_ALLOTMENT_EPSILON,
+  type SetupGuideTransactionSignals,
+} from "@/lib/setup-guide-status"
 
-const ALLOTMENT_EPSILON = 0.001
-
-export type SetupGuideTransactionSignals = {
-  hasFundedIncomeThisMonth: boolean
-  hasAnyTransaction: boolean
-  hasSweepToSavings: boolean
-}
+export type { SetupGuideTransactionSignals }
 
 function monthDateRange(monthKey: string): { start: Date; end: Date } {
   const [y, m] = monthKey.split("-").map(Number)
@@ -62,9 +60,9 @@ export async function loadSetupGuideTransactionSignals(
       : Promise.resolve(null),
   ])
 
-  const fundedSum = incomeAgg._sum.amount ?? 0
+  const fundedSum = Number(incomeAgg._sum.amount ?? 0)
   return {
-    hasFundedIncomeThisMonth: fundedSum > ALLOTMENT_EPSILON,
+    hasFundedIncomeThisMonth: fundedSum > SETUP_GUIDE_ALLOTMENT_EPSILON,
     hasAnyTransaction: anyTxn != null,
     hasSweepToSavings: sweepTxn != null,
   }

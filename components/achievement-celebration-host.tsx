@@ -16,7 +16,38 @@ export function AchievementCelebrationHost() {
   const { currentUserId } = useApp()
   const seenRef = useRef<Set<string>>(new Set())
   const initializedRef = useRef(false)
+  const initPromiseRef = useRef<Promise<void> | null>(null)
+  const initUserIdRef = useRef<string | null>(null)
   const [toast, setToast] = useState<{ code: string; label: string } | null>(null)
+
+  const ensureSeenInitialized = useCallback(async () => {
+    if (!currentUserId) return
+    if (initializedRef.current && initUserIdRef.current === currentUserId) return
+
+    if (!initPromiseRef.current || initUserIdRef.current !== currentUserId) {
+      const userId = currentUserId
+      initUserIdRef.current = userId
+      initializedRef.current = false
+      initPromiseRef.current = (async () => {
+        try {
+          const res = await fetch("/api/user/achievements?limit=100")
+          if (!res.ok) return
+          if (initUserIdRef.current !== userId) return
+          const body = (await res.json()) as { achievements?: AchievementRow[] }
+          for (const row of body.achievements ?? []) {
+            seenRef.current.add(row.code)
+          }
+        } catch {
+          /* ignore */
+        } finally {
+          if (initUserIdRef.current === userId) {
+            initializedRef.current = true
+          }
+        }
+      })()
+    }
+    await initPromiseRef.current
+  }, [currentUserId])
 
   const syncAchievements = useCallback(async () => {
     if (!currentUserId) return
@@ -29,17 +60,12 @@ export function AchievementCelebrationHost() {
 
   const pollAchievements = useCallback(async () => {
     if (!currentUserId) return
+    await ensureSeenInitialized()
     try {
       const res = await fetch("/api/user/achievements?limit=100")
       if (!res.ok) return
       const body = (await res.json()) as { achievements?: AchievementRow[] }
       const rows = body.achievements ?? []
-
-      if (!initializedRef.current) {
-        for (const row of rows) seenRef.current.add(row.code)
-        initializedRef.current = true
-        return
-      }
 
       for (const row of rows) {
         if (seenRef.current.has(row.code)) continue
@@ -51,14 +77,16 @@ export function AchievementCelebrationHost() {
     } catch {
       /* ignore */
     }
-  }, [currentUserId])
+  }, [currentUserId, ensureSeenInitialized])
 
   useEffect(() => {
     seenRef.current = new Set()
     initializedRef.current = false
-    const t = window.setTimeout(() => void pollAchievements(), 0)
+    initPromiseRef.current = null
+    initUserIdRef.current = currentUserId
+    const t = window.setTimeout(() => void ensureSeenInitialized(), 0)
     return () => window.clearTimeout(t)
-  }, [currentUserId, pollAchievements])
+  }, [currentUserId, ensureSeenInitialized])
 
   useEffect(() => {
     if (!currentUserId) return

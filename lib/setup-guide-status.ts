@@ -41,7 +41,62 @@ export type SetupGuideClientInput = {
   hasReceiptInboxActivity: boolean
 }
 
-const ALLOTMENT_EPSILON = 0.001
+export const SETUP_GUIDE_ALLOTMENT_EPSILON = 0.001
+
+/** Setup tasks that can flip when transaction fields change (server txn signals). */
+export const SETUP_GUIDE_TRANSACTION_TASK_IDS: readonly SetupGuideTaskId[] = [
+  "income",
+  "first_expense",
+  "first_sweep",
+  "receipt_inbox",
+]
+
+const TX_SETUP_TASK_IDS = new Set<SetupGuideTaskId>(SETUP_GUIDE_TRANSACTION_TASK_IDS)
+
+const ALLOTMENT_EPSILON = SETUP_GUIDE_ALLOTMENT_EPSILON
+
+/**
+ * Whether the client should scan transactions on each change. False when every
+ * txn-dependent task is done (even if other setup tasks remain, e.g. a future
+ * long-running goal). Before the first status load, returns true.
+ */
+export function needsTransactionSetupTracking(
+  tasks: readonly SetupGuideTaskStatus[] | undefined,
+  monthlyIncome: number,
+): boolean {
+  if (!tasks?.length) return true
+
+  const incomeFromSettings = monthlyIncome > ALLOTMENT_EPSILON
+
+  for (const task of tasks) {
+    if (!TX_SETUP_TASK_IDS.has(task.id)) continue
+    if (!task.complete) return true
+    if (task.id === "income" && task.complete && !incomeFromSettings) return true
+  }
+  return false
+}
+
+/** Whether allotment signature refetch is still needed (allocations task open). */
+export function needsAllotmentSetupTracking(
+  tasks: readonly SetupGuideTaskStatus[] | undefined,
+): boolean {
+  if (!tasks?.length) return true
+  const allocations = tasks.find((t) => t.id === "allocations")
+  return allocations != null && !allocations.complete
+}
+
+/** Whether changes to settings monthly income can still affect setup tasks. */
+export function needsMonthlyIncomeSetupTracking(
+  tasks: readonly SetupGuideTaskStatus[] | undefined,
+): boolean {
+  if (!tasks?.length) return true
+  const income = tasks.find((t) => t.id === "income")
+  const allocations = tasks.find((t) => t.id === "allocations")
+  return (
+    (income != null && !income.complete) ||
+    (allocations != null && !allocations.complete)
+  )
+}
 
 export function hasIncomeSignal(
   monthlyIncome: number,

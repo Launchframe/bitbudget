@@ -473,7 +473,6 @@ export async function PUT(req: NextRequest) {
     }
     Object.assign(data, emailPreferenceUpdateData(body.communicationPreferences))
   }
-  
   if (body.setupGuideShowOnDashboard === true) {
     data.setupGuideDismissed = false
   }

@@ -19,7 +19,7 @@ export function SettingsSetupGuideSection() {
     hasPremiumFeatures,
   } = useApp()
 
-  const { remote, syncStatus } = useSetupGuideStatus({ refetchOnWindowFocus: true })
+  const { remote } = useSetupGuideStatus({ refetchOnWindowFocus: true })
   const [upgradeFeature, setUpgradeFeature] = useState<PremiumFeature | null>(null)
 
   const progress = remote ? setupGuideProgress(remote.tasks) : null
@@ -63,7 +63,6 @@ export function SettingsSetupGuideSection() {
       default:
         break
     }
-    void syncStatus()
   }
 
   return (

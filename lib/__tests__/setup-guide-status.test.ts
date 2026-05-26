@@ -3,8 +3,12 @@ import {
   allocationsComplete,
   computeSetupGuideTasks,
   hasIncomeSignal,
+  needsAllotmentSetupTracking,
+  needsMonthlyIncomeSetupTracking,
+  needsTransactionSetupTracking,
   setupGuideProgress,
   shouldShowSetupGuideOnDashboard,
+  type SetupGuideTaskStatus,
 } from "@/lib/setup-guide-status"
 import type { Envelope, Transaction } from "@/lib/data"
 
@@ -104,6 +108,31 @@ describe("setup-guide-status", () => {
     const p = setupGuideProgress(tasks)
     expect(p.allComplete).toBe(false)
     expect(p.totalCount).toBe(6)
+  })
+
+  it("needsTransactionSetupTracking stops when txn tasks done", () => {
+    const txnDone: SetupGuideTaskStatus[] = [
+      { id: "income", complete: true },
+      { id: "first_expense", complete: true },
+      { id: "first_sweep", complete: true },
+      { id: "savings_goal", complete: false },
+    ]
+    expect(needsTransactionSetupTracking(txnDone, 5000)).toBe(false)
+    expect(needsAllotmentSetupTracking(txnDone)).toBe(false)
+    expect(needsMonthlyIncomeSetupTracking(txnDone)).toBe(false)
+
+    const withOpenAllocations: SetupGuideTaskStatus[] = [
+      ...txnDone,
+      { id: "allocations", complete: false },
+    ]
+    expect(needsAllotmentSetupTracking(withOpenAllocations)).toBe(true)
+    expect(needsMonthlyIncomeSetupTracking(withOpenAllocations)).toBe(true)
+  })
+
+  it("needsTransactionSetupTracking keeps income watch when funded via credits only", () => {
+    const tasks: SetupGuideTaskStatus[] = [{ id: "income", complete: true }]
+    expect(needsTransactionSetupTracking(tasks, 0)).toBe(true)
+    expect(needsTransactionSetupTracking(tasks, 1000)).toBe(false)
   })
 
   it("hasIncomeSignal accepts funded credits", () => {

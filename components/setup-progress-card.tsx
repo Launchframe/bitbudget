@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { SetupGuidePanel } from "@/components/setup-guide-panel"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
@@ -15,43 +15,32 @@ import { useSetupGuideStatus } from "@/lib/use-setup-guide-status"
 
 export function SetupProgressCard() {
   const {
-    state,
     navigateTo,
     openNewTransaction,
     updateSetupGuidePrefs,
     hasPremiumFeatures,
   } = useApp()
 
-  const { remote, syncStatus } = useSetupGuideStatus()
+  const { remote, loadStatus } = useSetupGuideStatus()
   const [upgradeFeature, setUpgradeFeature] = useState<PremiumFeature | null>(null)
-  const [snoozeActive, setSnoozeActive] = useState(false)
-
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => {
-      const active =
-        state.setupGuideSnoozedUntil != null &&
-        new Date(state.setupGuideSnoozedUntil).getTime() > Date.now()
-      setSnoozeActive(active)
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [state.setupGuideSnoozedUntil])
 
   if (!remote) return null
 
   const progress = setupGuideProgress(remote.tasks)
 
   const showOnDashboard = shouldShowSetupGuideOnDashboard({
-    showOnDashboard: state.setupGuideShowOnDashboard,
-    dismissed: state.setupGuideDismissed,
-    snoozedUntil: state.setupGuideSnoozedUntil,
+    showOnDashboard: remote.setupGuideShowOnDashboard,
+    dismissed: remote.setupGuideDismissed,
+    snoozedUntil: remote.setupGuideSnoozedUntil,
     allComplete: progress.allComplete,
   })
 
-  if (!showOnDashboard || snoozeActive) return null
+  if (!showOnDashboard) return null
 
   async function handleSnooze() {
     const until = new Date(Date.now() + SETUP_GUIDE_SNOOZE_MS).toISOString()
     await updateSetupGuidePrefs({ setupGuideSnoozedUntil: until })
+    void loadStatus()
   }
 
   async function handleDismissFromHome() {
@@ -59,6 +48,7 @@ export function SetupProgressCard() {
       setupGuideDismissed: true,
       setupGuideShowOnDashboard: false,
     })
+    void loadStatus()
   }
 
   function handleTaskAction(id: SetupGuideTaskId) {
@@ -97,7 +87,6 @@ export function SetupProgressCard() {
       default:
         break
     }
-    void syncStatus()
   }
 
   return (

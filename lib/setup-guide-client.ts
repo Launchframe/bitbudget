@@ -1,6 +1,25 @@
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
-import type { Envelope } from "@/lib/data"
+import type { Envelope, Transaction } from "@/lib/data"
 import { getCurrentMonthKey } from "@/lib/data"
+
+/**
+ * Stable signature for setup-status refetch when transaction fields that affect
+ * server setup signals change (income credits, first expense, sweep). Full O(n)
+ * rebuild whenever `activeTransactions` changes. Callers should gate with
+ * `needsTransactionSetupTracking` (not merely `allComplete`) so long-running
+ * non-txn setup tasks do not keep scanning transactions.
+ */
+export function activeTransactionSetupSignature(
+  transactions: readonly Transaction[],
+): string {
+  return transactions
+    .map(
+      (t) =>
+        `${t.id}\t${t.date}\t${t.type}\t${t.source ?? ""}\t${t.excludeFromMainHistory ? 1 : 0}\t${t.envelopeId}`,
+    )
+    .sort()
+    .join("\n")
+}
 
 /** Stable signature for setup-status refetch when allotments change. */
 export function discretionaryAllotmentSignature(
