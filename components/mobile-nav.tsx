@@ -187,7 +187,6 @@ export function MobileNav() {
                 )}
                 <button
                   onClick={() => navigateTo(item.id)}
-                  {...(item.id === "transactions" ? { "data-walkthrough": "transactions-nav" } : {})}
                   className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors ${
                     isActive ? "text-[#F7931A]" : "text-[#666] active:text-[#999]"
                   }`}

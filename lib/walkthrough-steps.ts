@@ -63,9 +63,9 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       position: "bottom",
     },
     {
-      id: "transactions-nav",
+      id: "transactions-header",
       page: "transactions",
-      target: "transactions-nav",
+      target: "transactions-header",
       title: "Your transaction list",
       description: "Every purchase and deposit lands here, newest first.",
       position: "right",
@@ -123,9 +123,9 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       position: "bottom",
     },
     {
-      id: "review-nav",
+      id: "review-header",
       page: "review-inbox",
-      target: "review-nav",
+      target: "review-header",
       title: "Review imports",
       description:
         ctx.pendingCount > 0
@@ -157,9 +157,9 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
 
   if (ctx.opportunityCostEnabled) {
     steps.splice(3, 0, {
-      id: "analytics-nav",
+      id: "analytics-header",
       page: "analytics",
-      target: "analytics-nav",
+      target: "analytics-header",
       title: "Spending stats",
       description: "Analytics breaks down where your money went and how it compares over time.",
       position: "right",

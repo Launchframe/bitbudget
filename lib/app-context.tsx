@@ -1380,7 +1380,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSetupGuideStatus = useCallback(async () => {
     try {
-      await fetch("/api/user/setup-status")
+      await fetch("/api/user/setup-status", { method: "POST" })
     } catch {
       /* ignore */
     }

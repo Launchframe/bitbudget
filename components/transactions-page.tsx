@@ -268,7 +268,7 @@ export function TransactionsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
-        <h2 className="text-xl font-semibold text-foreground" data-walkthrough="transactions-nav">
+        <h2 className="text-xl font-semibold text-foreground" data-walkthrough="transactions-header">
           All Transactions
         </h2>
         <div className="flex flex-wrap items-center gap-4 md:gap-6 mt-2">

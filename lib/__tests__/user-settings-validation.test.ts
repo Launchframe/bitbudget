@@ -45,7 +45,11 @@ describe("setupGuideSnoozedUntilError", () => {
   })
 
   it("rejects non-string and invalid dates", () => {
-    expect(setupGuideSnoozedUntilError(123)).toContain("ISO date string")
+    expect(setupGuideSnoozedUntilError(123)).toContain("ISO 8601")
     expect(setupGuideSnoozedUntilError("not-a-date")).toContain("valid ISO")
+  })
+
+  it("rejects date-only strings that are not full ISO UTC", () => {
+    expect(setupGuideSnoozedUntilError("2026-05-25")).toContain("ISO 8601")
   })
 })

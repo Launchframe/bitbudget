@@ -9,7 +9,7 @@ describe("buildWalkthroughSteps", () => {
       hasPremiumFeatures: false,
       pendingCount: 0,
     })
-    expect(steps.some((s) => s.id === "analytics-nav")).toBe(true)
+    expect(steps.some((s) => s.id === "analytics-header")).toBe(true)
   })
 
   it("omits analytics step in vanilla mode", () => {
@@ -19,7 +19,7 @@ describe("buildWalkthroughSteps", () => {
       hasPremiumFeatures: true,
       pendingCount: 2,
     })
-    expect(steps.some((s) => s.id === "analytics-nav")).toBe(false)
+    expect(steps.some((s) => s.id === "analytics-header")).toBe(false)
     expect(steps.some((s) => s.id === "setup-progress")).toBe(true)
   })
 })

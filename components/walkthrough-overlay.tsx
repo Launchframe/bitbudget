@@ -8,6 +8,7 @@ import {
   buildWalkthroughSteps,
   type WalkthroughStepDef,
 } from "@/lib/walkthrough-steps"
+import { findWalkthroughTarget } from "@/lib/walkthrough-target"
 
 const EST_TOOLTIP_W = 300
 const EST_TOOLTIP_H = 200
@@ -95,7 +96,7 @@ export function WalkthroughOverlay() {
 
   const positionTooltip = useCallback(() => {
     if (!step) return
-    const el = document.querySelector(`[data-walkthrough="${step.target}"]`)
+    const el = findWalkthroughTarget(step.target)
     if (!el) {
       const cx = window.innerWidth / 2
       const cy = window.innerHeight / 2

@@ -395,7 +395,7 @@ export function AnalyticsPage() {
         </p>
       )}
       <div
-        data-walkthrough="analytics-nav"
+        data-walkthrough="analytics-header"
         className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl"
       >
         <div>

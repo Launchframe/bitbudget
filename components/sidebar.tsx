@@ -7,13 +7,6 @@ import { useApp, type PageId } from "@/lib/app-context"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
 import { VoiceDictationButton } from "@/components/voice-dictation-button"
 
-const NAV_WALKTHROUGH_TARGETS: Partial<Record<PageId, string>> = {
-  transactions: "transactions-nav",
-  "review-inbox": "review-nav",
-  analytics: "analytics-nav",
-  envelopes: "envelopes-nav",
-}
-
 const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "DASHBOARD", icon: LayoutDashboard },
   { id: "transactions", label: "TRANSACTIONS", icon: List },
@@ -43,9 +36,6 @@ export function Sidebar() {
                 if (!isPlaceholder) navigateTo(item.id)
               }}
               title={item.label}
-              {...(NAV_WALKTHROUGH_TARGETS[item.id]
-                ? { "data-walkthrough": NAV_WALKTHROUGH_TARGETS[item.id] }
-                : {})}
               className={`relative flex items-center justify-center lg:justify-start gap-4 transition-colors text-left ${
                 isActive
                   ? "text-[#F7931A]"

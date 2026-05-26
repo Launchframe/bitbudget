@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Compass, RotateCcw } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { SetupGuidePanel } from "@/components/setup-guide-panel"
@@ -18,6 +18,7 @@ type SetupStatusResponse = {
   totalCount: number
   allComplete: boolean
   hasPremiumFeatures: boolean
+  newlyAwarded?: number
 }
 
 export function SettingsSetupGuideSection() {
@@ -28,28 +29,50 @@ export function SettingsSetupGuideSection() {
     navigateTo,
     openNewTransaction,
     updateSetupGuidePrefs,
-    refreshSetupGuideStatus,
     restartWalkthrough,
     hasPremiumFeatures,
   } = useApp()
 
   const [remote, setRemote] = useState<SetupStatusResponse | null>(null)
   const [upgradeFeature, setUpgradeFeature] = useState<PremiumFeature | null>(null)
+  const completedCountRef = useRef(0)
 
   const allotmentSignature = useMemo(
     () => discretionaryAllotmentSignature(discretionaryEnvelopes),
     [discretionaryEnvelopes],
   )
 
+  const applyStatus = useCallback((data: SetupStatusResponse, requestAchievementPoll: boolean) => {
+    const prevCount = completedCountRef.current
+    completedCountRef.current = data.completedCount
+    setRemote(data)
+    if (
+      requestAchievementPoll &&
+      ((data.newlyAwarded ?? 0) > 0 || data.completedCount > prevCount)
+    ) {
+      window.dispatchEvent(new Event("bitbudget-achievements-poll"))
+    }
+  }, [])
+
   const loadStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/user/setup-status")
       if (!res.ok) return
-      setRemote((await res.json()) as SetupStatusResponse)
+      applyStatus((await res.json()) as SetupStatusResponse, false)
     } catch {
       /* ignore */
     }
-  }, [])
+  }, [applyStatus])
+
+  const syncStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/user/setup-status", { method: "POST" })
+      if (!res.ok) return
+      applyStatus((await res.json()) as SetupStatusResponse, true)
+    } catch {
+      /* ignore */
+    }
+  }, [applyStatus])
 
   useEffect(() => {
     const t = window.setTimeout(() => void loadStatus(), 0)
@@ -102,8 +125,7 @@ export function SettingsSetupGuideSection() {
       default:
         break
     }
-    void refreshSetupGuideStatus()
-    void loadStatus()
+    void syncStatus()
   }
 
   return (

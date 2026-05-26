@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { SetupGuidePanel } from "@/components/setup-guide-panel"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
@@ -19,6 +19,7 @@ type SetupStatusResponse = {
   totalCount: number
   allComplete: boolean
   hasPremiumFeatures: boolean
+  newlyAwarded?: number
 }
 
 export function SetupProgressCard() {
@@ -29,30 +30,50 @@ export function SetupProgressCard() {
     navigateTo,
     openNewTransaction,
     updateSetupGuidePrefs,
-    refreshSetupGuideStatus,
     hasPremiumFeatures,
   } = useApp()
 
   const [remote, setRemote] = useState<SetupStatusResponse | null>(null)
   const [upgradeFeature, setUpgradeFeature] = useState<PremiumFeature | null>(null)
   const [snoozeActive, setSnoozeActive] = useState(false)
+  const completedCountRef = useRef(0)
 
   const allotmentSignature = useMemo(
     () => discretionaryAllotmentSignature(discretionaryEnvelopes),
     [discretionaryEnvelopes],
   )
 
+  const applyStatus = useCallback((data: SetupStatusResponse, requestAchievementPoll: boolean) => {
+    const prevCount = completedCountRef.current
+    completedCountRef.current = data.completedCount
+    setRemote(data)
+    if (
+      requestAchievementPoll &&
+      ((data.newlyAwarded ?? 0) > 0 || data.completedCount > prevCount)
+    ) {
+      window.dispatchEvent(new Event("bitbudget-achievements-poll"))
+    }
+  }, [])
+
   const loadStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/user/setup-status")
       if (!res.ok) return
-      const data = (await res.json()) as SetupStatusResponse
-      setRemote(data)
-      window.dispatchEvent(new Event("bitbudget-achievements-poll"))
+      applyStatus((await res.json()) as SetupStatusResponse, false)
     } catch {
       /* ignore */
     }
-  }, [])
+  }, [applyStatus])
+
+  const syncStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/user/setup-status", { method: "POST" })
+      if (!res.ok) return
+      applyStatus((await res.json()) as SetupStatusResponse, true)
+    } catch {
+      /* ignore */
+    }
+  }, [applyStatus])
 
   useEffect(() => {
     const t = window.setTimeout(() => void loadStatus(), 0)
@@ -130,8 +151,7 @@ export function SetupProgressCard() {
       default:
         break
     }
-    void refreshSetupGuideStatus()
-    void loadStatus()
+    void syncStatus()
   }
 
   return (
