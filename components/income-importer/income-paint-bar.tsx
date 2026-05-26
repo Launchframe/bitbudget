@@ -39,11 +39,12 @@ export function IncomePaintBar({
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-[#1F1F1F] bg-[#111] p-4">
       <p className="text-xs text-muted-foreground">
-        Income details that apply when you tap or drag on the calendar below.
+        Set a typical paycheck amount and where it came from (optional). These apply when you tap or drag on the
+        calendar.
       </p>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-1.5">
-          <Label htmlFor="paint-amount">Paint amount (USD)</Label>
+          <Label htmlFor="paint-amount">Typical amount (USD)</Label>
           <div className="flex items-center gap-2">
             <Input
               id="paint-amount"
@@ -62,7 +63,7 @@ export function IncomePaintBar({
             />
             <OnboardingAllocFineScroller
               accentColor={SAVINGS_GOLD_ACCENT}
-              ariaLabel="Adjust paint amount"
+              ariaLabel="Adjust amount"
               value={amount}
               maxValue={Math.max(suggestedIncome * 2, 100000)}
               onGestureStart={() => {}}
@@ -72,7 +73,7 @@ export function IncomePaintBar({
           </div>
         </div>
         <div className="flex flex-1 flex-col gap-1.5">
-          <Label htmlFor="paint-source">Source label</Label>
+          <Label htmlFor="paint-source">Employer or source (optional)</Label>
           <Input
             id="paint-source"
             value={source}

@@ -44,7 +44,7 @@ export function shouldConfirmIncomeBatchDelete(
 
 export function incomeBatchDeleteConfirmMessage(source: Transaction["source"]): string {
   if (source === TX_SOURCE_INCOME_IMPORT) {
-    return "Deleting this imported income will also remove its envelope funding entries for that period. This keeps your chart and envelope balances in sync."
+    return "Deleting this past income will also remove its envelope funding entries for that period. This keeps your chart and envelope balances in sync."
   }
   return "Deleting this income will also remove its envelope funding entries. This keeps your chart and envelope balances in sync."
 }

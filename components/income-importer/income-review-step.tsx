@@ -32,7 +32,7 @@ export function IncomeReviewStep({
 }: IncomeReviewStepProps) {
   return (
     <div className="flex flex-col gap-4 min-w-0">
-      <p className="text-sm text-muted-foreground">Review staged income before importing.</p>
+      <p className="text-sm text-muted-foreground">Check the amounts below before you save.</p>
       <div className="max-h-[50vh] min-h-0 overflow-auto rounded-xl border border-[#1F1F1F] bg-[#111]">
         <table className="w-full min-w-[16rem] text-sm">
           <thead className="sticky top-0 z-10 bg-[#111] shadow-[0_1px_0_0_#1F1F1F]">
@@ -105,7 +105,7 @@ export function IncomeReviewStep({
           disabled={submitting || summary.rows.length === 0}
           onClick={onConfirm}
         >
-          {submitting ? "Importing…" : "Confirm import"}
+          {submitting ? "Saving…" : "Save past income"}
         </Button>
       </div>
     </div>

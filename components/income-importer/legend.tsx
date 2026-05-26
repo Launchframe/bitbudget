@@ -12,10 +12,10 @@ const SWATCH: Record<CellVisualState, string> = {
 }
 
 const LABELS: { state: CellVisualState; label: string }[] = [
-  { state: "empty", label: "No import" },
+  { state: "empty", label: "Not added yet" },
   { state: "tx0", label: "First real transaction" },
   { state: "preHistory", label: "Before your history" },
-  { state: "future", label: "Future period" },
+  { state: "future", label: "Not available yet" },
 ]
 
 export function IncomeImporterLegend() {
@@ -36,7 +36,7 @@ export function IncomeImporterLegend() {
           <span className="h-full flex-1" style={heatmapLegendStyle(0.55)} />
           <span className="h-full flex-1" style={heatmapLegendStyle(1)} />
         </span>
-        <span>Staged income (brighter = more)</span>
+        <span>Income added (brighter = more)</span>
       </div>
     </div>
   )

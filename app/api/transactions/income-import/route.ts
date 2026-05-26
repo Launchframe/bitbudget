@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
 
   if (entriesIncludeFuturePeriod(entries)) {
     return NextResponse.json(
-      { error: "Income import cannot include future months or years." },
+      { error: "Past income can't include future months or years." },
       { status: 400 },
     )
   }

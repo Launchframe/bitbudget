@@ -310,7 +310,7 @@ export function IncomeCalendar({
         role="gridcell"
         tabIndex={isFuture ? -1 : rovingPeriod === periodKey ? 0 : -1}
         aria-disabled={isFuture || undefined}
-        aria-label={`${label}${isFuture ? ", not importable yet" : amount > 0 ? `, staged ${amount} dollars` : ""}`}
+        aria-label={`${label}${isFuture ? ", not available yet" : amount > 0 ? `, ${amount} dollars added` : ""}`}
         className={`relative w-full rounded-md touch-none ${options?.compact ? "min-h-10" : "aspect-square min-h-8"} ${cellClass(visual)} ${isFuture ? "" : "group focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/60"}`}
         style={visual === "shaded" ? cellBackgroundStyle(intensity) : undefined}
         onPointerDown={(e) => {
@@ -531,7 +531,7 @@ export function IncomeCalendar({
               >
                 <span className="w-16 text-sm font-medium">{year}</span>
                 <span className="flex-1 text-xs text-muted-foreground">
-                  {amount > 0 ? `$${amount.toFixed(2)} staged` : "Tap to paint annual income"}
+                  {amount > 0 ? `$${amount.toFixed(2)} added` : "Tap to add this year"}
                 </span>
                 <button
                   type="button"

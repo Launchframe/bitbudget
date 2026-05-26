@@ -45,7 +45,7 @@ export function IncomeSuccessStep({
           aria-hidden
         />
         <p className="text-lg font-medium text-foreground">
-          You imported {formatUsd(totalUsd)} across {monthCount} month{monthCount === 1 ? "" : "s"}.
+          You added {formatUsd(totalUsd)} of past income across {monthCount} month{monthCount === 1 ? "" : "s"}.
         </p>
         <Button
           type="button"

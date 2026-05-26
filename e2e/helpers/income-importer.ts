@@ -23,25 +23,25 @@ export async function signInAndOpenSettings(
   await signInWithE2eEmail(page, origin, email)
   await page.goto(`${origin}/#/settings/savings-tracking`)
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 90_000 })
-  await expect(page.getByRole("button", { name: "Import income history" })).toBeVisible({
+  await expect(page.getByRole("button", { name: "Add past income" })).toBeVisible({
     timeout: 30_000,
   })
 }
 
 export async function openIncomeImporterDialog(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Import income history" }).click()
-  const dialog = page.getByRole("dialog", { name: "Import income" })
+  await page.getByRole("button", { name: "Add past income" }).click()
+  const dialog = page.getByRole("dialog", { name: "Add past income" })
   await expect(dialog).toBeVisible()
   await expect(dialog.locator("#calendar-year")).toBeVisible()
 }
 
 export async function closeIncomeImporterDialog(page: Page): Promise<void> {
-  const dialog = page.getByRole("dialog", { name: "Import income" })
+  const dialog = page.getByRole("dialog", { name: "Add past income" })
   await dialog.getByRole("button", { name: "Close" }).click()
   await expect(dialog).not.toBeVisible()
 }
 
-export const INCOME_CELL_EDIT_DIALOG = "Edit income"
+export const INCOME_CELL_EDIT_DIALOG = "Edit past income"
 
 export async function setScrollYear(page: Page, year: number): Promise<void> {
   const yearSelect = page.locator("#calendar-year")
@@ -64,7 +64,7 @@ export async function fillPaintBar(
 }
 
 export async function expectReviewImportEnabled(page: Page): Promise<void> {
-  await expect(page.getByRole("button", { name: "Review import" })).toBeEnabled()
+  await expect(page.getByRole("button", { name: "Review" })).toBeEnabled()
 }
 
 export async function paintMonthCell(page: Page, monthLabel: string): Promise<void> {

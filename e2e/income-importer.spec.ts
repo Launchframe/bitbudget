@@ -47,8 +47,8 @@ test.describe("Income importer (UI)", () => {
     await cellEditDialog(page).getByRole("button", { name: "Save" }).click()
     await expect(cellEditDialog(page)).not.toBeVisible()
 
-    await page.getByRole("button", { name: "Review import" }).click()
-    await expect(page.getByText("Review staged income before importing.")).toBeVisible()
+    await page.getByRole("button", { name: "Review" }).click()
+    await expect(page.getByText("Check the amounts below before you save.")).toBeVisible()
     await expect(page.getByRole("columnheader", { name: "Was" })).toBeVisible()
     await expect(page.getByRole("button", { name: new RegExp(`Edit ${febLabel}`, "i") })).toBeVisible()
 
@@ -64,7 +64,7 @@ test.describe("Income importer (UI)", () => {
         res.request().method() === "POST",
       { timeout: 30_000 },
     )
-    await page.getByRole("button", { name: "Confirm import" }).click()
+    await page.getByRole("button", { name: "Save past income" }).click()
     const importRes = await importPromise
     expect(importRes.ok(), await importRes.text()).toBeTruthy()
 
@@ -98,7 +98,7 @@ test.describe("Income importer (UI)", () => {
     const junLabel = monthGridLabel(E2E_IMPORT_PAST_YEAR, 6)
     await openCellEdit(page, junLabel)
     await cellEditDialog(page).getByRole("button", { name: "Cancel" }).click()
-    await expect(page.getByRole("dialog", { name: "Import income" })).toBeVisible()
+    await expect(page.getByRole("dialog", { name: "Add past income" })).toBeVisible()
     await expect(cellEditDialog(page)).not.toBeVisible()
 
     await waitForImporterDraftEntries(page, 1)
@@ -112,7 +112,7 @@ test.describe("Income importer (UI)", () => {
     await expect(page.getByRole("alertdialog", { name: "Reset everything?" })).toBeVisible()
     await page.getByRole("button", { name: "Reset" }).click()
     await expect(page.locator("#paint-source")).toHaveValue("")
-    await expect(page.getByRole("button", { name: "Review import" })).toBeDisabled()
+    await expect(page.getByRole("button", { name: "Review" })).toBeDisabled()
   })
 
   test("past-only import succeeds when Monthly Income is unset", async ({ page, baseURL }) => {
@@ -126,13 +126,13 @@ test.describe("Income importer (UI)", () => {
     await paintMonthCell(page, monthGridLabel(E2E_IMPORT_PAST_YEAR, 4))
     await expectReviewImportEnabled(page)
 
-    await page.getByRole("button", { name: "Review import" }).click()
+    await page.getByRole("button", { name: "Review" }).click()
     const importPromise = page.waitForResponse(
       (res) =>
         res.url().includes("/api/transactions/income-import") &&
         res.request().method() === "POST",
     )
-    await page.getByRole("button", { name: "Confirm import" }).click()
+    await page.getByRole("button", { name: "Save past income" }).click()
     expect((await importPromise).ok()).toBeTruthy()
     await expect(page.getByRole("button", { name: "Go to Dashboard" })).toBeVisible()
   })
@@ -153,11 +153,11 @@ test.describe("Income importer (UI)", () => {
     await paintMonthCell(page, currentLabel)
     await expectReviewImportEnabled(page)
 
-    await page.getByRole("button", { name: "Review import" }).click()
-    await page.getByRole("button", { name: "Confirm import" }).click()
+    await page.getByRole("button", { name: "Review" }).click()
+    await page.getByRole("button", { name: "Save past income" }).click()
     await expect(
       page.getByRole("alert").filter({
-        hasText: "Set a positive Monthly Income in Settings before importing the current month or year.",
+        hasText: "Set a positive Monthly Income in Settings before adding income for the current month or year.",
       }),
     ).toBeVisible()
   })
@@ -176,13 +176,13 @@ test.describe("Income importer (UI)", () => {
     await paintMonthCell(page, monthGridLabel(E2E_IMPORT_PAST_YEAR, 5))
     await expectReviewImportEnabled(page)
 
-    await page.getByRole("button", { name: "Review import" }).click()
+    await page.getByRole("button", { name: "Review" }).click()
     const importPromise = page.waitForResponse(
       (res) =>
         res.url().includes("/api/transactions/income-import") &&
         res.request().method() === "POST",
     )
-    await page.getByRole("button", { name: "Confirm import" }).click()
+    await page.getByRole("button", { name: "Save past income" }).click()
     expect((await importPromise).ok()).toBeTruthy()
 
     await page.getByRole("button", { name: "Go to Dashboard" }).click()

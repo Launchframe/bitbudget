@@ -18,8 +18,8 @@ export function IncomeImporterCard() {
           <h3 className="text-lg font-semibold text-foreground">Add Past Income</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
-          If you imported transactions from another budgeting app, your BitBudget history only tells half the story.
-          Use this tool to include the money you earned and paint a clearer picture of your current finances.
+          If you brought over spending from another budgeting app, your history here may only show what you spent — not
+          what you earned. Add past income to complete the picture.
         </p>
         <button
           type="button"
@@ -27,7 +27,7 @@ export function IncomeImporterCard() {
           className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#333] bg-[#1A1A1A] px-6 py-3 text-sm font-medium text-foreground transition-colors hover:bg-[#222] sm:w-auto"
         >
           <TrendingUp className="h-4 w-4 text-[#D4AF37]" aria-hidden />
-          Import income history
+          Add past income
         </button>
       </div>
       <IncomeImporterDialog open={open} onOpenChange={setOpen} />

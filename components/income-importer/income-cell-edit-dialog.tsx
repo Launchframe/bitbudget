@@ -153,7 +153,7 @@ function CellEditForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle id={CELL_EDIT_TITLE_ID}>Edit income</DialogTitle>
+        <DialogTitle id={CELL_EDIT_TITLE_ID}>Edit past income</DialogTitle>
       </DialogHeader>
 
       <div className="flex gap-2 rounded-xl border border-[#1F1F1F] bg-[#111] p-1">
@@ -233,11 +233,11 @@ function CellEditForm({
 
       <div className="flex flex-col gap-3 rounded-xl border border-[#1F1F1F] bg-[#111] p-4">
         <p className="text-xs text-muted-foreground">
-          Prior import: ${existingTotal.toFixed(2)}
+          Previously added: ${existingTotal.toFixed(2)}
           {focusedStaged && focusedStaged.amount > 0 && (
             <span className="text-foreground">
               {" "}
-              · Staged: ${focusedStaged.amount.toFixed(2)}
+              · New amount: ${focusedStaged.amount.toFixed(2)}
             </span>
           )}
         </p>
@@ -254,7 +254,7 @@ function CellEditForm({
           />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="edit-source">Source label</Label>
+          <Label htmlFor="edit-source">Employer or source (optional)</Label>
           <Input
             id="edit-source"
             placeholder={INCOME_IMPORT_PAYEE_DEFAULT}

@@ -60,7 +60,7 @@ describe("transaction-batch-delete", () => {
   })
 
   it("incomeBatchDeleteConfirmMessage varies by source", () => {
-    expect(incomeBatchDeleteConfirmMessage("income_import")).toMatch(/imported income/)
+    expect(incomeBatchDeleteConfirmMessage("income_import")).toMatch(/past income/)
     expect(incomeBatchDeleteConfirmMessage("irregular_income")).toMatch(/envelope funding/)
   })
 

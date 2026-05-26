@@ -75,6 +75,20 @@ bad-date,100
     expect(result.skippedRows).toBe(1)
   })
 
+  it("parseIncomeCsv drops future-dated rows within the current month", () => {
+    const now = new Date("2026-05-15T12:00:00.000Z")
+    const csv = `Date,Amount
+2026-05-10,1000
+2026-05-20,2000
+2026-05-01,500
+`
+    const result = parseIncomeCsv(csv, now)
+    expect(result.buckets).toEqual([
+      { periodKey: "2026-05", amount: 1500, rowCount: 2 },
+    ])
+    expect(result.skippedRows).toBe(1)
+  })
+
   it("incomeCsvBucketsToStagedEntries maps to month kind", () => {
     const staged = incomeCsvBucketsToStagedEntries([
       { periodKey: "2023-01", amount: 5500, source: "Acme", rowCount: 2 },

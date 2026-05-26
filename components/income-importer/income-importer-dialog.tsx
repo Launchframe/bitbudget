@@ -277,7 +277,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
       const skipNote =
         result.skippedRows > 0 ? ` ${result.skippedRows} row${result.skippedRows === 1 ? "" : "s"} skipped.` : ""
       setCsvStatus(
-        `Loaded ${result.monthCount} month${result.monthCount === 1 ? "" : "s"} from CSV.${skipNote} Review the calendar, then continue to Review import.`,
+        `Loaded ${result.monthCount} month${result.monthCount === 1 ? "" : "s"} from CSV.${skipNote} Check the calendar, then tap Review when ready.`,
       )
     },
     [stageEntries],
@@ -286,12 +286,12 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
   const submit = async () => {
     setError(null)
     if (entryList.length === 0) {
-      setError("Paint at least one period with a positive amount.")
+      setError("Add at least one month or year with a positive amount.")
       return
     }
     if (needsMonthlyIncomeSetting && state.monthlyIncome <= 0) {
       setError(
-        "Set a positive Monthly Income in Settings before importing the current month or year.",
+        "Set a positive Monthly Income in Settings before adding income for the current month or year.",
       )
       return
     }
@@ -311,7 +311,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(typeof body.error === "string" ? body.error : "Import failed.")
+        setError(typeof body.error === "string" ? body.error : "Couldn't save past income.")
         return
       }
       await refreshData()
@@ -354,7 +354,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
             <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-x-3">
               <DialogTitle className="flex min-w-0 items-center gap-2 text-left">
                 <TrendingUp className="h-4 w-4 shrink-0 text-[#D4AF37]" aria-hidden />
-                Import income
+                Add past income
               </DialogTitle>
               {step === "calendar" && (
                 <div className="flex min-w-0 flex-wrap items-center gap-2 shrink-0">
@@ -388,20 +388,30 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
             {step === "calendar" && (
               <>
                 <div className="flex gap-2 p-1 rounded-xl bg-[#111] border border-[#1F1F1F]">
-                  {(["monthly", "annual"] as const).map((m) => (
+                  {(
+                    [
+                      { value: "monthly" as const, label: "By month" },
+                      { value: "annual" as const, label: "By year" },
+                    ] as const
+                  ).map(({ value, label }) => (
                     <button
-                      key={m}
+                      key={value}
                       type="button"
-                      className={`flex-1 py-2 text-sm rounded-lg capitalize transition-colors ${
-                        mode === m ? "bg-[#D4AF37] text-[#0D0D0D] font-medium" : "text-muted-foreground hover:text-foreground"
+                      className={`flex-1 py-2 text-sm rounded-lg transition-colors ${
+                        mode === value ? "bg-[#D4AF37] text-[#0D0D0D] font-medium" : "text-muted-foreground hover:text-foreground"
                       }`}
-                      onClick={() => setMode(m)}
-                      aria-pressed={mode === m}
+                      onClick={() => setMode(value)}
+                      aria-pressed={mode === value}
                     >
-                      {m}
+                      {label}
                     </button>
                   ))}
                 </div>
+                <p className="text-sm text-muted-foreground">
+                  Enter how much you earned, then tap months on the calendar to fill them in. Drag across a range to
+                  select several at once. Use <span className="text-foreground">By month</span> for paycheck history, or{" "}
+                  <span className="text-foreground">By year</span> for one total per year.
+                </p>
                 <IncomePaintBar
                   amount={paintAmount}
                   source={paintSource}
@@ -411,8 +421,8 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
                 />
                 {hasPreTx0Staging && (
                   <p className="text-sm text-amber-400/95" role="status">
-                    Some staged months are before your first recorded transaction. They still import as historical
-                    income.
+                    Some months you selected are before your first recorded transaction. They&apos;ll still be saved as
+                    past income.
                   </p>
                 )}
                 <IncomeCalendar
@@ -452,7 +462,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
                       setStep("review")
                     }}
                   >
-                    Review import
+                    Review
                   </Button>
                 </div>
               </>
@@ -499,7 +509,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
           <AlertDialogHeader>
             <AlertDialogTitle>Reset everything?</AlertDialogTitle>
             <AlertDialogDescription>
-              Your staged income entries and paint settings will be discarded.
+              Your entries and amount settings will be discarded.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

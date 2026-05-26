@@ -22,8 +22,7 @@ export function IncomeCsvImportHelp() {
       >
         <p className="text-sm font-medium text-foreground">CSV import format</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Upload a .csv file to fill the calendar by month. You can still edit any month before
-          importing.
+          Upload a .csv file to fill the calendar by month. You can still edit any month before you save.
         </p>
 
         <div className="mt-3 space-y-2 text-xs">
@@ -65,7 +64,7 @@ export function IncomeCsvImportHelp() {
             <p className="font-medium text-foreground">How rows are handled</p>
             <ul className="mt-1 list-inside list-disc text-muted-foreground">
               <li>Rows are grouped by calendar month; multiple rows in the same month are added together.</li>
-              <li>Rows with missing dates, zero amounts, or negative amounts are skipped.</li>
+              <li>Rows with missing dates, zero amounts, negative amounts, or future dates are skipped.</li>
               <li>Dollar signs and commas in amounts are fine.</li>
             </ul>
           </div>
