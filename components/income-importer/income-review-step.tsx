@@ -31,39 +31,63 @@ export function IncomeReviewStep({
   error,
 }: IncomeReviewStepProps) {
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 min-w-0">
       <p className="text-sm text-muted-foreground">Review staged income before importing.</p>
-      <ul className="max-h-[50vh] space-y-2 overflow-y-auto text-sm">
-        {summary.rows.map((row) => (
-          <li key={row.periodKey}>
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-2 rounded-lg border border-[#1F1F1F] bg-[#111] px-3 py-2 text-left hover:border-[#D4AF37]/40"
-              onClick={() => onEditRow(row.periodKey)}
-            >
-              <span>{rowLabel(row.periodKey)}</span>
-              <span className="text-right">
-                {formatUsd(row.newAmount)}
-                {row.delta !== 0 && (
-                  <span className={row.delta > 0 ? " text-success" : " text-amber-400"}>
-                    {" "}
-                    ({row.delta > 0 ? "+" : ""}
-                    {formatUsd(row.delta)} vs prior import)
-                  </span>
-                )}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div className="max-h-[50vh] min-h-0 overflow-auto rounded-xl border border-[#1F1F1F] bg-[#111]">
+        <table className="w-full min-w-[16rem] text-sm">
+          <thead className="sticky top-0 z-10 bg-[#111] shadow-[0_1px_0_0_#1F1F1F]">
+            <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+              <th scope="col" className="px-3 py-2.5 font-medium">
+                Date
+              </th>
+              <th scope="col" className="px-3 py-2.5 text-right font-medium">
+                Was
+              </th>
+              <th scope="col" className="px-3 py-2.5 text-right font-medium">
+                Now
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.rows.map((row) => (
+              <tr
+                key={row.periodKey}
+                tabIndex={0}
+                role="button"
+                aria-label={`Edit ${rowLabel(row.periodKey)}`}
+                className="cursor-pointer border-b border-[#1F1F1F] last:border-b-0 hover:bg-[#1A1A1A] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D4AF37]/50"
+                onClick={() => onEditRow(row.periodKey)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    onEditRow(row.periodKey)
+                  }
+                }}
+              >
+                <td className="px-3 py-2.5 min-w-0 text-foreground">{rowLabel(row.periodKey)}</td>
+                <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums">
+                  {row.existingAmount > 0 ? formatUsd(row.existingAmount) : "—"}
+                </td>
+                <td className="px-3 py-2.5 text-right font-medium text-[#D4AF37] tabular-nums">
+                  {formatUsd(row.newAmount)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <div className="rounded-xl border border-[#1F1F1F] bg-[#111] p-3 text-sm">
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Previously imported</span>
-          <span>{formatUsd(summary.totalExisting)}</span>
-        </div>
-        <div className="mt-1 flex justify-between font-medium text-[#D4AF37]">
-          <span>New import total</span>
-          <span>{formatUsd(summary.totalPending)}</span>
+        {summary.totalExisting > 0 && (
+          <div className="flex justify-between gap-4">
+            <span className="text-muted-foreground">History to overwrite</span>
+            <span className="tabular-nums">{formatUsd(summary.totalExisting)}</span>
+          </div>
+        )}
+        <div
+          className={`flex justify-between gap-4 font-medium text-[#D4AF37]${summary.totalExisting > 0 ? " mt-1" : ""}`}
+        >
+          <span>New history total</span>
+          <span className="tabular-nums">{formatUsd(summary.totalPending)}</span>
         </div>
       </div>
       {error && (

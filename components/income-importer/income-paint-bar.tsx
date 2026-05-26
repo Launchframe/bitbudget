@@ -39,7 +39,7 @@ export function IncomePaintBar({
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-[#1F1F1F] bg-[#111] p-4">
       <p className="text-xs text-muted-foreground">
-        Set the amount and source label, then tap or drag on the calendar to paint income.
+        Income details that apply when you tap or drag on the calendar below.
       </p>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-1.5">

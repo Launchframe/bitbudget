@@ -113,14 +113,17 @@ export function IncomeCalendar({
   }))
   const [lastAnnualViewKey, setLastAnnualViewKey] = useState<string | null>(null)
 
-  if (annualViewKey !== null && annualViewKey !== lastAnnualViewKey) {
+  useEffect(() => {
+    if (annualViewKey === null || annualViewKey === lastAnnualViewKey) return
     const minStart = Math.max(ANNUAL_YEAR_FLOOR, currentYear - ANNUAL_INITIAL_SPAN + 1)
-    setLastAnnualViewKey(annualViewKey)
-    setAnnualRange((prev) => ({
-      end: currentYear,
-      start: Math.min(prev.start, minStart),
-    }))
-  }
+    requestAnimationFrame(() => {
+      setLastAnnualViewKey(annualViewKey)
+      setAnnualRange((prev) => ({
+        end: currentYear,
+        start: Math.min(prev.start, minStart),
+      }))
+    })
+  }, [annualViewKey, lastAnnualViewKey, currentYear])
 
   useEffect(() => {
     if (mode !== "annual") return
@@ -415,9 +418,9 @@ export function IncomeCalendar({
   return (
     <div className="flex flex-col gap-3">
       {mode === "monthly" && (
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-end gap-2">
           <label htmlFor="calendar-year" className="text-sm text-muted-foreground">
-            Scroll year
+            Year
           </label>
           <select
             id="calendar-year"

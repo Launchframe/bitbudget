@@ -344,33 +344,35 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
       >
         <DialogContent className="flex max-h-[95vh] flex-col overflow-hidden bg-[#0D0D0D] border-[#1F1F1F] text-foreground w-[calc(100vw-1rem)] max-sm:h-[100dvh] max-sm:max-w-none max-sm:rounded-none sm:max-w-4xl lg:max-w-5xl">
           <DialogHeader className="flex-shrink-0 space-y-0 pr-10">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <DialogTitle className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-x-3">
+              <DialogTitle className="flex min-w-0 items-center gap-2 text-left">
                 <TrendingUp className="h-4 w-4 shrink-0 text-[#D4AF37]" aria-hidden />
                 Import income
               </DialogTitle>
-              {hasDraftChanges && step === "calendar" && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => {
-                    childModalOpenRef.current = true
-                    setClearOpen(true)
-                  }}
-                >
-                  Clear All
-                </Button>
-              )}
               {step === "calendar" && (
-                <IncomeCsvImport
-                  onImported={handleCsvImport}
-                  onError={(message) => {
-                    setCsvStatus(null)
-                    setError(message)
-                  }}
-                />
+                <div className="flex min-w-0 flex-wrap items-center gap-2 shrink-0">
+                  {hasDraftChanges && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => {
+                        childModalOpenRef.current = true
+                        setClearOpen(true)
+                      }}
+                    >
+                      Clear All
+                    </Button>
+                  )}
+                  <IncomeCsvImport
+                    onImported={handleCsvImport}
+                    onError={(message) => {
+                      setCsvStatus(null)
+                      setError(message)
+                    }}
+                  />
+                </div>
               )}
             </div>
           </DialogHeader>
@@ -378,11 +380,6 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
           <div className="flex-1 overflow-y-auto flex flex-col gap-4 min-h-0">
             {step === "calendar" && (
               <>
-                <p className="text-xs text-muted-foreground">
-                  Set a paint amount and source on the calendar, or import a CSV with Date, Amount, and an optional
-                  Source column. Rows are grouped by month. Past periods credit Savings only; the current month or year
-                  also funds envelopes. Future periods cannot be imported.
-                </p>
                 <div className="flex gap-2 p-1 rounded-xl bg-[#111] border border-[#1F1F1F]">
                   {(["monthly", "annual"] as const).map((m) => (
                     <button
