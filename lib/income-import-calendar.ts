@@ -1,6 +1,14 @@
 import type { IncomeImportEntry } from "@/lib/income-import"
+import {
+  currentMonthKeyUtc,
+  currentYearUtc,
+  isImportPeriodFuture,
+  parseIncomePeriodKey,
+} from "@/lib/income-import"
 
-export type CellVisualState = "empty" | "shaded" | "tx0" | "preHistory"
+export type CellVisualState = "empty" | "shaded" | "tx0" | "preHistory" | "future"
+
+export type ImportEditMode = "monthly" | "annual"
 
 export interface PeriodDiff {
   periodKey: string
@@ -37,6 +45,49 @@ export function buildCalendarYears(currentYear: number, floor = 1900): number[] 
   const years: number[] = []
   for (let y = end; y >= start; y--) years.push(y)
   return years
+}
+
+/** Three-period window ending at anchor (edit dialog stepper). */
+export function buildEditPeriodKeys(mode: ImportEditMode, anchor: string): string[] {
+  if (mode === "annual") {
+    const year = Number(anchor)
+    if (!Number.isFinite(year)) return [anchor]
+    return [`${year - 2}`, `${year - 1}`, `${year}`]
+  }
+  const [y, m] = anchor.split("-").map(Number)
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return [anchor]
+  const keys: string[] = []
+  for (let i = -2; i <= 0; i++) {
+    const d = new Date(Date.UTC(y, m - 1 + i, 1))
+    keys.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`)
+  }
+  return keys
+}
+
+/** Shift edit-dialog anchor by N months or years. */
+export function stepEditAnchor(mode: ImportEditMode, anchor: string, delta: number): string {
+  if (mode === "annual") {
+    return String(Number(anchor) + delta)
+  }
+  const [y, m] = anchor.split("-").map(Number)
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1))
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+}
+
+/** Pick a sensible anchor when toggling monthly ↔ annual in the edit dialog. */
+export function anchorForEditModeSwitch(to: ImportEditMode, anchor: string): string {
+  const parsed = parseIncomePeriodKey(anchor)
+  if (to === "annual") {
+    if (parsed?.kind === "year") return anchor
+    if (parsed?.kind === "month") return String(parsed.year)
+    return String(currentYearUtc())
+  }
+  if (parsed?.kind === "month") return anchor
+  if (parsed?.kind === "year") {
+    if (parsed.year === currentYearUtc()) return currentMonthKeyUtc()
+    return `${parsed.year}-01`
+  }
+  return currentMonthKeyUtc()
 }
 
 export function monthsInRangeChronological(a: string, b: string): string[] {
@@ -97,8 +148,10 @@ export function cellState(params: {
   periodKey: string
   tx0PeriodKey: string | null
   amount: number
+  now?: Date
 }): CellVisualState {
-  const { periodKey, tx0PeriodKey, amount } = params
+  const { periodKey, tx0PeriodKey, amount, now } = params
+  if (isImportPeriodFuture(periodKey, now)) return "future"
   if (tx0PeriodKey && periodMatchesTx0(periodKey, tx0PeriodKey)) return "tx0"
   if (tx0PeriodKey && periodCompareKey(periodKey) < tx0PeriodKey) return "preHistory"
   if (amount > 0) return "shaded"

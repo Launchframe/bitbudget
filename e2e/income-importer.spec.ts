@@ -153,7 +153,7 @@ test.describe("Income importer (UI)", () => {
     await page.getByRole("button", { name: "Confirm import" }).click()
     await expect(
       page.getByRole("alert").filter({
-        hasText: "Set a positive Monthly Income in Settings before importing the current month or future periods.",
+        hasText: "Set a positive Monthly Income in Settings before importing the current month or year.",
       }),
     ).toBeVisible()
   })

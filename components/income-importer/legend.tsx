@@ -8,12 +8,14 @@ const SWATCH: Record<CellVisualState, string> = {
   shaded: "border border-[#D4AF37]/40",
   tx0: "border-2 border-[#D4AF37] bg-[#1A1A1A]",
   preHistory: "bg-[#111] border border-[#222] opacity-50",
+  future: "bg-[#141414] border border-[#2A2A2A] opacity-40",
 }
 
 const LABELS: { state: CellVisualState; label: string }[] = [
   { state: "empty", label: "No import" },
   { state: "tx0", label: "First real transaction" },
   { state: "preHistory", label: "Before your history" },
+  { state: "future", label: "Future period" },
 ]
 
 export function IncomeImporterLegend() {
@@ -40,10 +42,9 @@ export function IncomeImporterLegend() {
   )
 }
 
-export function cellBackgroundStyle(intensity: number): CSSProperties | undefined {
-  if (intensity <= 0) return undefined
+function cellHeatmapRgb(intensity: number): { r: number; g: number; b: number } | null {
+  if (intensity <= 0) return null
   const t = Math.max(0, Math.min(1, intensity))
-  // Spreadsheet-style conditional fill: dark base → warm wash → full savings gold at max
   const curved = Math.pow(t, 1.35)
   const base = { r: 26, g: 26, b: 26 }
   const wash = { r: 72, g: 68, b: 58 }
@@ -53,10 +54,28 @@ export function cellBackgroundStyle(intensity: number): CSSProperties | undefine
     g: wash.g + (gold.g - wash.g) * curved,
     b: wash.b + (gold.b - wash.b) * curved,
   }
-  const r = Math.round(base.r + (mid.r - base.r) * t)
-  const g = Math.round(base.g + (mid.g - base.g) * t)
-  const b = Math.round(base.b + (mid.b - base.b) * t)
-  return { backgroundColor: `rgb(${r}, ${g}, ${b})` }
+  return {
+    r: Math.round(base.r + (mid.r - base.r) * t),
+    g: Math.round(base.g + (mid.g - base.g) * t),
+    b: Math.round(base.b + (mid.b - base.b) * t),
+  }
+}
+
+export function cellBackgroundStyle(intensity: number): CSSProperties | undefined {
+  const rgb = cellHeatmapRgb(intensity)
+  if (!rgb) return undefined
+  return { backgroundColor: `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})` }
+}
+
+/** Pencil icon classes that stay readable on heatmap-filled cells (dark on bright gold). */
+export function editIconClassForHeatmap(intensity: number): string {
+  const rgb = cellHeatmapRgb(intensity)
+  if (!rgb) return "text-[#D4AF37]"
+  const luminance = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255
+  if (luminance > 0.45) {
+    return "text-[#0D0D0D] bg-white/90 ring-1 ring-[#0D0D0D]/10"
+  }
+  return "text-[#D4AF37]"
 }
 
 export function heatmapLegendStyle(intensity: number): CSSProperties {

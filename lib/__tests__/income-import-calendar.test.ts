@@ -1,18 +1,36 @@
 import { describe, expect, it } from "vitest"
 import {
+  anchorForEditModeSwitch,
   buildCalendarYears,
+  buildEditPeriodKeys,
   cellState,
   gradientIntensity,
   heatmapIntensity,
   maxStagedAmount,
   monthsInRangeChronological,
   p95MaxAmount,
+  stepEditAnchor,
   summarizeImportEntries,
 } from "../income-import-calendar"
 
 describe("income-import-calendar", () => {
   it("buildCalendarYears descends from current to floor", () => {
     expect(buildCalendarYears(2026, 2024)).toEqual([2026, 2025, 2024])
+  })
+
+  it("buildEditPeriodKeys shows three periods ending at anchor", () => {
+    expect(buildEditPeriodKeys("monthly", "2024-06")).toEqual(["2024-04", "2024-05", "2024-06"])
+    expect(buildEditPeriodKeys("annual", "2024")).toEqual(["2022", "2023", "2024"])
+  })
+
+  it("stepEditAnchor shifts by months or years", () => {
+    expect(stepEditAnchor("monthly", "2024-06", -3)).toBe("2024-03")
+    expect(stepEditAnchor("annual", "2024", 3)).toBe("2027")
+  })
+
+  it("anchorForEditModeSwitch maps between monthly and annual anchors", () => {
+    expect(anchorForEditModeSwitch("annual", "2024-06")).toBe("2024")
+    expect(anchorForEditModeSwitch("monthly", "2024")).toBe("2024-01")
   })
 
   it("monthsInRangeChronological handles both directions", () => {
@@ -26,9 +44,11 @@ describe("income-import-calendar", () => {
   })
 
   it("cellState reflects tx0 and pre-history", () => {
-    expect(cellState({ periodKey: "2022-05", tx0PeriodKey: "2022-06", amount: 0 })).toBe("preHistory")
-    expect(cellState({ periodKey: "2022-06", tx0PeriodKey: "2022-06", amount: 0 })).toBe("tx0")
-    expect(cellState({ periodKey: "2022-07", tx0PeriodKey: "2022-06", amount: 500 })).toBe("shaded")
+    const now = new Date("2026-05-15T12:00:00.000Z")
+    expect(cellState({ periodKey: "2022-05", tx0PeriodKey: "2022-06", amount: 0, now })).toBe("preHistory")
+    expect(cellState({ periodKey: "2022-06", tx0PeriodKey: "2022-06", amount: 0, now })).toBe("tx0")
+    expect(cellState({ periodKey: "2022-07", tx0PeriodKey: "2022-06", amount: 500, now })).toBe("shaded")
+    expect(cellState({ periodKey: "2026-06", tx0PeriodKey: "2022-06", amount: 0, now })).toBe("future")
   })
 
   it("cellState compares annual year keys against tx0 month", () => {

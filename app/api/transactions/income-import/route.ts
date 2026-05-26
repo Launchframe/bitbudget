@@ -5,6 +5,7 @@ import { awardIfMissing, detectAchievementsForUser } from "@/lib/achievements"
 import {
   type IncomeImportEntry,
   entriesNeedMonthlyIncome,
+  entriesIncludeFuturePeriod,
   parseIncomePeriodKey,
   processIncomeImport,
 } from "@/lib/income-import"
@@ -73,6 +74,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  if (entriesIncludeFuturePeriod(entries)) {
+    return NextResponse.json(
+      { error: "Income import cannot include future months or years." },
+      { status: 400 },
+    )
+  }
+
   if (
     entriesNeedMonthlyIncome(entries) &&
     (!Number.isFinite(user.monthlyIncome) || user.monthlyIncome <= 0)
@@ -80,7 +88,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Set a positive Monthly Income in Settings before importing the current month or future periods.",
+          "Set a positive Monthly Income in Settings before importing the current month or year.",
       },
       { status: 400 },
     )

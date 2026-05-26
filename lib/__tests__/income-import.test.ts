@@ -5,9 +5,12 @@ import {
   currentMonthKeyUtc,
   dedupeImportEntriesByPeriod,
   distributeImportDates,
+  entriesIncludeFuturePeriod,
   entriesNeedMonthlyIncome,
   importBatchPeriodKey,
+  isImportPeriodFuture,
   isLegacyImportBatchPeriodKey,
+  isPeriodCurrent,
   isPeriodCurrentOrFuture,
   parseIncomePeriodKey,
   processIncomeImport,
@@ -61,6 +64,26 @@ describe("income-import helpers", () => {
     expect(parseIncomePeriodKey("2026-13")).toBeNull()
   })
 
+  it("isImportPeriodFuture distinguishes after current month or year", () => {
+    const now = new Date("2026-05-15T12:00:00.000Z")
+    expect(isImportPeriodFuture("2026-04", now)).toBe(false)
+    expect(isImportPeriodFuture("2026-05", now)).toBe(false)
+    expect(isImportPeriodFuture("2026-06", now)).toBe(true)
+    expect(isImportPeriodFuture("2025", now)).toBe(false)
+    expect(isImportPeriodFuture("2026", now)).toBe(false)
+    expect(isImportPeriodFuture("2027", now)).toBe(true)
+  })
+
+  it("isPeriodCurrent matches only the current calendar month or year", () => {
+    const now = new Date("2026-05-15T12:00:00.000Z")
+    expect(isPeriodCurrent("2026-04", now)).toBe(false)
+    expect(isPeriodCurrent("2026-05", now)).toBe(true)
+    expect(isPeriodCurrent("2026-06", now)).toBe(false)
+    expect(isPeriodCurrent("2025", now)).toBe(false)
+    expect(isPeriodCurrent("2026", now)).toBe(true)
+    expect(isPeriodCurrent("2027", now)).toBe(false)
+  })
+
   it("isPeriodCurrentOrFuture distinguishes past vs current/future", () => {
     const now = new Date("2026-05-15T12:00:00.000Z")
     expect(isPeriodCurrentOrFuture("2026-04", now)).toBe(false)
@@ -97,11 +120,19 @@ describe("income-import helpers", () => {
     expect(currentMonthKeyUtc(new Date("2026-05-23T00:00:00.000Z"))).toBe("2026-05")
   })
 
-  it("entriesNeedMonthlyIncome is true when any row is current or future", () => {
+  it("entriesNeedMonthlyIncome is true only when a row is the current month or year", () => {
     const now = new Date("2026-05-15T12:00:00.000Z")
     expect(entriesNeedMonthlyIncome([{ periodKey: "2024-01", amount: 1000 }], now)).toBe(false)
     expect(entriesNeedMonthlyIncome([{ periodKey: "2026-05", amount: 1000 }], now)).toBe(true)
-    expect(entriesNeedMonthlyIncome([{ periodKey: "2026-06", amount: 1000 }], now)).toBe(true)
+    expect(entriesNeedMonthlyIncome([{ periodKey: "2026-06", amount: 1000 }], now)).toBe(false)
+    expect(entriesNeedMonthlyIncome([{ periodKey: "2026", amount: 10000 }], now)).toBe(true)
+  })
+
+  it("entriesIncludeFuturePeriod detects future rows", () => {
+    const now = new Date("2026-05-15T12:00:00.000Z")
+    expect(entriesIncludeFuturePeriod([{ periodKey: "2026-05", amount: 1000 }], now)).toBe(false)
+    expect(entriesIncludeFuturePeriod([{ periodKey: "2026-06", amount: 1000 }], now)).toBe(true)
+    expect(entriesIncludeFuturePeriod([{ periodKey: "2027", amount: 1000 }], now)).toBe(true)
   })
 })
 

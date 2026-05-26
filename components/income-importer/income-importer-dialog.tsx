@@ -5,6 +5,7 @@ import { TrendingUp } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import {
   entriesNeedMonthlyIncome,
+  isImportPeriodFuture,
   parseIncomePeriodKey,
   sumPriorIncomeImportForPeriod,
 } from "@/lib/income-import"
@@ -85,7 +86,9 @@ function isDraft(value: unknown): value is IncomeImporterDraft {
 }
 
 function entriesFromDraft(entries: StagedImportEntry[]): Map<string, StagedImportEntry> {
-  return new Map(entries.map((e) => [e.periodKey, e]))
+  return new Map(
+    entries.filter((e) => !isImportPeriodFuture(e.periodKey)).map((e) => [e.periodKey, e]),
+  )
 }
 
 interface IncomeImporterDialogProps {
@@ -204,7 +207,11 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
   const stageEntries = useCallback((updates: StagedImportEntry[]) => {
     setEntries((prev) => {
       const next = new Map(prev)
-      for (const u of updates) next.set(u.periodKey, u)
+      for (const u of updates) {
+        if (isImportPeriodFuture(u.periodKey)) continue
+        if (!Number.isFinite(u.amount) || u.amount <= 0) next.delete(u.periodKey)
+        else next.set(u.periodKey, u)
+      }
       return next
     })
   }, [])
@@ -225,27 +232,13 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
     })
   }, [entryList, tx0])
 
-  const adjacentPeriodKeys = useMemo(() => {
-    if (!editState) return []
-    if (editState.kind === "year") {
-      const y = Number(editState.periodKey)
-      return [String(y - 1), String(y), String(y + 1)]
-    }
-    const parsed = parseIncomePeriodKey(editState.periodKey)
-    if (!parsed || parsed.kind !== "month") return [editState.periodKey]
-    const keys: string[] = []
-    for (let m = 1; m <= 12; m++) {
-      keys.push(`${parsed.year}-${String(m).padStart(2, "0")}`)
-    }
-    return keys
-  }, [editState])
-
   const closeEdit = () => {
     setEditOpen(false)
     setEditState(null)
   }
 
   const openEdit = (periodKey: string, kind: "month" | "year") => {
+    if (isImportPeriodFuture(periodKey)) return
     childModalOpenRef.current = true
     const staged = entries.get(periodKey)
     setEditState({
@@ -291,7 +284,7 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
     }
     if (needsMonthlyIncomeSetting && state.monthlyIncome <= 0) {
       setError(
-        "Set a positive Monthly Income in Settings before importing the current month or future periods.",
+        "Set a positive Monthly Income in Settings before importing the current month or year.",
       )
       return
     }
@@ -386,9 +379,9 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
             {step === "calendar" && (
               <>
                 <p className="text-xs text-muted-foreground">
-                  Paint your income history on the calendar, or import a CSV with Date, Amount, and an optional
-                  Source column. Rows are grouped by month. Past periods credit Savings only; current and future
-                  periods also fund envelopes.
+                  Set a paint amount and source on the calendar, or import a CSV with Date, Amount, and an optional
+                  Source column. Rows are grouped by month. Past periods credit Savings only; the current month or year
+                  also funds envelopes. Future periods cannot be imported.
                 </p>
                 <div className="flex gap-2 p-1 rounded-xl bg-[#111] border border-[#1F1F1F]">
                   {(["monthly", "annual"] as const).map((m) => (
@@ -485,25 +478,14 @@ export function IncomeImporterDialog({ open, onOpenChange }: IncomeImporterDialo
           <IncomeCellEditDialog
             open={editOpen}
             state={editState}
-            existingTotal={editState ? sumPriorImportForPeriod(editState.periodKey) : 0}
-            adjacentPeriodKeys={adjacentPeriodKeys}
+            entries={entries}
+            paintSource={paintSource}
+            getExistingTotal={sumPriorImportForPeriod}
             onSave={(entry) => {
               stageEntries([entry])
               closeEdit()
             }}
             onCancel={closeEdit}
-            onNavigate={(pk) => {
-              if (!editState) return
-              const kind = editState.kind
-              const staged = entries.get(pk)
-              setEditState({
-                kind,
-                periodKey: pk,
-                amount: staged?.amount ?? 0,
-                source: staged?.source ?? paintSource,
-                splitCount: staged?.splitCount ?? 12,
-              })
-            }}
           />
         </DialogContent>
       </Dialog>

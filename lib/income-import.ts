@@ -64,9 +64,25 @@ export function currentYearUtc(now = new Date()): number {
   return now.getUTCFullYear()
 }
 
-/** True when any import row targets the current month/year or later (envelope funding applies). */
+/** True when any import row targets the current month or year (envelope funding applies). */
 export function entriesNeedMonthlyIncome(entries: readonly IncomeImportEntry[], now = new Date()): boolean {
-  return entries.some((e) => isPeriodCurrentOrFuture(e.periodKey, now))
+  return entries.some((e) => isPeriodCurrent(e.periodKey, now))
+}
+
+/** True when the period is the current calendar month or year. */
+export function isPeriodCurrent(periodKey: string, now = new Date()): boolean {
+  const parsed = parseIncomePeriodKey(periodKey)
+  if (!parsed) return false
+  if (parsed.kind === "year") return parsed.year === currentYearUtc(now)
+  return parsed.periodKey === currentMonthKeyUtc(now)
+}
+
+/** True when the period is after the current calendar month or year (not importable). */
+export function isImportPeriodFuture(periodKey: string, now = new Date()): boolean {
+  const parsed = parseIncomePeriodKey(periodKey)
+  if (!parsed) return false
+  if (parsed.kind === "year") return parsed.year > currentYearUtc(now)
+  return parsed.periodKey > currentMonthKeyUtc(now)
 }
 
 /** True when the period is the current month/year or later (envelope funding applies). */
@@ -75,6 +91,13 @@ export function isPeriodCurrentOrFuture(periodKey: string, now = new Date()): bo
   if (!parsed) return false
   if (parsed.kind === "year") return parsed.year >= currentYearUtc(now)
   return parsed.periodKey >= currentMonthKeyUtc(now)
+}
+
+export function entriesIncludeFuturePeriod(
+  entries: readonly IncomeImportEntry[],
+  now = new Date(),
+): boolean {
+  return entries.some((e) => isImportPeriodFuture(e.periodKey, now))
 }
 
 /** One import batch per user+period (overwrite on re-import). */
@@ -375,12 +398,15 @@ export function dedupeImportEntriesByPeriod(
   return [...byPeriod.values()]
 }
 
-/** Import historical or future income entries. Returns transactions created. */
+/** Import historical or current income entries. Returns transactions created. */
 export async function processIncomeImport(input: ProcessIncomeImportInput): Promise<number> {
   const pk = input.publicKey?.trim()
   if (!pk) return 0
 
-  const entries = dedupeImportEntriesByPeriod(input.entries)
+  const entries = dedupeImportEntriesByPeriod(input.entries).filter(
+    (e) => !isImportPeriodFuture(e.periodKey),
+  )
+  if (entries.length === 0) return 0
   const mi = input.monthlyIncome
   const now = new Date()
   const needsMonthlyIncome = entriesNeedMonthlyIncome(entries, now)
@@ -427,7 +453,7 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
       const encPayee = encryptFieldForUser(label, pk)
       if (!encPayee) continue
 
-      const fundEnvelopes = isPeriodCurrentOrFuture(entry.periodKey, now)
+      const fundEnvelopes = isPeriodCurrent(entry.periodKey, now)
       const splitCount = parsed.kind === "year" ? Math.max(1, entry.splitCount ?? 1) : 1
       const dates = distributeImportDates({ periodKey: entry.periodKey, payDay, splitCount })
       const amounts = splitAmountAcrossChecks(amount, dates.length)

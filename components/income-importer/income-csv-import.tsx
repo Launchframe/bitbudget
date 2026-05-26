@@ -9,6 +9,7 @@ import {
   parseIncomeCsv,
 } from "@/lib/income-import-csv"
 import type { StagedImportEntry } from "@/components/income-importer/income-calendar"
+import { IncomeCsvImportHelp } from "@/components/income-importer/income-csv-import-help"
 
 interface IncomeCsvImportProps {
   onImported: (result: {
@@ -63,17 +64,20 @@ export function IncomeCsvImport({ onImported, onError, disabled }: IncomeCsvImpo
         aria-hidden
         onChange={(e) => void handleFile(e)}
       />
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="shrink-0 gap-2"
-        disabled={disabled || loading}
-        onClick={() => inputRef.current?.click()}
-      >
-        <FileSpreadsheet className="h-4 w-4 text-[#D4AF37]" aria-hidden />
-        {loading ? "Reading…" : "Import CSV"}
-      </Button>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          disabled={disabled || loading}
+          onClick={() => inputRef.current?.click()}
+        >
+          <FileSpreadsheet className="h-4 w-4 text-[#D4AF37]" aria-hidden />
+          {loading ? "Reading…" : "Import CSV"}
+        </Button>
+        <IncomeCsvImportHelp />
+      </div>
     </>
   )
 }

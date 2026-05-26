@@ -1,4 +1,5 @@
 import { parseCSVLine, parseDate } from "@/lib/csv"
+import { isImportPeriodFuture } from "@/lib/income-import"
 
 export interface IncomeCsvRow {
   date: string
@@ -131,12 +132,15 @@ export function bucketIncomeCsvByMonth(rows: readonly IncomeCsvRow[]): IncomeCsv
     })
 }
 
-export function parseIncomeCsv(text: string): IncomeCsvParseResult {
+export function parseIncomeCsv(text: string, now = new Date()): IncomeCsvParseResult {
   const { rows, totalRows, skippedRows } = parseIncomeCsvRows(text)
+  const allBuckets = bucketIncomeCsvByMonth(rows)
+  const buckets = allBuckets.filter((b) => !isImportPeriodFuture(b.periodKey, now))
+  const futureSkipped = allBuckets.length - buckets.length
   return {
-    buckets: bucketIncomeCsvByMonth(rows),
+    buckets,
     totalRows,
-    skippedRows,
+    skippedRows: skippedRows + futureSkipped,
   }
 }
 

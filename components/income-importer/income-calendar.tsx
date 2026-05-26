@@ -1,9 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Pencil } from "lucide-react"
 import type { IncomeImportEntry } from "@/lib/income-import"
-import { parseIncomePeriodKey } from "@/lib/income-import"
+import { isImportPeriodFuture, parseIncomePeriodKey } from "@/lib/income-import"
 import {
   buildCalendarYears,
   cellState,
@@ -12,7 +12,7 @@ import {
   monthsInRangeChronological,
   type CellVisualState,
 } from "@/lib/income-import-calendar"
-import { cellBackgroundStyle } from "@/components/income-importer/legend"
+import { cellBackgroundStyle, editIconClassForHeatmap } from "@/components/income-importer/legend"
 
 const MONTHS = [
   { full: "January", short: "Jan", letter: "J" },
@@ -67,12 +67,18 @@ function cellClass(state: CellVisualState): string {
       return "border-2 border-[#D4AF37] bg-[#1A1A1A]"
     case "preHistory":
       return "border border-[#222] bg-[#111] opacity-50"
+    case "future":
+      return "border border-[#2A2A2A] bg-[#141414] opacity-40 cursor-not-allowed"
     case "shaded":
       return "border border-[#D4AF37]/50"
     default:
       return "border border-[#333] bg-[#1A1A1A] hover:border-[#555]"
   }
 }
+
+const ANNUAL_YEAR_FLOOR = 1900
+const ANNUAL_INITIAL_SPAN = 24
+const ANNUAL_LOAD_CHUNK = 12
 
 export function IncomeCalendar({
   mode,
@@ -95,6 +101,80 @@ export function IncomeCalendar({
   const [focusPeriod, setFocusPeriod] = useState<string | null>(null)
   const [mobileEditPeriod, setMobileEditPeriod] = useState<string | null>(null)
   const [rovingPeriod, setRovingPeriod] = useState(() => monthPeriodKey(scrollYear, 0))
+  const annualScrollRef = useRef<HTMLDivElement>(null)
+  const annualTopSentinelRef = useRef<HTMLDivElement>(null)
+  const annualBottomSentinelRef = useRef<HTMLDivElement>(null)
+  const annualScrollAnchorRef = useRef<number | null>(null)
+  const currentYear = useMemo(() => new Date().getUTCFullYear(), [])
+  const [annualRange, setAnnualRange] = useState(() => ({
+    end: currentYear,
+    start: Math.max(ANNUAL_YEAR_FLOOR, currentYear - ANNUAL_INITIAL_SPAN + 1),
+  }))
+
+  useEffect(() => {
+    if (mode !== "annual") return
+    setAnnualRange((prev) => ({
+      end: currentYear,
+      start: Math.min(prev.start, Math.max(ANNUAL_YEAR_FLOOR, currentYear - ANNUAL_INITIAL_SPAN + 1)),
+    }))
+    requestAnimationFrame(() => {
+      annualScrollRef.current
+        ?.querySelector<HTMLElement>(`[data-annual-year="${Math.min(scrollYear, currentYear)}"]`)
+        ?.scrollIntoView({ block: "center" })
+    })
+  }, [mode, scrollYear, currentYear])
+
+  const annualYears = useMemo(() => {
+    const years: number[] = []
+    for (let y = annualRange.end; y >= annualRange.start; y--) years.push(y)
+    return years
+  }, [annualRange.end, annualRange.start])
+  const annualRangeRef = useRef(annualRange)
+  annualRangeRef.current = annualRange
+
+  useEffect(() => {
+    if (mode !== "annual") return
+    const root = annualScrollRef.current
+    const top = annualTopSentinelRef.current
+    const bottom = annualBottomSentinelRef.current
+    if (!root || !top || !bottom) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          const prev = annualRangeRef.current
+          if (entry.target === top && prev.end < currentYear) {
+            annualScrollAnchorRef.current = root.scrollHeight
+            setAnnualRange((range) => ({
+              ...range,
+              end: Math.min(currentYear, range.end + ANNUAL_LOAD_CHUNK),
+            }))
+          }
+          if (entry.target === bottom && prev.start > ANNUAL_YEAR_FLOOR) {
+            setAnnualRange((range) => ({
+              end: range.end,
+              start: Math.max(ANNUAL_YEAR_FLOOR, range.start - ANNUAL_LOAD_CHUNK),
+            }))
+          }
+        }
+      },
+      { root, rootMargin: "80px" },
+    )
+
+    observer.observe(top)
+    observer.observe(bottom)
+    return () => observer.disconnect()
+  }, [mode, currentYear])
+
+  useLayoutEffect(() => {
+    if (mode !== "annual") return
+    const root = annualScrollRef.current
+    const anchor = annualScrollAnchorRef.current
+    if (!root || anchor == null) return
+    root.scrollTop += root.scrollHeight - anchor
+    annualScrollAnchorRef.current = null
+  }, [mode, annualRange.end])
 
   useEffect(() => {
     const next = mode === "monthly" ? monthPeriodKey(scrollYear, 0) : String(scrollYear)
@@ -117,9 +197,11 @@ export function IncomeCalendar({
   const applyPaint = useCallback(
     (periodKeys: string[], kind: "month" | "year") => {
       if (paintAmount <= 0) return
+      const importable = periodKeys.filter((periodKey) => !isImportPeriodFuture(periodKey))
+      if (importable.length === 0) return
       const source = paintSource.trim() || undefined
       onStageEntries(
-        periodKeys.map((periodKey) => ({
+        importable.map((periodKey) => ({
           periodKey,
           amount: paintAmount,
           source,
@@ -129,6 +211,15 @@ export function IncomeCalendar({
       )
     },
     [entries, onStageEntries, paintAmount, paintSource],
+  )
+
+  const clearCell = useCallback(
+    (periodKey: string, kind: "month" | "year") => {
+      if (isImportPeriodFuture(periodKey)) return
+      if (!entries.has(periodKey)) return
+      onStageEntries([{ periodKey, amount: 0, kind }])
+    },
+    [entries, onStageEntries],
   )
 
   const finishMonthDrag = useCallback(() => {
@@ -161,6 +252,7 @@ export function IncomeCalendar({
   }, [finishMonthDrag])
 
   const beginMonthDrag = (periodKey: string, shiftKey: boolean) => {
+    if (isImportPeriodFuture(periodKey)) return
     if (shiftKey && lastClickedPeriod) {
       applyPaint(monthsInRangeChronological(lastClickedPeriod, periodKey), "month")
       onLastClickedPeriodChange(periodKey)
@@ -174,6 +266,7 @@ export function IncomeCalendar({
 
   const updateMonthDrag = (periodKey: string) => {
     if (!isDraggingRef.current) return
+    if (isImportPeriodFuture(periodKey)) return
     dragEndRef.current = periodKey
     if (periodKey !== dragStartRef.current) didDragRef.current = true
   }
@@ -194,6 +287,7 @@ export function IncomeCalendar({
     const amount = staged?.amount ?? 0
     const intensity = heatmapIntensity(amount, heatmapMax)
     const visual = cellState({ periodKey, tx0PeriodKey, amount })
+    const isFuture = visual === "future"
     const showEdit = mobileEditPeriod === periodKey
     const monthIdx = kind === "month" ? parseInt(periodKey.split("-")[1]!, 10) - 1 : -1
 
@@ -201,11 +295,14 @@ export function IncomeCalendar({
       <div
         key={periodKey}
         role="gridcell"
-        tabIndex={rovingPeriod === periodKey ? 0 : -1}
-        aria-label={`${label}${amount > 0 ? `, staged ${amount} dollars` : ""}`}
-        className={`relative w-full rounded-md touch-none ${options?.compact ? "min-h-10" : "aspect-square min-h-8"} ${cellClass(visual)} group focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/60`}
+        tabIndex={isFuture ? -1 : rovingPeriod === periodKey ? 0 : -1}
+        aria-disabled={isFuture || undefined}
+        aria-label={`${label}${isFuture ? ", not importable yet" : amount > 0 ? `, staged ${amount} dollars` : ""}`}
+        className={`relative w-full rounded-md touch-none ${options?.compact ? "min-h-10" : "aspect-square min-h-8"} ${cellClass(visual)} ${isFuture ? "" : "group focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/60"}`}
         style={visual === "shaded" ? cellBackgroundStyle(intensity) : undefined}
         onPointerDown={(e) => {
+          if (isFuture) return
+          if (e.button !== 0) return
           if ((e.target as HTMLElement).closest("[data-edit-btn]")) return
           if (kind === "month") {
             beginMonthDrag(periodKey, e.shiftKey)
@@ -214,14 +311,22 @@ export function IncomeCalendar({
           applyPaint([periodKey], "year")
           onLastClickedPeriodChange(periodKey)
         }}
+        onContextMenu={(e) => {
+          if (isFuture) return
+          e.preventDefault()
+          clearCell(periodKey, kind)
+        }}
         onPointerEnter={() => {
+          if (isFuture) return
           if (kind === "month") updateMonthDrag(periodKey)
         }}
         onFocus={() => {
+          if (isFuture) return
           setFocusPeriod(periodKey)
           setRovingPeriod(periodKey)
         }}
         onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
+          if (isFuture) return
           if (e.key === "Enter" && e.shiftKey && lastClickedPeriod && kind === "month") {
             e.preventDefault()
             applyPaint(monthsInRangeChronological(lastClickedPeriod, periodKey), "month")
@@ -250,13 +355,21 @@ export function IncomeCalendar({
           }
           if (next) {
             const nextParsed = parseIncomePeriodKey(next)
-            if (!nextParsed || nextParsed.kind !== "month" || !visibleYearSet.has(nextParsed.year)) return
+            if (
+              !nextParsed ||
+              nextParsed.kind !== "month" ||
+              !visibleYearSet.has(nextParsed.year) ||
+              isImportPeriodFuture(next)
+            ) {
+              return
+            }
             e.preventDefault()
             focusPeriodCell(next)
           }
         }}
         data-period={periodKey}
         onClick={() => {
+          if (isFuture) return
           if (didDragRef.current) {
             didDragRef.current = false
             return
@@ -269,41 +382,47 @@ export function IncomeCalendar({
             {MONTHS[monthIdx]?.short}
           </span>
         )}
-        <button
-          type="button"
-          data-edit-btn
-          aria-label={`Edit ${label}`}
-          className={`absolute right-0.5 top-0.5 rounded p-0.5 text-[#D4AF37] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${showEdit ? "opacity-100" : ""}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            onEditCell(periodKey, kind)
-          }}
-        >
-          <Pencil className="h-3 w-3" aria-hidden />
-        </button>
+        {!isFuture && (
+          <button
+            type="button"
+            data-edit-btn
+            aria-label={`Edit ${label}`}
+            className={`absolute right-0.5 top-0.5 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${showEdit ? "opacity-100" : ""} ${
+              visual === "shaded" ? editIconClassForHeatmap(intensity) : "text-[#D4AF37]"
+            }`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onEditCell(periodKey, kind)
+            }}
+          >
+            <Pencil className="h-3 w-3" aria-hidden />
+          </button>
+        )}
       </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <label htmlFor="calendar-year" className="text-sm text-muted-foreground">
-          Scroll year
-        </label>
-        <select
-          id="calendar-year"
-          value={scrollYear}
-          onChange={(e) => onScrollYearChange(Number(e.target.value))}
-          className="rounded-lg border border-[#333] bg-[#1A1A1A] px-2 py-1 text-sm"
-        >
-          {years.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-      </div>
+      {mode === "monthly" && (
+        <div className="flex items-center justify-between gap-2">
+          <label htmlFor="calendar-year" className="text-sm text-muted-foreground">
+            Scroll year
+          </label>
+          <select
+            id="calendar-year"
+            value={scrollYear}
+            onChange={(e) => onScrollYearChange(Number(e.target.value))}
+            className="rounded-lg border border-[#333] bg-[#1A1A1A] px-2 py-1 text-sm"
+          >
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {mode === "monthly" ? (
         <>
@@ -367,8 +486,14 @@ export function IncomeCalendar({
           </div>
         </>
       ) : (
-        <div role="grid" aria-label="Income calendar by year" className="flex flex-col gap-2">
-          {[scrollYear, scrollYear - 1, scrollYear - 2, scrollYear - 3, scrollYear - 4].map((year) => {
+        <div
+          ref={annualScrollRef}
+          role="grid"
+          aria-label="Income calendar by year"
+          className="flex max-h-[min(50vh,24rem)] flex-col gap-2 overflow-y-auto overscroll-contain rounded-xl border border-[#1F1F1F] p-2"
+        >
+          <div ref={annualTopSentinelRef} className="h-px shrink-0" aria-hidden />
+          {annualYears.map((year) => {
             const pk = String(year)
             const staged = entries.get(pk)
             const amount = staged?.amount ?? 0
@@ -377,12 +502,18 @@ export function IncomeCalendar({
             return (
               <div
                 key={year}
+                data-annual-year={year}
                 role="row"
-                className={`flex items-center gap-3 rounded-xl p-3 touch-none ${cellClass(visual)}`}
+                className={`flex shrink-0 items-center gap-3 rounded-xl p-3 touch-none ${cellClass(visual)}`}
                 style={visual === "shaded" ? cellBackgroundStyle(intensity) : undefined}
                 onPointerDown={(e) => {
+                  if (e.button !== 0) return
                   if ((e.target as HTMLElement).closest("[data-edit-btn]")) return
                   applyPaint([pk], "year")
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  clearCell(pk, "year")
                 }}
               >
                 <span className="w-16 text-sm font-medium">{year}</span>
@@ -392,7 +523,9 @@ export function IncomeCalendar({
                 <button
                   type="button"
                   data-edit-btn
-                  className="text-[#D4AF37]"
+                  className={`rounded p-0.5 ${
+                    visual === "shaded" ? editIconClassForHeatmap(intensity) : "text-[#D4AF37]"
+                  }`}
                   aria-label={`Edit ${year}`}
                   onClick={() => onEditCell(pk, "year")}
                 >
@@ -401,6 +534,7 @@ export function IncomeCalendar({
               </div>
             )
           })}
+          <div ref={annualBottomSentinelRef} className="h-px shrink-0" aria-hidden />
         </div>
       )}
 

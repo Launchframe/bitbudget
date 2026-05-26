@@ -15,11 +15,11 @@ export function IncomeImporterCard() {
           <div className="p-2 rounded-lg bg-[#D4AF37]/10">
             <TrendingUp className="h-5 w-5 text-[#D4AF37]" aria-hidden />
           </div>
-          <h3 className="text-lg font-semibold text-foreground">Import Income History</h3>
+          <h3 className="text-lg font-semibold text-foreground">Add Past Income</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
-          Paint monthly or annual income on a calendar so Savings and analytics reflect your real cash flow. Past
-          periods credit Savings only; the current month and future periods also fund your envelopes.
+          If you imported transactions from another budgeting app, your BitBudget history only tells half the story.
+          Use this tool to include the money you earned and paint a clearer picture of your current finances.
         </p>
         <button
           type="button"
