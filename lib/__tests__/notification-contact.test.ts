@@ -2,12 +2,21 @@ import { describe, expect, it } from "vitest"
 import {
   outboundNotificationEmail,
   outboundNotificationEmails,
+  parseNotificationEmail,
   userAllowsNostrDm,
   userHasAnyNotificationChannel,
   userHasEmailNotificationChannel,
 } from "@/lib/notification-contact"
 
 describe("notification-contact", () => {
+  it("parses valid notification emails and rejects malformed input", () => {
+    expect(parseNotificationEmail("  Notify@Example.com  ")).toBe("notify@example.com")
+    expect(parseNotificationEmail("bad")).toBeNull()
+    expect(parseNotificationEmail("a@b")).toBeNull()
+    expect(parseNotificationEmail("has space@example.com")).toBeNull()
+    expect(parseNotificationEmail("bad\n@example.com")).toBeNull()
+  })
+
   it("includes login email and all verified notification emails", () => {
     expect(
       outboundNotificationEmails({

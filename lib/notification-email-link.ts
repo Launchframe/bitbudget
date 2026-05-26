@@ -4,6 +4,7 @@ import { sendNotificationEmailVerificationCode } from "@/lib/email"
 import {
   MAX_NOTIFICATION_EMAILS_PER_USER,
   normalizeNotificationEmail,
+  parseNotificationEmail,
 } from "@/lib/notification-contact"
 
 const RATE_LIMIT_MS = 60_000
@@ -48,8 +49,8 @@ export async function listUserNotificationEmails(userId: string) {
 }
 
 export async function sendNotificationEmailLinkCode(userId: string, email: string) {
-  const normalizedEmail = normalizeNotificationEmail(email)
-  if (!normalizedEmail || !normalizedEmail.includes("@")) {
+  const normalizedEmail = parseNotificationEmail(email)
+  if (!normalizedEmail) {
     throw new NotificationEmailLinkError("INVALID_EMAIL", "Valid email is required")
   }
 
@@ -140,9 +141,9 @@ export async function sendNotificationEmailLinkCode(userId: string, email: strin
 }
 
 export async function verifyNotificationEmailLink(userId: string, email: string, code: string) {
-  const normalizedEmail = normalizeNotificationEmail(email)
+  const normalizedEmail = parseNotificationEmail(email)
   const trimmedCode = code.trim()
-  if (!normalizedEmail || !normalizedEmail.includes("@")) {
+  if (!normalizedEmail) {
     throw new NotificationEmailLinkError("INVALID_EMAIL", "Valid email is required")
   }
   if (!/^[0-9]{6}$/.test(trimmedCode)) {

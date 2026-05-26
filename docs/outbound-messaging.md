@@ -75,7 +75,7 @@ Preference-gated product email is sent to **each** address in that list when the
 | SMTP + templates | `lib/email.ts` |
 | NIP-04 publish | `lib/nostr-dm.ts` |
 | User toggles | Settings → Communications (`components/communication-channels-card.tsx`) |
-| Unsubscribe | `GET /api/user/unsubscribe?token=…&category=…` |
+| Unsubscribe | `GET /api/user/unsubscribe?token=…&category=…` shows a confirmation page; `POST` applies the preference change (safe for email link scanners) |
 
 ---
 

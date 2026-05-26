@@ -18,8 +18,22 @@ export type NotificationContactUser = {
 
 export const MAX_NOTIFICATION_EMAILS_PER_USER = 10
 
+/** Conservative email shape check; rejects whitespace/control chars and invalid formats. */
+const NOTIFICATION_EMAIL_RE =
+  /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/
+
 export function normalizeNotificationEmail(email: string): string {
   return email.toLowerCase().trim()
+}
+
+/** Returns a normalized notification email or null when the input is invalid. */
+export function parseNotificationEmail(email: string): string | null {
+  const trimmed = email.trim()
+  if (!trimmed || trimmed.length > 254) return null
+  if (/\s/.test(trimmed) || /[\u0000-\u001f\u007f]/.test(trimmed)) return null
+  const normalized = trimmed.toLowerCase()
+  if (!NOTIFICATION_EMAIL_RE.test(normalized)) return null
+  return normalized
 }
 
 export function isNotificationEmailVerified(
