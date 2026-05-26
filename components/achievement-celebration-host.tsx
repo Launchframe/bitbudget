@@ -19,6 +19,15 @@ export function AchievementCelebrationHost() {
   const initializedRef = useRef(false)
   const [toast, setToast] = useState<{ code: string; label: string } | null>(null)
 
+  const syncAchievements = useCallback(async () => {
+    if (!currentUserId) return
+    try {
+      await fetch("/api/user/achievements", { method: "POST" })
+    } catch {
+      /* ignore */
+    }
+  }, [currentUserId])
+
   const pollAchievements = useCallback(async () => {
     if (!currentUserId) return
     try {
@@ -56,7 +65,9 @@ export function AchievementCelebrationHost() {
     if (!currentUserId) return
     const id = window.setInterval(() => void pollAchievements(), POLL_MS)
     const onFocus = () => void pollAchievements()
-    const onPollRequest = () => void pollAchievements()
+    const onPollRequest = () => {
+      void syncAchievements().then(() => pollAchievements())
+    }
     window.addEventListener("focus", onFocus)
     window.addEventListener("bitbudget-achievements-poll", onPollRequest)
     return () => {
@@ -64,7 +75,7 @@ export function AchievementCelebrationHost() {
       window.removeEventListener("focus", onFocus)
       window.removeEventListener("bitbudget-achievements-poll", onPollRequest)
     }
-  }, [currentUserId, pollAchievements])
+  }, [currentUserId, pollAchievements, syncAchievements])
 
   useEffect(() => {
     if (!toast) return

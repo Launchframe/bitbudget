@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils"
 const TASK_ACHIEVEMENT: Partial<Record<SetupGuideTaskId, string>> = {
   allocations: "setup_allocations",
   first_sweep: "swept_first",
-  savings_goal: "goal_hit",
   plaid: "setup_plaid",
   receipt_inbox: "setup_receipt_inbox",
   account_email: "setup_account_email",
@@ -106,6 +105,7 @@ function ProgressRing({ completed, total }: { completed: number; total: number }
   return (
     <div
       className="relative w-12 h-12 shrink-0"
+      role="img"
       aria-label={`${completed} of ${total} essentials complete`}
     >
       <svg className="w-full h-full -rotate-90" viewBox="0 0 48 48">
@@ -165,7 +165,7 @@ export function SetupGuidePanel({
         className,
       )}
       style={savingsEngaged ? { borderTopColor: SAVINGS_GOLD_ACCENT } : undefined}
-      data-walkthrough={variant === "dashboard" ? "setup-progress" : "settings-setup-guide"}
+      {...(variant === "dashboard" ? { "data-walkthrough": "setup-progress" } : {})}
     >
       <div className="flex flex-col sm:flex-row sm:items-start gap-4 min-w-0">
         <ProgressRing completed={completedCount} total={totalCount} />

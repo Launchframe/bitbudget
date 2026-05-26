@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import {
-  awardSetupGuideAchievements,
-  detectAchievementsForUser,
-} from "@/lib/achievements"
+import { awardSetupGuideAchievements } from "@/lib/achievements"
 import { getCurrentMonthKey } from "@/lib/data"
 import {
   computeSetupGuideTasks,
@@ -98,7 +95,6 @@ export async function GET() {
   }
 
   await awardSetupGuideAchievements(userId, setupFlags)
-  await detectAchievementsForUser(userId, now)
 
   return NextResponse.json({
     tasks,
