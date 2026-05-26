@@ -41,7 +41,7 @@ test.describe("Dashboard walkthrough", () => {
       await page.goto(`${origin}/#/dashboard`)
       await primePrivacyKeyCache(page, user!.id)
       await page.reload()
-      await expect(page.getByText("Monthly Income")).toBeVisible({ timeout: 90_000 })
+      await expect(page.getByText("Monthly Income", { exact: true })).toBeVisible({ timeout: 90_000 })
     }
 
     async function dismissWalkthroughAndWaitForSave() {
@@ -84,7 +84,7 @@ test.describe("Dashboard walkthrough", () => {
     await dismissWalkthroughAndWaitForSave()
 
     await page.reload()
-    await expect(page.getByText("Monthly Income")).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByText("Monthly Income", { exact: true })).toBeVisible({ timeout: 90_000 })
     await expect(skipWalkthrough).not.toBeVisible({ timeout: 5_000 })
 
     await expect
