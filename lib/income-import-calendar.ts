@@ -13,7 +13,6 @@ export interface ImportSummary {
   rows: PeriodDiff[]
   totalExisting: number
   totalPending: number
-  totalCombined: number
 }
 
 const MONTH_KEY_RE = /^\d{4}-\d{2}$/
@@ -127,11 +126,12 @@ export function summarizeImportEntries(
     totalPending += newAmount
   }
 
+  rows.sort((a, b) => periodCompareKey(a.periodKey).localeCompare(periodCompareKey(b.periodKey)))
+
   return {
     rows,
     totalExisting,
     totalPending,
-    totalCombined: totalPending,
   }
 }
 

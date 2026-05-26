@@ -42,8 +42,19 @@ describe("income-import-calendar", () => {
     const summary = summarizeImportEntries([{ periodKey: "2026-01", amount: 1200 }], map)
     expect(summary.totalExisting).toBe(1000)
     expect(summary.totalPending).toBe(1200)
-    expect(summary.totalCombined).toBe(1200)
     expect(summary.rows[0]!.delta).toBe(200)
+  })
+
+  it("summarizeImportEntries sorts rows chronologically", () => {
+    const summary = summarizeImportEntries(
+      [
+        { periodKey: "2025", amount: 5000 },
+        { periodKey: "2024-06", amount: 1000 },
+        { periodKey: "2024-01", amount: 800 },
+      ],
+      new Map(),
+    )
+    expect(summary.rows.map((r) => r.periodKey)).toEqual(["2024-01", "2024-06", "2025"])
   })
 
   it("p95MaxAmount clamps long tail", () => {

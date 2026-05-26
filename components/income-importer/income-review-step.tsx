@@ -58,11 +58,11 @@ export function IncomeReviewStep({
       </ul>
       <div className="rounded-xl border border-[#1F1F1F] bg-[#111] p-3 text-sm">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Total income after import</span>
-          <span>{formatUsd(summary.totalCombined)}</span>
+          <span className="text-muted-foreground">Previously imported</span>
+          <span>{formatUsd(summary.totalExisting)}</span>
         </div>
         <div className="mt-1 flex justify-between font-medium text-[#D4AF37]">
-          <span>Import income (pending)</span>
+          <span>New import total</span>
           <span>{formatUsd(summary.totalPending)}</span>
         </div>
       </div>
