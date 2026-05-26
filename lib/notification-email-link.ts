@@ -174,19 +174,46 @@ export async function verifyNotificationEmailLink(userId: string, email: string,
     throw new NotificationEmailLinkError("INVALID_CODE", "Invalid or expired code")
   }
   if (activeCode.code !== trimmedCode) {
-    const failedAttempts = activeCode.failedAttempts + 1
-    if (failedAttempts >= MAX_VERIFY_CODE_ATTEMPTS) {
-      await prisma.emailCode.deleteMany({ where: { email: normalizedEmail } })
+    const verifyResult = await prisma.$transaction(async (tx) => {
+      const updateResult = await tx.emailCode.updateMany({
+        where: {
+          id: activeCode.id,
+          failedAttempts: { lt: MAX_VERIFY_CODE_ATTEMPTS },
+        },
+        data: {
+          failedAttempts: { increment: 1 },
+        },
+      })
+
+      if (updateResult.count === 0) {
+        await tx.emailCode.deleteMany({ where: { email: normalizedEmail } })
+        return "RATE_LIMITED" as const
+      }
+
+      const updatedCode = await tx.emailCode.findUnique({
+        where: { id: activeCode.id },
+        select: { failedAttempts: true },
+      })
+
+      if (
+        !updatedCode ||
+        updatedCode.failedAttempts >= MAX_VERIFY_CODE_ATTEMPTS
+      ) {
+        await tx.emailCode.deleteMany({ where: { email: normalizedEmail } })
+        return "RATE_LIMITED" as const
+      }
+
+      return "INVALID_CODE" as const
+    })
+
+    if (verifyResult === "RATE_LIMITED") {
       throw new NotificationEmailLinkError(
         "RATE_LIMITED",
         "Too many incorrect attempts. Request a new code.",
         429,
       )
     }
-    await prisma.emailCode.update({
-      where: { id: activeCode.id },
-      data: { failedAttempts },
-    })
+
     throw new NotificationEmailLinkError("INVALID_CODE", "Invalid or expired code")
   }
 
