@@ -21,7 +21,7 @@ import {
 } from "@/lib/irregular-income-split"
 import { encryptFieldForUser } from "@/lib/server-encrypt"
 
-export const INCOME_IMPORT_PAYEE_DEFAULT = "Income import"
+export const INCOME_IMPORT_PAYEE_DEFAULT = "Imported income"
 
 export const EXISTING_INCOME_SOURCES = [
   TX_SOURCE_PAYCHECK,

@@ -162,15 +162,12 @@ export function OpportunityCostChart() {
   const savingsSeriesStart = accountCreatedAtIso ?? startDate
 
   const cashFlowData = useMemo(() => {
-    const canOc = ocEnabled && currentPrice && priceHistory.length > 0
     const series = buildCumulativeCashFlowSeries({
       transactions: activeTransactions,
       startDate: "2009-01-03",
-      getPriceOnDate: canOc ? getPriceOnDate : undefined,
-      priceHistory: canOc ? priceHistory : undefined,
     })
     return series.filter((p) => p.date >= startDate)
-  }, [activeTransactions, ocEnabled, currentPrice, priceHistory, getPriceOnDate, startDate])
+  }, [activeTransactions, startDate])
 
   const savingsChartData = useMemo(() => {
     if (!savingsEnvelope || !accountCreatedAtIso) return []
@@ -234,9 +231,11 @@ export function OpportunityCostChart() {
     return ocEnabled ? ocData : vanillaData
   }, [effectiveChartMode, cashFlowData, savingsChartData, ocEnabled, ocData, vanillaData])
 
+  const showBtcOverlay = ocEnabled && effectiveChartMode !== "cashflow"
+
   const yDomain = useMemo(() => {
     if (filteredData.length === 0) return [0, 100]
-    const allVals = ocEnabled
+    const allVals = showBtcOverlay
       ? filteredData.flatMap((d) => [d.spent, d.btcValue])
       : filteredData.map((d) => d.spent)
     const min = Math.min(...allVals)
@@ -245,7 +244,7 @@ export function OpportunityCostChart() {
       return [Math.floor(Math.min(0, min) * 1.1), Math.ceil(Math.max(0, max) * 1.1)]
     }
     return [0, Math.ceil(max * 1.1)]
-  }, [filteredData, ocEnabled, effectiveChartMode])
+  }, [filteredData, showBtcOverlay, effectiveChartMode])
 
   const xAxisTickFormatter = useCallback(
     (val: string) => {
@@ -262,10 +261,10 @@ export function OpportunityCostChart() {
   const spread = useMemo(() => {
     if (filteredData.length === 0) return null
     const last = filteredData[filteredData.length - 1]
-    if (!ocEnabled) return { spent: last.spent, btcValue: 0, diff: 0 }
+    if (!showBtcOverlay) return { spent: last.spent, btcValue: 0, diff: 0 }
     const diff = last.btcValue - last.spent
     return { spent: last.spent, btcValue: last.btcValue, diff }
-  }, [filteredData, ocEnabled])
+  }, [filteredData, showBtcOverlay])
 
   const title =
     effectiveChartMode === "cashflow"
@@ -304,11 +303,7 @@ export function OpportunityCostChart() {
   const spentLabel =
     effectiveChartMode === "cashflow" ? "Net" : effectiveChartMode === "savings" ? "Saved" : "Spent"
   const btcLineName =
-    effectiveChartMode === "cashflow"
-      ? "Equivalent BTC Cash Flow"
-      : effectiveChartMode === "savings"
-        ? "Equivalent BTC Savings"
-        : "Equivalent BTC Savings"
+    effectiveChartMode === "savings" ? "Equivalent BTC Savings" : "Equivalent BTC Savings"
   const areaStroke =
     effectiveChartMode === "cashflow" || effectiveChartMode === "savings" ? SAVINGS_GOLD_ACCENT : "#888"
   const cumulativeAreaName =
@@ -385,7 +380,7 @@ export function OpportunityCostChart() {
               <span className="text-muted-foreground">
                 {spentLabel}: <span className="text-foreground font-medium">{formatUsd(spread.spent)}</span>
               </span>
-              {ocEnabled && (
+              {showBtcOverlay && (
                 <span className="text-muted-foreground inline-flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span>
                     BTC value:{" "}
@@ -481,7 +476,7 @@ export function OpportunityCostChart() {
                           <span className="text-muted-foreground">{spentLabel}: </span>
                           <span className="text-foreground font-medium">{formatUsd(point.spent)}</span>
                         </p>
-                        {ocEnabled && (
+                        {showBtcOverlay && (
                           <>
                             <p className="text-sm">
                               <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#F7931A] mr-2" />
@@ -506,7 +501,7 @@ export function OpportunityCostChart() {
                   )
                 }}
               />
-              {ocEnabled && !isMobile && (
+              {showBtcOverlay && !isMobile && (
                 <Legend
                   verticalAlign="top"
                   align="center"
@@ -526,7 +521,7 @@ export function OpportunityCostChart() {
                 fill="url(#colorSpent)"
                 baseValue={effectiveChartMode === "cashflow" ? 0 : undefined}
               />
-              {ocEnabled && (
+              {showBtcOverlay && (
                 <Area
                   type="monotone"
                   dataKey="btcValue"

@@ -5,17 +5,9 @@ import {
   TX_SOURCE_FUNDING_IN,
   TX_SOURCE_FUNDING_OUT,
   TX_SOURCE_IRREGULAR_INCOME,
-  TX_SOURCE_PAYCHECK,
 } from "@/lib/envelope-funding"
 
 const SATS_PER_BTC = 100_000_000
-
-export const CASH_INFLOW_SOURCES = new Set([
-  TX_SOURCE_PAYCHECK,
-  TX_SOURCE_IRREGULAR_INCOME,
-  TX_SOURCE_INCOME_IMPORT,
-  "manual",
-])
 
 export interface DashboardChartPoint {
   date: string
@@ -26,6 +18,28 @@ export interface DashboardChartPoint {
 
 function txnDay(txn: Transaction): string {
   return txnIsoDate(txn.date)
+}
+
+/**
+ * External cash inflows for the dashboard cash-flow chart.
+ * Excludes paycheck credits — those are ledger allocations from Monthly Income, not
+ * separate deposits — and all funding legs / sweeps.
+ */
+export const CASH_INFLOW_SOURCES = new Set([
+  TX_SOURCE_IRREGULAR_INCOME,
+  TX_SOURCE_INCOME_IMPORT,
+  "manual",
+  "plaid",
+  "email_forward",
+  "email_scan",
+  "sms",
+  "receipt_scan",
+  "voice",
+])
+
+function usdToSats(usd: number, btcPrice: number): number {
+  if (btcPrice <= 0) return 0
+  return Math.round((usd / btcPrice) * SATS_PER_BTC)
 }
 
 export function isCashInflowCredit(txn: Pick<Transaction, "type" | "source" | "excludeFromMainHistory">): boolean {
@@ -52,61 +66,22 @@ export function buildDailyCashFlowDeltas(transactions: readonly Transaction[]): 
   return daily
 }
 
-function usdToSats(usd: number, btcPrice: number): number {
-  if (btcPrice <= 0) return 0
-  return Math.round((usd / btcPrice) * SATS_PER_BTC)
-}
-
-/** Cumulative net cash flow (inflows − outflows), optionally with BTC-equivalent overlay. */
+/** Cumulative net cash flow (inflows − outflows), USD only. */
 export function buildCumulativeCashFlowSeries(params: {
   transactions: readonly Transaction[]
   startDate: string
   todayIso?: string
-  getPriceOnDate?: (date: string) => number
-  priceHistory?: readonly { date: string }[]
 }): DashboardChartPoint[] {
-  const { transactions, startDate, getPriceOnDate, priceHistory } = params
   const today = params.todayIso ?? todayUtcIso()
-  const daily = buildDailyCashFlowDeltas(transactions)
-  const txnDays = [...daily.keys()].filter((d) => d >= startDate && d <= today).sort()
+  const daily = buildDailyCashFlowDeltas(params.transactions)
+  const txnDays = [...daily.keys()].filter((d) => d >= params.startDate && d <= today).sort()
   if (txnDays.length === 0) return []
 
-  const firstTxnDate = txnDays[0]!
-
-  if (!getPriceOnDate || !priceHistory?.length) {
-    let cumUsd = 0
-    return txnDays.map((day) => {
-      cumUsd += daily.get(day) ?? 0
-      return { date: day, spent: Math.round(cumUsd), btcValue: 0 }
-    })
-  }
-
-  const priceDates = priceHistory
-    .filter((p) => p.date >= firstTxnDate && p.date <= today)
-    .map((p) => p.date)
-  const allDates = [...new Set([...priceDates, ...txnDays])].filter((d) => d <= today).sort()
-
   let cumUsd = 0
-  let cumSats = 0
-  let txnIdx = 0
-  const points: DashboardChartPoint[] = []
-
-  for (const day of allDates) {
-    while (txnIdx < txnDays.length && txnDays[txnIdx]! <= day) {
-      const delta = daily.get(txnDays[txnIdx]!) ?? 0
-      cumUsd += delta
-      const price = getPriceOnDate(txnDays[txnIdx]!)
-      if (price > 0) {
-        cumSats += usdToSats(delta, price)
-      }
-      txnIdx++
-    }
-    const priceOnDay = getPriceOnDate(day)
-    const btcValue = (cumSats / SATS_PER_BTC) * priceOnDay
-    points.push({ date: day, spent: Math.round(cumUsd), btcValue: Math.round(btcValue) })
-  }
-
-  return points
+  return txnDays.map((day) => {
+    cumUsd += daily.get(day) ?? 0
+    return { date: day, spent: Math.round(cumUsd), btcValue: 0 }
+  })
 }
 
 /** Cumulative Savings inflows (credits to Savings), starting at account creation. */

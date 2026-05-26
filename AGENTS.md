@@ -56,7 +56,7 @@ Not every `Transaction` row belongs in every feed. Ledger funding creates **batc
 | **Main history** | Global transaction lists, dashboard recent, exports default | `transactionsVisibleInMainHistory()` — `excludeFromMainHistory === false` |
 | **Envelope list** | Envelope detail / filtered Transactions; shows funding legs tied to that envelope | `transactionsForTransactionList()` |
 | **User-facing spend** | Monthly Spend, OC/spending chart, top opportunity costs | `isUserFacingExpense()` / `filterUserFacingExpenses()` in `lib/transaction-visibility.ts` |
-| **Cash flow chart** | Signed net of inflows minus user-facing outflows | `buildCumulativeCashFlowSeries()` — uses `isCashInflowCredit` + `isUserFacingExpense` |
+| **Cash flow chart** | Signed net of external inflows minus user-facing outflows (excludes paycheck ledger credits) | `buildCumulativeCashFlowSeries()` — uses `isCashInflowCredit` + `isUserFacingExpense`; USD only |
 | **Spending chart** | Cumulative user expenses only | `buildCumulativeSpendingSeries()` in `lib/cumulative-spending-series.ts` |
 | **Envelope balance** | All credits/expenses for an envelope (includes funding legs) | `getEnvelopeBalanceAllTime()` / server batch helpers — **never** filter `excludeFromMainHistory` here |
 
