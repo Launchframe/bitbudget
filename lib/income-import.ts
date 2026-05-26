@@ -82,6 +82,26 @@ export function importBatchPeriodKey(userId: string, periodKey: string): string 
   return `import-${userId}-${periodKey}`
 }
 
+/** True for pre-stable amount-suffixed batches (`…-{amount}`), not other period stable keys. */
+export function isLegacyImportBatchPeriodKey(
+  periodKey: string,
+  userId: string,
+  importedPeriodKey: string,
+): boolean {
+  const batchKey = importBatchPeriodKey(userId, importedPeriodKey)
+  if (!periodKey.startsWith(`${batchKey}-`)) return false
+  const suffix = periodKey.slice(batchKey.length + 1)
+  if (!suffix) return false
+
+  // Annual import: stable month batches share the `${year}-` prefix (e.g. …-2023-01).
+  if (YEAR_KEY_RE.test(importedPeriodKey) && /^\d{2}$/.test(suffix)) {
+    const month = Number(suffix)
+    if (month >= 1 && month <= 12) return false
+  }
+
+  return /^\d+(\.\d{1,2})?$/.test(suffix)
+}
+
 /** Remove prior income-import batch for a period (Savings credits + allocation legs). */
 export async function deletePriorImportForPeriod(
   tx: Prisma.TransactionClient,
@@ -103,14 +123,16 @@ export async function resetImportBatchForPeriod(
   const batchKey = importBatchPeriodKey(userId, periodKey)
   const legacyPrefix = `${batchKey}-`
 
-  const legacyBatches = await tx.envelopeFundingBatch.findMany({
-    where: {
-      userId,
-      kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
-      periodKey: { startsWith: legacyPrefix },
-    },
-    select: { id: true },
-  })
+  const legacyBatches = (
+    await tx.envelopeFundingBatch.findMany({
+      where: {
+        userId,
+        kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+        periodKey: { startsWith: legacyPrefix },
+      },
+      select: { id: true, periodKey: true },
+    })
+  ).filter((batch) => isLegacyImportBatchPeriodKey(batch.periodKey, userId, periodKey))
 
   for (const batch of legacyBatches) {
     await tx.transaction.deleteMany({ where: { fundingBatchId: batch.id } })

@@ -7,6 +7,7 @@ import {
   distributeImportDates,
   entriesNeedMonthlyIncome,
   importBatchPeriodKey,
+  isLegacyImportBatchPeriodKey,
   isPeriodCurrentOrFuture,
   parseIncomePeriodKey,
   processIncomeImport,
@@ -104,11 +105,25 @@ describe("income-import helpers", () => {
   })
 })
 
+describe("isLegacyImportBatchPeriodKey", () => {
+  it("matches amount-suffixed legacy keys for month imports", () => {
+    expect(isLegacyImportBatchPeriodKey("import-user-1-2026-05-1200", "user-1", "2026-05")).toBe(true)
+    expect(isLegacyImportBatchPeriodKey("import-user-1-2026-05-1200.5", "user-1", "2026-05")).toBe(true)
+    expect(isLegacyImportBatchPeriodKey("import-user-1-2026-05", "user-1", "2026-05")).toBe(false)
+  })
+
+  it("excludes stable month batches when importing a year", () => {
+    expect(isLegacyImportBatchPeriodKey("import-user-1-2023-01", "user-1", "2023")).toBe(false)
+    expect(isLegacyImportBatchPeriodKey("import-user-1-2023-12", "user-1", "2023")).toBe(false)
+    expect(isLegacyImportBatchPeriodKey("import-user-1-2023-5000", "user-1", "2023")).toBe(true)
+  })
+})
+
 describe("resetImportBatchForPeriod", () => {
   it("clears stable batch transactions but keeps the batch row; deletes legacy batches", async () => {
     const deleteMany = vi.fn()
     const deleteBatch = vi.fn()
-    const findMany = vi.fn().mockResolvedValue([{ id: "legacy-1" }])
+    const findMany = vi.fn().mockResolvedValue([{ id: "legacy-1", periodKey: "import-user-1-2026-05-1200" }])
     const findUnique = vi
       .fn()
       .mockResolvedValueOnce(null)
@@ -136,6 +151,28 @@ describe("resetImportBatchForPeriod", () => {
     expect(create).toHaveBeenCalled()
     expect(deleteMany).toHaveBeenCalledWith({ where: { fundingBatchId: "stable-1" } })
     expect(batch).toEqual({ id: "stable-1" })
+  })
+
+  it("year import does not delete stable month batches that share the year prefix", async () => {
+    const deleteMany = vi.fn()
+    const deleteBatch = vi.fn()
+    const findMany = vi.fn().mockResolvedValue([
+      { id: "month-stable", periodKey: "import-user-1-2023-01" },
+      { id: "legacy-year", periodKey: "import-user-1-2023-5000" },
+    ])
+    const findUnique = vi.fn().mockResolvedValue({ id: "year-stable" })
+    const create = vi.fn()
+
+    const tx = {
+      envelopeFundingBatch: { findMany, findUnique, create, delete: deleteBatch },
+      transaction: { deleteMany },
+    } as unknown as Prisma.TransactionClient
+
+    await resetImportBatchForPeriod(tx, "user-1", "2023")
+
+    expect(deleteBatch).toHaveBeenCalledTimes(1)
+    expect(deleteBatch).toHaveBeenCalledWith({ where: { id: "legacy-year" } })
+    expect(deleteBatch).not.toHaveBeenCalledWith({ where: { id: "month-stable" } })
   })
 })
 
