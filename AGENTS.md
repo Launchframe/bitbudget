@@ -45,6 +45,34 @@ Use two scopes consistently:
 
 **Do not** use month-scoped balance for remaining labels — it ignores prior-month carryover and diverges from sweep/funding behavior.
 
+### Transaction visibility, analytics, and lifecycle
+
+Not every `Transaction` row belongs in every feed. Ledger funding creates **batches**: an income header (`income_import`, `irregular_income`, etc.) plus hidden allocation legs (`envelope_funding_out` / `envelope_funding_in`). Getting visibility wrong leaks allocation legs into spend charts or leaves orphan legs after delete.
+
+**Visibility scopes (use the right helper — do not re-filter ad hoc):**
+
+| Scope | Meaning | Helpers |
+|--------|---------|---------|
+| **Main history** | Global transaction lists, dashboard recent, exports default | `transactionsVisibleInMainHistory()` — `excludeFromMainHistory === false` |
+| **Envelope list** | Envelope detail / filtered Transactions; shows funding legs tied to that envelope | `transactionsForTransactionList()` |
+| **User-facing spend** | Monthly Spend, OC/spending chart, top opportunity costs | `isUserFacingExpense()` / `filterUserFacingExpenses()` in `lib/transaction-visibility.ts` |
+| **Cash flow chart** | Signed net of inflows minus user-facing outflows | `buildCumulativeCashFlowSeries()` — uses `isCashInflowCredit` + `isUserFacingExpense` |
+| **Spending chart** | Cumulative user expenses only | `buildCumulativeSpendingSeries()` in `lib/cumulative-spending-series.ts` |
+| **Envelope balance** | All credits/expenses for an envelope (includes funding legs) | `getEnvelopeBalanceAllTime()` / server batch helpers — **never** filter `excludeFromMainHistory` here |
+
+**Chart time bounds:** Dashboard series are **historical through today (UTC calendar date)** only. Never plot future-dated rows (`todayUtcIso()` / `todayIso` param). Future-dated funding legs from bad imports must not extend the x-axis.
+
+**Deleting income headers:** Deleting a credit that is an **income header** with a `fundingBatchId` must remove the **entire batch** (header + all legs) on server (`deleteTransactionForUser` in `lib/transaction-batch-delete-server.ts`) and optimistically on client (`AppContext.deleteTransaction`). UI must confirm when funding legs exist (`useTransactionDeleteConfirm`). Users cannot delete individual funding legs from the detail dialog — they are managed by the income row.
+
+**Checklist when adding or changing `Transaction.source` or row shapes:**
+
+1. Set **`excludeFromMainHistory`** correctly on create (allocation legs: `true`; user-visible income/expense: `false`).
+2. If rows form a batch, set shared **`fundingBatchId`** and implement batch reset on re-import / overwrite (see `lib/income-import.ts`).
+3. Declare which feeds include the new source (main history, envelope list, spend analytics, cash flow, savings inflow) and wire through the helpers above — **do not** assume `type === "expense"` means user spending.
+4. Add or extend **Vitest** coverage for visibility helpers and any new series builder.
+5. If delete semantics apply, extend **`shouldCascadeDeleteFundingBatch`** / server delete and the confirm dialog copy.
+6. Run dashboard + Transactions manually after changes — funding legs are the most common source of chart spikes and orphan rows.
+
 ## Project Structure
 
 ```
@@ -383,6 +411,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **`activeEnvelopes` vs `discretionaryEnvelopes`** — `activeEnvelopes` includes the system Savings envelope; `discretionaryEnvelopes` filters `systemRole !== 'savings'`. Use the latter for budget envelopes; use Savings-specific helpers (`findSavingsEnvelope`, hero card) for the hub.
 - **Gating ledger funding or Savings accounting** — there is no ledger toggle. Gate motivational Savings UI with `state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED`; never tie funding to `opportunityCostEnabled`.
 - **Month-scoped balance for “remaining”** — `getEnvelopeBalance(..., monthKey)` only counts the current calendar month, so it **under-reports spendable money** when carry-forward or capped policy leaves balance from prior months (and diverges from server sweep math). Use `getEnvelopeBalanceAllTime` for “$X left”, dashboard **Remaining**, Savings totals, and sweep UI; reserve month scope for Monthly Income/Spend, goal periods, and pacing markers (see **Envelope balances: remaining vs current month**).
+- **Counting funding legs as user spending** — `envelope_funding_out` rows are `type: "expense"` with `excludeFromMainHistory: true`. Never feed them into spend charts, Monthly Spend, or OC totals. Use `isUserFacingExpense()` / `buildCumulativeSpendingSeries()` and cap series at `todayUtcIso()`. Deleting an income header must cascade the whole `fundingBatchId` (see **Transaction visibility, analytics, and lifecycle**).
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
 - **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During dev, prefer **`db push`**; at PR time, consolidate into a new migration. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.
