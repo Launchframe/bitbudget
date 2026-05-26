@@ -146,6 +146,38 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 - **Pull requests:** **`pnpm lint`, `pnpm test`, and `pnpm test:e2e` should all pass** before a change is considered ready to merge (unless a PR explicitly documents an exception and follow-up).
 - **Outbound messaging QA:** Changing `lib/notify.ts`, `lib/email.ts`, `lib/nostr-dm.ts`, notification-email APIs, or communication preferences requires updating [docs/outbound-messaging.md](docs/outbound-messaging.md) when behavior or env vars change, and extending `lib/__tests__/notify-e2e-skip.test.ts` (or related tests) for routing regressions.
 
+## Cursor Cloud specific instructions
+
+Cloud agents use the saved environment **update script for dependency install only** — do **not** put `prisma migrate deploy` in the update script. Migrations need a live DB and block every agent boot when the database is unreachable.
+
+**Update script (dashboard / `environment.json` `install`):**
+
+```bash
+pnpm install
+```
+
+`postinstall` runs `prisma generate`; that does not require a database connection.
+
+**Run migrations on demand** when the task needs a synced schema (dev server, API routes, e2e, seed scripts):
+
+```bash
+pnpm exec prisma migrate deploy
+```
+
+Run this **before** `pnpm dev`, manual DB work, or `pnpm test:e2e` if migrations may be pending. Playwright global setup also runs `migrate deploy`, but a cloud agent starting the app directly should migrate first.
+
+**Secrets** (Cursor Cloud Agents → Secrets — not committed `.env` files):
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Pooled Postgres URL (app runtime) |
+| `DATABASE_URL_UNPOOLED` | Direct Postgres URL (required by `prisma/schema.prisma` `directUrl`; use Neon/Vercel **non-pooler** host for migrations) |
+| `AUTH_SECRET` | Auth.js secret (≥ 32 characters) |
+
+Both DB URLs are required for `migrate deploy`. If `DATABASE_URL_UNPOOLED` is missing, Prisma fails with **P1012** before connecting.
+
+**Typical cloud workflow:** `pnpm install` (update script) → `pnpm exec prisma migrate deploy` (when DB needed) → `pnpm dev` or targeted tests.
+
 ## Code Conventions
 
 ### Imports
