@@ -12,14 +12,17 @@ vi.mock("@/lib/db", () => ({
   },
 }))
 
+const sendGratisExpiredEmail = vi.fn()
+const sendTrialExpiredEmail = vi.fn()
+
 vi.mock("@/lib/email", () => ({
   sendReferralAcceptedEmail,
   sendReferralActivatedEmail,
   sendAdminDigestEmail: vi.fn(),
-  sendGratisExpiredEmail: vi.fn(),
+  sendGratisExpiredEmail,
   sendGratisExpiringEmail: vi.fn(),
   sendSurveyCompletedAdminEmail: vi.fn(),
-  sendTrialExpiredEmail: vi.fn(),
+  sendTrialExpiredEmail,
   sendTrialEndingEmail: vi.fn(),
 }))
 
@@ -59,5 +62,193 @@ describe("notify — E2E_TEST skips outbound", () => {
       newGratisUntil: new Date(),
     })
     expect(sendReferralActivatedEmail).not.toHaveBeenCalled()
+  })
+})
+
+describe("notify — communication preferences", () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    delete process.env.E2E_TEST
+  })
+
+  afterEach(() => {
+    delete process.env.E2E_TEST
+    vi.clearAllMocks()
+  })
+
+  it("does not send feature update email when disabled", async () => {
+    const { prisma } = await import("@/lib/db")
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: "user@example.com",
+      notificationEmails: [],
+      nostrPubkey: null,
+      nostrDmEnabled: false,
+      emailFeatureUpdates: false,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyReferralAccepted } = await import("../notify")
+    await notifyReferralAccepted({ referrerId: "r1", refereeName: "Ref" })
+
+    expect(sendReferralAcceptedEmail).not.toHaveBeenCalled()
+  })
+
+  it("passes unsubscribe metadata when preference email is enabled", async () => {
+    const { prisma } = await import("@/lib/db")
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: "user@example.com",
+      notificationEmails: [],
+      nostrPubkey: null,
+      nostrDmEnabled: false,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyReferralAccepted } = await import("../notify")
+    await notifyReferralAccepted({ referrerId: "r1", refereeName: "Ref" })
+
+    expect(sendReferralAcceptedEmail).toHaveBeenCalledWith(
+      "user@example.com",
+      "Ref",
+      { category: "feature_updates", unsubscribeToken: "tok" },
+    )
+  })
+
+  it("sends nostr DM when opted in even without email", async () => {
+    const { prisma } = await import("@/lib/db")
+    const { sendReferralAcceptedDm } = await import("@/lib/nostr-dm")
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: null,
+      notificationEmails: [],
+      nostrPubkey: "b".repeat(64),
+      nostrDmEnabled: true,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyReferralAccepted } = await import("../notify")
+    await notifyReferralAccepted({ referrerId: "r1", refereeName: "Ref" })
+
+    expect(sendReferralAcceptedEmail).not.toHaveBeenCalled()
+    expect(sendReferralAcceptedDm).toHaveBeenCalled()
+  })
+
+  it("sends both email and nostr DM when both channels are enabled", async () => {
+    const { prisma } = await import("@/lib/db")
+    const { sendReferralAcceptedDm } = await import("@/lib/nostr-dm")
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: null,
+      notificationEmails: [
+        { email: "notify@example.com", verifiedAt: new Date() },
+        { email: "alt@example.com", verifiedAt: new Date() },
+      ],
+      nostrPubkey: "b".repeat(64),
+      nostrDmEnabled: true,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyReferralAccepted } = await import("../notify")
+    await notifyReferralAccepted({ referrerId: "r1", refereeName: "Ref" })
+
+    expect(sendReferralAcceptedEmail).toHaveBeenCalledTimes(2)
+    expect(sendReferralAcceptedEmail).toHaveBeenCalledWith(
+      "notify@example.com",
+      "Ref",
+      { category: "feature_updates", unsubscribeToken: "tok" },
+    )
+    expect(sendReferralAcceptedEmail).toHaveBeenCalledWith(
+      "alt@example.com",
+      "Ref",
+      { category: "feature_updates", unsubscribeToken: "tok" },
+    )
+    expect(sendReferralAcceptedDm).toHaveBeenCalled()
+  })
+
+  it("does not send nostr DM without opt-in", async () => {
+    const { prisma } = await import("@/lib/db")
+    const { sendReferralAcceptedDm } = await import("@/lib/nostr-dm")
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: null,
+      notificationEmails: [{ email: "notify@example.com", verifiedAt: new Date() }],
+      nostrPubkey: "b".repeat(64),
+      nostrDmEnabled: false,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyReferralAccepted } = await import("../notify")
+    await notifyReferralAccepted({ referrerId: "r1", refereeName: "Ref" })
+
+    expect(sendReferralAcceptedEmail).toHaveBeenCalledTimes(1)
+    expect(sendReferralAcceptedDm).not.toHaveBeenCalled()
+  })
+
+  it("skips gratis expired email when renewal reminders disabled", async () => {
+    const { prisma } = await import("@/lib/db")
+    sendGratisExpiredEmail.mockClear()
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: "user@example.com",
+      notificationEmails: [],
+      nostrPubkey: null,
+      nostrDmEnabled: false,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: false,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyGratisExpiredUser } = await import("../notify")
+    await notifyGratisExpiredUser("u1")
+
+    expect(sendGratisExpiredEmail).not.toHaveBeenCalled()
+  })
+
+  it("passes unsubscribe metadata for trial expired email", async () => {
+    const { prisma } = await import("@/lib/db")
+    sendTrialExpiredEmail.mockClear()
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      email: "user@example.com",
+      notificationEmails: [],
+      nostrPubkey: null,
+      nostrDmEnabled: false,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
+      emailUnsubscribeToken: "tok",
+    } as never)
+
+    const { notifyTrialExpiredUser } = await import("../notify")
+    await notifyTrialExpiredUser("u1")
+
+    expect(sendTrialExpiredEmail).toHaveBeenCalledWith("user@example.com", {
+      category: "renewal_reminders",
+      unsubscribeToken: "tok",
+    })
   })
 })

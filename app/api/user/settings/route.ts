@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { referralStatsForUser, canRedeemReferralInSettings } from "@/lib/referral"
+import {
+  type CommunicationPreferences,
+  communicationPreferencesBodyError,
+  EMAIL_PREFERENCE_KEYS,
+  emailPreferencesFromUser,
+  emailPreferenceUpdateData,
+} from "@/lib/communication-preferences"
+import { canRedeemReferralInSettings, referralStatsForUser } from "@/lib/referral"
 import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
 import {
   SAVINGS_EXPERIENCE_DISMISSED,
@@ -26,6 +33,13 @@ type UserSettingsPutBody = Partial<{
   opportunityCostEnabled: boolean
   receiptInboxToken: string | null
   name: string | null
+  communicationPreferences: Partial<CommunicationPreferences>
+  emailFeatureUpdates: boolean
+  emailFeedbackRequests: boolean
+  emailRecurringReminders: boolean
+  emailRenewalReminders: boolean
+  emailImportAlerts: boolean
+  nostrDmEnabled: boolean
   payDays: number[]
   payDayOfWeek: number | null
   lastPaydayAt: string | null
@@ -65,6 +79,8 @@ const ALLOWED_SETTINGS_PUT_FIELDS = [
   "opportunityCostEnabled",
   "receiptInboxToken",
   "name",
+  "nostrDmEnabled",
+  ...EMAIL_PREFERENCE_KEYS,
   "payDays",
   "payDayOfWeek",
   "lastPaydayAt",
@@ -95,6 +111,12 @@ const userSettingsSelect = {
   receiptInboxToken: true,
   name: true,
   email: true,
+  nostrDmEnabled: true,
+  emailFeatureUpdates: true,
+  emailFeedbackRequests: true,
+  emailRecurringReminders: true,
+  emailRenewalReminders: true,
+  emailImportAlerts: true,
   subscriptionTier: true,
   role: true,
   premiumGratisUntil: true,
@@ -168,6 +190,8 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  const communicationPreferences = emailPreferencesFromUser(user)
+
   const effectiveTier = resolveEffectiveTier({
     subscriptionTier: user.subscriptionTier,
     premiumGratisUntil: user.premiumGratisUntil,
@@ -219,6 +243,8 @@ export async function GET() {
   return NextResponse.json({
     ...serializeUserSettings(user),
     onboardingCompletedAt: user.onboardingCompletedAt?.toISOString() ?? null,
+    emailPreferences: communicationPreferences,
+    communicationPreferences,
     effectiveTier,
     referralRefereePendingBankLink: isRefereePendingBankLink,
     referralRefereeRedeemed,
@@ -246,6 +272,17 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 })
   }
   const body = raw as UserSettingsPutBody
+  if (
+    body.communicationPreferences !== undefined &&
+    (typeof body.communicationPreferences !== "object" ||
+      body.communicationPreferences === null ||
+      Array.isArray(body.communicationPreferences))
+  ) {
+    return NextResponse.json(
+      { error: "communicationPreferences must be an object" },
+      { status: 400 },
+    )
+  }
 
   if (body.payCadence !== undefined) {
     if (typeof body.payCadence !== "string") {
@@ -386,6 +423,27 @@ export async function PUT(req: NextRequest) {
     data[field] = body[field]
   }
 
+  for (const field of EMAIL_PREFERENCE_KEYS) {
+    if (data[field] !== undefined && typeof data[field] !== "boolean") {
+      return NextResponse.json(
+        { error: `${field} must be a boolean` },
+        { status: 400 },
+      )
+    }
+  }
+  if (body.nostrDmEnabled !== undefined && typeof body.nostrDmEnabled !== "boolean") {
+    return NextResponse.json({ error: "nostrDmEnabled must be a boolean" }, { status: 400 })
+  }
+  if (body.communicationPreferences) {
+    const prefError = communicationPreferencesBodyError(
+      body.communicationPreferences as Record<string, unknown>,
+    )
+    if (prefError) {
+      return NextResponse.json({ error: prefError }, { status: 400 })
+    }
+    Object.assign(data, emailPreferenceUpdateData(body.communicationPreferences))
+  }
+
   if (
     body.onboardingComplete === true &&
     prevUser &&
@@ -421,13 +479,22 @@ export async function PUT(req: NextRequest) {
       opportunityCostEnabled: true,
       receiptInboxToken: true,
       name: true,
+      nostrDmEnabled: true,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
     },
   })
 
+  const communicationPreferences = emailPreferencesFromUser(updated)
   return NextResponse.json({
     ...updated,
     lastPaydayAt: updated.lastPaydayAt?.toISOString() ?? null,
     estimatedAnnualIncome: serializeDecimal(updated.estimatedAnnualIncome),
     sweepDefaultCapMultiplier: serializeDecimal(updated.sweepDefaultCapMultiplier),
+    emailPreferences: communicationPreferences,
+    communicationPreferences,
   })
 }

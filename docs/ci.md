@@ -24,3 +24,7 @@ GitHub does not block merges from YAML alone. In the repo:
 If the UI shows a different name (e.g. `Lint / eslint`), use exactly that string.
 
 Optional: enable **Require branches to be up to date before merging** so PRs re-run CI after base updates.
+
+## Related docs
+
+- **Outbound email & Nostr DMs:** [outbound-messaging.md](./outbound-messaging.md) (env vars, preview vs production, deployment checklist). Playwright sets `E2E_TEST=true` so CI never sends live messages.

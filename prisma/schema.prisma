@@ -46,6 +46,13 @@ model User {
   lastVisitedAt             DateTime?
   remindersEnabled          Boolean   @default(false)
   reminderTime              String?   @default("20:00")
+  emailFeatureUpdates       Boolean   @default(true)
+  emailFeedbackRequests     Boolean   @default(true)
+  emailRecurringReminders   Boolean   @default(true)
+  emailRenewalReminders     Boolean   @default(true)
+  emailImportAlerts         Boolean   @default(true)
+  emailUnsubscribeToken     String    @unique @default(dbgenerated("gen_random_uuid()::text"))
+  nostrDmEnabled            Boolean   @default(false)
   subscriptionTier          String    @default("free")
   // Set when a free user taps Upgrade to Premium (checkout not yet available).
   premiumInterestAt      DateTime?
@@ -77,9 +84,23 @@ model User {
   referralReceived           Referral?                  @relation("ReferralReceived")
   survey                     Survey?
   referredByCode             ReferralCode?              @relation("ReferredByCode", fields: [referredByCodeId], references: [id], onDelete: SetNull)
+  notificationEmails         UserNotificationEmail[]
   envelopeFundingBatches     EnvelopeFundingBatch[]
   savingsGoals               SavingsGoal[]
   achievements               UserAchievement[]
+}
+
+model UserNotificationEmail {
+  id         String   @id @default(cuid())
+  userId     String
+  email      String
+  verifiedAt DateTime
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, email])
+  @@index([userId])
 }
 
 model ReferralCode {
@@ -329,11 +350,12 @@ model Tag {
 }
 
 model EmailCode {
-  id        String   @id @default(cuid())
-  email     String
-  code      String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  email          String
+  code           String
+  expiresAt      DateTime
+  failedAttempts Int      @default(0)
+  createdAt      DateTime @default(now())
 
   @@index([email])
 }
