@@ -9,6 +9,7 @@ import {
   INCOME_IMPORTER_DRAFT_KEY,
 } from "./fixtures/income-importer-e2e-constants"
 import {
+  cellEditDialog,
   closeIncomeImporterDialog,
   currentMonthGridLabel,
   fillPaintBar,
@@ -16,6 +17,8 @@ import {
   openCellEdit,
   openIncomeImporterDialog,
   paintDefaultPastRange,
+  paintMonthCell,
+  expectReviewImportEnabled,
   setScrollYear,
   signInAndOpenSettings,
   waitForImporterDraftEntries,
@@ -36,16 +39,18 @@ test.describe("Income importer (UI)", () => {
     await openIncomeImporterDialog(page)
 
     await paintDefaultPastRange(page)
+    await expectReviewImportEnabled(page)
 
     const febLabel = monthGridLabel(E2E_IMPORT_PAST_YEAR, 2)
     await openCellEdit(page, febLabel)
     await page.getByLabel("Total income (USD)").fill("5500")
-    await page.getByRole("dialog", { name: febLabel }).getByRole("button", { name: "Save" }).click()
-    await expect(page.getByRole("dialog", { name: febLabel })).not.toBeVisible()
+    await cellEditDialog(page).getByRole("button", { name: "Save" }).click()
+    await expect(cellEditDialog(page)).not.toBeVisible()
 
     await page.getByRole("button", { name: "Review import" }).click()
     await expect(page.getByText("Review staged income before importing.")).toBeVisible()
-    await expect(page.getByRole("button", { name: febLabel })).toBeVisible()
+    await expect(page.getByRole("columnheader", { name: "Was" })).toBeVisible()
+    await expect(page.getByRole("row", { name: new RegExp(`Edit ${febLabel}`, "i") })).toBeVisible()
 
     const user = await prisma.user.findUnique({
       where: { email: E2E_INCOME_IMPORT_USER_EMAIL },
@@ -85,17 +90,16 @@ test.describe("Income importer (UI)", () => {
     await signInAndOpenSettings(page, origin, E2E_INCOME_IMPORT_USER_EMAIL)
     await openIncomeImporterDialog(page)
 
-    await fillPaintBar(page, 4200, "Draft Employer")
     await setScrollYear(page, E2E_IMPORT_PAST_YEAR)
-    await page
-      .getByRole("gridcell", { name: new RegExp(`^${monthGridLabel(E2E_IMPORT_PAST_YEAR, 6)}`, "i") })
-      .click()
+    await fillPaintBar(page, 4200, "Draft Employer")
+    await paintMonthCell(page, monthGridLabel(E2E_IMPORT_PAST_YEAR, 6))
+    await expectReviewImportEnabled(page)
 
     const junLabel = monthGridLabel(E2E_IMPORT_PAST_YEAR, 6)
     await openCellEdit(page, junLabel)
-    await page.getByRole("dialog", { name: junLabel }).getByRole("button", { name: "Cancel" }).click()
+    await cellEditDialog(page).getByRole("button", { name: "Cancel" }).click()
     await expect(page.getByRole("dialog", { name: "Import income" })).toBeVisible()
-    await expect(page.getByRole("dialog", { name: junLabel })).not.toBeVisible()
+    await expect(cellEditDialog(page)).not.toBeVisible()
 
     await waitForImporterDraftEntries(page, 1)
     await closeIncomeImporterDialog(page)
@@ -117,11 +121,10 @@ test.describe("Income importer (UI)", () => {
     await signInAndOpenSettings(page, origin, E2E_INCOME_IMPORT_ZERO_MI_EMAIL)
     await openIncomeImporterDialog(page)
 
-    await fillPaintBar(page, 3000, "Past Only Co")
     await setScrollYear(page, E2E_IMPORT_PAST_YEAR)
-    await page
-      .getByRole("gridcell", { name: new RegExp(`^${monthGridLabel(E2E_IMPORT_PAST_YEAR, 4)}`, "i") })
-      .click()
+    await fillPaintBar(page, 3000, "Past Only Co")
+    await paintMonthCell(page, monthGridLabel(E2E_IMPORT_PAST_YEAR, 4))
+    await expectReviewImportEnabled(page)
 
     await page.getByRole("button", { name: "Review import" }).click()
     const importPromise = page.waitForResponse(
@@ -145,9 +148,10 @@ test.describe("Income importer (UI)", () => {
 
     const currentLabel = currentMonthGridLabel()
     const currentYear = new Date().getUTCFullYear()
-    await fillPaintBar(page, 4000, "Current Month Co")
     await setScrollYear(page, currentYear)
-    await page.getByRole("gridcell", { name: new RegExp(`^${currentLabel}`, "i") }).click()
+    await fillPaintBar(page, 4000, "Current Month Co")
+    await paintMonthCell(page, currentLabel)
+    await expectReviewImportEnabled(page)
 
     await page.getByRole("button", { name: "Review import" }).click()
     await page.getByRole("button", { name: "Confirm import" }).click()
@@ -158,7 +162,7 @@ test.describe("Income importer (UI)", () => {
     ).toBeVisible()
   })
 
-  test("success step Go to Dashboard lands on Savings chart with All range", async ({
+  test("success step Go to Dashboard lands on Cash Flow chart with All range", async ({
     page,
     baseURL,
   }) => {
@@ -167,11 +171,10 @@ test.describe("Income importer (UI)", () => {
     await signInAndOpenSettings(page, origin, E2E_INCOME_IMPORT_USER_EMAIL)
     await openIncomeImporterDialog(page)
 
-    await fillPaintBar(page, 2500, "Dashboard Handoff Co")
     await setScrollYear(page, E2E_IMPORT_PAST_YEAR)
-    await page
-      .getByRole("gridcell", { name: new RegExp(`^${monthGridLabel(E2E_IMPORT_PAST_YEAR, 5)}`, "i") })
-      .click()
+    await fillPaintBar(page, 2500, "Dashboard Handoff Co")
+    await paintMonthCell(page, monthGridLabel(E2E_IMPORT_PAST_YEAR, 5))
+    await expectReviewImportEnabled(page)
 
     await page.getByRole("button", { name: "Review import" }).click()
     const importPromise = page.waitForResponse(
@@ -184,7 +187,7 @@ test.describe("Income importer (UI)", () => {
 
     await page.getByRole("button", { name: "Go to Dashboard" }).click()
     await expect(page.getByRole("heading", { name: "Your cash flow" })).toBeVisible({ timeout: 30_000 })
-    await expect(page.getByRole("button", { name: "Savings", pressed: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Cash Flow", pressed: true })).toBeVisible()
 
     const allRange = page.getByRole("button", { name: "All", exact: true })
     await expect(allRange).toBeVisible()
