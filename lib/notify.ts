@@ -72,7 +72,7 @@ type PreferenceAwareUser = {
   notificationEmails?: { email: string; verifiedAt: Date }[]
   nostrPubkey: string | null
   nostrDmEnabled?: boolean | null
-  emailUnsubscribeToken: string | null
+  emailUnsubscribeToken: string
 } & Partial<Record<ReturnType<typeof communicationPreferenceForCategory>["field"], boolean | null>>
 
 const COMMUNICATION_EMAIL_SELECT = {

@@ -11,7 +11,13 @@ ALTER TABLE "User"
   ADD COLUMN IF NOT EXISTS "emailUnsubscribeToken" TEXT;
 
 UPDATE "User"
-SET "emailUnsubscribeToken" = COALESCE("emailUnsubscribeToken", gen_random_uuid()::text)
+SET "emailUnsubscribeToken" = gen_random_uuid()::text
 WHERE "emailUnsubscribeToken" IS NULL;
+
+ALTER TABLE "User"
+  ALTER COLUMN "emailUnsubscribeToken" SET DEFAULT gen_random_uuid()::text;
+
+ALTER TABLE "User"
+  ALTER COLUMN "emailUnsubscribeToken" SET NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS "User_emailUnsubscribeToken_key" ON "User"("emailUnsubscribeToken");
