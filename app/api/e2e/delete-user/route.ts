@@ -6,8 +6,11 @@ import { isE2eApiTokenValid, isE2eTestApiEnabled } from "@/lib/e2e-api-guard"
  * Deletes a test user by email. Only @bitbudget.test addresses when E2E_TEST is set.
  */
 export async function POST(req: NextRequest) {
-  if (!isE2eTestApiEnabled() || !isE2eApiTokenValid(req)) {
+  if (!isE2eTestApiEnabled()) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+  if (!isE2eApiTokenValid(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
   let body: { email?: string }
