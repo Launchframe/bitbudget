@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { SetupGuidePanel } from "@/components/setup-guide-panel"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
@@ -9,76 +9,22 @@ import {
   setupGuideProgress,
   shouldShowSetupGuideOnDashboard,
   type SetupGuideTaskId,
-  type SetupGuideTaskStatus,
 } from "@/lib/setup-guide-status"
-import { discretionaryAllotmentSignature, focusSettingsSection } from "@/lib/setup-guide-client"
-
-type SetupStatusResponse = {
-  tasks: SetupGuideTaskStatus[]
-  completedCount: number
-  totalCount: number
-  allComplete: boolean
-  hasPremiumFeatures: boolean
-  newlyAwarded?: number
-}
+import { focusSettingsSection } from "@/lib/setup-guide-client"
+import { useSetupGuideStatus } from "@/lib/use-setup-guide-status"
 
 export function SetupProgressCard() {
   const {
     state,
-    activeTransactions,
-    discretionaryEnvelopes,
     navigateTo,
     openNewTransaction,
     updateSetupGuidePrefs,
     hasPremiumFeatures,
   } = useApp()
 
-  const [remote, setRemote] = useState<SetupStatusResponse | null>(null)
+  const { remote, syncStatus } = useSetupGuideStatus()
   const [upgradeFeature, setUpgradeFeature] = useState<PremiumFeature | null>(null)
   const [snoozeActive, setSnoozeActive] = useState(false)
-  const completedCountRef = useRef(0)
-
-  const allotmentSignature = useMemo(
-    () => discretionaryAllotmentSignature(discretionaryEnvelopes),
-    [discretionaryEnvelopes],
-  )
-
-  const applyStatus = useCallback((data: SetupStatusResponse, requestAchievementPoll: boolean) => {
-    const prevCount = completedCountRef.current
-    completedCountRef.current = data.completedCount
-    setRemote(data)
-    if (
-      requestAchievementPoll &&
-      ((data.newlyAwarded ?? 0) > 0 || data.completedCount > prevCount)
-    ) {
-      window.dispatchEvent(new Event("bitbudget-achievements-poll"))
-    }
-  }, [])
-
-  const loadStatus = useCallback(async () => {
-    try {
-      const res = await fetch("/api/user/setup-status")
-      if (!res.ok) return
-      applyStatus((await res.json()) as SetupStatusResponse, false)
-    } catch {
-      /* ignore */
-    }
-  }, [applyStatus])
-
-  const syncStatus = useCallback(async () => {
-    try {
-      const res = await fetch("/api/user/setup-status", { method: "POST" })
-      if (!res.ok) return
-      applyStatus((await res.json()) as SetupStatusResponse, true)
-    } catch {
-      /* ignore */
-    }
-  }, [applyStatus])
-
-  useEffect(() => {
-    const t = window.setTimeout(() => void loadStatus(), 0)
-    return () => window.clearTimeout(t)
-  }, [loadStatus, activeTransactions.length, state.monthlyIncome, allotmentSignature])
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => {

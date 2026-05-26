@@ -420,7 +420,7 @@ export function SettingsPage() {
   useEffect(() => {
     function onWalkthroughSettingsTab(e: Event) {
       const tab = (e as CustomEvent<{ tab?: SettingsTab }>).detail?.tab
-      if (tab && Object.hasOwn(SETTINGS_TAB_SLUGS, tab)) setSettingsTab(tab)
+      if (tab && Object.prototype.hasOwnProperty.call(SETTINGS_TAB_SLUGS, tab)) setSettingsTab(tab)
     }
     window.addEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)
     return () => window.removeEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)

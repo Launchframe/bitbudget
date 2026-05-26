@@ -306,7 +306,7 @@ export function TransactionsPage() {
         <div className="self-start flex items-center gap-2 mt-3">
           <button
             onClick={() => openNewTransaction()}
-            data-walkthrough="new-transaction-page"
+            data-walkthrough="new-transaction"
             className="flex items-center gap-2 px-4 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors md:hidden"
           >
             <Plus className="h-4 w-4" />

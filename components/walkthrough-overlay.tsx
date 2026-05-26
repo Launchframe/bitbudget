@@ -102,7 +102,6 @@ export function WalkthroughOverlay() {
       const cy = window.innerHeight / 2
       if (
         step.target === "new-transaction" ||
-        step.target === "new-transaction-page" ||
         step.target === "scan-receipt"
       ) {
         setTooltipPos({ top: window.innerHeight - 180, left: cx, centred: true, variant: "above" })
