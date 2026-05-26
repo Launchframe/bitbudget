@@ -14,6 +14,7 @@ import type {
 } from "@/lib/data"
 import { compareTransactionsDesc, generateId, getDefaultState } from "@/lib/data"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
+import { shouldCascadeDeleteFundingBatch } from "@/lib/transaction-batch-delete"
 import {
   COMMUNICATION_PREFERENCE_COLUMNS,
   normalizeCommunicationPreferences,
@@ -233,6 +234,11 @@ interface AppContextValue {
   premiumGratisUntilIso: string | null
   referralSummary: ReferralSummaryState | null
 
+  /** Server account creation (ISO date YYYY-MM-DD). */
+  accountCreatedAtIso: string | null
+  /** When onboarding finished (ISO datetime). */
+  onboardingCompletedAtIso: string | null
+
   pendingTransactions: PendingTransaction[]
   pendingCount: number
   confirmPending: (
@@ -393,6 +399,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [referralRefereeRedeemed, setReferralRefereeRedeemed] = useState(false)
   const [referralRefereeCanRedeem, setReferralRefereeCanRedeem] = useState(false)
   const [referralRefereeTrialMonths, setReferralRefereeTrialMonths] = useState<1 | 3 | null>(null)
+  const [accountCreatedAtIso, setAccountCreatedAtIso] = useState<string | null>(null)
+  const [onboardingCompletedAtIso, setOnboardingCompletedAtIso] = useState<string | null>(null)
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const [recurringTransactions, setRecurringTransactions] = useState<RecurringTransaction[]>([])
   /** Latest envelopes for synchronous guards before optimistic updates (avoid mutable flags inside setState updaters). */
@@ -559,6 +567,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const tags = await tagsRes.json() as Tag[]
 
       setUserRole(settings.role ?? null)
+      const createdRaw = (settings as { createdAt?: unknown }).createdAt
+      setAccountCreatedAtIso(
+        typeof createdRaw === "string" ? createdRaw.split("T")[0]! : null,
+      )
+      const onboardingRaw = (settings as { onboardingCompletedAt?: unknown }).onboardingCompletedAt
+      setOnboardingCompletedAtIso(typeof onboardingRaw === "string" ? onboardingRaw : null)
       setSubscriptionTier(
         settings.subscriptionTier === "premium" ? "premium" : "free",
       )
@@ -1036,15 +1050,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const deleteTransaction = useCallback(async (id: string) => {
-    setState(prev => ({
-      ...prev,
-      transactions: prev.transactions.filter(t => t.id !== id),
-    }))
+    setState(prev => {
+      const txn = prev.transactions.find(t => t.id === id)
+      let idsToRemove = [id]
+      if (txn && shouldCascadeDeleteFundingBatch(txn) && txn.fundingBatchId) {
+        idsToRemove = prev.transactions
+          .filter(t => t.fundingBatchId === txn.fundingBatchId)
+          .map(t => t.id)
+      }
+      return {
+        ...prev,
+        transactions: prev.transactions.filter(t => !idsToRemove.includes(t.id)),
+      }
+    })
 
     try {
       const res = await fetch(`/api/transactions?id=${id}`, { method: "DELETE" })
       if (res.ok && currentUserIdRef.current) {
-        await deleteCachedTransaction(currentUserIdRef.current, id)
+        const body = (await res.json().catch(() => ({}))) as { deletedIds?: string[] }
+        const deletedIds = Array.isArray(body.deletedIds) && body.deletedIds.length > 0 ? body.deletedIds : [id]
+        setState(prev => ({
+          ...prev,
+          transactions: prev.transactions.filter(t => !deletedIds.includes(t.id)),
+        }))
+        for (const deletedId of deletedIds) {
+          await deleteCachedTransaction(currentUserIdRef.current, deletedId)
+        }
       } else if (!res.ok) {
         await refreshData()
       }
@@ -1600,6 +1631,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         referralRefereeRedeemed,
         referralRefereeCanRedeem,
         referralRefereeTrialMonths,
+        accountCreatedAtIso,
+        onboardingCompletedAtIso,
         premiumTrialUntilIso,
         premiumGratisUntilIso,
         referralSummary,

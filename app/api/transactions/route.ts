@@ -11,6 +11,7 @@ import {
   parseTransactionQueryCalendarDate,
   utcEndOfCalendarDay,
 } from "@/lib/transaction-query-dates"
+import { deleteTransactionForUser } from "@/lib/transaction-batch-delete-server"
 
 function parseTagsJson(raw: string): string[] {
   try {
@@ -286,6 +287,10 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
   }
 
-  await prisma.transaction.delete({ where: { id } })
-  return NextResponse.json({ success: true })
+  const deletedIds = await deleteTransactionForUser(session.user.id, id)
+  if (!deletedIds) {
+    return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
+  }
+
+  return NextResponse.json({ success: true, deletedIds })
 }
