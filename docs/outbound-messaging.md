@@ -168,7 +168,7 @@ BITBUDGET_NOSTR_RELAYS="wss://relay.damus.io,wss://nos.lol"
 |--------|-------------------|--------------------------------|
 | Login OTP | Code printed in terminal | — |
 | Notification verify code | Code printed in terminal | — |
-| Product email (referral, trial, etc.) | Subject/body logged | — |
+| Product email (referral, trial, etc.) | Subject and recipient logged (not full HTML body) | — |
 | Product Nostr DM | — | `[nostr-dm] BITBUDGET_NOSTR_NSEC not configured` |
 
 ### 5. Playwright / unit tests

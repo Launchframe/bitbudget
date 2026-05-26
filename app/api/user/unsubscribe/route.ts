@@ -95,5 +95,5 @@ export async function POST(req: NextRequest) {
     return invalidLinkResponse(req, 404)
   }
 
-  return NextResponse.redirect(new URL("/auth?unsubscribed=1", req.nextUrl.origin))
+  return NextResponse.redirect(new URL("/auth?unsubscribed=1", req.nextUrl.origin), 303)
 }
