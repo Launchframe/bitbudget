@@ -12,7 +12,9 @@ function isVisibleWalkthroughAnchor(el: Element): boolean {
 export function findWalkthroughTarget(target: string): Element | null {
   const nodes = document.querySelectorAll(`[data-walkthrough="${target}"]`)
   if (nodes.length === 0) return null
-  if (nodes.length === 1) return nodes[0]
+  if (nodes.length === 1) {
+    return isVisibleWalkthroughAnchor(nodes[0]) ? nodes[0] : null
+  }
 
   const visibleNodes = [...nodes].filter(isVisibleWalkthroughAnchor)
   const pool = visibleNodes.length > 0 ? visibleNodes : [...nodes]

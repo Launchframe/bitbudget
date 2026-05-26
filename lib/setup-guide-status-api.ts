@@ -119,10 +119,14 @@ export async function buildSetupStatusPayload(userId: string): Promise<SetupStat
   }
 }
 
+export type SetupStatusApiResponse = Omit<SetupStatusPayload, "setupFlags"> & {
+  newlyAwarded?: number
+}
+
 export function setupStatusJsonResponse(
   payload: SetupStatusPayload,
   extra?: { newlyAwarded?: number },
-) {
+): SetupStatusApiResponse {
   return {
     tasks: payload.tasks,
     completedCount: payload.completedCount,

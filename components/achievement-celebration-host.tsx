@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Trophy } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { ACHIEVEMENT_LABELS } from "@/lib/savings-ui-metrics"
-import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
 interface AchievementRow {
   code: string
@@ -91,11 +90,8 @@ export function AchievementCelebrationHost() {
       aria-live="polite"
       className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] max-w-[min(96vw,20rem)] px-4 py-3 rounded-2xl shadow-lg border border-[#333] bg-[#1A1A1A] flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300"
     >
-      <div
-        className="shrink-0 p-2 rounded-full"
-        style={{ backgroundColor: `${SAVINGS_GOLD_ACCENT}33` }}
-      >
-        <Trophy className="h-5 w-5" style={{ color: SAVINGS_GOLD_ACCENT }} aria-hidden />
+      <div className="shrink-0 p-2 rounded-full bg-[#F7931A]/20">
+        <Trophy className="h-5 w-5 text-[#F7931A]" aria-hidden />
       </div>
       <div className="min-w-0">
         <p className="text-xs text-muted-foreground">Achievement unlocked</p>

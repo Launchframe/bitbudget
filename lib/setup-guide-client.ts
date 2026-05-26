@@ -1,3 +1,4 @@
+import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import type { Envelope } from "@/lib/data"
 import { getCurrentMonthKey } from "@/lib/data"
 
@@ -6,7 +7,7 @@ export function discretionaryAllotmentSignature(
   envelopes: readonly Envelope[],
 ): string {
   return envelopes
-    .filter((e) => !e.archived && e.systemRole !== "savings")
+    .filter((e) => !e.archived && e.systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS)
     .map((e) => `${e.id}:${e.monthlyAllotment}`)
     .sort()
     .join("|")

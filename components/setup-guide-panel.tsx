@@ -96,7 +96,15 @@ function taskCopy(
   }
 }
 
-function ProgressRing({ completed, total }: { completed: number; total: number }) {
+function ProgressRing({
+  completed,
+  total,
+  accentColor,
+}: {
+  completed: number
+  total: number
+  accentColor: string
+}) {
   const pct = total > 0 ? completed / total : 0
   const radius = 20
   const circumference = 2 * Math.PI * radius
@@ -115,7 +123,7 @@ function ProgressRing({ completed, total }: { completed: number; total: number }
           cy="24"
           r={radius}
           fill="none"
-          stroke={SAVINGS_GOLD_ACCENT}
+          stroke={accentColor}
           strokeWidth="4"
           strokeLinecap="round"
           strokeDasharray={circumference}
@@ -156,6 +164,7 @@ export function SetupGuidePanel({
   )
 
   const showPremiumUpsell = !hasPremiumFeatures && variant === "dashboard"
+  const progressAccent = savingsEngaged ? SAVINGS_GOLD_ACCENT : "#F7931A"
 
   return (
     <div
@@ -168,7 +177,7 @@ export function SetupGuidePanel({
       {...(variant === "dashboard" ? { "data-walkthrough": "setup-progress" } : {})}
     >
       <div className="flex flex-col sm:flex-row sm:items-start gap-4 min-w-0">
-        <ProgressRing completed={completedCount} total={totalCount} />
+        <ProgressRing completed={completedCount} total={totalCount} accentColor={progressAccent} />
         <div className="flex-1 min-w-0">
           <h3 className="text-base font-semibold text-foreground">
             {allComplete ? "You’re all set" : "Finish setting up"}
@@ -231,7 +240,7 @@ export function SetupGuidePanel({
                   <p className="text-xs text-muted-foreground">{row.helper}</p>
                   {achievementLabel && !row.complete && (
                     <p className="text-[10px] text-muted-foreground/80 mt-1 flex items-center gap-1">
-                      <Trophy className="h-3 w-3 shrink-0" style={{ color: SAVINGS_GOLD_ACCENT }} aria-hidden />
+                      <Trophy className="h-3 w-3 shrink-0 text-[#F7931A]" aria-hidden />
                       Unlocks: {achievementLabel}
                     </p>
                   )}

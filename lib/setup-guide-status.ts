@@ -1,4 +1,4 @@
-import { TX_SOURCE_ENVELOPE_SWEEP } from "@/lib/constants"
+import { TX_SOURCE_ENVELOPE_SWEEP, SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import type { Envelope, Transaction } from "@/lib/data"
 import { getCurrentMonthKey } from "@/lib/data"
 import { sumMonthlyIncomeCredits } from "@/lib/savings-ui-metrics"
@@ -89,10 +89,12 @@ export function hasFirstSweep(
 }
 
 export function computeSetupGuideTasks(input: SetupGuideClientInput): SetupGuideTaskStatus[] {
-  const discretionary = input.envelopes.filter((e) => !e.archived && e.systemRole !== "savings")
+  const discretionary = input.envelopes.filter(
+    (e) => !e.archived && e.systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS,
+  )
   const txns = input.transactions ?? []
   const signals = input.transactionSignals
-  const savingsId = input.envelopes.find((e) => e.systemRole === "savings")?.id
+  const savingsId = input.envelopes.find((e) => e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS)?.id
   const funded = signals?.hasFundedIncomeThisMonth
 
   const core: SetupGuideTaskStatus[] = [

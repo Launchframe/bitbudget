@@ -3,16 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { discretionaryAllotmentSignature } from "@/lib/setup-guide-client"
-import type { SetupGuideTaskStatus } from "@/lib/setup-guide-status"
-
-export type SetupStatusResponse = {
-  tasks: SetupGuideTaskStatus[]
-  completedCount: number
-  totalCount: number
-  allComplete: boolean
-  hasPremiumFeatures: boolean
-  newlyAwarded?: number
-}
+import type { SetupStatusApiResponse } from "@/lib/setup-guide-status-api"
 
 type UseSetupGuideStatusOptions = {
   refetchOnWindowFocus?: boolean
@@ -22,7 +13,7 @@ export function useSetupGuideStatus(options: UseSetupGuideStatusOptions = {}) {
   const { refetchOnWindowFocus = false } = options
   const { state, activeTransactions, discretionaryEnvelopes } = useApp()
 
-  const [remote, setRemote] = useState<SetupStatusResponse | null>(null)
+  const [remote, setRemote] = useState<SetupStatusApiResponse | null>(null)
   const completedCountRef = useRef(0)
 
   const allotmentSignature = useMemo(
@@ -30,7 +21,7 @@ export function useSetupGuideStatus(options: UseSetupGuideStatusOptions = {}) {
     [discretionaryEnvelopes],
   )
 
-  const applyStatus = useCallback((data: SetupStatusResponse, requestAchievementPoll: boolean) => {
+  const applyStatus = useCallback((data: SetupStatusApiResponse, requestAchievementPoll: boolean) => {
     const prevCount = completedCountRef.current
     completedCountRef.current = data.completedCount
     setRemote(data)
@@ -46,7 +37,7 @@ export function useSetupGuideStatus(options: UseSetupGuideStatusOptions = {}) {
     try {
       const res = await fetch("/api/user/setup-status")
       if (!res.ok) return
-      applyStatus((await res.json()) as SetupStatusResponse, false)
+      applyStatus((await res.json()) as SetupStatusApiResponse, false)
     } catch {
       /* ignore */
     }
@@ -56,7 +47,7 @@ export function useSetupGuideStatus(options: UseSetupGuideStatusOptions = {}) {
     try {
       const res = await fetch("/api/user/setup-status", { method: "POST" })
       if (!res.ok) return
-      applyStatus((await res.json()) as SetupStatusResponse, true)
+      applyStatus((await res.json()) as SetupStatusApiResponse, true)
     } catch {
       /* ignore */
     }

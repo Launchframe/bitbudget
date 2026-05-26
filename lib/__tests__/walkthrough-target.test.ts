@@ -49,4 +49,10 @@ describe("findWalkthroughTarget", () => {
     const el = findWalkthroughTarget("app-nav")
     expect(el?.id).toBe("mobile")
   })
+
+  it("returns null for a single hidden anchor", () => {
+    document.body.innerHTML = `<nav data-walkthrough="solo" id="solo" style="display:none"></nav>`
+    mockRect(document.getElementById("solo")!, 0, 0)
+    expect(findWalkthroughTarget("solo")).toBeNull()
+  })
 })
