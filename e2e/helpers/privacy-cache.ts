@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test"
+import { PRIVACY_KEY_CACHE_TTL_MS } from "@/lib/privacy-key-storage"
 import {
   E2E_TEST_PASSPHRASE,
   E2E_TEST_PRIVACY_KEY_HEX,
@@ -6,7 +7,7 @@ import {
 
 /** Prime localStorage privacy key cache (7-day TTL) for a seeded user. */
 export async function primePrivacyKeyCache(page: Page, userId: string): Promise<void> {
-  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000
+  const expiresAt = Date.now() + PRIVACY_KEY_CACHE_TTL_MS
   await page.evaluate(
     ({ userId: uid, hexKey, expiresAtMs }) => {
       localStorage.setItem("bitbudget-privacy-key", hexKey)

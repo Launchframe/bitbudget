@@ -13,16 +13,23 @@ test.describe("Landing and auth smoke", () => {
     await expect(page.getByRole("button", { name: "Email" })).toBeVisible()
   })
 
-  test("fresh email sign-in redirects to onboarding", async ({ page, baseURL, request }) => {
+  test("fresh email sign-in redirects to onboarding", async ({ page, baseURL, request }, testInfo) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
-    const email = onboardingTestEmail("landing-fresh")
+    const suffix = testInfo.testId.replace(/[^a-z0-9-]/gi, "-").slice(0, 40)
+    const email = onboardingTestEmail(`landing-fresh-${suffix}`)
     await deleteE2eUserByEmail(request, origin, email)
 
     await page.addInitScript(() => {
       sessionStorage.setItem("onboardingSource", "vanilla")
     })
     await signInWithE2eEmail(page, origin, email)
-    await page.waitForURL(/\/(onboarding)?/, { timeout: 30_000 })
+    await page.waitForURL(
+      (url) => {
+        const path = url.pathname
+        return path === "/" || path.startsWith("/onboarding")
+      },
+      { timeout: 30_000 },
+    )
     const onOnboarding =
       page.url().includes("/onboarding") ||
       (await page.getByRole("heading", { name: "Have a referral code?" }).isVisible({ timeout: 5_000 }).catch(() => false))
