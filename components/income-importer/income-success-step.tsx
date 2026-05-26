@@ -25,7 +25,7 @@ export function IncomeSuccessStep({
   const { navigateTo } = useApp()
 
   const goDashboard = () => {
-    setDashboardChartMode("savings")
+    setDashboardChartMode("cashflow")
     try {
       sessionStorage.setItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY, "all")
     } catch {

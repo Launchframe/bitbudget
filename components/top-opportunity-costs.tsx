@@ -12,11 +12,12 @@ import {
   getDashboardChartMode,
   subscribeDashboardChartMode,
 } from "@/lib/dashboard-chart-mode"
-import { findSavingsEnvelope, isSavingsInflowCredit } from "@/lib/savings-ui-metrics"
+import { isUserFacingExpense } from "@/lib/transaction-visibility"
 import { SAVINGS_EXPERIENCE_DISMISSED, SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
 import type { Transaction } from "@/lib/data"
 import { formatTransactionTableDate } from "@/lib/transaction-dates"
+import { findSavingsEnvelope, isSavingsInflowCredit } from "@/lib/savings-ui-metrics"
 
 interface EnrichedTransaction extends Transaction {
   btcValueToday: number
@@ -47,7 +48,7 @@ export function TopOpportunityCosts() {
     savingsEnvelope != null
 
   const rankedExpenseOpportunity = useMemo(() => {
-    const expenses = activeTransactions.filter((t) => t.type === "expense")
+    const expenses = activeTransactions.filter(isUserFacingExpense)
     return expenses
       .map((t) => {
         const btcPriceAtTime = getPriceOnDate(t.date)

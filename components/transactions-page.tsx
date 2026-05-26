@@ -25,6 +25,7 @@ import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 import { findSavingsEnvelope } from "@/lib/savings-ui-metrics"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
+import { useTransactionDeleteConfirm } from "@/components/use-transaction-delete-confirm"
 import { PayeeMappingReviewBanner } from "@/components/payee-mapping-review-banner"
 import { UpcomingRecurringTransactions } from "@/components/upcoming-recurring-transactions"
 import {
@@ -55,13 +56,13 @@ export function TransactionsPage() {
     state,
     discretionaryEnvelopes,
     activeTransactions,
-    deleteTransaction,
     highlightTransactionId,
     transactionEnvelopeFilter,
     clearTransactionEnvelopeFilter,
     openNewTransaction,
     historyReady,
   } = useApp()
+  const { requestDelete, confirmDialog } = useTransactionDeleteConfirm()
   const { calculateOpportunityCost } = useBtcPrices()
 
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
@@ -667,7 +668,7 @@ export function TransactionsPage() {
                     )}
                     <td className="py-3.5 px-4 text-right">
                       <button
-                        onClick={(e) => { e.stopPropagation(); deleteTransaction(txn.id) }}
+                        onClick={(e) => { e.stopPropagation(); requestDelete(txn) }}
                         className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-all"
                         aria-label={`Delete transaction ${txn.payee}`}
                       >
@@ -784,6 +785,7 @@ export function TransactionsPage() {
           setSelectedTxn(incomeTxn)
         }}
       />
+      {confirmDialog}
     </div>
   )
 }

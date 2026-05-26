@@ -10,12 +10,14 @@ import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { formatTransactionTableDate } from "@/lib/transaction-dates"
+import { useTransactionDeleteConfirm } from "@/components/use-transaction-delete-confirm"
 
 const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 export function RecentTransactions() {
-  const { state, activeTransactions, deleteTransaction, loading } = useApp()
+  const { state, activeTransactions, loading } = useApp()
+  const { requestDelete, confirmDialog } = useTransactionDeleteConfirm()
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
   const [pageSize, setPageSize] = useState(15)
   const [page, setPage] = useState(1)
@@ -126,7 +128,7 @@ export function RecentTransactions() {
                   </td>
                   <td className="py-3.5 px-4 text-right">
                     <button
-                      onClick={(e) => { e.stopPropagation(); deleteTransaction(txn.id) }}
+                        onClick={(e) => { e.stopPropagation(); requestDelete(txn) }}
                       className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-all"
                       aria-label={`Delete transaction ${txn.payee}`}
                     >
@@ -235,6 +237,7 @@ export function RecentTransactions() {
         open={!!selectedTxn}
         onOpenChange={(open) => { if (!open) setSelectedTxn(null) }}
       />
+      {confirmDialog}
     </div>
   )
 }

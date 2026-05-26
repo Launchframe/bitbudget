@@ -20,6 +20,11 @@ import {
   type SavingsGoalRow,
   goalProgressRingColor,
 } from "@/lib/savings-ui-metrics"
+import {
+  formatSavingsSinceLabel,
+  resolveSavingsTrackingStartFromTransactions,
+  savingsBalanceSince,
+} from "@/lib/savings-display"
 import { IrregularIncomeDialog } from "@/components/irregular-income-dialog"
 import { EnvelopeSweepDialog } from "@/components/envelope-sweep-dialog"
 import {
@@ -107,7 +112,15 @@ function Sparkline({ values }: { values: number[] }) {
 }
 
 export function SavingsHeroCard() {
-  const { state, activeTransactions, discretionaryEnvelopes, navigateTo, refreshData } = useApp()
+  const {
+    state,
+    activeTransactions,
+    discretionaryEnvelopes,
+    navigateTo,
+    refreshData,
+    accountCreatedAtIso,
+    onboardingCompletedAtIso,
+  } = useApp()
   const [currentGoal, setCurrentGoal] = useState<SavingsGoalRow | null>(null)
   const [closedGoals, setClosedGoals] = useState<SavingsGoalRow[]>([])
   const [achievements, setAchievements] = useState<UserAchievement[]>([])
@@ -120,7 +133,16 @@ export function SavingsHeroCard() {
 
   const savingsEnvelope = findSavingsEnvelope(state.envelopes)
   const monthKey = getCurrentMonthKey()
-  const balance = savingsBalance(activeTransactions, savingsEnvelope)
+  const savingsSinceStart = resolveSavingsTrackingStartFromTransactions(
+    activeTransactions,
+    onboardingCompletedAtIso,
+    accountCreatedAtIso,
+  )
+  const balance =
+    savingsSinceStart != null
+      ? savingsBalanceSince(activeTransactions, savingsEnvelope, savingsSinceStart)
+      : savingsBalance(activeTransactions, savingsEnvelope)
+  const sinceLabel = savingsSinceStart ? formatSavingsSinceLabel(savingsSinceStart) : null
   const engaged = state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED
 
   const discretionaryIds = useMemo(
@@ -243,6 +265,9 @@ export function SavingsHeroCard() {
         <div className="flex flex-col gap-0.5">
           <span className="text-xs text-muted-foreground uppercase tracking-wider">Savings</span>
           <span className="text-2xl font-bold text-foreground">{formatUsd(balance)}</span>
+          {sinceLabel && (
+            <span className="text-xs text-muted-foreground">Saved since {sinceLabel}</span>
+          )}
         </div>
         <button
           type="button"
@@ -273,6 +298,9 @@ export function SavingsHeroCard() {
               <span className="text-xs text-muted-foreground uppercase tracking-wider">Savings</span>
             </div>
             <span className="text-3xl md:text-4xl font-bold text-foreground">{formatUsd(balance)}</span>
+            {sinceLabel && (
+              <span className="text-xs text-muted-foreground">Saved since {sinceLabel}</span>
+            )}
             {independenceDays > 0 && (
               <span className="text-xs text-muted-foreground">
                 {independenceDays} day{independenceDays !== 1 ? "s" : ""} of expenses covered

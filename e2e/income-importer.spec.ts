@@ -183,7 +183,7 @@ test.describe("Income importer (UI)", () => {
     expect((await importPromise).ok()).toBeTruthy()
 
     await page.getByRole("button", { name: "Go to Dashboard" }).click()
-    await expect(page.getByRole("heading", { name: "Your savings" })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole("heading", { name: "Your cash flow" })).toBeVisible({ timeout: 30_000 })
     await expect(page.getByRole("button", { name: "Savings", pressed: true })).toBeVisible()
 
     const allRange = page.getByRole("button", { name: "All", exact: true })

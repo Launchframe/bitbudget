@@ -14,9 +14,21 @@ import {
   sumMonthlyIncomeCredits,
   sumRemainingDiscretionary,
 } from "@/lib/savings-ui-metrics"
+import {
+  formatSavingsSinceLabel,
+  resolveSavingsTrackingStartFromTransactions,
+  savingsBalanceSince,
+} from "@/lib/savings-display"
+import { isUserFacingExpense } from "@/lib/transaction-visibility"
 
 export function DashboardMetrics() {
-  const { state, activeTransactions, discretionaryEnvelopes } = useApp()
+  const {
+    state,
+    activeTransactions,
+    discretionaryEnvelopes,
+    accountCreatedAtIso,
+    onboardingCompletedAtIso,
+  } = useApp()
   const { currentPrice, satsPerDollar } = useBtcPrices()
   const ocEnabled = state.opportunityCostEnabled
   const savingsEngaged = state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED
@@ -29,12 +41,7 @@ export function DashboardMetrics() {
     fundedIncomeMonth > 0 ? fundedIncomeMonth : state.monthlyIncome
 
   const monthlySpend = activeTransactions
-    .filter(
-      (t) =>
-        !t.excludeFromMainHistory &&
-        t.type === "expense" &&
-        t.date.startsWith(currentMonth),
-    )
+    .filter((t) => isUserFacingExpense(t) && t.date.startsWith(currentMonth))
     .reduce((sum, t) => sum + t.amount, 0)
 
   const remainingBalances = sumRemainingDiscretionary(
@@ -43,7 +50,16 @@ export function DashboardMetrics() {
   )
 
   const savingsEnvelope = findSavingsEnvelope(state.envelopes)
-  const savingsBal = savingsBalance(activeTransactions, savingsEnvelope)
+  const savingsSinceStart = resolveSavingsTrackingStartFromTransactions(
+    activeTransactions,
+    onboardingCompletedAtIso,
+    accountCreatedAtIso,
+  )
+  const savingsBal =
+    savingsSinceStart != null
+      ? savingsBalanceSince(activeTransactions, savingsEnvelope, savingsSinceStart)
+      : savingsBalance(activeTransactions, savingsEnvelope)
+  const savingsSinceLabel = savingsSinceStart ? formatSavingsSinceLabel(savingsSinceStart) : null
 
   const baseMetrics = savingsEngaged
     ? [
@@ -62,6 +78,7 @@ export function DashboardMetrics() {
         {
           label: "Savings",
           value: formatUsd(savingsBal),
+          subtitle: savingsSinceLabel ? `Since ${savingsSinceLabel}` : undefined,
           icon: PiggyBank,
           color: SAVINGS_GOLD_ACCENT,
         },
@@ -124,6 +141,9 @@ export function DashboardMetrics() {
                 <span className="text-xs text-muted-foreground uppercase tracking-wider">{metric.label}</span>
               </div>
               <span className="text-lg md:text-2xl lg:text-3xl font-bold text-foreground">{metric.value}</span>
+              {"subtitle" in metric && metric.subtitle && (
+                <span className="text-[10px] md:text-xs text-muted-foreground">{metric.subtitle}</span>
+              )}
             </div>
           )
         })}
