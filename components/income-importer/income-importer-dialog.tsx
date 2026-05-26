@@ -67,14 +67,20 @@ function isStagedEntry(value: unknown): value is StagedImportEntry {
 function isDraft(value: unknown): value is IncomeImporterDraft {
   if (typeof value !== "object" || value == null) return false
   const d = value as IncomeImporterDraft
+  const lastClickedOk =
+    d.lastClickedPeriod === null ||
+    (typeof d.lastClickedPeriod === "string" && parseIncomePeriodKey(d.lastClickedPeriod) != null)
   return (
     (d.step === "calendar" || d.step === "review" || d.step === "success") &&
     (d.mode === "monthly" || d.mode === "annual") &&
-    typeof d.paintAmount === "number" &&
+    Number.isFinite(d.paintAmount) &&
+    d.paintAmount >= 0 &&
     typeof d.paintSource === "string" &&
-    typeof d.scrollYear === "number" &&
+    Number.isFinite(d.scrollYear) &&
+    Number.isInteger(d.scrollYear) &&
     Array.isArray(d.entries) &&
-    d.entries.every(isStagedEntry)
+    d.entries.every(isStagedEntry) &&
+    lastClickedOk
   )
 }
 

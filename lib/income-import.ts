@@ -342,14 +342,26 @@ async function prefetchBtcPricesForImportEntries(
   return prices
 }
 
+/** Last entry wins for duplicate periodKeys (matches client Map staging). */
+export function dedupeImportEntriesByPeriod(
+  entries: readonly IncomeImportEntry[],
+): IncomeImportEntry[] {
+  const byPeriod = new Map<string, IncomeImportEntry>()
+  for (const entry of entries) {
+    byPeriod.set(entry.periodKey, entry)
+  }
+  return [...byPeriod.values()]
+}
+
 /** Import historical or future income entries. Returns transactions created. */
 export async function processIncomeImport(input: ProcessIncomeImportInput): Promise<number> {
   const pk = input.publicKey?.trim()
   if (!pk) return 0
 
+  const entries = dedupeImportEntriesByPeriod(input.entries)
   const mi = input.monthlyIncome
   const now = new Date()
-  const needsMonthlyIncome = entriesNeedMonthlyIncome(input.entries, now)
+  const needsMonthlyIncome = entriesNeedMonthlyIncome(entries, now)
   if (!Number.isFinite(mi) || mi < 0) return 0
   if (needsMonthlyIncome && mi <= 0) return 0
 
@@ -377,10 +389,10 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
   if (!encAllocOut || !encAllocIn) return 0
 
   let totalCreated = 0
-  const btcPrices = await prefetchBtcPricesForImportEntries(input.entries, payDay)
+  const btcPrices = await prefetchBtcPricesForImportEntries(entries, payDay)
 
   await prisma.$transaction(async (tx) => {
-    for (const entry of input.entries) {
+    for (const entry of entries) {
       const amount = Math.round(entry.amount * 100) / 100
       if (!Number.isFinite(amount) || amount <= 0) continue
 

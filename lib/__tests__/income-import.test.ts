@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 import { Prisma } from "@prisma/client"
 import {
   currentMonthKeyUtc,
+  dedupeImportEntriesByPeriod,
   distributeImportDates,
   entriesNeedMonthlyIncome,
   importBatchPeriodKey,
@@ -326,5 +327,55 @@ describe("processIncomeImport overwrite", () => {
 
     expect(count).toBe(1)
     expect(created).toBe(1)
+  })
+
+  it("dedupes duplicate periodKeys in one request (last wins, single batch reset)", async () => {
+    const batches = new Map<string, { id: string; periodKey: string }>()
+    const credits: number[] = []
+    let deleteManyCalls = 0
+
+    const tx = {
+      envelopeFundingBatch: batchLookup(batches),
+      transaction: {
+        deleteMany: vi.fn(async () => {
+          deleteManyCalls += 1
+          credits.length = 0
+        }),
+        create: vi.fn(async ({ data }: { data: { amount: number } }) => {
+          credits.push(data.amount)
+          return { id: "t" }
+        }),
+      },
+    }
+
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(tx as never))
+
+    await processIncomeImport({
+      userId: "user-1",
+      publicKey: "pk",
+      monthlyIncome: 5000,
+      payDays: [15],
+      entries: [
+        { periodKey: "2024-01", amount: 1000 },
+        { periodKey: "2024-01", amount: 2000 },
+      ],
+    })
+
+    expect(credits).toEqual([2000])
+    expect(deleteManyCalls).toBe(1)
+  })
+})
+
+describe("dedupeImportEntriesByPeriod", () => {
+  it("keeps the last entry per periodKey", () => {
+    const result = dedupeImportEntriesByPeriod([
+      { periodKey: "2024-01", amount: 100 },
+      { periodKey: "2024-02", amount: 200 },
+      { periodKey: "2024-01", amount: 300 },
+    ])
+    expect(result).toEqual([
+      { periodKey: "2024-01", amount: 300 },
+      { periodKey: "2024-02", amount: 200 },
+    ])
   })
 })
