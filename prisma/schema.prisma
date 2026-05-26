@@ -350,11 +350,12 @@ model Tag {
 }
 
 model EmailCode {
-  id        String   @id @default(cuid())
-  email     String
-  code      String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  email          String
+  code           String
+  expiresAt      DateTime
+  failedAttempts Int      @default(0)
+  createdAt      DateTime @default(now())
 
   @@index([email])
 }

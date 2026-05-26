@@ -178,6 +178,21 @@ export function preferenceColumnForCategory(
 
 export const preferenceFieldForCategory = preferenceColumnForCategory
 
+/** Returns an error message when communicationPreferences keys or values are invalid. */
+export function communicationPreferencesBodyError(
+  preferences: Record<string, unknown>,
+): string | null {
+  for (const [key, value] of Object.entries(preferences)) {
+    if (!isCommunicationPreferenceKey(key)) {
+      return `Unknown communication preference: ${key}`
+    }
+    if (value !== undefined && typeof value !== "boolean") {
+      return `communicationPreferences.${key} must be a boolean`
+    }
+  }
+  return null
+}
+
 export function emailPreferenceUpdateData(
   preferences: Partial<CommunicationPreferences>,
 ): Partial<Record<CommunicationPreferenceColumn, boolean>> {

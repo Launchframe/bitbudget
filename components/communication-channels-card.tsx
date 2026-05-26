@@ -64,8 +64,15 @@ export function CommunicationChannelsCard() {
     void loadContact()
   }, [loadContact])
 
-  async function sendCode(e: React.FormEvent) {
-    e.preventDefault()
+  function resetVerificationForm() {
+    setCodeSent(false)
+    setCode("")
+    setSuccess(null)
+    setError(null)
+  }
+
+  async function sendCode(e?: React.FormEvent) {
+    e?.preventDefault()
     setAction("send-code")
     setError(null)
     setSuccess(null)
@@ -246,16 +253,36 @@ export function CommunicationChannelsCard() {
                   required
                 />
                 {codeSent && (
-                  <Input
-                    value={code}
-                    onChange={e => setCode(e.target.value)}
-                    inputMode="numeric"
-                    pattern="[0-9]{6}"
-                    maxLength={6}
-                    placeholder="6-digit code"
-                    aria-label="Email verification code"
-                    required
-                  />
+                  <>
+                    <Input
+                      value={code}
+                      onChange={e => setCode(e.target.value)}
+                      inputMode="numeric"
+                      pattern="[0-9]{6}"
+                      maxLength={6}
+                      placeholder="6-digit code"
+                      aria-label="Email verification code"
+                      required
+                    />
+                    <div className="flex flex-wrap gap-3 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => void sendCode()}
+                        disabled={action === "send-code" || action === "verify"}
+                        className="text-[#F7931A] hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Resend code
+                      </button>
+                      <button
+                        type="button"
+                        onClick={resetVerificationForm}
+                        disabled={action === "send-code" || action === "verify"}
+                        className="text-muted-foreground hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Use a different email
+                      </button>
+                    </div>
+                  </>
                 )}
                 <button
                   type="submit"

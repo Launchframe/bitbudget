@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto"
 import { prisma } from "@/lib/db"
 import { sendNotificationEmailVerificationCode } from "@/lib/email"
 import {
@@ -7,9 +8,10 @@ import {
 
 const RATE_LIMIT_MS = 60_000
 const CODE_TTL_MS = 10 * 60_000
+export const MAX_VERIFY_CODE_ATTEMPTS = 5
 
 function generateCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000))
+  return String(randomInt(100_000, 1_000_000))
 }
 
 export class NotificationEmailLinkError extends Error {
@@ -166,11 +168,27 @@ export async function verifyNotificationEmailLink(userId: string, email: string,
     )
   }
 
-  const record = await prisma.emailCode.findFirst({
-    where: { email: normalizedEmail, code: trimmedCode, expiresAt: { gt: new Date() } },
+  const activeCode = await prisma.emailCode.findFirst({
+    where: { email: normalizedEmail, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
   })
-  if (!record) {
+  if (!activeCode) {
+    throw new NotificationEmailLinkError("INVALID_CODE", "Invalid or expired code")
+  }
+  if (activeCode.code !== trimmedCode) {
+    const failedAttempts = activeCode.failedAttempts + 1
+    if (failedAttempts >= MAX_VERIFY_CODE_ATTEMPTS) {
+      await prisma.emailCode.deleteMany({ where: { email: normalizedEmail } })
+      throw new NotificationEmailLinkError(
+        "RATE_LIMITED",
+        "Too many incorrect attempts. Request a new code.",
+        429,
+      )
+    }
+    await prisma.emailCode.update({
+      where: { id: activeCode.id },
+      data: { failedAttempts },
+    })
     throw new NotificationEmailLinkError("INVALID_CODE", "Invalid or expired code")
   }
 

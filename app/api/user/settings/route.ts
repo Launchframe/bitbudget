@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import {
   type CommunicationPreferences,
+  communicationPreferencesBodyError,
   EMAIL_PREFERENCE_KEYS,
   emailPreferencesFromUser,
   emailPreferenceUpdateData,
@@ -434,13 +435,11 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "nostrDmEnabled must be a boolean" }, { status: 400 })
   }
   if (body.communicationPreferences) {
-    for (const [key, value] of Object.entries(body.communicationPreferences)) {
-      if (value !== undefined && typeof value !== "boolean") {
-        return NextResponse.json(
-          { error: `communicationPreferences.${key} must be a boolean` },
-          { status: 400 },
-        )
-      }
+    const prefError = communicationPreferencesBodyError(
+      body.communicationPreferences as Record<string, unknown>,
+    )
+    if (prefError) {
+      return NextResponse.json({ error: prefError }, { status: 400 })
     }
     Object.assign(data, emailPreferenceUpdateData(body.communicationPreferences))
   }

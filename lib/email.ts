@@ -95,7 +95,7 @@ export function unsubscribeUrl(token: string, category: CommunicationEmailCatego
 export function insertBeforeLastClosingDiv(html: string, insertion: string): string {
   const closeIdx = html.lastIndexOf("</div>")
   if (closeIdx === -1) return html
-  return html.slice(0, closeIdx) + insertion + html.slice(closeIdx + "</div>".length)
+  return html.slice(0, closeIdx) + insertion + html.slice(closeIdx)
 }
 
 function withEmailFooter(html: string, options?: PreferenceEmailOptions): string {
@@ -111,8 +111,7 @@ function withEmailFooter(html: string, options?: PreferenceEmailOptions): string
           You are receiving this because ${escapeHtml(preference.emailReason)}.
         </p>
         <a href="${escapeHtml(url)}" style="display: inline-block; background: #1A1A1A; color: #F7931A; border: 1px solid #333; border-radius: 10px; padding: 10px 14px; font-size: 13px; text-decoration: none;">Unsubscribe</a>
-      </div>
-    </div>`
+      </div>`
   return insertBeforeLastClosingDiv(html, footer)
 }
 

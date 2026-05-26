@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   COMMUNICATION_PREFERENCE_KEYS,
+  communicationPreferencesBodyError,
   emailPreferenceUpdateData,
   normalizeCommunicationPreferences,
   parseUnsubscribePreference,
@@ -43,6 +44,16 @@ describe("communication preferences", () => {
       "renewalReminders",
       "importAlerts",
     ])
+  })
+
+  it("rejects unknown communication preference keys", () => {
+    expect(communicationPreferencesBodyError({ featureUpdates: true })).toBeNull()
+    expect(communicationPreferencesBodyError({ typoKey: true })).toBe(
+      "Unknown communication preference: typoKey",
+    )
+    expect(communicationPreferencesBodyError({ featureUpdates: "yes" })).toBe(
+      "communicationPreferences.featureUpdates must be a boolean",
+    )
   })
 
   it("parses unsubscribe query params in camelCase or snake_case", () => {
