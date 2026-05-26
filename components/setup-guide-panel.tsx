@@ -1,7 +1,7 @@
 "use client"
 
-import { useMemo } from "react"
-import { Check, Circle, Crown, Lock, Trophy } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Check, ChevronDown, Circle, Crown, Lock, Trophy } from "lucide-react"
 import { useSession } from "next-auth/react"
 import { useApp } from "@/lib/app-context"
 import { SAVINGS_EXPERIENCE_DISMISSED, SAVINGS_GOLD_ACCENT } from "@/lib/constants"
@@ -137,6 +137,79 @@ function ProgressRing({
   )
 }
 
+type SetupGuideTaskRow = SetupGuideTaskStatus & {
+  title: string
+  helper: string
+  action: string
+  achievementCode?: string
+}
+
+function SetupGuideTaskItem({
+  row,
+  hasPremiumFeatures,
+  onTaskAction,
+}: {
+  row: SetupGuideTaskRow
+  hasPremiumFeatures: boolean
+  onTaskAction: (id: SetupGuideTaskId) => void
+}) {
+  const locked = row.premiumOnly && !hasPremiumFeatures
+  const achievementLabel = row.achievementCode ? ACHIEVEMENT_LABELS[row.achievementCode] : null
+
+  return (
+    <li
+      className={cn(
+        "flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3 rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/80 min-w-0",
+        row.complete && "opacity-80",
+      )}
+    >
+      <div className="flex items-start gap-3 min-w-0 flex-1">
+        {row.complete ? (
+          <Check className="h-5 w-5 shrink-0 text-[#22C55E]" aria-hidden />
+        ) : locked ? (
+          <Lock className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
+        ) : (
+          <Circle className="h-5 w-5 shrink-0 text-[#444]" aria-hidden />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground">{row.title}</p>
+          <p className="text-xs text-muted-foreground">{row.helper}</p>
+          {achievementLabel && !row.complete && (
+            <p className="text-[10px] text-muted-foreground/80 mt-1 flex items-center gap-1">
+              <Trophy className="h-3 w-3 shrink-0 text-[#F7931A]" aria-hidden />
+              Unlocks: {achievementLabel}
+            </p>
+          )}
+        </div>
+      </div>
+      {!row.complete && (
+        <button
+          type="button"
+          onClick={() => onTaskAction(row.id)}
+          className={cn(
+            "shrink-0 w-full sm:w-auto text-xs font-medium px-3 py-2 rounded-lg transition-colors",
+            locked
+              ? "border border-[#333] text-muted-foreground hover:text-foreground"
+              : "bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90",
+          )}
+        >
+          {locked ? (
+            <span className="inline-flex items-center gap-1.5 justify-center">
+              <Crown className="h-3.5 w-3.5" />
+              Premium
+            </span>
+          ) : (
+            row.action
+          )}
+        </button>
+      )}
+    </li>
+  )
+}
+
+const dashboardSecondaryActionClass =
+  "text-xs font-medium px-3 py-1.5 rounded-lg border border-[#333] bg-[#1A1A1A] text-muted-foreground hover:text-foreground hover:border-[#444] hover:bg-[#222] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F7931A]/50"
+
 export function SetupGuidePanel({
   tasks,
   completedCount,
@@ -165,6 +238,19 @@ export function SetupGuidePanel({
 
   const showPremiumUpsell = !hasPremiumFeatures && variant === "dashboard"
   const progressAccent = savingsEngaged ? SAVINGS_GOLD_ACCENT : "#F7931A"
+  const compactDashboard = variant === "dashboard" && !allComplete
+  const [showAllTasks, setShowAllTasks] = useState(false)
+
+  const incompleteRows = useMemo(() => rows.filter((r) => !r.complete), [rows])
+  const nextRow = incompleteRows[0]
+  const otherIncompleteCount = Math.max(0, incompleteRows.length - 1)
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setShowAllTasks(false), 0)
+    return () => window.clearTimeout(t)
+  }, [completedCount])
+
+  const visibleRows = compactDashboard && !showAllTasks ? (nextRow ? [nextRow] : []) : rows
 
   return (
     <div
@@ -189,13 +275,9 @@ export function SetupGuidePanel({
           </p>
         </div>
         {variant === "dashboard" && !allComplete && (
-          <div className="flex flex-wrap gap-2 sm:flex-col sm:items-end shrink-0">
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:justify-end shrink-0">
             {onSnooze && (
-              <button
-                type="button"
-                onClick={onSnooze}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
+              <button type="button" onClick={onSnooze} className={dashboardSecondaryActionClass}>
                 Remind me later
               </button>
             )}
@@ -203,7 +285,7 @@ export function SetupGuidePanel({
               <button
                 type="button"
                 onClick={onDismissFromHome}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                className={dashboardSecondaryActionClass}
               >
                 Hide from Home
               </button>
@@ -212,65 +294,54 @@ export function SetupGuidePanel({
         )}
       </div>
 
-      <ul className="mt-4 flex flex-col gap-2" role="list">
-        {rows.map((row) => {
-          const locked = row.premiumOnly && !hasPremiumFeatures
-          const achievementLabel = row.achievementCode
-            ? ACHIEVEMENT_LABELS[row.achievementCode]
-            : null
+      {compactDashboard && completedCount > 0 && (
+        <p className="mt-3 text-xs text-muted-foreground flex items-center gap-1.5">
+          <Check className="h-3.5 w-3.5 shrink-0 text-[#22C55E]" aria-hidden />
+          <span>
+            {completedCount} of {totalCount} essentials complete
+          </span>
+        </p>
+      )}
 
-          return (
-            <li
-              key={row.id}
-              className={cn(
-                "flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3 rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/80 min-w-0",
-                row.complete && "opacity-80",
-              )}
-            >
-              <div className="flex items-start gap-3 min-w-0 flex-1">
-                {row.complete ? (
-                  <Check className="h-5 w-5 shrink-0 text-[#22C55E]" aria-hidden />
-                ) : locked ? (
-                  <Lock className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
-                ) : (
-                  <Circle className="h-5 w-5 shrink-0 text-[#444]" aria-hidden />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground">{row.title}</p>
-                  <p className="text-xs text-muted-foreground">{row.helper}</p>
-                  {achievementLabel && !row.complete && (
-                    <p className="text-[10px] text-muted-foreground/80 mt-1 flex items-center gap-1">
-                      <Trophy className="h-3 w-3 shrink-0 text-[#F7931A]" aria-hidden />
-                      Unlocks: {achievementLabel}
-                    </p>
-                  )}
-                </div>
-              </div>
-              {!row.complete && (
-                <button
-                  type="button"
-                  onClick={() => onTaskAction(row.id)}
-                  className={cn(
-                    "shrink-0 w-full sm:w-auto text-xs font-medium px-3 py-2 rounded-lg transition-colors",
-                    locked
-                      ? "border border-[#333] text-muted-foreground hover:text-foreground"
-                      : "bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90",
-                  )}
-                >
-                  {locked ? (
-                    <span className="inline-flex items-center gap-1.5 justify-center">
-                      <Crown className="h-3.5 w-3.5" />
-                      Premium
-                    </span>
-                  ) : (
-                    row.action
-                  )}
-                </button>
-              )}
-            </li>
-          )
-        })}
+      {compactDashboard && !showAllTasks && nextRow && (
+        <p className="mt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Up next
+        </p>
+      )}
+
+      <ul className="mt-2 flex flex-col gap-2" role="list">
+        {visibleRows.map((row) => (
+          <SetupGuideTaskItem
+            key={row.id}
+            row={row}
+            hasPremiumFeatures={hasPremiumFeatures}
+            onTaskAction={onTaskAction}
+          />
+        ))}
       </ul>
+
+      {compactDashboard && !showAllTasks && otherIncompleteCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAllTasks(true)}
+          className="mt-2 w-full text-xs font-medium text-[#F7931A] hover:text-[#F7931A]/80 py-2 rounded-lg border border-dashed border-[#333] hover:border-[#F7931A]/40 transition-colors inline-flex items-center justify-center gap-1"
+          aria-expanded={false}
+        >
+          <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+          …and {otherIncompleteCount} more step{otherIncompleteCount === 1 ? "" : "s"}
+        </button>
+      )}
+
+      {compactDashboard && showAllTasks && rows.length > 1 && (
+        <button
+          type="button"
+          onClick={() => setShowAllTasks(false)}
+          className="mt-2 w-full text-xs text-muted-foreground hover:text-foreground py-1.5 transition-colors"
+          aria-expanded={true}
+        >
+          Show next step only
+        </button>
+      )}
 
       {showPremiumUpsell && (
         <p className="mt-3 text-xs text-muted-foreground">
