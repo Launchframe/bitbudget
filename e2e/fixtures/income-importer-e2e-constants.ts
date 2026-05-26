@@ -1,5 +1,5 @@
 import nacl from "tweetnacl"
-import { publicKeyToHex } from "@/lib/crypto"
+import { publicKeyToHex } from "../../lib/crypto"
 import { E2E_EMAIL_DOMAIN } from "./referral-e2e-constants"
 
 /** Seeded user with Monthly Income set — keep in sync with `e2e/seed-income-importer-e2e.ts`. */
