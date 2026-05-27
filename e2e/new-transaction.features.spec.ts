@@ -24,7 +24,13 @@ test.describe("New transaction features", () => {
       .click()
     await page.getByRole("option", { name: E2E_APP_ENVELOPE_A }).click()
     const dialog = page.getByRole("dialog")
-    await dialog.getByRole("button", { name: "Tags" }).click()
+    const tagsSettings = dialog.getByRole("heading", { name: "Tags" }).last()
+    await dialog.getByRole("button", { name: /Tags/ }).click()
+    if (!(await tagsSettings.isVisible({ timeout: 1_000 }).catch(() => false))) {
+      await page.waitForTimeout(400)
+      await dialog.getByRole("button", { name: /Tags/ }).click()
+    }
+    await expect(tagsSettings).toBeVisible({ timeout: 30_000 })
     await dialog.locator('[data-slot="badge"]').filter({ hasText: "e2e-tag" }).click()
     await dialog.getByRole("button", { name: "Done" }).click()
     await page.getByRole("button", { name: "Add Expense" }).click()
