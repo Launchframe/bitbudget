@@ -49,10 +49,14 @@ describe("mergeEnvelopeRecords", () => {
     txEnvelopeDelete.mockResolvedValue({})
   })
 
-  it("moves shortcuts and pending suggestions before deleting source envelope", async () => {
+  it("migrates all related records and combines allotments before deleting source", async () => {
     await mergeEnvelopeRecords(tx as never, userId, fromId, toId)
 
-    expect(txShortcutUpdateMany).toHaveBeenCalledWith({
+    expect(txTransactionUpdateMany).toHaveBeenCalledWith({
+      where: { userId, envelopeId: fromId },
+      data: { envelopeId: toId },
+    })
+    expect(txRecurringUpdateMany).toHaveBeenCalledWith({
       where: { userId, envelopeId: fromId },
       data: { envelopeId: toId },
     })
@@ -60,10 +64,35 @@ describe("mergeEnvelopeRecords", () => {
       where: { userId, suggestedEnvelopeId: fromId },
       data: { suggestedEnvelopeId: toId },
     })
+    expect(txShortcutUpdateMany).toHaveBeenCalledWith({
+      where: { userId, envelopeId: fromId },
+      data: { envelopeId: toId },
+    })
+    expect(txMappingUpdateMany).toHaveBeenCalledWith({
+      where: { userId, envelopeId: fromId },
+      data: { envelopeId: toId },
+    })
     expect(txEnvelopeUpdate).toHaveBeenCalledWith({
       where: { id: toId },
       data: { monthlyAllotment: 100 },
     })
     expect(txEnvelopeDelete).toHaveBeenCalledWith({ where: { id: fromId } })
+  })
+
+  it("is a no-op when source and target are the same envelope", async () => {
+    await mergeEnvelopeRecords(tx as never, userId, fromId, fromId)
+
+    expect(txEnvelopeFindFirst).not.toHaveBeenCalled()
+    expect(txTransactionUpdateMany).not.toHaveBeenCalled()
+    expect(txEnvelopeDelete).not.toHaveBeenCalled()
+  })
+
+  it("is a no-op when the source envelope does not belong to the user", async () => {
+    txEnvelopeFindFirst.mockResolvedValue(null)
+
+    await mergeEnvelopeRecords(tx as never, userId, fromId, toId)
+
+    expect(txTransactionUpdateMany).not.toHaveBeenCalled()
+    expect(txEnvelopeDelete).not.toHaveBeenCalled()
   })
 })
