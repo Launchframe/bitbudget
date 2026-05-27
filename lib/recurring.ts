@@ -58,6 +58,18 @@ async function postOneDueOccurrence(
   recurringId: string,
   endOfDay: Date,
 ): Promise<number> {
+  // Pre-check whether the rule is due so we can fetch the BTC price outside the
+  // transaction.  This avoids holding the DB connection open during a possible
+  // HTTP fallback to CoinGecko when the cache is cold for the due date.
+  const candidate = await prisma.recurringTransaction.findFirst({
+    where: { id: recurringId, active: true, nextDueDate: { lte: endOfDay } },
+    select: { nextDueDate: true },
+  })
+  if (!candidate) return 0
+
+  const dateStr = candidate.nextDueDate.toISOString().split("T")[0]!
+  const btcPrice = await getBtcPriceForDate(dateStr)
+
   try {
     return await prisma.$transaction(async (tx) => {
       const rec = await tx.recurringTransaction.findFirst({
@@ -70,8 +82,6 @@ async function postOneDueOccurrence(
       if (!rec) return 0
 
       const dueDate = rec.nextDueDate
-      const dateStr = dueDate.toISOString().split("T")[0]
-      const btcPrice = await getBtcPriceForDate(dateStr)
 
       await tx.transaction.create({
         data: {
