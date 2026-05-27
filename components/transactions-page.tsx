@@ -405,7 +405,10 @@ export function TransactionsPage() {
           {/* Desktop: Type select */}
           <div className="hidden sm:block">
             <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v as TransactionListTypeFilter); setPage(1) }}>
-              <SelectTrigger className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground w-[140px]">
+              <SelectTrigger
+                data-testid="transactions-type-filter"
+                className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground w-[140px]"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-[#1A1A1A] border-[#333]">
@@ -498,6 +501,7 @@ export function TransactionsPage() {
             {activeEnvelopeFilters.size > 0 && (
               <button
                 type="button"
+                data-testid="transactions-envelope-filter-clear"
                 onClick={() => { setEnvelopeFilters(new Set()); setPage(1) }}
                 className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors ml-1"
               >
