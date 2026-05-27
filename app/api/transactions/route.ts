@@ -11,6 +11,7 @@ import {
   parseTransactionQueryCalendarDate,
   utcEndOfCalendarDay,
 } from "@/lib/transaction-query-dates"
+import { deleteTransactionForUser } from "@/lib/transaction-batch-delete-server"
 
 function parseTagsJson(raw: string): string[] {
   try {
@@ -35,6 +36,7 @@ function jsonTxnRow(t: {
   source: string
   excludeFromMainHistory: boolean
   fundingBatchId: string | null
+  fundingBatch?: { periodKey: string } | null
   createdAt: Date
   updatedAt: Date
 }) {
@@ -52,6 +54,7 @@ function jsonTxnRow(t: {
     source: t.source,
     excludeFromMainHistory: t.excludeFromMainHistory,
     fundingBatchId: t.fundingBatchId,
+    fundingBatchPeriodKey: t.fundingBatch?.periodKey ?? null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
   }
@@ -103,6 +106,7 @@ export async function GET(req: NextRequest) {
   const transactions = await prisma.transaction.findMany({
     where,
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+    include: { fundingBatch: { select: { periodKey: true } } },
   })
 
   const formatted = transactions.map(jsonTxnRow)
@@ -286,6 +290,10 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
   }
 
-  await prisma.transaction.delete({ where: { id } })
-  return NextResponse.json({ success: true })
+  const deletedIds = await deleteTransactionForUser(session.user.id, id)
+  if (!deletedIds) {
+    return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
+  }
+
+  return NextResponse.json({ success: true, deletedIds })
 }

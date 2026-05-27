@@ -7,11 +7,10 @@ import { formatUsd } from "@/lib/data"
 
 const SWIPE_PX_PER_STEP = 10
 const TAP_MOVE_THRESHOLD_PX = 8
+const GESTURE_COMMIT_PX = 10
 const PAGE_KEY_STEP_MULTIPLIER = 10
 /** Visible track height — keep in sync with inner `h-10`. */
 const VISIBLE_TRACK_HEIGHT_PX = 40
-/** Extra touch padding above/below the visible track (layout neutral via negative margin). */
-const HIT_EXTEND_Y_PX = 16
 
 type OnboardingAllocFineScrollerProps = {
   accentColor: string
@@ -38,9 +37,24 @@ export function OnboardingAllocFineScroller({
   const pointerRef = useRef<{
     pointerId: number
     startY: number
+    startX: number
     lastStepY: number
     swipeNudgeCount: number
+    committed: boolean
   } | null>(null)
+
+  const commitGesture = (pointerId: number, target: HTMLElement) => {
+    const session = pointerRef.current
+    if (!session || session.pointerId !== pointerId || session.committed) return
+    session.committed = true
+    setIsPressed(true)
+    onGestureStart()
+    try {
+      target.setPointerCapture(pointerId)
+    } catch {
+      /* noop */
+    }
+  }
 
   const finishGesture = (pointerId: number, target: HTMLElement) => {
     if (pointerRef.current?.pointerId !== pointerId) return
@@ -108,34 +122,40 @@ export function OnboardingAllocFineScroller({
       aria-valuemin={0}
       aria-valuemax={Math.max(0, maxValue)}
       aria-describedby={hintId}
-      className="relative flex w-7 shrink-0 touch-none select-none items-center justify-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#F7931A] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D0D0D]"
+      className="relative flex w-7 shrink-0 select-none items-center justify-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#F7931A] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D0D0D] max-md:pointer-events-auto"
       style={{
-        touchAction: "none",
-        height: VISIBLE_TRACK_HEIGHT_PX + HIT_EXTEND_Y_PX * 2,
-        marginTop: -HIT_EXTEND_Y_PX,
-        marginBottom: -HIT_EXTEND_Y_PX,
+        touchAction: "pan-x",
+        height: VISIBLE_TRACK_HEIGHT_PX,
       }}
       onPointerDown={e => {
         if (e.button !== 0) return
-        e.preventDefault()
-        e.stopPropagation()
-        setIsPressed(true)
-        onGestureStart()
         pointerRef.current = {
           pointerId: e.pointerId,
+          startX: e.clientX,
           startY: e.clientY,
           lastStepY: e.clientY,
           swipeNudgeCount: 0,
-        }
-        try {
-          e.currentTarget.setPointerCapture(e.pointerId)
-        } catch {
-          /* noop */
+          committed: false,
         }
       }}
       onPointerMove={e => {
         const session = pointerRef.current
         if (!session || session.pointerId !== e.pointerId) return
+
+        if (!session.committed) {
+          const dx = e.clientX - session.startX
+          const dy = e.clientY - session.startY
+          if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > GESTURE_COMMIT_PX) {
+            pointerRef.current = null
+            return
+          }
+          if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > GESTURE_COMMIT_PX) {
+            commitGesture(e.pointerId, e.currentTarget)
+          } else {
+            return
+          }
+        }
+
         e.stopPropagation()
         const delta = session.lastStepY - e.clientY
         if (Math.abs(delta) >= SWIPE_PX_PER_STEP) {
@@ -150,6 +170,18 @@ export function OnboardingAllocFineScroller({
       onPointerUp={e => {
         const session = pointerRef.current
         if (!session || session.pointerId !== e.pointerId) return
+
+        if (!session.committed) {
+          const moved = Math.hypot(e.clientX - session.startX, e.clientY - session.startY)
+          if (moved <= TAP_MOVE_THRESHOLD_PX) {
+            onGestureStart()
+            nudgeFromTap(session.startY)
+            onGestureEnd()
+          }
+          pointerRef.current = null
+          return
+        }
+
         e.stopPropagation()
         const moved = Math.abs(e.clientY - session.startY)
         if (session.swipeNudgeCount === 0 && moved <= TAP_MOVE_THRESHOLD_PX) {
@@ -158,8 +190,13 @@ export function OnboardingAllocFineScroller({
         finishGesture(e.pointerId, e.currentTarget)
       }}
       onPointerCancel={e => {
-        e.stopPropagation()
-        finishGesture(e.pointerId, e.currentTarget)
+        if (pointerRef.current?.pointerId !== e.pointerId) return
+        if (pointerRef.current.committed) {
+          e.stopPropagation()
+          finishGesture(e.pointerId, e.currentTarget)
+          return
+        }
+        pointerRef.current = null
       }}
       onKeyDown={handleKeyDown}
     >

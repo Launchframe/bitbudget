@@ -25,6 +25,7 @@ export async function GET() {
       source: { not: "manual" },
     },
     orderBy: { createdAt: "desc" },
+    include: { fundingBatch: { select: { periodKey: true } } },
   })
 
   const formatted = transactions.map(t => ({
@@ -39,6 +40,9 @@ export async function GET() {
     satsAmount: t.satsAmount ?? null,
     recurringId: t.recurringId ?? null,
     source: t.source,
+    excludeFromMainHistory: t.excludeFromMainHistory,
+    fundingBatchId: t.fundingBatchId,
+    fundingBatchPeriodKey: t.fundingBatch?.periodKey ?? null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
   }))

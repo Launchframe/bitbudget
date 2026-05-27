@@ -159,7 +159,7 @@ export const ACHIEVEMENT_LABELS: Record<string, string> = {
   swept_first: "First sweep",
   swept_clean_month: "Clean sweep",
   irregular_income_first: "Extra income",
-  import_complete: "Income imported",
+  import_complete: "Past income added",
   year_one: "One year",
 }
 

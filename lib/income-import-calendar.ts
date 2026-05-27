@@ -1,0 +1,196 @@
+import type { IncomeImportEntry } from "@/lib/income-import"
+import {
+  currentMonthKeyUtc,
+  currentYearUtc,
+  isImportPeriodFuture,
+  parseIncomePeriodKey,
+} from "@/lib/income-import"
+
+export type CellVisualState = "empty" | "shaded" | "tx0" | "preHistory" | "future"
+
+export type ImportEditMode = "monthly" | "annual"
+
+export interface PeriodDiff {
+  periodKey: string
+  newAmount: number
+  existingAmount: number
+  delta: number
+}
+
+export interface ImportSummary {
+  rows: PeriodDiff[]
+  totalExisting: number
+  totalPending: number
+}
+
+const MONTH_KEY_RE = /^\d{4}-\d{2}$/
+const YEAR_KEY_RE = /^\d{4}$/
+
+/** Normalize year keys to a month key for chronological compare against tx0. */
+export function periodCompareKey(periodKey: string): string {
+  if (YEAR_KEY_RE.test(periodKey)) return `${periodKey}-01`
+  return periodKey
+}
+
+/** True when a calendar cell represents the tx0 period (month or year row). */
+export function periodMatchesTx0(periodKey: string, tx0PeriodKey: string): boolean {
+  if (periodKey === tx0PeriodKey) return true
+  if (YEAR_KEY_RE.test(periodKey) && tx0PeriodKey.startsWith(`${periodKey}-`)) return true
+  return false
+}
+
+export function buildCalendarYears(currentYear: number, floor = 1900): number[] {
+  const start = Math.max(floor, 1900)
+  const end = Math.max(start, currentYear)
+  const years: number[] = []
+  for (let y = end; y >= start; y--) years.push(y)
+  return years
+}
+
+/** Three-period window ending at anchor (edit dialog stepper). */
+export function buildEditPeriodKeys(mode: ImportEditMode, anchor: string): string[] {
+  if (mode === "annual") {
+    const year = Number(anchor)
+    if (!Number.isFinite(year)) return [anchor]
+    return [`${year - 2}`, `${year - 1}`, `${year}`]
+  }
+  const [y, m] = anchor.split("-").map(Number)
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return [anchor]
+  const keys: string[] = []
+  for (let i = -2; i <= 0; i++) {
+    const d = new Date(Date.UTC(y, m - 1 + i, 1))
+    keys.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`)
+  }
+  return keys
+}
+
+/** Shift edit-dialog anchor by N months or years. */
+export function stepEditAnchor(mode: ImportEditMode, anchor: string, delta: number): string {
+  if (mode === "annual") {
+    return String(Number(anchor) + delta)
+  }
+  const [y, m] = anchor.split("-").map(Number)
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1))
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+}
+
+/** Pick a sensible anchor when toggling monthly ↔ annual in the edit dialog. */
+export function anchorForEditModeSwitch(to: ImportEditMode, anchor: string): string {
+  const parsed = parseIncomePeriodKey(anchor)
+  if (to === "annual") {
+    if (parsed?.kind === "year") return anchor
+    if (parsed?.kind === "month") return String(parsed.year)
+    return String(currentYearUtc())
+  }
+  if (parsed?.kind === "month") return anchor
+  if (parsed?.kind === "year") {
+    if (parsed.year === currentYearUtc()) return currentMonthKeyUtc()
+    return `${parsed.year}-01`
+  }
+  return currentMonthKeyUtc()
+}
+
+export function monthsInRangeChronological(a: string, b: string): string[] {
+  if (!MONTH_KEY_RE.test(a) || !MONTH_KEY_RE.test(b)) return []
+  const [ay, am] = a.split("-").map(Number)
+  const [by, bm] = b.split("-").map(Number)
+  let y = ay
+  let m = am
+  const endY = by
+  const endM = bm
+
+  const forward = a <= b
+  const out: string[] = []
+
+  if (forward) {
+    while (y < endY || (y === endY && m <= endM)) {
+      out.push(`${y}-${String(m).padStart(2, "0")}`)
+      m += 1
+      if (m > 12) {
+        m = 1
+        y += 1
+      }
+    }
+  } else {
+    while (y > endY || (y === endY && m >= endM)) {
+      out.push(`${y}-${String(m).padStart(2, "0")}`)
+      m -= 1
+      if (m < 1) {
+        m = 12
+        y -= 1
+      }
+    }
+  }
+
+  return out
+}
+
+export function gradientIntensity(amount: number, p95Max: number): number {
+  if (!Number.isFinite(amount) || amount <= 0 || p95Max <= 0) return 0
+  return Math.min(1, amount / p95Max)
+}
+
+/** Heatmap fill: highest staged amount = 1.0, others scale linearly down. */
+export function heatmapIntensity(amount: number, maxAmount: number): number {
+  if (!Number.isFinite(amount) || amount <= 0 || maxAmount <= 0) return 0
+  return Math.min(1, amount / maxAmount)
+}
+
+export function maxStagedAmount(amounts: readonly number[]): number {
+  let max = 0
+  for (const a of amounts) {
+    if (Number.isFinite(a) && a > max) max = a
+  }
+  return max
+}
+
+export function cellState(params: {
+  periodKey: string
+  tx0PeriodKey: string | null
+  amount: number
+  now?: Date
+}): CellVisualState {
+  const { periodKey, tx0PeriodKey, amount, now } = params
+  if (isImportPeriodFuture(periodKey, now)) return "future"
+  if (tx0PeriodKey && periodMatchesTx0(periodKey, tx0PeriodKey)) return "tx0"
+  if (tx0PeriodKey && periodCompareKey(periodKey) < tx0PeriodKey) return "preHistory"
+  if (amount > 0) return "shaded"
+  return "empty"
+}
+
+export function summarizeImportEntries(
+  entries: readonly IncomeImportEntry[],
+  existingByPeriod: ReadonlyMap<string, number>,
+): ImportSummary {
+  const rows: PeriodDiff[] = []
+  let totalExisting = 0
+  let totalPending = 0
+
+  for (const entry of entries) {
+    const existingAmount = existingByPeriod.get(entry.periodKey) ?? 0
+    const newAmount = entry.amount
+    rows.push({
+      periodKey: entry.periodKey,
+      newAmount,
+      existingAmount,
+      delta: newAmount - existingAmount,
+    })
+    totalExisting += existingAmount
+    totalPending += newAmount
+  }
+
+  rows.sort((a, b) => periodCompareKey(a.periodKey).localeCompare(periodCompareKey(b.periodKey)))
+
+  return {
+    rows,
+    totalExisting,
+    totalPending,
+  }
+}
+
+export function p95MaxAmount(amounts: readonly number[]): number {
+  const positive = amounts.filter((a) => a > 0).sort((a, b) => a - b)
+  if (positive.length === 0) return 0
+  const idx = Math.min(positive.length - 1, Math.floor((positive.length - 1) * 0.95))
+  return positive[idx]!
+}

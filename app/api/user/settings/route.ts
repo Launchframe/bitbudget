@@ -102,6 +102,7 @@ const userSettingsSelect = {
   savingsExperience: true,
   onboardingComplete: true,
   onboardingCompletedAt: true,
+  createdAt: true,
   walkthroughCompleted: true,
   btcDisplayUnit: true,
   opportunityCostEnabled: true,
@@ -141,6 +142,12 @@ function serializeUserSettings(user: {
   const { _count, premiumGratisUntil, premiumTrialUntil, ...rest } = user
   return {
     ...rest,
+    createdAt:
+      rest.createdAt instanceof Date ? rest.createdAt.toISOString() : (rest.createdAt as string | null | undefined) ?? null,
+    onboardingCompletedAt:
+      rest.onboardingCompletedAt instanceof Date
+        ? rest.onboardingCompletedAt.toISOString()
+        : (rest.onboardingCompletedAt as string | null | undefined) ?? null,
     lastPaydayAt: rest.lastPaydayAt instanceof Date ? rest.lastPaydayAt.toISOString() : rest.lastPaydayAt ?? null,
     estimatedAnnualIncome: serializeDecimal(rest.estimatedAnnualIncome as Prisma.Decimal | null),
     sweepDefaultCapMultiplier: serializeDecimal(rest.sweepDefaultCapMultiplier as Prisma.Decimal | null),

@@ -37,6 +37,7 @@ import {
   formatTransactionDetailDateTime,
   mergeCalendarDayIntoTransactionDate,
 } from "@/lib/transaction-dates"
+import { useTransactionDeleteConfirm } from "@/components/use-transaction-delete-confirm"
 
 const CADENCE_LABELS = {
   weekly: "Weekly",
@@ -60,7 +61,8 @@ export function TransactionDetailDialog({
   onOpenChange,
   onNavigateToLinkedIncome,
 }: TransactionDetailDialogProps) {
-  const { state, activeEnvelopes, editTransaction, deleteTransaction, addTag, navigateTo } = useApp()
+  const { state, activeEnvelopes, editTransaction, addTag, navigateTo } = useApp()
+  const { requestDelete, confirmDialog } = useTransactionDeleteConfirm()
   const { getPriceOnDate, currentPrice, calculateOpportunityCost } = useBtcPrices()
 
   const [editing, setEditing] = useState(false)
@@ -132,8 +134,8 @@ export function TransactionDetailDialog({
   }
 
   function handleDelete() {
-    deleteTransaction(transaction!.id)
-    onOpenChange(false)
+    if (!transaction) return
+    requestDelete(transaction, () => onOpenChange(false))
   }
 
   function toggleTag(tag: string) {
@@ -334,6 +336,7 @@ export function TransactionDetailDialog({
             onDeleteDisabled={systemFundingLeg}
           />
         )}
+        {confirmDialog}
       </DialogContent>
     </Dialog>
   )

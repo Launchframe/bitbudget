@@ -12,11 +12,17 @@ import {
   getDashboardChartMode,
   subscribeDashboardChartMode,
 } from "@/lib/dashboard-chart-mode"
-import { findSavingsEnvelope, isSavingsInflowCredit } from "@/lib/savings-ui-metrics"
+import {
+  getDashboardChartRange,
+  subscribeDashboardChartRange,
+  transactionInDashboardChartRange,
+} from "@/lib/dashboard-chart-range"
+import { isUserFacingExpense } from "@/lib/transaction-visibility"
 import { SAVINGS_EXPERIENCE_DISMISSED, SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
 import type { Transaction } from "@/lib/data"
 import { formatTransactionTableDate } from "@/lib/transaction-dates"
+import { findSavingsEnvelope, isSavingsInflowCredit } from "@/lib/savings-ui-metrics"
 
 interface EnrichedTransaction extends Transaction {
   btcValueToday: number
@@ -34,6 +40,19 @@ export function TopOpportunityCosts() {
     getDashboardChartMode,
     () => "spending" as const,
   )
+  const chartRange = useSyncExternalStore(
+    subscribeDashboardChartRange,
+    getDashboardChartRange,
+    () => getDashboardChartRange(),
+  )
+
+  const rangeScopedTransactions = useMemo(
+    () =>
+      activeTransactions.filter((t) =>
+        transactionInDashboardChartRange(t.date, chartRange),
+      ),
+    [activeTransactions, chartRange],
+  )
 
   const savingsEnvelope = useMemo(
     () => findSavingsEnvelope(state.envelopes),
@@ -47,7 +66,7 @@ export function TopOpportunityCosts() {
     savingsEnvelope != null
 
   const rankedExpenseOpportunity = useMemo(() => {
-    const expenses = activeTransactions.filter((t) => t.type === "expense")
+    const expenses = rangeScopedTransactions.filter(isUserFacingExpense)
     return expenses
       .map((t) => {
         const btcPriceAtTime = getPriceOnDate(t.date)
@@ -57,11 +76,11 @@ export function TopOpportunityCosts() {
         return { t, btcValueToday, opportunityCost, btcPriceAtTime }
       })
       .sort((a, b) => b.opportunityCost - a.opportunityCost)
-  }, [activeTransactions, calculateOpportunityCost, getPriceOnDate, currentPrice])
+  }, [rangeScopedTransactions, calculateOpportunityCost, getPriceOnDate, currentPrice])
 
   const rankedSavingsInflows = useMemo(() => {
     if (!savingsEnvelope) return []
-    return activeTransactions
+    return rangeScopedTransactions
       .filter((t) => isSavingsInflowCredit(t, savingsEnvelope.id))
       .map((t) => {
         const btcPriceAtTime = getPriceOnDate(t.date)
@@ -71,7 +90,7 @@ export function TopOpportunityCosts() {
         return { t, btcValueToday, opportunityCost, btcPriceAtTime }
       })
       .sort((a, b) => b.btcValueToday - a.btcValueToday)
-  }, [activeTransactions, savingsEnvelope, calculateOpportunityCost, getPriceOnDate, currentPrice])
+  }, [rangeScopedTransactions, savingsEnvelope, calculateOpportunityCost, getPriceOnDate, currentPrice])
 
   const topTransactions = useMemo((): EnrichedTransaction[] => {
     const source = savingsMode ? rankedSavingsInflows : rankedExpenseOpportunity
@@ -183,9 +202,11 @@ export function TopOpportunityCosts() {
             {topTransactions.length === 0 && (
               <tr>
                 <td colSpan={savingsMode ? 7 : 8} className="py-8 text-center text-muted-foreground text-sm">
-                  {savingsMode
-                    ? "No Savings inflows yet. Add income to see your biggest saves."
-                    : "No expense transactions yet. Add one to see opportunity costs."}
+                  {rangeScopedTransactions.length === 0 && activeTransactions.length > 0
+                    ? "No transactions in this timeframe."
+                    : savingsMode
+                      ? "No Savings inflows yet. Add income to see your biggest saves."
+                      : "No expense transactions yet. Add one to see opportunity costs."}
                 </td>
               </tr>
             )}

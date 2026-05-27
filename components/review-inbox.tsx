@@ -57,7 +57,7 @@ const sourceLabels: Record<TransactionSource, string> = {
   irregular_income: "Irregular income",
   envelope_funding_out: "Funding (Savings)",
   envelope_funding_in: "Funding (envelope)",
-  income_import: "Income import",
+  income_import: "Past income",
   envelope_sweep: "Envelope sweep",
 }
 

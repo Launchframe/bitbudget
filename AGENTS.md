@@ -45,6 +45,34 @@ Use two scopes consistently:
 
 **Do not** use month-scoped balance for remaining labels — it ignores prior-month carryover and diverges from sweep/funding behavior.
 
+### Transaction visibility, analytics, and lifecycle
+
+Not every `Transaction` row belongs in every feed. Ledger funding creates **batches**: an income header (`income_import`, `irregular_income`, etc.) plus hidden allocation legs (`envelope_funding_out` / `envelope_funding_in`). Getting visibility wrong leaks allocation legs into spend charts or leaves orphan legs after delete.
+
+**Visibility scopes (use the right helper — do not re-filter ad hoc):**
+
+| Scope | Meaning | Helpers |
+|--------|---------|---------|
+| **Main history** | Global transaction lists, dashboard recent, exports default | `transactionsVisibleInMainHistory()` — `excludeFromMainHistory === false` |
+| **Envelope list** | Envelope detail / filtered Transactions; shows funding legs tied to that envelope | `transactionsForTransactionList()` |
+| **User-facing spend** | Monthly Spend, OC/spending chart, top opportunity costs | `isUserFacingExpense()` / `filterUserFacingExpenses()` in `lib/transaction-visibility.ts` |
+| **Cash flow chart** | Signed net of external inflows minus user-facing outflows (excludes paycheck ledger credits) | `buildCumulativeCashFlowSeries()` — uses `isCashInflowCredit` + `isUserFacingExpense`; USD only |
+| **Spending chart** | Cumulative user expenses only | `buildCumulativeSpendingSeries()` in `lib/cumulative-spending-series.ts` |
+| **Envelope balance** | All credits/expenses for an envelope (includes funding legs) | `getEnvelopeBalanceAllTime()` / server batch helpers — **never** filter `excludeFromMainHistory` here |
+
+**Chart time bounds:** Dashboard series are **historical through today (UTC calendar date)** only. Never plot future-dated rows (`todayUtcIso()` / `todayIso` param). Future-dated funding legs from bad imports must not extend the x-axis.
+
+**Deleting income headers:** Deleting a credit that is an **income header** with a `fundingBatchId` must remove the **entire batch** (header + all legs) on server (`deleteTransactionForUser` in `lib/transaction-batch-delete-server.ts`) and optimistically on client (`AppContext.deleteTransaction`). UI must confirm when funding legs exist (`useTransactionDeleteConfirm`). Users cannot delete individual funding legs from the detail dialog — they are managed by the income row.
+
+**Checklist when adding or changing `Transaction.source` or row shapes:**
+
+1. Set **`excludeFromMainHistory`** correctly on create (allocation legs: `true`; user-visible income/expense: `false`).
+2. If rows form a batch, set shared **`fundingBatchId`** and implement batch reset on re-import / overwrite (see `lib/income-import.ts`).
+3. Declare which feeds include the new source (main history, envelope list, spend analytics, cash flow, savings inflow) and wire through the helpers above — **do not** assume `type === "expense"` means user spending.
+4. Add or extend **Vitest** coverage for visibility helpers and any new series builder.
+5. If delete semantics apply, extend **`shouldCascadeDeleteFundingBatch`** / server delete and the confirm dialog copy.
+6. Run dashboard + Transactions manually after changes — funding legs are the most common source of chart spikes and orphan rows.
+
 ## Project Structure
 
 ```
@@ -108,15 +136,47 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 
 ### End-to-end (Playwright)
 
-- **Layout:** Specs live under `e2e/` (see `playwright.config.ts`). Referral-program coverage is in `e2e/referrals.program.spec.ts` (validate/redeem flows, settings flags, `activateReferral` / trial months, referral-code API, auth via email OTP). **`e2e/new-transaction.manual-entry.spec.ts`** covers opening New Transaction with **no payee prefill** and typing in the payee field (guards against regressions where keystrokes were cleared). **`e2e/receipt-scan.prefill.spec.ts`** mocks **`POST /api/receipts/scan`** and asserts PNG/PDF upload flows open New Transaction with prefilled fields (and image receipt preview for PNG).
+- **Layout:** Specs live under `e2e/` (see `playwright.config.ts`). Referral-program coverage is in `e2e/referrals.program.spec.ts` (validate/redeem flows, settings flags, `activateReferral` / trial months, referral-code API, auth via email OTP). **`e2e/new-transaction.manual-entry.spec.ts`** covers opening New Transaction with **no payee prefill** and typing in the payee field (guards against regressions where keystrokes were cleared). **`e2e/receipt-scan.prefill.spec.ts`** mocks **`POST /api/receipts/scan`** and asserts PNG/PDF upload flows open New Transaction with prefilled fields (and image receipt preview for PNG). **`e2e/income-importer.spec.ts`** covers the income calendar importer (paint range, cell edit, review/confirm, draft persistence, Clear All, past-only vs current-month Monthly Income gate, success → Dashboard Savings + All range).
 - **Commands:** `pnpm exec playwright install` once per machine (CI installs Chromium automatically). Run `pnpm test:e2e` (or `pnpm test:e2e:ui`). Locally Playwright runs `next build` then `next start` on port **3100** by default (see `playwright.config.ts`) so it does not fight `next dev`’s `.next/dev/lock` — **GitHub Actions** runs **`pnpm exec next build`** as its own workflow step (clear failure logs) and sets **`PW_WEBSERVER_SKIP_BUILD`** so Playwright only runs **`next start`** — **avoid running `pnpm test:e2e` while `pnpm dev` is building/watching the same tree**, or override `PW_WEBSERVER_COMMAND` (e.g. `PW_WEBSERVER_COMMAND="pnpm dev"` on port `PW_SERVER_PORT` after stopping the other dev). **`config.webServer` uses stdout/stderr `pipe`** so `next build` / `next start` logs appear in the test runner (Playwright does not forward `inherit` for web servers). Use **`PW_WEBSERVER_STDIO=ignore`** to silence them; **`DEBUG=pw:webserver`** adds Playwright web-server debug logs. If you see “Process from config.webServer was not able to start”, check `.env`/`.env.local` for **`DATABASE_URL`** (global setup), **`AUTH_SECRET`** (≥32 chars), and **`DATABASE_URL_UNPOOLED`** per CI; confirm nothing else is bound to **`PW_SERVER_PORT`** (default **3100**). The server runs with `E2E_TEST=true` so `/api/auth/send-code` accepts fixed OTPs for addresses ending in `@bitbudget.test` (see `app/api/auth/send-code/route.ts`), and `lib/notify.ts` skips all outbound email/Nostr DMs so referral and cron-style notifications do not hit real inboxes. **Never set `E2E_TEST` in production.**
-- **Database:** E2E requires PostgreSQL (`DATABASE_URL` and `DATABASE_URL_UNPOOLED`; `AUTH_SECRET` ≥ 32 chars). Global setup runs `prisma migrate deploy` and reseeds referral fixtures (`e2e/seed-referral-e2e.ts`) plus recurring QA fixtures (`e2e/seed-recurring-e2e.ts`).
+- **Database:** E2E requires PostgreSQL (`DATABASE_URL` and `DATABASE_URL_UNPOOLED`; `AUTH_SECRET` ≥ 32 chars). Global setup runs `prisma migrate deploy` and reseeds referral fixtures (`e2e/seed-referral-e2e.ts`), recurring QA fixtures (`e2e/seed-recurring-e2e.ts`), and income-importer fixtures (`e2e/seed-income-importer-e2e.ts`).
 - **Manual recurring QA:** See [docs/testing/recurring-qa.md](docs/testing/recurring-qa.md) (staging DB bump, `pnpm qa:recurring:bump`, and the checklist). **`pnpm test`** includes `lib/__tests__/recurring.test.ts`; **`e2e/recurring.lifecycle.spec.ts`** covers a signed-in `@bitbudget.test` user with a due seeded rule.
 - **Local referral code (manual QA):** When asked for a referral code for local/staging testing, run **`pnpm referral:admin-code`** (`scripts/print-admin-referral-code.ts`). It ensures a valid user referral code owned by the earliest `createdAt` admin (reuses an active unused code or creates one via `ensureUserReferralCode`). Prints the code on **stdout** (owner line on stderr); capture with `CODE=$(pnpm referral:admin-code 2>/dev/null)`. Requires **`DATABASE_URL`**. If no admin exists, promote one with **`ADMIN_EMAILS`** + **`pnpm db:seed-admin`** first.
 - **Maintenance:** When you change referral rules, Plaid activation, onboarding gates, auth email flow, **transaction dialog prefill / payee canonicalization**, manual entry UX, or **layout/navigation on core pages** (settings tabs, mobile nav, onboarding steps), **update or extend the Playwright specs and seed constants** so CI keeps enforcing the product contract. Treat failing e2e the same as failing unit tests.
 - **Responsive checks:** Playwright runs at a desktop viewport by default. For layout-heavy UI changes, **manually verify at 390px and 320px** (DevTools device mode) before merge; add or extend e2e viewport coverage when a regression has happened or the layout contract is easy to assert (e.g. no document scroll width exceeding viewport on settings).
 - **Pull requests:** **`pnpm lint`, `pnpm test`, and `pnpm test:e2e` should all pass** before a change is considered ready to merge (unless a PR explicitly documents an exception and follow-up).
 - **Outbound messaging QA:** Changing `lib/notify.ts`, `lib/email.ts`, `lib/nostr-dm.ts`, notification-email APIs, or communication preferences requires updating [docs/outbound-messaging.md](docs/outbound-messaging.md) when behavior or env vars change, and extending `lib/__tests__/notify-e2e-skip.test.ts` (or related tests) for routing regressions.
+
+## Cursor Cloud specific instructions
+
+Cloud agents use the saved environment **update script for dependency install only** — do **not** put `prisma migrate deploy` in the update script. Migrations need a live DB and block every agent boot when the database is unreachable.
+
+**Update script (dashboard / `environment.json` `install`):**
+
+```bash
+pnpm install
+```
+
+`postinstall` runs `prisma generate`; that does not require a database connection.
+
+**Run migrations on demand** when the task needs a synced schema (dev server, API routes, e2e, seed scripts):
+
+```bash
+pnpm exec prisma migrate deploy
+```
+
+Run this **before** `pnpm dev`, manual DB work, or `pnpm test:e2e` if migrations may be pending. Playwright global setup also runs `migrate deploy`, but a cloud agent starting the app directly should migrate first.
+
+**Secrets** (Cursor Cloud Agents → Secrets — not committed `.env` files):
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Pooled Postgres URL (app runtime) |
+| `DATABASE_URL_UNPOOLED` | Direct Postgres URL (required by `prisma/schema.prisma` `directUrl`; use Neon/Vercel **non-pooler** host for migrations) |
+| `AUTH_SECRET` | Auth.js secret (≥ 32 characters) |
+
+Both DB URLs are required for `migrate deploy`. If `DATABASE_URL_UNPOOLED` is missing, Prisma fails with **P1012** before connecting.
+
+**Typical cloud workflow:** `pnpm install` (update script) → `pnpm exec prisma migrate deploy` (when DB needed) → `pnpm dev` or targeted tests.
 
 ## Code Conventions
 
@@ -142,6 +202,27 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 - `AppContext` (`lib/app-context.tsx`) is the single source of truth for app state. It holds transactions, envelopes, tags, user settings, encryption state, and navigation.
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
 - `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **should** be called within `BtcPriceProvider`. If it runs outside the provider (e.g. vanilla mode or a missing wrapper), it returns **`NOOP_PRICES`** (zeros / no-op helpers) and logs a **dev-time warning** — it does not throw. Still wrap components that need real BTC data in `BtcPriceProvider` when `opportunityCostEnabled` is on.
+
+### Input persistence for multi-field flows
+
+Any multi-step or multi-field input flow (onboarding, income import, transaction batch entry, future wizards) **must** cache in-progress state so accidentally closing the dialog or refreshing the page does not destroy the user's work.
+
+- **Default storage tier:** `sessionStorage` via [`lib/draft-storage.ts`](lib/draft-storage.ts). Survives accidental close + page refresh; dies on browser close. Use `localStorage` only when the value is explicitly meant to persist across sessions (e.g. dashboard chart prefs).
+- **Required UI affordance:** a visible **Clear All** (or **Reset**) button whenever working state diverges from defaults. It must trigger an `<AlertDialog>` confirmation explaining what will be discarded before clearing.
+- **Lifecycle:** save on every change (debounced ~400ms); hydrate on open; clear on successful submit, on Clear All confirm, and on logout (`clearAllDrafts()` in `AppContext.logout`).
+- **Privacy:** never persist decrypted sensitive data (PINs, raw nsec, decrypted transaction notes) in drafts. Source labels and amounts are fine.
+- **Validation:** load helpers must validate the deserialized shape and silently drop drafts that fail (schema bumps must not break the dialog).
+- **Examples:** [`app/onboarding/page.tsx`](app/onboarding/page.tsx) (`ONBOARDING_SESSION_STORAGE_KEY`), [`components/income-importer/income-importer-dialog.tsx`](components/income-importer/income-importer-dialog.tsx) (`bitbudget-income-importer-draft`).
+
+### Nested dialogs and modal stacks
+
+Stacked dialogs (edit sheet on top of a wizard, confirm on top of a form) are easy to get wrong. **Dismissal on the child must never close the parent** unless that is explicit product intent.
+
+- **Nest child dialogs inside the parent `DialogContent`** when they belong to the same flow (see income importer cell edit).
+- **Guard the parent `onOpenChange`:** if a child modal is open, ignore `false` from the parent root (`if (!next && childOpen) return`).
+- **On the child `DialogContent`:** call `e.preventDefault()` on `onInteractOutside` and `onPointerDownOutside` so overlay clicks do not fall through to the parent; call `e.stopPropagation()` on `onEscapeKeyDown`.
+- **Cancel / Save buttons:** use `type="button"`, `e.stopPropagation()` on handlers, and never rely on unscoped `DialogClose` for nested layers.
+- **Header actions vs. close (X):** reserve space for the built-in close control (`pr-10` on `DialogHeader` or similar) so custom buttons (e.g. Clear All) do not overlap the X.
 
 ### React effects and `setState` (`react-hooks/set-state-in-effect`)
 
@@ -362,6 +443,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **`activeEnvelopes` vs `discretionaryEnvelopes`** — `activeEnvelopes` includes the system Savings envelope; `discretionaryEnvelopes` filters `systemRole !== 'savings'`. Use the latter for budget envelopes; use Savings-specific helpers (`findSavingsEnvelope`, hero card) for the hub.
 - **Gating ledger funding or Savings accounting** — there is no ledger toggle. Gate motivational Savings UI with `state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED`; never tie funding to `opportunityCostEnabled`.
 - **Month-scoped balance for “remaining”** — `getEnvelopeBalance(..., monthKey)` only counts the current calendar month, so it **under-reports spendable money** when carry-forward or capped policy leaves balance from prior months (and diverges from server sweep math). Use `getEnvelopeBalanceAllTime` for “$X left”, dashboard **Remaining**, Savings totals, and sweep UI; reserve month scope for Monthly Income/Spend, goal periods, and pacing markers (see **Envelope balances: remaining vs current month**).
+- **Counting funding legs as user spending** — `envelope_funding_out` rows are `type: "expense"` with `excludeFromMainHistory: true`. Never feed them into spend charts, Monthly Spend, or OC totals. Use `isUserFacingExpense()` / `buildCumulativeSpendingSeries()` and cap series at `todayUtcIso()`. Deleting an income header must cascade the whole `fundingBatchId` (see **Transaction visibility, analytics, and lifecycle**).
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
 - **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During dev, prefer **`db push`**; at PR time, consolidate into a new migration. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.
@@ -377,6 +459,8 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **Missing `min-w-0` in flex/grid layouts** — a child row (tabs, toolbars, input+button pairs) expands the page horizontally on phones. Add `min-w-0 w-full max-w-full` down the layout chain, or stack on mobile. **`overflow-x-auto` without a bounded parent does not fix this.**
 - **Desktop-first breakpoints** — building a wide horizontal layout by default and only wrapping at `lg`/`md` often breaks between 320–640px. Default to mobile layout; enhance upward with `sm:` / `md:` / `lg:`.
 - **Fixed padding and min-widths on cards** — uniform `p-6` plus wide inner flex rows can clip buttons and text on 390px-wide screens. Use responsive padding and `flex-col sm:flex-row` for compound controls.
+- **Multi-field flow without draft persistence** — any non-trivial input flow must follow the **Input persistence for multi-field flows** convention. Closing a dialog must not silently destroy in-progress work; provide **Clear All** with confirmation.
+- **Nested dialog dismiss closes the parent** — guarding the parent with `editOpen` state alone is not enough: Radix may call the parent `onOpenChange(false)` after the child already set state to closed. Use a **ref updated synchronously** when opening/closing children, defer clearing it with `setTimeout(0)`, and follow **Nested dialogs and modal stacks** (nest inside parent content, `preventDefault` on outside interact, `stopPropagation` on Cancel/Escape).
 
 ## Cursor Cloud-specific instructions
 
