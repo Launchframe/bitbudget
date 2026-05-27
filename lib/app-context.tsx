@@ -2,9 +2,23 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { signOut } from "next-auth/react"
-import type { Transaction, Envelope, AppState, BtcDisplayUnit, PendingTransaction, Tag, RecurringTransaction } from "@/lib/data"
+import type {
+  Transaction,
+  Envelope,
+  AppState,
+  BtcDisplayUnit,
+  PendingTransaction,
+  Tag,
+  RecurringTransaction,
+  CommunicationPreferenceKey,
+} from "@/lib/data"
 import { compareTransactionsDesc, generateId, getDefaultState } from "@/lib/data"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
+import { shouldCascadeDeleteFundingBatch } from "@/lib/transaction-batch-delete"
+import {
+  COMMUNICATION_PREFERENCE_COLUMNS,
+  normalizeCommunicationPreferences,
+} from "@/lib/communication-preferences"
 import {
   encryptFieldAsymmetric,
   decryptFieldAsymmetric,
@@ -19,6 +33,8 @@ import {
   getValidCachedPrivacyKeyHex,
   setCachedPrivacyKeyHex,
 } from "@/lib/privacy-key-storage"
+import { clearAllDrafts } from "@/lib/draft-storage"
+import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 import {
   type ApiTransactionRow,
   type CachedTransaction,
@@ -176,7 +192,7 @@ interface AppContextValue {
   setTransactionDialogOpen: (open: boolean) => void
   openNewTransaction: (prefill?: TransactionPrefill) => void
 
-  addTransaction: (txn: Omit<Transaction, "id">) => void
+  addTransaction: (txn: Omit<Transaction, "id">) => Promise<boolean>
   editTransaction: (id: string, updates: Partial<Omit<Transaction, "id">>) => void
   deleteTransaction: (id: string) => void
 
@@ -190,8 +206,15 @@ interface AppContextValue {
   setMonthlyIncome: (income: number) => void
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
   setOpportunityCostEnabled: (enabled: boolean) => void
+  setCommunicationPreference: (key: CommunicationPreferenceKey, enabled: boolean) => Promise<void>
   setSavingsExperience: (experience: "engaged" | "dismissed") => Promise<void>
   completeWalkthrough: () => Promise<void>
+  restartWalkthrough: () => Promise<void>
+  updateSetupGuidePrefs: (patch: {
+    setupGuideSnoozedUntil?: string | null
+    setupGuideDismissed?: boolean
+    setupGuideShowOnDashboard?: boolean
+  }) => Promise<void>
   addTag: (tag: string) => void
   deleteTag: (id: string) => void
   refreshData: () => Promise<void>
@@ -216,6 +239,11 @@ interface AppContextValue {
   premiumTrialUntilIso: string | null
   premiumGratisUntilIso: string | null
   referralSummary: ReferralSummaryState | null
+
+  /** Server account creation (ISO date YYYY-MM-DD). */
+  accountCreatedAtIso: string | null
+  /** When onboarding finished (ISO datetime). */
+  onboardingCompletedAtIso: string | null
 
   pendingTransactions: PendingTransaction[]
   pendingCount: number
@@ -377,6 +405,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [referralRefereeRedeemed, setReferralRefereeRedeemed] = useState(false)
   const [referralRefereeCanRedeem, setReferralRefereeCanRedeem] = useState(false)
   const [referralRefereeTrialMonths, setReferralRefereeTrialMonths] = useState<1 | 3 | null>(null)
+  const [accountCreatedAtIso, setAccountCreatedAtIso] = useState<string | null>(null)
+  const [onboardingCompletedAtIso, setOnboardingCompletedAtIso] = useState<string | null>(null)
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const [recurringTransactions, setRecurringTransactions] = useState<RecurringTransaction[]>([])
   /** Latest envelopes for synchronous guards before optimistic updates (avoid mutable flags inside setState updaters). */
@@ -543,6 +573,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const tags = await tagsRes.json() as Tag[]
 
       setUserRole(settings.role ?? null)
+      const createdRaw = (settings as { createdAt?: unknown }).createdAt
+      setAccountCreatedAtIso(
+        typeof createdRaw === "string" ? createdRaw.split("T")[0]! : null,
+      )
+      const onboardingRaw = (settings as { onboardingCompletedAt?: unknown }).onboardingCompletedAt
+      setOnboardingCompletedAtIso(typeof onboardingRaw === "string" ? onboardingRaw : null)
       setSubscriptionTier(
         settings.subscriptionTier === "premium" ? "premium" : "free",
       )
@@ -624,11 +660,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         monthlyIncome: settings.monthlyIncome || 0,
         btcDisplayUnit: settings.btcDisplayUnit || "sats",
         opportunityCostEnabled: settings.opportunityCostEnabled ?? false,
+        communicationPreferences: normalizeCommunicationPreferences(
+          settings.emailPreferences ?? settings.communicationPreferences ?? {},
+        ),
         savingsExperience:
           typeof (settings as { savingsExperience?: string }).savingsExperience === "string"
             ? (settings as { savingsExperience: string }).savingsExperience
             : "engaged",
         walkthroughCompleted: settings.walkthroughCompleted === true,
+        setupGuideSnoozedUntil:
+          typeof (settings as { setupGuideSnoozedUntil?: string | null }).setupGuideSnoozedUntil ===
+          "string"
+            ? (settings as { setupGuideSnoozedUntil: string }).setupGuideSnoozedUntil
+            : null,
+        setupGuideDismissed:
+          (settings as { setupGuideDismissed?: boolean }).setupGuideDismissed === true,
+        setupGuideShowOnDashboard:
+          (settings as { setupGuideShowOnDashboard?: boolean }).setupGuideShowOnDashboard !==
+          false,
       }))
 
       const uid = currentUserIdRef.current
@@ -780,7 +829,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
             nextTxns = Array.from(byId.values()).sort(compareTransactionsDesc)
           } else {
-            nextTxns = []
+            // Empty delta means no changes since lastSync — keep in-memory history (no IDB fallback).
+            nextTxns = prev.transactions
           }
           return { ...prev, transactions: nextTxns }
         })
@@ -955,17 +1005,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             t.id === optimisticId ? cachedToClientTransaction(cached) : t,
           ),
         }))
+        return true
       } else {
         setState(prev => ({
           ...prev,
           transactions: prev.transactions.filter(t => t.id !== optimisticId),
         }))
+        return false
       }
     } catch {
       setState(prev => ({
         ...prev,
         transactions: prev.transactions.filter(t => t.id !== optimisticId),
       }))
+      return false
     }
   }, [])
 
@@ -1016,15 +1069,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const deleteTransaction = useCallback(async (id: string) => {
-    setState(prev => ({
-      ...prev,
-      transactions: prev.transactions.filter(t => t.id !== id),
-    }))
+    setState(prev => {
+      const txn = prev.transactions.find(t => t.id === id)
+      const idsToRemove = new Set([id])
+      if (txn && shouldCascadeDeleteFundingBatch(txn) && txn.fundingBatchId) {
+        for (const t of prev.transactions) {
+          if (t.fundingBatchId === txn.fundingBatchId) idsToRemove.add(t.id)
+        }
+      }
+      return {
+        ...prev,
+        transactions: prev.transactions.filter(t => !idsToRemove.has(t.id)),
+      }
+    })
 
     try {
       const res = await fetch(`/api/transactions?id=${id}`, { method: "DELETE" })
       if (res.ok && currentUserIdRef.current) {
-        await deleteCachedTransaction(currentUserIdRef.current, id)
+        const body = (await res.json().catch(() => ({}))) as { deletedIds?: string[] }
+        const deletedIds = Array.isArray(body.deletedIds) && body.deletedIds.length > 0 ? body.deletedIds : [id]
+        const deletedSet = new Set(deletedIds)
+        setState(prev => ({
+          ...prev,
+          transactions: prev.transactions.filter(t => !deletedSet.has(t.id)),
+        }))
+        await Promise.all(
+          deletedIds.map((deletedId) =>
+            deleteCachedTransaction(currentUserIdRef.current!, deletedId),
+          ),
+        )
       } else if (!res.ok) {
         await refreshData()
       }
@@ -1205,6 +1278,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const setCommunicationPreference = useCallback(async (
+    key: CommunicationPreferenceKey,
+    enabled: boolean,
+  ) => {
+    setState(prev => ({
+      ...prev,
+      communicationPreferences: {
+        ...prev.communicationPreferences,
+        [key]: enabled,
+      },
+    }))
+    try {
+      const res = await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [COMMUNICATION_PREFERENCE_COLUMNS[key]]: enabled }),
+      })
+      if (!res.ok) await refreshData()
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
   const setSavingsExperience = useCallback(async (experience: "engaged" | "dismissed") => {
     setState(prev => ({ ...prev, savingsExperience: experience }))
     try {
@@ -1234,6 +1330,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await refreshData()
     }
   }, [refreshData])
+
+  const restartWalkthrough = useCallback(async () => {
+    setState(prev => ({ ...prev, walkthroughCompleted: false }))
+    try {
+      const res = await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walkthroughCompleted: false }),
+      })
+      if (!res.ok) await refreshData()
+    } catch {
+      await refreshData()
+    }
+  }, [refreshData])
+
+  const updateSetupGuidePrefs = useCallback(
+    async (patch: {
+      setupGuideSnoozedUntil?: string | null
+      setupGuideDismissed?: boolean
+      setupGuideShowOnDashboard?: boolean
+    }) => {
+      setState(prev => ({
+        ...prev,
+        ...(patch.setupGuideSnoozedUntil !== undefined
+          ? { setupGuideSnoozedUntil: patch.setupGuideSnoozedUntil }
+          : {}),
+        ...(patch.setupGuideDismissed !== undefined
+          ? { setupGuideDismissed: patch.setupGuideDismissed }
+          : {}),
+        ...(patch.setupGuideShowOnDashboard !== undefined
+          ? { setupGuideShowOnDashboard: patch.setupGuideShowOnDashboard }
+          : {}),
+      }))
+      try {
+        const res = await fetch("/api/user/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        })
+        if (!res.ok) await refreshData()
+      } catch {
+        await refreshData()
+      }
+    },
+    [refreshData],
+  )
 
   const addTag = useCallback(async (tag: string) => {
     const trimmed = tag.trim()
@@ -1306,6 +1448,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.removeItem("nostr-login")
       sessionStorage.removeItem("bitbudget-survey-referrer")
       sessionStorage.removeItem("bitbudget-survey-shown")
+      sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
+      clearAllDrafts()
     } catch {
       /* ignore */
     }
@@ -1538,8 +1682,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setMonthlyIncome,
         setBtcDisplayUnit,
         setOpportunityCostEnabled,
+        setCommunicationPreference,
         setSavingsExperience,
         completeWalkthrough,
+        restartWalkthrough,
+        updateSetupGuidePrefs,
         addTag,
         deleteTag,
         refreshData,
@@ -1554,6 +1701,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         referralRefereeRedeemed,
         referralRefereeCanRedeem,
         referralRefereeTrialMonths,
+        accountCreatedAtIso,
+        onboardingCompletedAtIso,
         premiumTrialUntilIso,
         premiumGratisUntilIso,
         referralSummary,

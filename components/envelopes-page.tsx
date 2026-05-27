@@ -61,6 +61,14 @@ export function EnvelopesPage() {
     if (archiveToastTimer.current) clearTimeout(archiveToastTimer.current)
   }
 
+  function handlePermanentDelete(envId: string) {
+    if (archiveToast?.id === envId) {
+      setArchiveToast(null)
+      if (archiveToastTimer.current) clearTimeout(archiveToastTimer.current)
+    }
+    deleteEnvelope(envId)
+  }
+
   const activeEnvelopes = useMemo(
     () => discretionaryEnvelopes,
     [discretionaryEnvelopes]
@@ -223,6 +231,7 @@ export function EnvelopesPage() {
               <button
                 type="button"
                 onClick={() => navigateTo("envelope-allocations")}
+                data-walkthrough="allocations-entry"
                 className="p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333] text-muted-foreground hover:text-foreground hover:border-[#555] transition-colors"
                 title="Adjust allocations"
               >
@@ -233,10 +242,15 @@ export function EnvelopesPage() {
         </div>
       </div>
 
-      <SavingsHeroCard />
+      <div data-walkthrough="savings-hero">
+        <SavingsHeroCard />
+      </div>
 
       {/* Envelope cards grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div
+        data-walkthrough="envelope-grid"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+      >
         {activeEnvelopes.map((env) => {
           const balance = getEnvelopeBalanceAllTime(state.transactions, env.id)
           const progressPct = envelopeBudgetProgressPct(balance, env.monthlyAllotment)
@@ -546,7 +560,7 @@ export function EnvelopesPage() {
                       </button>
                       <div className="w-px h-5 bg-[#1A1A1A]" />
                       <button
-                        onClick={() => deleteEnvelope(env.id)}
+                        onClick={() => handlePermanentDelete(env.id)}
                         className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-[#EF4444] hover:bg-[#1A1A1A] transition-colors"
                         aria-label={`Permanently delete ${env.name}`}
                       >

@@ -32,6 +32,12 @@ import {
 import { Pencil, Trash2, Repeat, X, Bitcoin } from "lucide-react"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { cn } from "@/lib/utils"
+import {
+  dateInputValueFromTransactionDate,
+  formatTransactionDetailDateTime,
+  mergeCalendarDayIntoTransactionDate,
+} from "@/lib/transaction-dates"
+import { useTransactionDeleteConfirm } from "@/components/use-transaction-delete-confirm"
 
 const CADENCE_LABELS = {
   weekly: "Weekly",
@@ -55,7 +61,8 @@ export function TransactionDetailDialog({
   onOpenChange,
   onNavigateToLinkedIncome,
 }: TransactionDetailDialogProps) {
-  const { state, activeEnvelopes, editTransaction, deleteTransaction, addTag, navigateTo } = useApp()
+  const { state, activeEnvelopes, editTransaction, addTag, navigateTo } = useApp()
+  const { requestDelete, confirmDialog } = useTransactionDeleteConfirm()
   const { getPriceOnDate, currentPrice, calculateOpportunityCost } = useBtcPrices()
 
   const [editing, setEditing] = useState(false)
@@ -127,8 +134,8 @@ export function TransactionDetailDialog({
   }
 
   function handleDelete() {
-    deleteTransaction(transaction!.id)
-    onOpenChange(false)
+    if (!transaction) return
+    requestDelete(transaction, () => onOpenChange(false))
   }
 
   function toggleTag(tag: string) {
@@ -230,8 +237,10 @@ export function TransactionDetailDialog({
               <Label className="text-muted-foreground text-xs uppercase tracking-wider">Date</Label>
               <Input
                 type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
+                value={dateInputValueFromTransactionDate(date)}
+                onChange={(e) =>
+                  setDate(mergeCalendarDayIntoTransactionDate(date, e.target.value))
+                }
                 className="bg-[#1A1A1A] border-[#333] text-foreground"
               />
             </div>
@@ -327,6 +336,7 @@ export function TransactionDetailDialog({
             onDeleteDisabled={systemFundingLeg}
           />
         )}
+        {confirmDialog}
       </DialogContent>
     </Dialog>
   )
@@ -413,9 +423,7 @@ function ViewMode({
         )}
         <DetailRow
           label="Date"
-          value={new Date(transaction.date + "T00:00:00").toLocaleDateString("en-US", {
-            weekday: "long", month: "long", day: "numeric", year: "numeric",
-          })}
+          value={formatTransactionDetailDateTime(transaction.date)}
         />
         <DetailRow
           label="Type"

@@ -1,7 +1,10 @@
 import { prisma } from "./db"
 import { encryptFieldForUser } from "./server-encrypt"
 
-const HIGH_CONFIDENCE_THRESHOLD = 0.75
+export const HIGH_CONFIDENCE_THRESHOLD = 0.75
+
+/** The highest confidence value that still routes to pending (for untrusted paths). */
+export const MAX_CONFIDENCE_WITHOUT_TOKEN = HIGH_CONFIDENCE_THRESHOLD - 0.01
 
 export function routeByConfidence(confidence: number): "live" | "pending" {
   return confidence >= HIGH_CONFIDENCE_THRESHOLD ? "live" : "pending"
@@ -35,21 +38,36 @@ export async function routeTransaction(
 
   const route = routeByConfidence(parsed.confidence)
 
+  // When the suggested envelope fails the ownership check, null it out so the
+  // pending transaction doesn't carry a dangling reference to a foreign envelope.
+  let effectiveSuggestedEnvelopeId = parsed.suggestedEnvelopeId ?? null
+
   if (route === "live" && parsed.suggestedEnvelopeId) {
-    const transaction = await prisma.transaction.create({
-      data: {
-        userId,
-        envelopeId: parsed.suggestedEnvelopeId,
-        date: parsed.date,
-        payee: encryptedPayee,
-        amount: parsed.amount,
-        type: "expense",
-        source: parsed.source,
-        notes: encryptedNotes,
-        tags: parsed.tags ?? "[]",
-      },
+    const envelope = await prisma.envelope.findFirst({
+      where: { id: parsed.suggestedEnvelopeId, userId, archived: false },
     })
-    return { route: "live" as const, id: transaction.id }
+    if (envelope) {
+      const transaction = await prisma.transaction.create({
+        data: {
+          userId,
+          envelopeId: parsed.suggestedEnvelopeId,
+          date: parsed.date,
+          payee: encryptedPayee,
+          amount: parsed.amount,
+          type: "expense",
+          source: parsed.source,
+          notes: encryptedNotes,
+          tags: parsed.tags ?? "[]",
+        },
+      })
+      return { route: "live" as const, id: transaction.id }
+    }
+    // Envelope not found or does not belong to this user — downgrade to pending
+    // and clear the reference so the review UI doesn't try to display a foreign envelope.
+    effectiveSuggestedEnvelopeId = null
+    console.warn(
+      `[confidence-router] envelope ${parsed.suggestedEnvelopeId} not found for user ${userId}; routing to pending`,
+    )
   }
 
   const pending = await prisma.pendingTransaction.create({
@@ -60,7 +78,7 @@ export async function routeTransaction(
       amount: parsed.amount,
       date: parsed.date,
       notes: encryptedNotes,
-      suggestedEnvelopeId: parsed.suggestedEnvelopeId,
+      suggestedEnvelopeId: effectiveSuggestedEnvelopeId,
       confidence: parsed.confidence,
       rawInput: parsed.rawInput,
       tags: parsed.tags,

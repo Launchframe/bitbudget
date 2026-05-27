@@ -1,0 +1,168 @@
+// @vitest-environment node
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const txQueryRaw = vi.hoisted(() => vi.fn())
+const txNotificationFindUnique = vi.hoisted(() => vi.fn())
+const txNotificationCount = vi.hoisted(() => vi.fn())
+const txNotificationUpsert = vi.hoisted(() => vi.fn())
+const txEmailCodeUpdateMany = vi.hoisted(() => vi.fn())
+const txEmailCodeFindUnique = vi.hoisted(() => vi.fn())
+const txEmailCodeDeleteMany = vi.hoisted(() => vi.fn())
+
+vi.mock("@/lib/db", () => ({
+  prisma: {
+    user: { findUnique: vi.fn(), findFirst: vi.fn() },
+    userNotificationEmail: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      upsert: vi.fn(),
+    },
+    emailCode: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      deleteMany: vi.fn(),
+    },
+    $transaction: vi.fn(),
+  },
+}))
+
+vi.mock("@/lib/email", () => ({
+  sendNotificationEmailVerificationCode: vi.fn(),
+}))
+
+import { prisma } from "@/lib/db"
+import {
+  MAX_VERIFY_CODE_ATTEMPTS,
+  verifyNotificationEmailLink,
+} from "@/lib/notification-email-link"
+
+const userFindUnique = vi.mocked(prisma.user.findUnique)
+const userFindFirst = vi.mocked(prisma.user.findFirst)
+const emailCodeFindFirst = vi.mocked(prisma.emailCode.findFirst)
+const transaction = vi.mocked(prisma.$transaction)
+
+function mockTransactionTx() {
+  return {
+    $queryRaw: txQueryRaw,
+    userNotificationEmail: {
+      findUnique: txNotificationFindUnique,
+      count: txNotificationCount,
+      upsert: txNotificationUpsert,
+    },
+    emailCode: {
+      updateMany: txEmailCodeUpdateMany,
+      findUnique: txEmailCodeFindUnique,
+      deleteMany: txEmailCodeDeleteMany,
+    },
+  }
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  userFindFirst.mockResolvedValue(null)
+  userFindUnique.mockResolvedValue({ email: null } as never)
+  txQueryRaw.mockResolvedValue([])
+  txNotificationFindUnique.mockResolvedValue(null)
+  txNotificationCount.mockResolvedValue(0)
+  txNotificationUpsert.mockResolvedValue({
+    id: "row-1",
+    email: "notify@example.com",
+    verifiedAt: new Date("2026-01-01"),
+  } as never)
+  txEmailCodeUpdateMany.mockResolvedValue({ count: 1 })
+  txEmailCodeFindUnique.mockResolvedValue({ failedAttempts: 1 })
+  txEmailCodeDeleteMany.mockResolvedValue({ count: 1 })
+  transaction.mockImplementation(async (fn) => fn(mockTransactionTx() as never))
+})
+
+describe("verifyNotificationEmailLink", () => {
+  it("increments failedAttempts on wrong code", async () => {
+    emailCodeFindFirst.mockResolvedValue({
+      id: "code-1",
+      code: "111111",
+      failedAttempts: 0,
+    } as never)
+    txEmailCodeUpdateMany.mockResolvedValue({ count: 1 })
+    txEmailCodeFindUnique.mockResolvedValue({ failedAttempts: 1 })
+
+    await expect(
+      verifyNotificationEmailLink("user-1", "notify@example.com", "222222"),
+    ).rejects.toMatchObject({ code: "INVALID_CODE" })
+
+    expect(txEmailCodeUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: "code-1",
+        failedAttempts: { lt: MAX_VERIFY_CODE_ATTEMPTS },
+      },
+      data: { failedAttempts: { increment: 1 } },
+    })
+    expect(txEmailCodeFindUnique).toHaveBeenCalledWith({
+      where: { id: "code-1" },
+      select: { failedAttempts: true },
+    })
+  })
+
+  it("rate-limits after too many wrong codes", async () => {
+    emailCodeFindFirst.mockResolvedValue({
+      id: "code-1",
+      code: "111111",
+      failedAttempts: MAX_VERIFY_CODE_ATTEMPTS - 1,
+    } as never)
+    txEmailCodeUpdateMany.mockResolvedValue({ count: 1 })
+    txEmailCodeFindUnique.mockResolvedValue({
+      failedAttempts: MAX_VERIFY_CODE_ATTEMPTS,
+    })
+
+    await expect(
+      verifyNotificationEmailLink("user-1", "notify@example.com", "222222"),
+    ).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      status: 429,
+    })
+
+    expect(txEmailCodeDeleteMany).toHaveBeenCalledWith({
+      where: { email: "notify@example.com" },
+    })
+  })
+
+  it("rate-limits when updateMany cannot increment further", async () => {
+    emailCodeFindFirst.mockResolvedValue({
+      id: "code-1",
+      code: "111111",
+      failedAttempts: MAX_VERIFY_CODE_ATTEMPTS,
+    } as never)
+    txEmailCodeUpdateMany.mockResolvedValue({ count: 0 })
+
+    await expect(
+      verifyNotificationEmailLink("user-1", "notify@example.com", "222222"),
+    ).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      status: 429,
+    })
+
+    expect(txEmailCodeDeleteMany).toHaveBeenCalledWith({
+      where: { email: "notify@example.com" },
+    })
+    expect(txEmailCodeFindUnique).not.toHaveBeenCalled()
+  })
+
+  it("locks the user row and re-counts before linking a new notification email", async () => {
+    emailCodeFindFirst.mockResolvedValue({
+      id: "code-1",
+      code: "123456",
+      failedAttempts: 0,
+    } as never)
+    vi.mocked(prisma.userNotificationEmail.findMany).mockResolvedValue([])
+
+    await verifyNotificationEmailLink("user-1", "notify@example.com", "123456")
+
+    expect(transaction).toHaveBeenCalled()
+    expect(txQueryRaw).toHaveBeenCalled()
+    expect(txNotificationCount).toHaveBeenCalledWith({ where: { userId: "user-1" } })
+    expect(txNotificationUpsert).toHaveBeenCalled()
+    expect(txEmailCodeDeleteMany).toHaveBeenCalledWith({
+      where: { email: "notify@example.com" },
+    })
+  })
+})

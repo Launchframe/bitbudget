@@ -2,6 +2,10 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
+import {
+  COMMUNICATION_PREFERENCE_DETAILS,
+  type CommunicationPreferenceKey,
+} from "@/lib/communication-preferences"
 import { compareTransactionsDesc, formatUsd, formatUsdPrecise } from "@/lib/data"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
 import { Input } from "@/components/ui/input"
@@ -29,9 +33,12 @@ import {
   Link2,
   Settings2,
   Plug,
+  MessageSquare,
   PiggyBank,
 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
+import { CommunicationChannelsCard } from "@/components/communication-channels-card"
 import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
 import { PlaidLinkButton } from "@/components/plaid-link-button"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
@@ -39,12 +46,14 @@ import { SettingsReferralsCard } from "@/components/settings-referrals-card"
 import { SettingsSavingsCard } from "@/components/settings-savings-card"
 import { IncomeImporterCard } from "@/components/income-importer-dialog"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
+import { SettingsSetupGuideSection } from "@/components/settings-setup-guide-section"
 import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
-type SettingsTab = "general" | "savings" | "integrations" | "tags" | "payees" | "data"
+type SettingsTab = "general" | "communications" | "savings" | "integrations" | "tags" | "payees" | "data"
 
 const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
   general: "general",
+  communications: "communications",
   savings: "savings-tracking",
   integrations: "integrations",
   tags: "tags",
@@ -54,6 +63,7 @@ const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
 
 const SETTINGS_TAB_FROM_SLUG: Record<string, SettingsTab> = {
   general: "general",
+  communications: "communications",
   savings: "savings",
   "savings-tracking": "savings",
   integrations: "integrations",
@@ -78,6 +88,7 @@ export function SettingsPage() {
     setMonthlyIncome,
     setBtcDisplayUnit,
     setOpportunityCostEnabled,
+    setCommunicationPreference,
     addTag,
     deleteTag,
     refreshData,
@@ -118,8 +129,14 @@ export function SettingsPage() {
       } else if (t === "integrations") {
         selectSettingsTab("integrations", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      } else if (t === "general") {
+        selectSettingsTab("general", "replace")
+        sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       } else if (t === "savings" || t === "savings-tracking") {
         selectSettingsTab("savings", "replace")
+        sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      } else if (t === "data" || t === "data-security") {
+        selectSettingsTab("data", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       }
     } catch {
@@ -353,8 +370,72 @@ export function SettingsPage() {
     return undefined
   }
 
+  const toggleCommunicationPreference = useCallback(
+    (key: CommunicationPreferenceKey, enabled: boolean) => {
+      void setCommunicationPreference(key, enabled)
+    },
+    [setCommunicationPreference],
+  )
+
+  const communicationsSection = (
+    <>
+      <CommunicationChannelsCard />
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-[#3B82F6]/10">
+            <MessageSquare className="h-5 w-5 text-[#3B82F6]" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Communication Preferences</h3>
+            <p className="text-sm text-muted-foreground">
+              Choose which non-transactional messages BitBudget may send you.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col divide-y divide-[#1F1F1F] rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]">
+          {COMMUNICATION_PREFERENCE_DETAILS.map((preference) => {
+            const checked = state.communicationPreferences[preference.key]
+            return (
+              <div
+                key={preference.key}
+                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between"
+              >
+                <div className="pr-2">
+                  <p className="font-medium text-foreground">{preference.label}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{preference.description}</p>
+                </div>
+                <Switch
+                  checked={checked}
+                  onCheckedChange={(enabled) => toggleCommunicationPreference(preference.key, enabled)}
+                  aria-label={`${checked ? "Disable" : "Enable"} ${preference.label}`}
+                  className="mt-0.5 data-[state=checked]:bg-[#F7931A]"
+                />
+              </div>
+            )
+          })}
+        </div>
+        <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+          Account security notices, including new-device access alerts and login codes, are always sent when needed.
+          Unsubscribe buttons in emails update these same preferences.
+        </p>
+      </div>
+    </>
+  )
+
+  useEffect(() => {
+    function onWalkthroughSettingsTab(e: Event) {
+      const tab = (e as CustomEvent<{ tab?: SettingsTab }>).detail?.tab
+      if (tab && Object.prototype.hasOwnProperty.call(SETTINGS_TAB_SLUGS, tab)) {
+        setSettingsTab(tab)
+      }
+    }
+    window.addEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)
+    return () => window.removeEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)
+  }, [])
+
   const generalSection = (
     <>
+      <SettingsSetupGuideSection />
       {/* Plan / Tier */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
         <div className="flex items-center gap-3 mb-4">
@@ -600,7 +681,7 @@ export function SettingsPage() {
       </div>
 
       {/* Connections — visible on all plans; free tier opens upgrade flow */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl" data-walkthrough="settings-connections">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-[#F7931A]/20">
             <Building2 className="h-5 w-5 text-[#F7931A]" />
@@ -832,7 +913,9 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <LinkedSignInMethods />
+      <div id="settings-linked-sign-in">
+        <LinkedSignInMethods />
+      </div>
 
       {/* Export — same CSV format as Transactions page (all active transactions) */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
@@ -934,6 +1017,14 @@ export function SettingsPage() {
                 <Settings2 className={tabIconClass("general")} aria-hidden />
                 <span>General</span>
               </button>
+              <button
+                type="button"
+                onClick={() => selectSettingsTab("communications")}
+                className={tabButtonClass("communications")}
+              >
+                <MessageSquare className={tabIconClass("communications")} aria-hidden />
+                <span>Communications</span>
+              </button>
               <button type="button" onClick={() => selectSettingsTab("savings")} className={tabButtonClass("savings")} style={tabButtonStyle("savings")}>
                 <PiggyBank className={tabIconClass("savings")} style={tabIconStyle("savings")} aria-hidden />
                 <span>Savings tracking</span>
@@ -960,6 +1051,7 @@ export function SettingsPage() {
 
         <div className="flex min-w-0 w-full max-w-full flex-col gap-6">
           {settingsTab === "general" && generalSection}
+          {settingsTab === "communications" && communicationsSection}
           {settingsTab === "savings" && savingsSection}
           {settingsTab === "integrations" && integrationsSection}
           {settingsTab === "tags" && tagsSection}

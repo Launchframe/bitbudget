@@ -42,6 +42,24 @@ export function sweepFromLabel(envelopeName: string): string {
 
 const EMPTY_TAGS = "[]"
 
+export async function lockEnvelopeRowsForSweepBalance(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  envelopeIds: readonly string[],
+): Promise<void> {
+  const ids = [...new Set(envelopeIds)].sort()
+  if (ids.length === 0) return
+
+  await tx.$queryRaw`
+    SELECT "id"
+    FROM "Envelope"
+    WHERE "userId" = ${userId}
+      AND "id" IN (${Prisma.join(ids)})
+    ORDER BY "id"
+    FOR UPDATE
+  `
+}
+
 function sweepPeriodKeyForUser(user: PaydayUserFields, runDateUtc: Date): string | null {
   if (isDailyCadenceBlocked(user.payCadence)) return null
 
@@ -110,28 +128,7 @@ export async function sweepDiscretionaryEnvelopesForUser(
   })
 
   const budgetRows = envelopeRows.filter((env) => isBudgetEnvelope(env.systemRole))
-  const balances = await envelopeBalancesAllTimeBatch(
-    userId,
-    budgetRows.map((env) => env.id),
-  )
-
-  type SweepEntry = { envelopeId: string; name: string; amount: number }
-  const entries: SweepEntry[] = []
-
-  for (const env of budgetRows) {
-    const balance = balances.get(env.id) ?? 0
-    const policy = env.sweepPolicy || user.sweepDefaultPolicy || SWEEP_POLICY_RESET
-    const capMult = resolveSweepCapMultiplier(env.sweepCapMultiplier, user.sweepDefaultCapMultiplier)
-    const amount = sweepAmountForEnvelope({
-      balance,
-      policy,
-      monthlyAllotment: env.monthlyAllotment,
-      capMultiplier: capMult,
-    })
-    if (amount > 0) entries.push({ envelopeId: env.id, name: env.name, amount })
-  }
-
-  if (entries.length === 0) return 0
+  if (budgetRows.length === 0) return 0
 
   const dateStr = now.toISOString().split("T")[0]!
   const btcPrice = await getBtcPriceForDate(dateStr)
@@ -149,6 +146,38 @@ export async function sweepDiscretionaryEnvelopesForUser(
       },
     })
     if (dup) return 0
+
+    const budgetEnvelopeIds = budgetRows.map((env) => env.id)
+    // Serialize sweep balance reads for these envelopes so concurrent sweep
+    // requests cannot both spend the same remaining balance.
+    await lockEnvelopeRowsForSweepBalance(tx, userId, budgetEnvelopeIds)
+
+    const balances = await envelopeBalancesAllTimeBatch(
+      userId,
+      budgetEnvelopeIds,
+      tx,
+    )
+
+    type SweepEntry = { envelopeId: string; name: string; amount: number }
+    const entries: SweepEntry[] = []
+
+    for (const env of budgetRows) {
+      const balance = balances.get(env.id) ?? 0
+      const policy = env.sweepPolicy || user.sweepDefaultPolicy || SWEEP_POLICY_RESET
+      const capMult = resolveSweepCapMultiplier(env.sweepCapMultiplier, user.sweepDefaultCapMultiplier)
+      const amount = sweepAmountForEnvelope({
+        balance,
+        policy,
+        monthlyAllotment: env.monthlyAllotment,
+        capMultiplier: capMult,
+      })
+      if (amount > 0) entries.push({ envelopeId: env.id, name: env.name, amount })
+    }
+
+    // Exit before creating the batch when there is nothing to sweep.
+    // This leaves the period key unwritten so a later cron run can retry
+    // (e.g. if income hasn't posted yet and envelopes are still empty).
+    if (entries.length === 0) return 0
 
     let batch
     try {
@@ -315,23 +344,8 @@ export async function createManualEnvelopeSweep(
     const env = envelopeById.get(entry.envelopeId)
     return env != null && isBudgetEnvelope(env.systemRole)
   })
-  const balances = await envelopeBalancesAllTimeBatch(
-    userId,
-    validEntries.map((e) => e.envelopeId),
-  )
 
-  type ResolvedEntry = { envelopeId: string; name: string; amount: number }
-  const resolved: ResolvedEntry[] = []
-
-  for (const entry of validEntries) {
-    const env = envelopeById.get(entry.envelopeId)!
-    const balance = balances.get(entry.envelopeId) ?? 0
-    const amount = Math.min(entry.amount, Math.max(0, balance))
-    if (amount <= 0) continue
-    resolved.push({ envelopeId: entry.envelopeId, name: env.name, amount })
-  }
-
-  if (resolved.length === 0) return 0
+  if (validEntries.length === 0) return 0
 
   const dateStr = now.toISOString().split("T")[0]!
   const btcPrice = await getBtcPriceForDate(dateStr)
@@ -339,6 +353,28 @@ export async function createManualEnvelopeSweep(
   const periodKey = `manual-sweep-${randomUUID()}`
 
   return prisma.$transaction(async (tx) => {
+    const validEnvelopeIds = validEntries.map((e) => e.envelopeId)
+    await lockEnvelopeRowsForSweepBalance(tx, userId, validEnvelopeIds)
+
+    const balances = await envelopeBalancesAllTimeBatch(
+      userId,
+      validEnvelopeIds,
+      tx,
+    )
+
+    type ResolvedEntry = { envelopeId: string; name: string; amount: number }
+    const resolved: ResolvedEntry[] = []
+
+    for (const entry of validEntries) {
+      const env = envelopeById.get(entry.envelopeId)!
+      const balance = balances.get(entry.envelopeId) ?? 0
+      const amount = Math.min(entry.amount, Math.max(0, balance))
+      if (amount <= 0) continue
+      resolved.push({ envelopeId: entry.envelopeId, name: env.name, amount })
+    }
+
+    if (resolved.length === 0) return 0
+
     const batch = await tx.envelopeFundingBatch.create({
       data: {
         userId,
