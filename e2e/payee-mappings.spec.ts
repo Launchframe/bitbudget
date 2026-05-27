@@ -16,8 +16,12 @@ test.describe("Payee mappings", () => {
       timeout: 30_000,
     })
 
-    const source = `E2E Alias Src ${Date.now()}`
-    const canonical = `E2E Canonical ${Date.now()}`
+    // normalizePayeeKey lowercases the source before persisting it; displaySource renders
+    // a.sourceNormalized when the source has no matching transaction payee (always true for a
+    // brand-new timestamp string). Use lowercase so the assertion matches the rendered text.
+    const ts = Date.now()
+    const source = `e2e alias src ${ts}`
+    const canonical = `E2E Canonical ${ts}`
     await page.locator("#payee-map-source").fill(source)
     await page.locator("#payee-map-canonical").fill(canonical)
     await page.getByRole("button", { name: "Save mapping" }).click()
