@@ -78,11 +78,25 @@ describe("runCron", () => {
 })
 
 describe("verifyCronSecret", () => {
+  beforeEach(() => {
+    delete process.env.CRON_SECRET
+  })
+
   it("returns 401 when secret mismatch", async () => {
     process.env.CRON_SECRET = "secret"
     const { verifyCronSecret } = await import("../run-cron")
     const req = {
       headers: { get: (k: string) => (k === "authorization" ? "Bearer wrong" : null) },
+    } as unknown as import("next/server").NextRequest
+    const res = verifyCronSecret(req)
+    expect(res).toBeInstanceOf(NextResponse)
+    expect(res?.status).toBe(401)
+  })
+
+  it("returns 401 when CRON_SECRET is not configured", async () => {
+    const { verifyCronSecret } = await import("../run-cron")
+    const req = {
+      headers: { get: (k: string) => (k === "authorization" ? "Bearer undefined" : null) },
     } as unknown as import("next/server").NextRequest
     const res = verifyCronSecret(req)
     expect(res).toBeInstanceOf(NextResponse)

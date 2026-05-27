@@ -15,6 +15,14 @@ describe("scrubAlertText", () => {
 })
 
 describe("scrubSentryEvent", () => {
+  it("redacts PII from top-level messages", () => {
+    const event = scrubSentryEvent({
+      message: "Failed to process user@example.com",
+    })
+    expect(event?.message).toContain("[redacted-email]")
+    expect(event?.message).not.toContain("user@example.com")
+  })
+
   it("strips user email and sensitive headers", () => {
     const event = scrubSentryEvent({
       user: { id: "u1", email: "secret@example.com" },

@@ -65,7 +65,7 @@ export async function runCron<T extends CronResult>(
       severity: "error",
       source: `cron/${name}`,
       title: `Cron failed: ${name}`,
-      body: `${errorClass}: ${errorMessage}`,
+      body: `${errorClass}: ${safeMessage}`,
       fingerprint: `cron:${name}:failure`,
       runbookUrl: "https://github.com/Launchframe/bitbudget/blob/main/docs/ops/triage.md#cron-failure",
     })

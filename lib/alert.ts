@@ -22,10 +22,23 @@ function skipOutboundAlerts(): boolean {
   return process.env.E2E_TEST === "true"
 }
 
+function sanitizeAlertInput(input: SendAlertInput): SendAlertInput {
+  return {
+    ...input,
+    source: scrubAlertText(input.source),
+    title: scrubAlertText(input.title),
+    body: scrubAlertText(input.body),
+    fingerprint: input.fingerprint ? scrubAlertText(input.fingerprint) : undefined,
+    traceUrl: input.traceUrl ? scrubAlertText(input.traceUrl) : undefined,
+    runbookUrl: input.runbookUrl ? scrubAlertText(input.runbookUrl) : undefined,
+    sentryEventId: input.sentryEventId ? scrubAlertText(input.sentryEventId) : undefined,
+  }
+}
+
 function formatAlertMessage(input: SendAlertInput): string {
   const lines = [
     `[${input.severity.toUpperCase()}] ${input.title}`,
-    scrubAlertText(input.body),
+    input.body,
     `Source: ${input.source}`,
   ]
   if (input.traceUrl) lines.push(`Trace: ${input.traceUrl}`)
@@ -97,8 +110,9 @@ async function isDuplicate(fingerprint: string | undefined): Promise<boolean> {
 
 /** Multi-channel ops alert with dedup and DB persistence. */
 export async function sendAlert(input: SendAlertInput): Promise<{ sent: boolean; eventId: string }> {
-  const message = formatAlertMessage(input)
-  const duplicate = await isDuplicate(input.fingerprint)
+  const safeInput = sanitizeAlertInput(input)
+  const message = formatAlertMessage(safeInput)
+  const duplicate = await isDuplicate(safeInput.fingerprint)
 
   const channelStatus: Record<string, boolean> = {
     discord: false,
@@ -112,19 +126,19 @@ export async function sendAlert(input: SendAlertInput): Promise<{ sent: boolean;
     channelStatus.discord = await sendDiscordAlert(message, input.severity)
     channelStatus.telegram = await sendTelegramAlert(message)
     channelStatus.email = await sendEmailAlertToAdmins(
-      `[BitBudget ${input.severity}] ${input.title}`,
+      `[BitBudget ${input.severity}] ${safeInput.title}`,
       message.replace(/\n/g, "<br>"),
     )
   }
 
   const event = await prisma.opsEvent.create({
     data: {
-      severity: input.severity,
-      source: input.source,
-      title: input.title,
-      body: scrubAlertText(input.body),
-      fingerprint: input.fingerprint ?? null,
-      sentryEventId: input.sentryEventId ?? null,
+      severity: safeInput.severity,
+      source: safeInput.source,
+      title: safeInput.title,
+      body: safeInput.body,
+      fingerprint: safeInput.fingerprint ?? null,
+      sentryEventId: safeInput.sentryEventId ?? null,
       channelStatus: channelStatus as Prisma.InputJsonValue,
     },
   })

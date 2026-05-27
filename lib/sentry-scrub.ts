@@ -39,6 +39,7 @@ interface SentryExceptionValue {
 }
 
 interface ScrubbableSentryEvent {
+  message?: string
   user?: { id?: string; email?: string; [key: string]: unknown }
   request?: {
     headers?: Record<string, string>
@@ -54,6 +55,9 @@ interface ScrubbableSentryEvent {
 /** Scrub PII from Sentry events before send (AGENTS.md privacy contract). */
 export function scrubSentryEvent(event: ScrubbableSentryEvent, hint?: unknown): ScrubbableSentryEvent | null {
   void hint
+  if (event.message) {
+    event.message = redactString(event.message)
+  }
   if (event.request) {
     const request = scrubValue(event.request) as NonNullable<ScrubbableSentryEvent["request"]>
     if (request.headers) {

@@ -21,15 +21,19 @@ vi.mock("@/lib/email", () => ({
   sendOpsAlertEmail: vi.fn().mockResolvedValue(true),
 }))
 
+const { sendOpsAlertEmail } = vi.mocked(await import("@/lib/email"))
+
 describe("sendAlert", () => {
   beforeEach(() => {
     vi.resetModules()
     opsEventFindFirst.mockReset()
     opsEventCreate.mockReset()
     userFindMany.mockReset()
+    sendOpsAlertEmail.mockClear()
     delete process.env.E2E_TEST
     delete process.env.DISCORD_OPS_WEBHOOK_URL
     delete process.env.TELEGRAM_BOT_TOKEN
+    delete process.env.TELEGRAM_OPS_CHAT_ID
     opsEventFindFirst.mockResolvedValue(null)
     opsEventCreate.mockResolvedValue({ id: "evt1" })
     userFindMany.mockResolvedValue([])
@@ -49,6 +53,46 @@ describe("sendAlert", () => {
     expect(opsEventCreate).toHaveBeenCalledOnce()
     const data = opsEventCreate.mock.calls[0][0].data
     expect(data.body).not.toContain("user@example.com")
+  })
+
+  it("scrubs PII from persisted title, source, and fingerprint", async () => {
+    process.env.E2E_TEST = "true"
+    const { sendAlert } = await import("../alert")
+    await sendAlert({
+      severity: "error",
+      source: "sentry/user@example.com",
+      title: "Failure for user@example.com",
+      body: "same user@example.com",
+      fingerprint: "alert:user@example.com",
+    })
+
+    const data = opsEventCreate.mock.calls[0][0].data
+    expect(data.source).toBe("sentry/[redacted-email]")
+    expect(data.title).toBe("Failure for [redacted-email]")
+    expect(data.body).toBe("same [redacted-email]")
+    expect(data.fingerprint).toBe("alert:[redacted-email]")
+  })
+
+  it("scrubs title in outbound channel messages and email subjects", async () => {
+    process.env.DISCORD_OPS_WEBHOOK_URL = "https://discord.example/webhook"
+    userFindMany.mockResolvedValue([{ email: "admin@example.com" }])
+    const { sendAlert } = await import("../alert")
+
+    await sendAlert({
+      severity: "error",
+      source: "test",
+      title: "Failed user@example.com",
+      body: "body",
+    })
+
+    const discordBody = JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body)
+    expect(discordBody.content).toContain("[redacted-email]")
+    expect(discordBody.content).not.toContain("user@example.com")
+    expect(sendOpsAlertEmail).toHaveBeenCalledWith(
+      "admin@example.com",
+      "[BitBudget error] Failed [redacted-email]",
+      expect.not.stringContaining("user@example.com"),
+    )
   })
 
   it("deduplicates by fingerprint within window", async () => {
