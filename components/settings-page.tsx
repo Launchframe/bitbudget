@@ -40,7 +40,7 @@ import { Switch } from "@/components/ui/switch"
 import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
 import { CommunicationChannelsCard } from "@/components/communication-channels-card"
 import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
-import { PlaidLinkButton } from "@/components/plaid-link-button"
+import { PlaidConnectionsSection } from "@/components/plaid-connections-section"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { SettingsReferralsCard } from "@/components/settings-referrals-card"
 import { SettingsSavingsCard } from "@/components/settings-savings-card"
@@ -694,24 +694,27 @@ export function SettingsPage() {
             : "Connect your accounts to automatically import transactions. Premium unlocks bank sync, SMS capture, and connected email scanning."}
         </p>
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
+          <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
             <div className="flex items-start gap-3">
               <Building2 className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
-              <div>
+              <div className="min-w-0">
                 <p className="font-medium text-foreground">Bank sync (Plaid)</p>
                 <p className="text-sm text-muted-foreground">
                   Link your bank or credit card to import transactions automatically.
                 </p>
               </div>
             </div>
-            {hasPremiumFeatures || refereePendingBankLink ? (
-              <PlaidLinkButton />
-            ) : (
-              <button type="button" onClick={() => setUpgradeModalFeature("plaid")} className={upgradeCtaClass}>
-                <Crown className="h-4 w-4" />
-                Upgrade to connect
-              </button>
-            )}
+            <PlaidConnectionsSection
+              canConnect={hasPremiumFeatures || refereePendingBankLink}
+            />
+            {!(hasPremiumFeatures || refereePendingBankLink) ? (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
+                <button type="button" onClick={() => setUpgradeModalFeature("plaid")} className={upgradeCtaClass}>
+                  <Crown className="h-4 w-4" />
+                  Upgrade to connect
+                </button>
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
             <div className="flex items-start gap-3 min-w-0">

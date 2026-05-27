@@ -27,7 +27,7 @@ import {
   ONBOARDING_HINT_SAVINGS_SWEEP,
   OnboardingDismissibleHint,
 } from "@/components/onboarding-dismissible-hint"
-import { PlaidLinkButton } from "@/components/plaid-link-button"
+import { PlaidConnectionsSection } from "@/components/plaid-connections-section"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
@@ -3348,12 +3348,7 @@ export default function OnboardingPage() {
                   Integrations.
                 </p>
               </OnboardingDismissibleHint>
-              <div className="flex flex-col items-stretch gap-2">
-                <p className="text-xs text-muted-foreground text-center">Bank sync (Plaid)</p>
-                <div className="flex justify-center">
-                  <PlaidLinkButton />
-                </div>
-              </div>
+              <PlaidConnectionsSection canConnect connectAlign="center" />
               <div className="flex flex-col gap-3">
                 <div className="grid grid-cols-2 gap-3">
                   <button
