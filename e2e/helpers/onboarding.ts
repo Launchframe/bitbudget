@@ -58,7 +58,7 @@ export async function configureIncomeStep(page: Page, opts: OnboardingIncomeOpti
   if (opts.mode === "regular" || opts.mode === "mix") {
     const paycheck = opts.paycheck ?? "2500"
     await page.getByRole("button", { name: "Monthly", exact: true }).click()
-    const incomeInput = page.locator('input[type="number"]').first()
+    const incomeInput = page.locator('input[placeholder="2,500"]')
     await incomeInput.fill(paycheck)
   }
 

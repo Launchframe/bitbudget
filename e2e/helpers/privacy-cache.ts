@@ -20,20 +20,31 @@ export async function primePrivacyKeyCache(page: Page, userId: string): Promise<
 /** Unlock PIN dialog when cache is missing but server has wrapped key. */
 export async function unlockPassphraseIfNeeded(page: Page): Promise<void> {
   const pinInput = page.getByPlaceholder("Enter your passphrase")
-  if (await pinInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
+
+  const visibleTarget = await Promise.any([
+    pinInput.waitFor({ state: "visible", timeout: 30_000 }).then(() => "pin" as const),
+    appShellLocator(page).waitFor({ state: "visible", timeout: 30_000 }).then(() => "shell" as const),
+  ]).catch(() => null)
+
+  if (visibleTarget === "pin") {
     await pinInput.fill(E2E_TEST_PASSPHRASE)
     await page.getByRole("button", { name: "Unlock" }).click()
     await expectAppShell(page)
+    return
   }
+
+  await expectAppShell(page)
 }
 
-async function expectAppShell(page: import("@playwright/test").Page): Promise<void> {
+function appShellLocator(page: Page) {
   const width = page.viewportSize()?.width ?? 1280
-  if (width < 768) {
-    await page.getByRole("button", { name: "Home" }).waitFor({ state: "visible", timeout: 90_000 })
-  } else {
-    await page.getByRole("button", { name: "TRANSACTIONS" }).waitFor({ state: "visible", timeout: 90_000 })
-  }
+  return width < 768
+    ? page.getByRole("button", { name: "Home" })
+    : page.getByRole("button", { name: "TRANSACTIONS" })
+}
+
+async function expectAppShell(page: Page): Promise<void> {
+  await appShellLocator(page).waitFor({ state: "visible", timeout: 90_000 })
 }
 
 export { expectAppShell }

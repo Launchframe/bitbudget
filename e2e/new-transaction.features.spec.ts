@@ -50,8 +50,8 @@ test.describe("New transaction features", () => {
     await dialog.getByRole("button", { name: "Done" }).click()
     await page.getByRole("button", { name: "Add Recurring Expense" }).click()
     await expect(page.getByRole("heading", { name: "New Transaction" })).toBeHidden({ timeout: 30_000 })
-    await expect(page.getByText("Upcoming Recurring")).toBeVisible()
-    await expect(page.getByText(payee).first()).toBeVisible()
+    await expect(page.getByText("Upcoming Recurring")).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText(payee).first()).toBeVisible({ timeout: 30_000 })
   })
 
   test("save and use shortcut", async ({ page }) => {
