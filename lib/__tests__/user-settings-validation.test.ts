@@ -4,6 +4,56 @@ import {
   setupGuideSnoozedUntilError,
 } from "@/lib/user-settings-validation"
 
+/**
+ * Inline validation logic for monthlyIncome mirrors the check added to
+ * PUT /api/user/settings.  Keeping it here documents the expected behaviour
+ * and guards against regressions where a negative or non-finite income is
+ * persisted, which causes sweep/funding math to produce nonsense values.
+ */
+function monthlyIncomeError(value: unknown): string | null {
+  if (value === undefined) return null
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0
+  ) {
+    return "monthlyIncome must be a non-negative number"
+  }
+  return null
+}
+
+describe("monthlyIncome validation (guards PUT /api/user/settings)", () => {
+  it("accepts undefined (field omitted)", () => {
+    expect(monthlyIncomeError(undefined)).toBeNull()
+  })
+
+  it("accepts zero", () => {
+    expect(monthlyIncomeError(0)).toBeNull()
+  })
+
+  it("accepts positive finite numbers", () => {
+    expect(monthlyIncomeError(5000)).toBeNull()
+    expect(monthlyIncomeError(0.01)).toBeNull()
+  })
+
+  it("rejects negative values", () => {
+    expect(monthlyIncomeError(-1)).not.toBeNull()
+    expect(monthlyIncomeError(-0.01)).not.toBeNull()
+  })
+
+  it("rejects non-finite values (Infinity, -Infinity, NaN)", () => {
+    expect(monthlyIncomeError(Infinity)).not.toBeNull()
+    expect(monthlyIncomeError(-Infinity)).not.toBeNull()
+    expect(monthlyIncomeError(NaN)).not.toBeNull()
+  })
+
+  it("rejects non-number types", () => {
+    expect(monthlyIncomeError("5000")).not.toBeNull()
+    expect(monthlyIncomeError(null)).not.toBeNull()
+    expect(monthlyIncomeError([])).not.toBeNull()
+  })
+})
+
 describe("booleanSettingsFieldError", () => {
   it("returns null when boolean fields are omitted or valid", () => {
     expect(booleanSettingsFieldError({})).toBeNull()

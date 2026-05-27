@@ -58,41 +58,47 @@ async function postOneDueOccurrence(
   recurringId: string,
   endOfDay: Date,
 ): Promise<number> {
+  // Peek at the rule outside the transaction so we can pre-fetch the BTC price
+  // without holding a DB connection during a potentially slow HTTP call.
+  const rec = await prisma.recurringTransaction.findFirst({
+    where: { id: recurringId, active: true, nextDueDate: { lte: endOfDay } },
+  })
+  if (!rec) return 0
+
+  const dueDate = rec.nextDueDate
+  const dateStr = dueDate.toISOString().split("T")[0]
+  // Pre-fetch BTC price outside the transaction to avoid holding the connection during HTTP.
+  const btcPrice = await getBtcPriceForDate(dateStr)
+
   try {
     return await prisma.$transaction(async (tx) => {
-      const rec = await tx.recurringTransaction.findFirst({
-        where: {
-          id: recurringId,
-          active: true,
-          nextDueDate: { lte: endOfDay },
-        },
+      // Re-read inside the transaction to guard against concurrent updates between
+      // the peek above and the write below.
+      const locked = await tx.recurringTransaction.findFirst({
+        where: { id: recurringId, active: true, nextDueDate: dueDate },
       })
-      if (!rec) return 0
-
-      const dueDate = rec.nextDueDate
-      const dateStr = dueDate.toISOString().split("T")[0]
-      const btcPrice = await getBtcPriceForDate(dateStr)
+      if (!locked) return 0
 
       await tx.transaction.create({
         data: {
-          userId: rec.userId,
-          envelopeId: rec.envelopeId,
+          userId: locked.userId,
+          envelopeId: locked.envelopeId,
           date: dueDate,
-          payee: rec.payee,
-          amount: rec.amount,
-          type: rec.type,
-          tags: rec.tags,
-          notes: rec.notes,
-          recurringId: rec.id,
-          satsAmount: btcPrice ? usdToSats(rec.amount, btcPrice) : null,
+          payee: locked.payee,
+          amount: locked.amount,
+          type: locked.type,
+          tags: locked.tags,
+          notes: locked.notes,
+          recurringId: locked.id,
+          satsAmount: btcPrice ? usdToSats(locked.amount, btcPrice) : null,
         },
       })
 
-      const nextDue = advanceDate(dueDate, rec.cadence as Cadence)
+      const nextDue = advanceDate(dueDate, locked.cadence as Cadence)
 
-      if (rec.endDate && nextDue > rec.endDate) {
+      if (locked.endDate && nextDue > locked.endDate) {
         const updated = await tx.recurringTransaction.updateMany({
-          where: { id: rec.id, nextDueDate: dueDate },
+          where: { id: locked.id, nextDueDate: dueDate },
           data: { active: false, nextDueDate: nextDue },
         })
         if (updated.count === 0) throw new RecurringConcurrentUpdateError()
@@ -100,7 +106,7 @@ async function postOneDueOccurrence(
       }
 
       const updated = await tx.recurringTransaction.updateMany({
-        where: { id: rec.id, nextDueDate: dueDate },
+        where: { id: locked.id, nextDueDate: dueDate },
         data: { nextDueDate: nextDue },
       })
       if (updated.count === 0) throw new RecurringConcurrentUpdateError()
