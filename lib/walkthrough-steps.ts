@@ -75,8 +75,9 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       page: "transactions",
       target: "new-transaction",
       title: "Add a transaction",
-      description: "Record amount, envelope, and payee yourself anytime.",
-      position: "right",
+      description:
+        "Tap the orange + on the bottom bar on your phone, or New Transaction in the sidebar on desktop.",
+      position: "bottom",
     },
     {
       id: "scan-receipt",

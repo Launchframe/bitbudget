@@ -180,6 +180,7 @@ export function MobileNav() {
                       fabNudge && "-translate-y-3",
                     )}
                     aria-label="New transaction"
+                    data-walkthrough="new-transaction"
                     onClick={handleFabClick}
                   >
                     <FabIcon className="h-6 w-6" />

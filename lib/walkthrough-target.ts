@@ -1,3 +1,6 @@
+/** Targets on shell chrome (nav, FAB) — not in-page duplicates inside `<main>`. */
+const SHELL_WALKTHROUGH_TARGETS = new Set(["app-nav", "new-transaction", "scan-receipt"])
+
 function isVisibleWalkthroughAnchor(el: Element): boolean {
   const rect = el.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return false
@@ -18,6 +21,17 @@ export function findWalkthroughTarget(target: string): Element | null {
 
   const visibleNodes = [...nodes].filter(isVisibleWalkthroughAnchor)
   const pool = visibleNodes.length > 0 ? visibleNodes : [...nodes]
+
+  if (SHELL_WALKTHROUGH_TARGETS.has(target)) {
+    const bottomNav = pool.filter((el) => {
+      const nav = el.closest("nav")
+      return nav?.classList.contains("fixed") === true
+    })
+    if (bottomNav.length > 0) return bottomNav[bottomNav.length - 1]
+
+    const outsideMain = pool.filter((el) => !el.closest("main"))
+    if (outsideMain.length > 0) return outsideMain[0]
+  }
 
   const inMain = pool.filter((el) => el.closest("main"))
   if (inMain.length > 0) return inMain[0]

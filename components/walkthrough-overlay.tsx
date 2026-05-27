@@ -115,8 +115,9 @@ export function WalkthroughOverlay() {
     const rect = el.getBoundingClientRect()
     const vw = window.innerWidth
     const vh = window.innerHeight
+    const anchorInBottomChrome = rect.top > vh * 0.55
 
-    if (step.position === "right") {
+    if (step.position === "right" && !anchorInBottomChrome) {
       let top = rect.top + rect.height / 2
       let left = rect.right + 16
       top = Math.max(
@@ -130,9 +131,10 @@ export function WalkthroughOverlay() {
       return
     }
 
-    const rawAnchorY = rect.top + Math.min(96, Math.max(48, rect.height * 0.12))
-    const anchorY = Math.max(VIEW_PAD + 80, Math.min(vh - VIEW_PAD - 80, rawAnchorY))
     const anchorX = rect.left + rect.width / 2
+    const anchorY = anchorInBottomChrome
+      ? rect.top
+      : rect.top + Math.min(96, Math.max(48, rect.height * 0.12))
 
     const measured = tooltipRef.current?.getBoundingClientRect()
     const tipH = measured?.height ?? EST_TOOLTIP_H
@@ -140,7 +142,8 @@ export function WalkthroughOverlay() {
 
     const spaceBelow = vh - anchorY - VIEW_PAD
     const spaceAbove = anchorY - VIEW_PAD
-    const preferBelow = spaceBelow >= tipH || spaceBelow >= spaceAbove
+    const preferBelow =
+      !anchorInBottomChrome && (spaceBelow >= tipH || spaceBelow >= spaceAbove)
 
     let variant: TooltipVariant = preferBelow ? "below" : "above"
     let top = preferBelow ? anchorY + VIEW_PAD : anchorY - VIEW_PAD

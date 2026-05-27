@@ -55,4 +55,31 @@ describe("findWalkthroughTarget", () => {
     mockRect(document.getElementById("solo")!, 0, 0)
     expect(findWalkthroughTarget("solo")).toBeNull()
   })
+
+  it("prefers bottom nav FAB over in-page duplicate for new-transaction", () => {
+    document.body.innerHTML = `
+      <main>
+        <button data-walkthrough="new-transaction" id="page-btn"></button>
+      </main>
+      <nav class="fixed bottom-0" data-walkthrough="app-nav">
+        <button data-walkthrough="new-transaction" id="fab"></button>
+      </nav>
+    `
+    mockRect(document.getElementById("page-btn")!, 120, 40)
+    const fab = document.getElementById("fab")!
+    vi.spyOn(fab, "getBoundingClientRect").mockReturnValue({
+      width: 64,
+      height: 64,
+      top: 700,
+      left: 180,
+      right: 244,
+      bottom: 764,
+      x: 180,
+      y: 700,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    const el = findWalkthroughTarget("new-transaction")
+    expect(el?.id).toBe("fab")
+  })
 })
