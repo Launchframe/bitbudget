@@ -1,3 +1,7 @@
+import type { CommunicationPreferences } from "./communication-preferences"
+
+export type { CommunicationPreferenceKey, CommunicationPreferences } from "./communication-preferences"
+
 // ─── Types ───────────────────────────────────────────────────────────
 
 export type TransactionType = "expense" | "credit"
@@ -102,6 +106,7 @@ export interface AppState {
   monthlyIncome: number
   btcDisplayUnit: BtcDisplayUnit
   opportunityCostEnabled: boolean
+  communicationPreferences: CommunicationPreferences
   savingsExperience: string
   walkthroughCompleted: boolean
 }
@@ -277,6 +282,13 @@ export function getDefaultState(): AppState {
     monthlyIncome: 0,
     btcDisplayUnit: "sats",
     opportunityCostEnabled: false,
+    communicationPreferences: {
+      featureUpdates: true,
+      feedbackRequests: true,
+      recurringReminders: true,
+      renewalReminders: true,
+      importAlerts: true,
+    },
     savingsExperience: "engaged",
     walkthroughCompleted: false,
   }

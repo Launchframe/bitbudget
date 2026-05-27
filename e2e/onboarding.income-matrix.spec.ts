@@ -62,7 +62,7 @@ test.describe("Onboarding income modes", () => {
     await configureIncomeStep(page, { mode: "irregular" })
     await continueEnvelopesStep(page)
     await expect(page.getByText(/monthly budget/i)).not.toBeVisible()
-    await page.getByRole("textbox", { name: "0" }).first().fill("200")
+    await page.getByPlaceholder("0").first().fill("200")
     await expect(page.getByText(/\$200 estimated monthly spend/i)).toBeVisible({ timeout: 10_000 })
     await continueBudgetAllocations(page)
     await skipSavingsGoalStep(page)

@@ -65,7 +65,24 @@ lib/                     Shared logic — types, crypto, contexts, helpers
 prisma/                  Schema, migrations, seeds
 public/                  Static assets (icons, onboarding screenshots)
 styles/                  Tailwind globals
+docs/                    Operator and integrator guides (see Outbound messaging below)
 ```
+
+### Outbound messaging (email & Nostr)
+
+Product notifications (referrals, premium trial/gratis reminders, notification-email verification, login OTP) use **Gmail SMTP** (`lib/email.ts`) and/or **NIP-04 DMs** (`lib/nostr-dm.ts`), orchestrated by `lib/notify.ts`. Users opt in under **Settings → Communications**; Nostr users may link **multiple** verified notification emails (`UserNotificationEmail`) **and** enable Nostr DMs independently (both channels can fire for the same event).
+
+**Integrator / maintainer guide:** [docs/outbound-messaging.md](docs/outbound-messaging.md) — env vars, local setup, preview vs production on Vercel, deployment checklist, manual tests, troubleshooting.
+
+**Env vars (see also `.env.example`):** `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `NEXTAUTH_URL` (unsubscribe + auth URLs), `BITBUDGET_NOSTR_NSEC`, optional `BITBUDGET_NOSTR_RELAYS`, `CRON_SECRET` for `/api/cron/referral-expiry`. Without Gmail vars, `lib/email.ts` logs to the console (subject/recipient for HTML mail; 6-digit code only for OTP/verify — not full bodies). Without `BITBUDGET_NOSTR_NSEC`, DMs are skipped with a warning.
+
+**Local dev quick start:** Postgres + `AUTH_SECRET` in `.env.local` → `pnpm prisma migrate deploy` → `pnpm dev`. Add Gmail and/or Nostr vars only when testing real delivery. Never set `E2E_TEST` in `.env.local` for manual messaging tests (Playwright sets it automatically).
+
+**Preview vs production:** Use separate databases, Gmail senders, and Nostr service `nsec` values per environment; set `NEXTAUTH_URL` to each deploy’s canonical HTTPS origin so unsubscribe links work. Full checklist in the doc above.
+
+**Nostr relays (MVP):** Publish DMs through default or well-known **public** clearnet relays (`BITBUDGET_NOSTR_RELAYS` optional). **Tor-only / `.onion` relays are not supported** in code today (no SOCKS/Tor WebSocket); they are documented as post-MVP for operators who want a non-discoverable relay — see [Tor-only relays (post-MVP)](docs/outbound-messaging.md#tor-only-relays-post-mvp).
+
+**Agents:** When helping developers set up outbound messaging, walk through [docs/outbound-messaging.md](docs/outbound-messaging.md) in order (local → preview → production). Do not put service `nsec` or app passwords in client code, logs, or PR descriptions. Do not promise Tor relay publish on Vercel without custom Tor-capable infrastructure.
 
 ## Tech Stack
 
@@ -99,6 +116,7 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 - **Maintenance:** When you change referral rules, Plaid activation, onboarding gates, auth email flow, **transaction dialog prefill / payee canonicalization**, manual entry UX, or **layout/navigation on core pages** (settings tabs, mobile nav, onboarding steps), **update or extend the Playwright specs and seed constants** so CI keeps enforcing the product contract. Treat failing e2e the same as failing unit tests.
 - **Responsive checks:** Playwright runs at a desktop viewport by default. For layout-heavy UI changes, **manually verify at 390px and 320px** (DevTools device mode) before merge; add or extend e2e viewport coverage when a regression has happened or the layout contract is easy to assert (e.g. no document scroll width exceeding viewport on settings).
 - **Pull requests:** **`pnpm lint`, `pnpm test`, and `pnpm test:e2e` should all pass** before a change is considered ready to merge (unless a PR explicitly documents an exception and follow-up).
+- **Outbound messaging QA:** Changing `lib/notify.ts`, `lib/email.ts`, `lib/nostr-dm.ts`, notification-email APIs, or communication preferences requires updating [docs/outbound-messaging.md](docs/outbound-messaging.md) when behavior or env vars change, and extending `lib/__tests__/notify-e2e-skip.test.ts` (or related tests) for routing regressions.
 
 ## Code Conventions
 
@@ -353,6 +371,9 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **`colSpan` mismatch** — when conditionally rendering table columns (e.g. hiding BTC columns in vanilla mode), update the empty-state row's `colSpan` accordingly.
 - **`react-hooks/set-state-in-effect`** — don’t call `setState` synchronously inside `useEffect` / `useLayoutEffect`; it triggers lint and risks extra renders or cascading updates. See **React effects and `setState`** under Code Conventions for patterns (derive during render, defer with `requestAnimationFrame` / `setTimeout(0)`, refs).
 - **Resetting `onboardingComplete` for users who already have `encryptedPrivacyKey`** — never rely on onboarding to rotate keys. `PUT /api/user/settings` must not accept `encryptedPrivacyKey` / `privacyKeySalt`. Prefer **Skip onboarding** and correct step routing; corrupt keys need a **recovery** path, not a silent `POST` overwrite.
+- **`E2E_TEST` in Vercel Preview/Production** — disables all `lib/notify.ts` outbound email/DM; leaves users thinking notifications are broken. Only Playwright should set it (see `playwright.config.ts`).
+- **Conflating notification email with sign-in email** — notification addresses use `UserNotificationEmail` and `/api/user/notification-email`; sign-in linking uses `/api/user/sign-in-methods` and `User.email`. Nostr-only users linking mail for **notifications** does not require the sign-in privacy dialog.
+- **`BITBUDGET_NOSTR_NSEC` exposure** — server-only env; never `NEXT_PUBLIC_` or client bundles. Rotate if leaked.
 - **Missing `min-w-0` in flex/grid layouts** — a child row (tabs, toolbars, input+button pairs) expands the page horizontally on phones. Add `min-w-0 w-full max-w-full` down the layout chain, or stack on mobile. **`overflow-x-auto` without a bounded parent does not fix this.**
 - **Desktop-first breakpoints** — building a wide horizontal layout by default and only wrapping at `lg`/`md` often breaks between 320–640px. Default to mobile layout; enhance upward with `sm:` / `md:` / `lg:`.
 - **Fixed padding and min-widths on cards** — uniform `p-6` plus wide inner flex rows can clip buttons and text on 390px-wide screens. Use responsive padding and `flex-col sm:flex-row` for compound controls.

@@ -40,6 +40,7 @@ test.describe("Envelope archive and delete", () => {
     await page.getByRole("button", { name: `Archive ${victim}` }).click()
     await expandArchivedSection(page, victim)
     await page.getByRole("button", { name: `Permanently delete ${victim}` }).click()
-    await expect(page.getByText(victim)).toHaveCount(0)
+    await expect(page.getByRole("button", { name: `Restore ${victim}` })).toHaveCount(0)
+    await expect(page.getByRole("button", { name: `Permanently delete ${victim}` })).toHaveCount(0)
   })
 })

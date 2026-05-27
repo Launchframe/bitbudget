@@ -2,9 +2,22 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { signOut } from "next-auth/react"
-import type { Transaction, Envelope, AppState, BtcDisplayUnit, PendingTransaction, Tag, RecurringTransaction } from "@/lib/data"
+import type {
+  Transaction,
+  Envelope,
+  AppState,
+  BtcDisplayUnit,
+  PendingTransaction,
+  Tag,
+  RecurringTransaction,
+  CommunicationPreferenceKey,
+} from "@/lib/data"
 import { compareTransactionsDesc, generateId, getDefaultState } from "@/lib/data"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
+import {
+  COMMUNICATION_PREFERENCE_COLUMNS,
+  normalizeCommunicationPreferences,
+} from "@/lib/communication-preferences"
 import {
   encryptFieldAsymmetric,
   decryptFieldAsymmetric,
@@ -190,6 +203,7 @@ interface AppContextValue {
   setMonthlyIncome: (income: number) => void
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
   setOpportunityCostEnabled: (enabled: boolean) => void
+  setCommunicationPreference: (key: CommunicationPreferenceKey, enabled: boolean) => Promise<void>
   setSavingsExperience: (experience: "engaged" | "dismissed") => Promise<void>
   completeWalkthrough: () => Promise<void>
   addTag: (tag: string) => void
@@ -624,6 +638,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         monthlyIncome: settings.monthlyIncome || 0,
         btcDisplayUnit: settings.btcDisplayUnit || "sats",
         opportunityCostEnabled: settings.opportunityCostEnabled ?? false,
+        communicationPreferences: normalizeCommunicationPreferences(
+          settings.emailPreferences ?? settings.communicationPreferences ?? {},
+        ),
         savingsExperience:
           typeof (settings as { savingsExperience?: string }).savingsExperience === "string"
             ? (settings as { savingsExperience: string }).savingsExperience
@@ -780,7 +797,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
             nextTxns = Array.from(byId.values()).sort(compareTransactionsDesc)
           } else {
-            nextTxns = []
+            // Empty delta means no changes since lastSync — keep in-memory history (no IDB fallback).
+            nextTxns = prev.transactions
           }
           return { ...prev, transactions: nextTxns }
         })
@@ -1205,6 +1223,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const setCommunicationPreference = useCallback(async (
+    key: CommunicationPreferenceKey,
+    enabled: boolean,
+  ) => {
+    setState(prev => ({
+      ...prev,
+      communicationPreferences: {
+        ...prev.communicationPreferences,
+        [key]: enabled,
+      },
+    }))
+    try {
+      const res = await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [COMMUNICATION_PREFERENCE_COLUMNS[key]]: enabled }),
+      })
+      if (!res.ok) await refreshData()
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
   const setSavingsExperience = useCallback(async (experience: "engaged" | "dismissed") => {
     setState(prev => ({ ...prev, savingsExperience: experience }))
     try {
@@ -1538,6 +1579,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setMonthlyIncome,
         setBtcDisplayUnit,
         setOpportunityCostEnabled,
+        setCommunicationPreference,
         setSavingsExperience,
         completeWalkthrough,
         addTag,

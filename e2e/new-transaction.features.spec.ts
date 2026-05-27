@@ -43,7 +43,13 @@ test.describe("New transaction features", () => {
       .click()
     await page.getByRole("option", { name: E2E_APP_ENVELOPE_A }).click()
     const dialog = page.getByRole("dialog")
-    await dialog.getByRole("button", { name: "Recurring" }).click()
+    const recurringSettings = dialog.getByRole("heading", { name: "Recurring Settings" })
+    await dialog.getByRole("button", { name: /Recurring/ }).click()
+    if (!(await recurringSettings.isVisible({ timeout: 1_000 }).catch(() => false))) {
+      await page.waitForTimeout(400)
+      await dialog.getByRole("button", { name: /Recurring/ }).click()
+    }
+    await expect(recurringSettings).toBeVisible({ timeout: 30_000 })
     await dialog.getByRole("switch").click()
     await dialog.getByRole("combobox").click()
     await page.getByRole("option", { name: "Weekly", exact: true }).click()

@@ -111,7 +111,7 @@ export async function seedPremiumE2eUser(): Promise<{ userId: string }> {
     },
   })
 
-  await prisma.envelope.create({
+  const premiumEnvelope = await prisma.envelope.create({
     data: {
       userId: user.id,
       name: "E2E Premium Spend",
@@ -127,7 +127,7 @@ export async function seedPremiumE2eUser(): Promise<{ userId: string }> {
     await prisma.transaction.create({
       data: {
         userId: user.id,
-        envelopeId: (await prisma.envelope.findFirst({ where: { userId: user.id } }))!.id,
+        envelopeId: premiumEnvelope.id,
         payee: `E2E Analytics Spend ${i}`,
         amount: 50 + i,
         type: "expense",
