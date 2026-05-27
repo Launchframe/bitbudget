@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server"
+import { cronAuthFailureResponse } from "@/lib/cron-auth"
 import { prisma } from "@/lib/db"
 import { requirePremiumOrTrial } from "@/lib/subscription"
 
 export async function GET(req: Request) {
-  const authHeader = req.headers.get("authorization")
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const authFailure = cronAuthFailureResponse(req.headers.get("authorization"))
+  if (authFailure) return authFailure
 
   const approvedSenders = await prisma.approvedReceiptSender.findMany()
   if (approvedSenders.length === 0) {
