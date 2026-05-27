@@ -23,9 +23,11 @@ Local/cloud setup steps (when `.env` is missing):
 5. `pnpm exec next build` (or let Playwright build via default `PW_WEBSERVER_COMMAND`)
 6. `pnpm test:e2e`
 
-Playwright config: [`playwright.config.ts`](../../playwright.config.ts). Global setup runs `prisma migrate deploy` plus referral, recurring, and app seeds.
+Playwright config: [`playwright.config.ts`](../../playwright.config.ts). Current `main` global setup runs `prisma migrate deploy` plus referral and recurring seeds; the full v1 implementation stack adds app-user seeds.
 
-## Current baseline (41 tests)
+## Target v1 baseline (41 tests after implementation stack)
+
+Current `main` baseline is 5 specs / 18 tests: `referrals.program`, `new-transaction.manual-entry`, `receipt-scan.prefill`, `recurring.lifecycle`, and `walkthrough.per-user`. The table below is the planned v1 CI contract once the stacked implementation PRs land.
 
 | Spec | Tests | What it locks in |
 |------|-------|------------------|
@@ -45,11 +47,11 @@ Playwright config: [`playwright.config.ts`](../../playwright.config.ts). Global 
 | `e2e/referrals.program.spec.ts` | 13 | Validate/redeem API, activation, OC inheritance |
 | `e2e/walkthrough.per-user.spec.ts` | 1 | Per-user `walkthroughCompleted` in DB |
 
-**Seeds:** `e2e/seed-referral-e2e.ts`, `e2e/seed-recurring-e2e.ts`, `e2e/seed-app-e2e.ts`; reset via `POST /api/e2e/reset-referral-seed` (referrals). Onboarding tests use `POST /api/e2e/delete-user` for `@bitbudget.test` cleanup.
+**Seeds:** current `main` has `e2e/seed-referral-e2e.ts` and `e2e/seed-recurring-e2e.ts`, with reset via `POST /api/e2e/reset-referral-seed` for referrals. The full v1 stack adds `e2e/seed-app-e2e.ts` and onboarding cleanup via `POST /api/e2e/delete-user` for `@bitbudget.test` users.
 
-**Helpers:** `e2e/helpers/auth-email.ts`, `onboarding.ts`, `app-session.ts`, `e2e-user.ts`, `fetch-json.ts`, `privacy-cache.ts`.
+**Helpers:** current `main` has `e2e/helpers/auth-email.ts`; the full v1 stack adds `onboarding.ts`, `app-session.ts`, `e2e-user.ts`, `fetch-json.ts`, and `privacy-cache.ts`.
 
-**Fixtures:** `e2e/fixtures/encryption-e2e-constants.ts` (passphrase `4242`), `onboarding-e2e-constants.ts`, `onboarding-import*.csv`, `app-e2e-constants.ts`.
+**Fixtures:** current `main` has referral/recurring constants and receipt files; the full v1 stack adds `encryption-e2e-constants.ts` (passphrase `4242`), `onboarding-e2e-constants.ts`, `onboarding-import*.csv`, and `app-e2e-constants.ts`.
 
 **Deferred (documented, not in CI yet):** `/landing` btc source smoke, duplicate-guard txn (MT-07), payee review banner (PAY-03–05), smart payee suggestion (MT-06), export download bytes (SET-06), Nostr/nsec auth, savings dismiss during onboarding.
 
@@ -294,15 +296,15 @@ Use a small fixture under `e2e/fixtures/onboarding-import.csv` with columns `Dat
 
 ## Implementation phases
 
-| Phase | Scope | Specs | Tests | Branch (stacked PRs) |
-|-------|--------|-------|-------|----------------------|
-| **0** | ✅ Baseline | 5 legacy files | 18 | `main` |
-| **1** | ✅ Onboarding + landing | `landing-auth`, `onboarding.*` | 9 | `cursor/e2e-phase1-foundation-8992` → `main` |
-| **2** | ✅ Envelopes + app seed | `envelopes.*`, `seed-app-e2e` | 2 | `cursor/e2e-phase2-envelopes-8992` → phase 1 |
-| **3** | ✅ Transaction filters | `transactions.filters` | 1 | `cursor/e2e-phase3-transactions-8992` → phase 2 |
-| **4** | ✅ Manual txn features | `new-transaction.features` | 3 | `cursor/e2e-phase4-new-transaction-8992` → phase 3 |
-| **5** | ✅ Payee mappings | `payee-mappings` | 1 | `cursor/e2e-phase5-payee-mappings-8992` → phase 4 |
-| **6–7** | ✅ Analytics, settings, mobile | `analytics.ranges`, `settings.tabs` | 7 | `cursor/e2e-phase6-settings-analytics-8992` → phase 5 |
+| Phase | Status | Scope | Specs | Tests | Branch (stacked PRs) |
+|-------|--------|-------|-------|-------|----------------------|
+| **0** | On `main` | Baseline | 5 legacy files | 18 | `main` |
+| **1** | Stacked | Onboarding + landing | `landing-auth`, `onboarding.*` | 9 | `cursor/e2e-phase1-foundation-8992` → `main` |
+| **2** | Stacked | Envelopes + app seed | `envelopes.*`, `seed-app-e2e` | 2 | `cursor/e2e-phase2-envelopes-8992` → phase 1 |
+| **3** | Stacked | Transaction filters | `transactions.filters` | 1 | `cursor/e2e-phase3-transactions-8992` → phase 2 |
+| **4** | Stacked | Manual txn features | `new-transaction.features` | 3 | `cursor/e2e-phase4-new-transaction-8992` → phase 3 |
+| **5** | Stacked | Payee mappings | `payee-mappings` | 1 | `cursor/e2e-phase5-payee-mappings-8992` → phase 4 |
+| **6–7** | Stacked | Analytics, settings, mobile | `analytics.ranges`, `settings.tabs` | 7 | `cursor/e2e-phase6-settings-analytics-8992` → phase 5 |
 
 **Full stack:** `cursor/e2e-v1-implementation-8992` (all phases, 41 tests). Merge stacked PRs in order or merge the full branch once reviewed.
 
@@ -314,11 +316,13 @@ Use a small fixture under `e2e/fixtures/onboarding-import.csv` with columns `Dat
 
 | Asset | Status |
 |-------|--------|
-| `e2e/helpers/onboarding.ts` | ✅ Step navigation, passphrase setup |
-| `e2e/fixtures/encryption-e2e-constants.ts` | ✅ Deterministic privacy key wrap |
-| `e2e/seed-app-e2e.ts` | ✅ App + premium users, envelopes, txns, tags |
-| `e2e/fixtures/onboarding-import*.csv` | ✅ Import branch tests |
-| `POST /api/e2e/delete-user` | ✅ `@bitbudget.test` cleanup for onboarding |
+| `e2e/helpers/auth-email.ts` | On `main`; email OTP helper |
+| `e2e/helpers/onboarding.ts` | Stacked; step navigation, passphrase setup |
+| `e2e/fixtures/encryption-e2e-constants.ts` | Stacked; deterministic privacy key wrap |
+| `e2e/seed-app-e2e.ts` | Stacked; app + premium users, envelopes, txns, tags |
+| `e2e/fixtures/onboarding-import*.csv` | Stacked; import branch tests |
+| `POST /api/e2e/delete-user` | Stacked; `@bitbudget.test` cleanup for onboarding |
+| `POST /api/e2e/reset-referral-seed` | On `main`; referral seed reset |
 | `e2e/seed-onboarding-e2e.ts` | Optional partial-progress users (not added) |
 | `POST /api/e2e/reset-*` (beyond referral) | Optional per-suite resets |
 
