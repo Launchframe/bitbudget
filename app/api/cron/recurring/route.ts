@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
+import { isCronRequestAuthorized } from "@/lib/cron-auth"
 import { processAllRecurringTransactions } from "@/lib/recurring"
 
 export async function GET(req: NextRequest) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isCronRequestAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 

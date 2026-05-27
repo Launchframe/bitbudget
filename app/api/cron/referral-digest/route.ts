@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { isCronRequestAuthorized } from "@/lib/cron-auth"
 import { prisma } from "@/lib/db"
 import { notifyAdminsDigest } from "@/lib/notify"
 
@@ -14,7 +15,7 @@ function escapeHtml(s: string): string {
 }
 
 export async function GET(req: NextRequest) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isCronRequestAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server"
+import { isCronRequestAuthorized } from "@/lib/cron-auth"
 import { prisma } from "@/lib/db"
 import { requirePremiumOrTrial } from "@/lib/subscription"
 
 export async function GET(req: Request) {
-  const authHeader = req.headers.get("authorization")
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isCronRequestAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
