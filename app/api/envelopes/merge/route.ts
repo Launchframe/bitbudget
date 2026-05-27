@@ -36,6 +36,13 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  if (source.archived || target.archived) {
+    return NextResponse.json(
+      { error: "Archived envelopes cannot be merged." },
+      { status: 400 },
+    )
+  }
+
   await prisma.$transaction(async (tx) => {
     await mergeEnvelopeRecords(tx, userId, sourceId, targetId)
   })
