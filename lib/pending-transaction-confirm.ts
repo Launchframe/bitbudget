@@ -9,6 +9,9 @@ export type ConfirmPendingOverrides = {
   date?: Date
   notes?: string | null
   tags?: string[]
+  /** Pre-fetched BTC/USD price for the transaction date. Pass this to avoid
+   *  holding the DB transaction connection open during a price cache lookup. */
+  btcPrice?: number | null
 }
 
 export type ConfirmedPendingTransaction = {
@@ -74,6 +77,10 @@ function resolveConfirmFields(
 /**
  * Atomically removes a pending row and creates the expense transaction.
  * Concurrent confirms for the same pending id create at most one transaction.
+ *
+ * For efficiency, pre-fetch the BTC price before calling and pass it as
+ * `overrides.btcPrice` — this keeps the DB transaction short and matches the
+ * pattern used in envelope-sweep.ts.
  */
 export async function confirmPendingTransactionAtomic(
   userId: string,
@@ -94,36 +101,40 @@ export async function confirmPendingTransactionAtomic(
       return null
     }
 
-      const {
-        finalPayee,
-        finalDate,
-        finalAmount,
-        finalNotes,
-        finalTags,
-      } = resolveConfirmFields(pending, overrides)
+    const {
+      finalPayee,
+      finalDate,
+      finalAmount,
+      finalNotes,
+      finalTags,
+    } = resolveConfirmFields(pending, overrides)
 
-      const dateStr = finalDate.toISOString().split("T")[0]
-      const btcPrice = await getBtcPriceForDate(dateStr)
-      const absAmount = Math.abs(finalAmount)
+    // Use a pre-fetched price when available so we don't hold the connection
+    // open while querying the price cache (or making an HTTP fallback request).
+    const btcPrice =
+      overrides.btcPrice !== undefined
+        ? overrides.btcPrice
+        : await getBtcPriceForDate(finalDate.toISOString().split("T")[0]!)
+    const absAmount = Math.abs(finalAmount)
 
-      const transaction = await tx.transaction.create({
-        data: {
-          userId,
-          envelopeId,
-          date: finalDate,
-          payee: finalPayee,
-          amount: absAmount,
-          type: "expense",
-          source: pending.source,
-          tags: finalTags,
-          notes: finalNotes ?? null,
-          satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
-        },
-      })
+    const transaction = await tx.transaction.create({
+      data: {
+        userId,
+        envelopeId,
+        date: finalDate,
+        payee: finalPayee,
+        amount: absAmount,
+        type: "expense",
+        source: pending.source,
+        tags: finalTags,
+        notes: finalNotes ?? null,
+        satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
+      },
+    })
 
     return {
       id: transaction.id,
-      date: transaction.date.toISOString().split("T")[0],
+      date: transaction.date.toISOString().split("T")[0]!,
       payee: transaction.payee,
       amount: transaction.amount,
       type: transaction.type,

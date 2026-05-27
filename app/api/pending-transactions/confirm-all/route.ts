@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { getBtcPriceForDate } from "@/lib/btc-price"
 import { confirmPendingTransactionAtomic } from "@/lib/pending-transaction-confirm"
 import { recordPayeeMapping } from "@/lib/envelope-matcher"
 
@@ -36,10 +37,14 @@ export async function POST(req: NextRequest) {
     })
     if (!envelope) continue
 
+    const dateStr = pending.date.toISOString().split("T")[0]!
+    const btcPrice = await getBtcPriceForDate(dateStr)
+
     const transaction = await confirmPendingTransactionAtomic(
       session.user.id,
       pending.id,
       envelopeId,
+      { btcPrice },
     )
     if (!transaction) continue
 

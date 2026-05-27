@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { getBtcPriceForDate } from "@/lib/btc-price"
 import { confirmPendingTransactionAtomic } from "@/lib/pending-transaction-confirm"
 import { recordPayeeMapping } from "@/lib/envelope-matcher"
 
@@ -43,6 +44,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid date" }, { status: 400 })
   }
 
+  // Fetch BTC price before opening the transaction so we don't hold a DB
+  // connection open during a cache lookup or HTTP fallback.
+  const effectiveDate = parsedDate ?? pending.date
+  const btcPrice = await getBtcPriceForDate(effectiveDate.toISOString().split("T")[0]!)
+
   const transaction = await confirmPendingTransactionAtomic(
     session.user.id,
     id,
@@ -56,6 +62,7 @@ export async function POST(req: NextRequest) {
         Array.isArray(tags) && tags.every((tag: unknown) => typeof tag === "string")
           ? tags
           : undefined,
+      btcPrice,
     },
   )
 

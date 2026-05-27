@@ -57,6 +57,8 @@ export async function savingsEnvelopeBalanceBefore(
   })
 }
 
+type BalanceQueryClient = Pick<typeof prisma, "transaction">
+
 /** All-time net balances for many envelopes (credits minus expenses). */
 export async function envelopeBalancesAllTimeBatch(
   userId: string,
@@ -65,8 +67,6 @@ export async function envelopeBalancesAllTimeBatch(
 ): Promise<Map<string, number>> {
   return envelopeBalancesBeforeBatch(userId, envelopeIds, undefined, client)
 }
-
-type BalanceQueryClient = Pick<typeof prisma, "transaction">
 
 /** Envelope balances before a UTC instant (half-open: date < beforeExclusive). Omit for all-time. */
 export async function envelopeBalancesBeforeBatch(

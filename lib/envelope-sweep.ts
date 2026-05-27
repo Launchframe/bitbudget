@@ -129,22 +129,8 @@ export async function sweepDiscretionaryEnvelopesForUser(
     })
     if (dup) return 0
 
-    let batch
-    try {
-      batch = await tx.envelopeFundingBatch.create({
-        data: {
-          userId,
-          periodKey,
-          kind: ENVELOPE_FUNDING_BATCH_KIND_SWEEP,
-        },
-      })
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-        return 0
-      }
-      throw e
-    }
-
+    // Read balances inside the transaction so they reflect committed state at the
+    // moment we decide amounts — preventing overdraft from a concurrent funding leg.
     const balances = await envelopeBalancesAllTimeBatch(
       userId,
       budgetRows.map((env) => env.id),
@@ -167,7 +153,26 @@ export async function sweepDiscretionaryEnvelopesForUser(
       if (amount > 0) entries.push({ envelopeId: env.id, name: env.name, amount })
     }
 
+    // Exit before creating the batch when there is nothing to sweep.
+    // This leaves the period key unwritten so a later cron run can retry
+    // (e.g. if income hasn't posted yet and envelopes are still empty).
     if (entries.length === 0) return 0
+
+    let batch
+    try {
+      batch = await tx.envelopeFundingBatch.create({
+        data: {
+          userId,
+          periodKey,
+          kind: ENVELOPE_FUNDING_BATCH_KIND_SWEEP,
+        },
+      })
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        return 0
+      }
+      throw e
+    }
 
     let created = 0
     for (const entry of entries) {
