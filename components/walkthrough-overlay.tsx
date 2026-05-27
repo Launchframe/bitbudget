@@ -189,11 +189,11 @@ export function WalkthroughOverlay() {
   }, [visible, positionTooltip])
 
   function handleNext() {
-    setCurrentStep((prev) => {
-      if (prev < steps.length - 1) return prev + 1
-      setTimeout(() => dismiss(), 0)
-      return prev
-    })
+    if (currentStep < steps.length - 1) {
+      setCurrentStep(currentStep + 1)
+    } else {
+      dismiss()
+    }
   }
 
   function handleBack() {

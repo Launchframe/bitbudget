@@ -23,7 +23,8 @@ export function useSetupGuideStatus(options: UseSetupGuideStatusOptions = {}) {
   const { state, activeTransactions, discretionaryEnvelopes, pendingTransactions } = useApp()
 
   const [remote, setRemote] = useState<SetupStatusApiResponse | null>(null)
-  const completedCountRef = useRef(0)
+  // null = never loaded; 0 means user genuinely has no completed tasks after first load
+  const completedCountRef = useRef<number | null>(null)
   const awardsBootstrappedRef = useRef(false)
   const setupIncompleteRef = useRef(true)
 
@@ -73,7 +74,11 @@ export function useSetupGuideStatus(options: UseSetupGuideStatusOptions = {}) {
     setRemote(data)
     if (
       requestAchievementPoll &&
-      ((data.newlyAwarded ?? 0) > 0 || data.completedCount > prevCount)
+      // Only count-based dispatch after we've established a baseline (prevCount !== null).
+      // On cold boot prevCount is null, so the poll fires only when achievements are
+      // actually newly awarded in the same POST response — not spuriously on every refresh.
+      ((data.newlyAwarded ?? 0) > 0 ||
+        (prevCount !== null && data.completedCount > prevCount))
     ) {
       window.dispatchEvent(new Event("bitbudget-achievements-poll"))
     }
@@ -95,7 +100,10 @@ export function useSetupGuideStatus(options: UseSetupGuideStatusOptions = {}) {
       if (!res.ok) return
       const data = (await res.json()) as SetupStatusApiResponse
       const prevCount = completedCountRef.current
-      const progressIncreased = data.completedCount > prevCount
+      // Guard: only treat count delta as "real progress" once we have a loaded baseline.
+      // On cold boot prevCount is null, so progressIncreased is false and we rely solely
+      // on bootstrapAwards to trigger the award POST.
+      const progressIncreased = prevCount !== null && data.completedCount > prevCount
       const bootstrapAwards =
         !awardsBootstrappedRef.current && data.completedCount > 0
 
