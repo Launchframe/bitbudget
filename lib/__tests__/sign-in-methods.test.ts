@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -354,5 +355,96 @@ describe("linkNostrSignInMethod", () => {
       code: "NOSTR_ALREADY_LINKED",
       status: 409,
     } satisfies Partial<SignInMethodError>)
+  })
+})
+
+/**
+ * parseNostrAuthEvent — auth-bypass regression tests.
+ *
+ * lib/auth.ts calls parseNostrAuthEvent() before verifyEvent() so that a
+ * publicly-scraped relay event (kind=1 social post, stale timestamp, etc.)
+ * cannot be replayed to authenticate as that user.  These tests document the
+ * attack vectors and confirm each is rejected BEFORE the cryptographic
+ * verifier runs (mockVerifyEvent must not be called).
+ */
+describe("parseNostrAuthEvent — relay-replay attack prevention", () => {
+  const pubkey = "b".repeat(64)
+
+  function buildEvent(overrides: Record<string, unknown> = {}) {
+    return JSON.stringify({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: Math.floor(Date.now() / 1000),
+      pubkey,
+      tags: [["method", NOSTR_AUTH_EVENT_METHOD]],
+      id: "some-id",
+      sig: "some-sig",
+      ...overrides,
+    })
+  }
+
+  it("accepts a well-formed auth event", () => {
+    expect(() => parseNostrAuthEvent(buildEvent(), pubkey)).not.toThrow()
+  })
+
+  it("rejects a kind=1 social-post scraped from a relay (wrong kind)", () => {
+    // ATTACK: attacker scrapes any publicly visible Nostr note from the victim
+    // and submits it to the login endpoint.  Before the fix, verifyEvent() was
+    // called directly and would return true for a valid social post, granting
+    // access.
+    expect(() =>
+      parseNostrAuthEvent(buildEvent({ kind: 1, content: "hello world" }), pubkey),
+    ).toThrow(SignInMethodError)
+
+    // Semantic rejection must happen before the crypto verifier runs.
+    expect(mockVerifyEvent).not.toHaveBeenCalled()
+  })
+
+  it("rejects a kind=0 profile-metadata event (wrong kind)", () => {
+    expect(() =>
+      parseNostrAuthEvent(buildEvent({ kind: 0, content: '{"name":"victim"}' }), pubkey),
+    ).toThrow(SignInMethodError)
+    expect(mockVerifyEvent).not.toHaveBeenCalled()
+  })
+
+  it("rejects an auth event with wrong content string", () => {
+    expect(() =>
+      parseNostrAuthEvent(buildEvent({ content: "other app login" }), pubkey),
+    ).toThrow(SignInMethodError)
+    expect(mockVerifyEvent).not.toHaveBeenCalled()
+  })
+
+  it("rejects a stale event older than 5 minutes (replay from relay history)", () => {
+    // ATTACK: attacker replays a BitBudget auth event that was captured more
+    // than 5 minutes ago (e.g. from relay history).
+    expect(() =>
+      parseNostrAuthEvent(buildEvent({ created_at: Math.floor(Date.now() / 1000) - 400 }), pubkey),
+    ).toThrow(expect.objectContaining({ message: "Nostr sign-in request expired" }))
+    expect(mockVerifyEvent).not.toHaveBeenCalled()
+  })
+
+  it("rejects a future-dated event beyond allowed skew", () => {
+    expect(() =>
+      parseNostrAuthEvent(buildEvent({ created_at: Math.floor(Date.now() / 1000) + 120 }), pubkey),
+    ).toThrow(SignInMethodError)
+    expect(mockVerifyEvent).not.toHaveBeenCalled()
+  })
+
+  it("rejects an event whose pubkey does not match the claimed login pubkey", () => {
+    expect(() =>
+      parseNostrAuthEvent(buildEvent({ pubkey: "c".repeat(64) }), pubkey),
+    ).toThrow(SignInMethodError)
+    expect(mockVerifyEvent).not.toHaveBeenCalled()
+  })
+
+  it("rejects an event missing the required method tag", () => {
+    expect(() =>
+      parseNostrAuthEvent(buildEvent({ tags: [] }), pubkey),
+    ).toThrow(SignInMethodError)
+    expect(mockVerifyEvent).not.toHaveBeenCalled()
+  })
+
+  it("rejects malformed JSON", () => {
+    expect(() => parseNostrAuthEvent("{bad json", pubkey)).toThrow(SignInMethodError)
   })
 })
