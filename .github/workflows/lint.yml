@@ -1,11 +1,11 @@
-# Required for merge: add "Lint" (or the job name shown in PR checks) under
-# Settings → Branches → Branch protection → Require status checks.
+# TEMPORARILY DISABLED (GHA budget): automatic runs off; manual via workflow_dispatch only.
+# Re-enable pull_request + push on main when budget allows. Until then: pnpm lint via pre-commit hook.
+# Branch protection may need required checks updated while this workflow is paused.
+# Required for merge (when re-enabled): add "Lint" under Branch protection → status checks.
 name: Lint
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: lint-${{ github.workflow }}-${{ github.ref }}
