@@ -303,6 +303,16 @@ export async function PUT(req: NextRequest) {
     )
   }
 
+  if (body.monthlyIncome !== undefined) {
+    if (typeof body.monthlyIncome !== "number" || !Number.isFinite(body.monthlyIncome)) {
+      return NextResponse.json({ error: "monthlyIncome must be a finite number" }, { status: 400 })
+    }
+    const validated = validateDecimal12_2(body.monthlyIncome, "monthlyIncome")
+    if (!validated.ok) {
+      return NextResponse.json({ error: validated.error }, { status: 400 })
+    }
+  }
+
   if (body.payCadence !== undefined) {
     if (typeof body.payCadence !== "string") {
       return NextResponse.json({ error: "Invalid pay cadence" }, { status: 400 })
@@ -422,6 +432,14 @@ export async function PUT(req: NextRequest) {
     if (field === "lastPaydayAt") {
       const parsed = parseOptionalIsoDate(body.lastPaydayAt)
       data.lastPaydayAt = parsed === "invalid" ? undefined : parsed
+      continue
+    }
+    if (field === "monthlyIncome") {
+      const income = body.monthlyIncome
+      if (income !== undefined) {
+        const validated = validateDecimal12_2(income, "monthlyIncome")
+        data.monthlyIncome = new Prisma.Decimal(validated.ok ? validated.value : 0)
+      }
       continue
     }
     if (field === "estimatedAnnualIncome") {
