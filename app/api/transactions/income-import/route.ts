@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db"
 import { awardIfMissing, detectAchievementsForUser } from "@/lib/achievements"
 import {
   entriesNeedMonthlyIncome,
+  entriesIncludeFuturePeriod,
   type IncomeImportEntry,
   parseIncomePeriodKey,
   processIncomeImport,
@@ -71,6 +72,13 @@ export async function POST(req: NextRequest) {
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  if (entriesIncludeFuturePeriod(entries)) {
+    return NextResponse.json(
+      { error: "Past income can't include future months or years." },
+      { status: 400 },
+    )
   }
 
   const needsMonthlyIncome = entriesNeedMonthlyIncome(entries)
