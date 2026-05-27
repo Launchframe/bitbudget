@@ -1,7 +1,10 @@
 import { prisma } from "./db"
 import { encryptFieldForUser } from "./server-encrypt"
 
-const HIGH_CONFIDENCE_THRESHOLD = 0.75
+export const HIGH_CONFIDENCE_THRESHOLD = 0.75
+
+/** The highest confidence value that still routes to pending (for untrusted paths). */
+export const MAX_CONFIDENCE_WITHOUT_TOKEN = HIGH_CONFIDENCE_THRESHOLD - 0.01
 
 export function routeByConfidence(confidence: number): "live" | "pending" {
   return confidence >= HIGH_CONFIDENCE_THRESHOLD ? "live" : "pending"
@@ -55,6 +58,10 @@ export async function routeTransaction(
       })
       return { route: "live" as const, id: transaction.id }
     }
+    // Envelope not found or does not belong to this user — downgrade to pending.
+    console.warn(
+      `[confidence-router] envelope ${parsed.suggestedEnvelopeId} not found for user ${userId}; routing to pending`,
+    )
   }
 
   const pending = await prisma.pendingTransaction.create({

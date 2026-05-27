@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import { parseReceiptText } from "@/lib/receipt-parser"
 import { matchEnvelope } from "@/lib/envelope-matcher"
-import { routeTransaction } from "@/lib/confidence-router"
+import { routeTransaction, MAX_CONFIDENCE_WITHOUT_TOKEN } from "@/lib/confidence-router"
 import {
   getSendGridInboundHeaders,
   isSendGridWebhookTimestampFresh,
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
     // Legacy sender-email routing cannot trust the From header; never auto-post live.
     const confidence = resolvedViaInboxToken
       ? matchedConfidence
-      : Math.min(matchedConfidence, 0.74)
+      : Math.min(matchedConfidence, MAX_CONFIDENCE_WITHOUT_TOKEN)
     const result = await routeTransaction(user.id, {
       payee: parsed.payee || "Unknown",
       amount,

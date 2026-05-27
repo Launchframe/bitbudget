@@ -41,4 +41,16 @@ describe("cronAuthFailureResponse", () => {
     const res = cronAuthFailureResponse("Bearer wrong")
     expect(res?.status).toBe(401)
   })
+
+  it("rejects when no Authorization header is sent (null)", () => {
+    process.env.CRON_SECRET = "test-secret"
+    const res = cronAuthFailureResponse(null)
+    expect(res?.status).toBe(401)
+  })
+
+  it("rejects a whitespace-only CRON_SECRET", () => {
+    process.env.CRON_SECRET = "   "
+    const res = cronAuthFailureResponse("Bearer    ")
+    expect(res?.status).toBe(401)
+  })
 })
