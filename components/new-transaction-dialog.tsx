@@ -32,6 +32,13 @@ import {
   type PayeeCandidate,
 } from "@/lib/payee-canonical"
 import { findCollidingTransaction } from "@/lib/transaction-dedup"
+import {
+  dateInputValueFromTransactionDate,
+  mergeCalendarDayIntoTransactionDate,
+  todayTransactionCalendarDay,
+} from "@/lib/transaction-dates"
+import { pickTransactionSuccessMessage } from "@/lib/transaction-success-messages"
+import { TransactionSuccessView } from "@/components/transaction-success-view"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -111,7 +118,7 @@ export function NewTransactionDialog() {
   const [payee, setPayee] = useState("")
   const [amount, setAmount] = useState("")
   const [envelopeId, setEnvelopeId] = useState("")
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0])
+  const [date, setDate] = useState(() => todayTransactionCalendarDay())
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [newTag, setNewTag] = useState("")
   const [notes, setNotes] = useState("")
@@ -136,6 +143,11 @@ export function NewTransactionDialog() {
   /** Short-lived object URL for PDF previews (see `pdfDataUrlToBlob`). */
   const [receiptPdfBlobUrl, setReceiptPdfBlobUrl] = useState<string | null>(null)
   const [receiptLightboxOpen, setReceiptLightboxOpen] = useState(false)
+  const [successSnapshot, setSuccessSnapshot] = useState<{
+    message: string
+    payee: string
+    amount: number
+  } | null>(null)
 
   type ModalView = "main" | "recurring" | "tags"
   const [modalView, setModalView] = useState<ModalView>("main")
@@ -153,6 +165,7 @@ export function NewTransactionDialog() {
   useEffect(() => {
     if (!transactionDialogOpen) {
       setDuplicateExisting(null)
+      setSuccessSnapshot(null)
     }
   }, [transactionDialogOpen])
 
@@ -465,7 +478,7 @@ export function NewTransactionDialog() {
     setPayee("")
     setAmount("")
     setEnvelopeId("")
-    setDate(new Date().toISOString().split("T")[0])
+    setDate(todayTransactionCalendarDay())
     setSelectedTags([])
     setNewTag("")
     setNotes("")
@@ -479,6 +492,20 @@ export function NewTransactionDialog() {
     setImportSourcePayee(null)
     setAliasSaveMessage(null)
     setDuplicateExisting(null)
+  }
+
+  function finishSuccessAndClose() {
+    setSuccessSnapshot(null)
+    resetForm()
+    setTransactionDialogOpen(false)
+  }
+
+  function handleDialogOpenChange(open: boolean) {
+    if (!open) {
+      setSuccessSnapshot(null)
+      resetForm()
+    }
+    setTransactionDialogOpen(open)
   }
 
   async function submitTransaction(options: { bypassDuplicateCheck?: boolean } = {}) {
@@ -516,10 +543,13 @@ export function NewTransactionDialog() {
 
     setDuplicateExisting(null)
 
+    const savedPayee = payee.trim()
+    const isRecurringSubmit = Boolean(recurringId) || isRecurring
+
     if (recurringId) {
       setSubmitting(true)
       try {
-        const encPayee = await encryptForStorage(payee.trim())
+        const encPayee = await encryptForStorage(savedPayee)
         const encNotes = notes.trim() ? await encryptForStorage(notes.trim()) : null
         const res = await fetch("/api/recurring/post-now", {
           method: "POST",
@@ -546,7 +576,7 @@ export function NewTransactionDialog() {
     } else if (isRecurring) {
       setSubmitting(true)
       try {
-        const encPayee = await encryptForStorage(payee.trim())
+        const encPayee = await encryptForStorage(savedPayee)
         const encNotes = notes.trim() ? await encryptForStorage(notes.trim()) : null
         const res = await fetch("/api/recurring", {
           method: "POST",
@@ -572,15 +602,24 @@ export function NewTransactionDialog() {
         setSubmitting(false)
       }
     } else {
-      addTransaction({
-        date,
-        payee: payee.trim(),
-        amount: amt,
-        type,
-        envelopeId,
-        tags: selectedTags,
-        notes: notes.trim() || null,
-      })
+      setSubmitting(true)
+      try {
+        const ok = await addTransaction({
+          date,
+          payee: savedPayee,
+          amount: amt,
+          type,
+          envelopeId,
+          tags: selectedTags,
+          notes: notes.trim() || null,
+        })
+        if (!ok) {
+          alert("Failed to save transaction. Please try again.")
+          return
+        }
+      } finally {
+        setSubmitting(false)
+      }
     }
 
     if (saveAsShortcut) {
@@ -588,15 +627,18 @@ export function NewTransactionDialog() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          payee: payee.trim(),
+          payee: savedPayee,
           defaultAmount: Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : null,
           envelopeId,
         }),
       })
     }
 
-    resetForm()
-    setTransactionDialogOpen(false)
+    setSuccessSnapshot({
+      message: pickTransactionSuccessMessage(type, { isRecurring: isRecurringSubmit }),
+      payee: savedPayee,
+      amount: amt,
+    })
   }
 
   function handleFormSubmit(e: React.FormEvent) {
@@ -622,14 +664,27 @@ export function NewTransactionDialog() {
   }
 
   return (
-    <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen}>
+    <Dialog open={transactionDialogOpen} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="flex max-h-[min(90dvh,900px)] min-h-0 flex-col gap-0 overflow-hidden border-[#1F1F1F] bg-[#0D0D0D] p-0 text-foreground sm:max-w-lg">
         <DialogHeader className="shrink-0 px-6 pb-2 pr-14 pt-6">
           <DialogTitle className="text-lg font-bold text-foreground">
-            {transactionPrefill?.recurringId ? "Post Recurring Transaction" : "New Transaction"}
+            {successSnapshot
+              ? "Saved!"
+              : transactionPrefill?.recurringId
+                ? "Post Recurring Transaction"
+                : "New Transaction"}
           </DialogTitle>
         </DialogHeader>
 
+        {successSnapshot ? (
+          <TransactionSuccessView
+            message={successSnapshot.message}
+            payee={successSnapshot.payee}
+            amount={successSnapshot.amount}
+            opportunityCostEnabled={state.opportunityCostEnabled}
+            onDone={finishSuccessAndClose}
+          />
+        ) : (
         <form onSubmit={handleFormSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {modalView === "main" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -907,8 +962,10 @@ export function NewTransactionDialog() {
                 <Input
                   id="date"
                   type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  value={dateInputValueFromTransactionDate(date)}
+                  onChange={(e) =>
+                    setDate(mergeCalendarDayIntoTransactionDate(date, e.target.value))
+                  }
                   className="bg-[#1A1A1A] border-[#333] text-foreground"
                   required
                 />
@@ -1196,6 +1253,7 @@ export function NewTransactionDialog() {
             </div>
           )}
         </form>
+        )}
 
         {/* Nested dialog avoids body-portal + outer preventDefault(), which blocked lightbox controls (e.g. close X). */}
         <Dialog open={receiptLightboxOpen} onOpenChange={setReceiptLightboxOpen}>

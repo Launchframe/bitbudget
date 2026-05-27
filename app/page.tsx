@@ -27,6 +27,8 @@ import { TransactionLoadingIndicator } from "@/components/transaction-loading-in
 import { TrialWelcomeBanner } from "@/components/trial-welcome-banner"
 import { ReferralPlaidReminderBanner } from "@/components/referral-plaid-reminder-banner"
 import { SurveySheetHost } from "@/components/survey-sheet"
+import { WalkthroughOverlay } from "@/components/walkthrough-overlay"
+import { AchievementCelebrationHost } from "@/components/achievement-celebration-host"
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -182,6 +184,8 @@ export default function Dashboard() {
                 </main>
               </div>
               <MobileNav />
+              <WalkthroughOverlay />
+              <AchievementCelebrationHost />
               <NewTransactionDialog />
               <SurveySheetHost />
             </div>

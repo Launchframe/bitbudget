@@ -1,4 +1,5 @@
 import type { CommunicationPreferences } from "./communication-preferences"
+import { transactionCalendarDay } from "@/lib/transaction-dates"
 
 export type { CommunicationPreferenceKey, CommunicationPreferences } from "./communication-preferences"
 
@@ -23,7 +24,8 @@ export type TransactionSource =
 
 export interface Transaction {
   id: string
-  date: string // ISO date string YYYY-MM-DD
+  /** Calendar `YYYY-MM-DD` or full ISO 8601 when a capture timestamp is stored. */
+  date: string
   payee: string
   amount: number
   type: TransactionType
@@ -36,6 +38,7 @@ export interface Transaction {
   /** Funding allocation legs hidden from global transaction lists */
   excludeFromMainHistory?: boolean
   fundingBatchId?: string | null
+  fundingBatchPeriodKey?: string | null
   /** Server creation timestamp for ordering same-day transactions. */
   createdAt?: string
   /** Server row version for delta sync (ISO 8601). */
@@ -109,6 +112,9 @@ export interface AppState {
   communicationPreferences: CommunicationPreferences
   savingsExperience: string
   walkthroughCompleted: boolean
+  setupGuideSnoozedUntil: string | null
+  setupGuideDismissed: boolean
+  setupGuideShowOnDashboard: boolean
 }
 
 export function compareTransactionsDesc(a: Transaction, b: Transaction): number {
@@ -291,6 +297,9 @@ export function getDefaultState(): AppState {
     },
     savingsExperience: "engaged",
     walkthroughCompleted: false,
+    setupGuideSnoozedUntil: null,
+    setupGuideDismissed: false,
+    setupGuideShowOnDashboard: true,
   }
 }
 
@@ -301,7 +310,7 @@ export function generateId(): string {
 }
 
 export function getMonthKey(date: string): string {
-  return date.slice(0, 7)
+  return transactionCalendarDay(date).slice(0, 7)
 }
 
 export function getCurrentMonthKey(): string {

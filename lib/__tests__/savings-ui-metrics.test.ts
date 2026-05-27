@@ -176,11 +176,11 @@ describe("avgMonthlySpendLastNMonths", () => {
     const realDate = Date
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- vitest Date mock
     ;(global as any).Date = class extends realDate {
-      constructor(...args: ConstructorParameters<typeof realDate>) {
+      constructor(...args: unknown[]) {
         if (args.length === 0) {
           super(Date.UTC(2026, 4, 23, 12, 0, 0))
         } else {
-          super(...args)
+          super(...(args as ConstructorParameters<typeof realDate>))
         }
       }
       static UTC = realDate.UTC

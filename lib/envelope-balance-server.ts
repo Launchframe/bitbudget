@@ -57,12 +57,15 @@ export async function savingsEnvelopeBalanceBefore(
   })
 }
 
+type BalanceQueryClient = Pick<typeof prisma, "transaction">
+
 /** All-time net balances for many envelopes (credits minus expenses). */
 export async function envelopeBalancesAllTimeBatch(
   userId: string,
   envelopeIds: readonly string[],
+  client: BalanceQueryClient = prisma,
 ): Promise<Map<string, number>> {
-  return envelopeBalancesBeforeBatch(userId, envelopeIds)
+  return envelopeBalancesBeforeBatch(userId, envelopeIds, undefined, client)
 }
 
 /** Envelope balances before a UTC instant (half-open: date < beforeExclusive). Omit for all-time. */
@@ -70,12 +73,13 @@ export async function envelopeBalancesBeforeBatch(
   userId: string,
   envelopeIds: readonly string[],
   beforeExclusive?: Date,
+  client: BalanceQueryClient = prisma,
 ): Promise<Map<string, number>> {
   const result = new Map<string, number>()
   if (envelopeIds.length === 0) return result
   for (const id of envelopeIds) result.set(id, 0)
 
-  const rows = await prisma.transaction.groupBy({
+  const rows = await client.transaction.groupBy({
     by: ["envelopeId", "type"],
     where: {
       userId,

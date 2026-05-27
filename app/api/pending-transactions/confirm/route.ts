@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import { getBtcPriceForDate } from "@/lib/btc-price"
+import { confirmPendingTransactionAtomic } from "@/lib/pending-transaction-confirm"
 import { recordPayeeMapping } from "@/lib/envelope-matcher"
 
 export async function POST(req: NextRequest) {
@@ -37,43 +38,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
   }
 
-  const finalPayee = typeof payee === "string" && payee.trim() ? payee.trim() : pending.payee
-  const finalDate = typeof date === "string" && date.trim() ? new Date(date) : pending.date
-  const finalAmount =
-    typeof amount === "number" && Number.isFinite(amount) && amount > 0
-      ? amount
-      : Math.abs(pending.amount)
-  const finalNotes =
-    notes === null ? null : typeof notes === "string" ? notes : pending.notes
-  const finalTags =
-    Array.isArray(tags) && tags.every((tag) => typeof tag === "string")
-      ? JSON.stringify(tags.filter((tag) => tag.trim().length > 0))
-      : pending.tags ?? "[]"
-
-  if (Number.isNaN(finalDate.getTime())) {
+  const parsedDate =
+    typeof date === "string" && date.trim() ? new Date(date) : undefined
+  if (parsedDate !== undefined && Number.isNaN(parsedDate.getTime())) {
     return NextResponse.json({ error: "Invalid date" }, { status: 400 })
   }
 
-  const dateStr = finalDate.toISOString().split("T")[0]
-  const btcPrice = await getBtcPriceForDate(dateStr)
-  const absAmount = Math.abs(finalAmount)
+  // Fetch BTC price before opening the transaction so we don't hold a DB
+  // connection open during a cache lookup or HTTP fallback.
+  const effectiveDate = parsedDate ?? pending.date
+  const btcPrice = await getBtcPriceForDate(effectiveDate.toISOString().split("T")[0]!)
 
-  const transaction = await prisma.transaction.create({
-    data: {
-      userId: session.user.id,
-      envelopeId,
-      date: finalDate,
-      payee: finalPayee,
-      amount: absAmount,
-      type: "expense",
-      source: pending.source,
-      tags: finalTags,
-      notes: finalNotes ?? null,
-      satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
+  const transaction = await confirmPendingTransactionAtomic(
+    session.user.id,
+    id,
+    envelopeId,
+    {
+      payee: typeof payee === "string" ? payee : undefined,
+      amount: typeof amount === "number" ? amount : undefined,
+      date: parsedDate,
+      notes: notes === null ? null : typeof notes === "string" ? notes : undefined,
+      tags:
+        Array.isArray(tags) && tags.every((tag: unknown) => typeof tag === "string")
+          ? tags
+          : undefined,
+      btcPrice,
     },
-  })
+  )
 
-  await prisma.pendingTransaction.delete({ where: { id } })
+  if (!transaction) {
+    return NextResponse.json(
+      { error: "Pending transaction not found or already confirmed" },
+      { status: 409 },
+    )
+  }
 
   const mappingPayee =
     typeof payeePlain === "string" && payeePlain.trim() ? payeePlain.trim() : null
@@ -81,19 +79,5 @@ export async function POST(req: NextRequest) {
     await recordPayeeMapping(session.user.id, mappingPayee, envelopeId)
   }
 
-  return NextResponse.json(
-    {
-      id: transaction.id,
-      date: transaction.date.toISOString().split("T")[0],
-      payee: transaction.payee,
-      amount: transaction.amount,
-      type: transaction.type,
-      envelopeId: transaction.envelopeId,
-      tags: JSON.parse(transaction.tags),
-      notes: transaction.notes ?? null,
-      satsAmount: transaction.satsAmount ?? null,
-      recurringId: transaction.recurringId ?? null,
-    },
-    { status: 201 },
-  )
+  return NextResponse.json(transaction, { status: 201 })
 }

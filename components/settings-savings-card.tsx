@@ -7,11 +7,13 @@ import {
   SAVINGS_EXPERIENCE_DISMISSED,
   SAVINGS_EXPERIENCE_ENGAGED,
   SAVINGS_GOLD_ACCENT,
-  SAVINGS_GOAL_DEFAULT_PERIOD,
   SWEEP_POLICY_CAPPED,
   SWEEP_POLICY_CARRY_FORWARD,
   SWEEP_POLICY_RESET,
 } from "@/lib/constants"
+import {
+  SAVINGS_GOAL_DEFAULT_PERIOD,
+} from "@/lib/savings-goal"
 import {
   computeGoalStreak,
   formatPeriodKeyLabel,
@@ -23,6 +25,7 @@ import {
   type SweepPolicy,
 } from "@/lib/sweep-policy-hints"
 import { IrregularIncomeDialog } from "@/components/irregular-income-dialog"
+import { SavingsGoalsWalkthroughDialog } from "@/components/savings-goals-walkthrough-dialog"
 import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
 import { Input } from "@/components/ui/input"
@@ -55,6 +58,8 @@ const SWEEP_POLICY_LABELS: Record<SweepPolicy, string> = {
   [SWEEP_POLICY_CARRY_FORWARD]: "Carry forward",
   [SWEEP_POLICY_CAPPED]: "Cap surplus",
 }
+
+const FORWARD_OVERRIDE_MONTHS = 6
 
 function shiftPeriodKey(periodKey: string, deltaMonths: number): string {
   if (periodKey === SAVINGS_GOAL_DEFAULT_PERIOD) return periodKey
@@ -116,6 +121,8 @@ export function SettingsSavingsCard() {
   const [goalsLoading, setGoalsLoading] = useState(false)
   const [monthDrafts, setMonthDrafts] = useState<Record<string, string>>({})
   const [monthSaving, setMonthSaving] = useState<string | null>(null)
+  const [overridesOpen, setOverridesOpen] = useState(false)
+  const [walkthroughOpen, setWalkthroughOpen] = useState(false)
 
   const [sweepDefaultPolicy, setSweepDefaultPolicy] = useState<SweepPolicy>(SWEEP_POLICY_RESET)
   const [sweepCapMultiplier, setSweepCapMultiplier] = useState(1.5)
@@ -123,8 +130,9 @@ export function SettingsSavingsCard() {
 
   const loadSavingsData = useCallback(async () => {
     setGoalsLoading(true)
-    const from = shiftPeriodKey(monthKey, -6)
-    const to = shiftPeriodKey(monthKey, 3)
+    // Load past closed rows for streak; overrides table only shows current month forward.
+    const from = shiftPeriodKey(monthKey, -12)
+    const to = shiftPeriodKey(monthKey, FORWARD_OVERRIDE_MONTHS)
     try {
       const [defaultRes, listRes, settingsRes] = await Promise.all([
         fetch(`/api/user/savings-goal?periodKey=${encodeURIComponent(SAVINGS_GOAL_DEFAULT_PERIOD)}`),
@@ -182,7 +190,7 @@ export function SettingsSavingsCard() {
 
   const tablePeriodKeys = useMemo(() => {
     const keys: string[] = []
-    for (let i = -3; i <= 3; i++) {
+    for (let i = 0; i <= FORWARD_OVERRIDE_MONTHS; i++) {
       keys.push(shiftPeriodKey(monthKey, i))
     }
     return keys
@@ -344,11 +352,20 @@ export function SettingsSavingsCard() {
         <h3 className="text-lg font-semibold text-foreground">Savings tracking</h3>
       </div>
 
-      <p className="text-sm text-muted-foreground mb-4">
-        You deserve to pay yourself first. Your income goes directly to Savings, and then Savings are distributed to fill your envelopes
-        at the start of each month.
-        Turn tracking off to hide goals, streaks, and the Savings hero card while keeping the underlying ledger.
+      <p className="text-sm text-muted-foreground mb-3">
+        Pay yourself first. A monthly savings goal helps you see whether your Savings balance is growing—and
+        builds a streak when you keep hitting it.
       </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="mb-4 border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10 hover:text-[#D4AF37]"
+        onClick={() => setWalkthroughOpen(true)}
+      >
+        How it works
+      </Button>
+      <SavingsGoalsWalkthroughDialog open={walkthroughOpen} onOpenChange={setWalkthroughOpen} />
 
       <div className="flex items-center justify-between gap-4 rounded-lg bg-[#1A1A1A] px-4 py-3 mb-4">
         <span className="text-sm text-foreground">Show Savings tracking</span>
@@ -388,13 +405,13 @@ export function SettingsSavingsCard() {
 
           <div className="rounded-lg bg-[#1A1A1A] p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium text-foreground">Default monthly goal</span>
+              <span className="text-sm font-medium text-foreground">My monthly goal</span>
               <span className="text-sm font-semibold" style={{ color: SAVINGS_GOLD_ACCENT }}>
                 {formatUsd(defaultGoalDraft)}
               </span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Used for new months unless you set a per-month override below.
+              Your default monthly target.
             </p>
             <Slider
               min={0}
@@ -430,99 +447,110 @@ export function SettingsSavingsCard() {
                 {defaultGoalError}
               </p>
             )}
-          </div>
 
-          <div className="space-y-2">
-            <h4 className="text-sm font-medium text-foreground">Per-month overrides</h4>
-            {goalsLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Loading goals…
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-[#1F1F1F]">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[#1F1F1F] text-left text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">Month</th>
-                      <th className="px-3 py-2 font-medium">Target</th>
-                      <th className="px-3 py-2 font-medium">Status</th>
-                      <th className="px-3 py-2 font-medium w-20" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tablePeriodKeys.map((periodKey) => {
-                      const row = rowForPeriod(periodKey)
-                      const isPast = periodKey < monthKey
-                      const isFuture = periodKey > monthKey
-                      const editability = row?.editability ?? (isFuture ? "editable" : isPast ? "closed" : "editable")
-                      const graceDays = graceDaysRemaining(row?.graceEndsAt)
-                      const draftVal = monthDrafts[periodKey] ?? String(row?.targetAmount ?? defaultGoal)
-                      const readOnly = editability === "closed" || (isPast && !row)
-
-                      return (
-                        <tr key={periodKey} className="border-b border-[#1F1F1F] last:border-0">
-                          <td className="px-3 py-2 text-foreground whitespace-nowrap">
-                            {formatPeriodKeyLabel(periodKey)}
-                            {periodKey === monthKey && (
-                              <span className="ml-1.5 text-xs text-muted-foreground">(current)</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2">
-                            {readOnly ? (
-                              <span>{formatUsd(row?.targetAmount ?? 0)}</span>
-                            ) : (
-                              <Input
-                                type="number"
-                                min={0}
-                                step={25}
-                                value={draftVal}
-                                onChange={(e) =>
-                                  setMonthDrafts((prev) => ({ ...prev, [periodKey]: e.target.value }))
-                                }
-                                className="bg-[#0D0D0D] border-[#333] h-8 w-28"
-                                aria-label={`Goal target for ${formatPeriodKeyLabel(periodKey)}`}
-                              />
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-muted-foreground">
-                            {row?.closedAt ? (
-                              <>
-                                {row.achievedGoal ? "Hit goal" : "Missed"} · saved{" "}
-                                {formatUsd(row.actualSavedAmount ?? 0)}
-                                {row.progressPct != null && ` (${Math.round(row.progressPct * 100)}%)`}
-                              </>
-                            ) : editability === "upward_only" ? (
-                              "Raise only"
-                            ) : graceDays != null && periodKey === monthKey ? (
-                              `Grace: ${graceDays}d left`
-                            ) : isFuture ? (
-                              "Future override"
-                            ) : (
-                              "Open"
-                            )}
-                          </td>
-                          <td className="px-3 py-2">
-                            {!readOnly && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 px-2 text-xs"
-                                disabled={monthSaving === periodKey}
-                                onClick={() => void saveMonthOverride(periodKey)}
-                              >
-                                {monthSaving === periodKey ? "…" : "Save"}
-                              </Button>
-                            )}
-                          </td>
+            <Collapsible open={overridesOpen} onOpenChange={setOverridesOpen}>
+              <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 rounded-lg border border-[#252525] bg-[#0D0D0D] px-3 py-2.5 text-sm text-foreground hover:bg-[#141414] transition-colors">
+                <span>Upcoming goals</span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${overridesOpen ? "rotate-180" : ""}`}
+                  aria-hidden
+                />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3 space-y-2">
+                <p className="text-xs text-muted-foreground px-0.5">
+                  Set a different target up to {FORWARD_OVERRIDE_MONTHS} months in advance.
+                </p>
+                {goalsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    Loading goals…
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-[#252525]">
+                    <table className="w-full text-sm min-w-[280px]">
+                      <thead>
+                        <tr className="border-b border-[#252525] text-left text-muted-foreground">
+                          <th className="px-3 py-2 font-medium">Month</th>
+                          <th className="px-3 py-2 font-medium">Target</th>
+                          <th className="px-3 py-2 font-medium">Status</th>
+                          <th className="px-3 py-2 font-medium w-20" />
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                      </thead>
+                      <tbody>
+                        {tablePeriodKeys.map((periodKey) => {
+                          const row = rowForPeriod(periodKey)
+                          const isFuture = periodKey > monthKey
+                          const editability =
+                            row?.editability ?? (isFuture ? "editable" : "editable")
+                          const graceDays = graceDaysRemaining(row?.graceEndsAt)
+                          const draftVal = monthDrafts[periodKey] ?? String(row?.targetAmount ?? defaultGoal)
+                          const readOnly = editability === "closed"
+
+                          return (
+                            <tr key={periodKey} className="border-b border-[#252525] last:border-0">
+                              <td className="px-3 py-2 text-foreground whitespace-nowrap">
+                                {formatPeriodKeyLabel(periodKey)}
+                                {periodKey === monthKey && (
+                                  <span className="ml-1.5 text-xs text-muted-foreground">(current)</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2">
+                                {readOnly ? (
+                                  <span>{formatUsd(row?.targetAmount ?? 0)}</span>
+                                ) : (
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step={25}
+                                    value={draftVal}
+                                    onChange={(e) =>
+                                      setMonthDrafts((prev) => ({ ...prev, [periodKey]: e.target.value }))
+                                    }
+                                    className="bg-[#0D0D0D] border-[#333] h-8 w-28"
+                                    aria-label={`Goal target for ${formatPeriodKeyLabel(periodKey)}`}
+                                  />
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-muted-foreground">
+                                {row?.closedAt ? (
+                                  <>
+                                    {row.achievedGoal ? "Hit goal" : "Missed"} · saved{" "}
+                                    {formatUsd(row.actualSavedAmount ?? 0)}
+                                    {row.progressPct != null && ` (${Math.round(row.progressPct * 100)}%)`}
+                                  </>
+                                ) : editability === "upward_only" ? (
+                                  "Raise only"
+                                ) : graceDays != null && periodKey === monthKey ? (
+                                  `Grace: ${graceDays}d left`
+                                ) : isFuture ? (
+                                  "Not started"
+                                ) : (
+                                  "Open"
+                                )}
+                              </td>
+                              <td className="px-3 py-2">
+                                {!readOnly && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 px-2 text-xs"
+                                    disabled={monthSaving === periodKey}
+                                    onClick={() => void saveMonthOverride(periodKey)}
+                                  >
+                                    {monthSaving === periodKey ? "…" : "Save"}
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
           </div>
 
           <div className="rounded-lg bg-[#1A1A1A] p-4 space-y-4">

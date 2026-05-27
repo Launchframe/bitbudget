@@ -15,6 +15,7 @@ import {
 import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
+import { formatTransactionTableDate, transactionCalendarDay } from "@/lib/transaction-dates"
 import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -24,6 +25,8 @@ import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 import { findSavingsEnvelope } from "@/lib/savings-ui-metrics"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
+import { useTransactionDeleteConfirm } from "@/components/use-transaction-delete-confirm"
+import { canDeleteTransactionFromList } from "@/lib/transaction-batch-delete"
 import { PayeeMappingReviewBanner } from "@/components/payee-mapping-review-banner"
 import { UpcomingRecurringTransactions } from "@/components/upcoming-recurring-transactions"
 import {
@@ -54,13 +57,13 @@ export function TransactionsPage() {
     state,
     discretionaryEnvelopes,
     activeTransactions,
-    deleteTransaction,
     highlightTransactionId,
     transactionEnvelopeFilter,
     clearTransactionEnvelopeFilter,
     openNewTransaction,
     historyReady,
   } = useApp()
+  const { requestDelete, confirmDialog } = useTransactionDeleteConfirm()
   const { calculateOpportunityCost } = useBtcPrices()
 
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
@@ -153,10 +156,10 @@ export function TransactionsPage() {
     }
 
     if (startDate) {
-      result = result.filter((t) => t.date >= startDate)
+      result = result.filter((t) => transactionCalendarDay(t.date) >= startDate)
     }
     if (endDate) {
-      result = result.filter((t) => t.date <= endDate)
+      result = result.filter((t) => transactionCalendarDay(t.date) <= endDate)
     }
 
     return [...result].sort(compareTransactionsDesc)
@@ -265,7 +268,9 @@ export function TransactionsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
-        <h2 className="text-xl font-semibold text-foreground">All Transactions</h2>
+        <h2 className="text-xl font-semibold text-foreground" data-walkthrough="transactions-header">
+          All Transactions
+        </h2>
         <div className="flex flex-wrap items-center gap-4 md:gap-6 mt-2">
           <div className="flex flex-col gap-0.5">
             <span className="text-xs text-muted-foreground uppercase tracking-wider">Total</span>
@@ -301,7 +306,7 @@ export function TransactionsPage() {
         <div className="self-start flex items-center gap-2 mt-3">
           <button
             onClick={() => openNewTransaction()}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors"
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors md:hidden"
           >
             <Plus className="h-4 w-4" />
             New Transaction
@@ -587,7 +592,7 @@ export function TransactionsPage() {
                     onClick={() => setSelectedTxn(txn)}
                   >
                     <td className="py-3.5 px-4 text-sm text-muted-foreground whitespace-nowrap">
-                      {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      {formatTransactionTableDate(txn.date)}
                     </td>
                     <td className="py-3.5 px-4 text-sm font-medium text-foreground">
                       <div className="flex flex-col gap-1">
@@ -669,13 +674,15 @@ export function TransactionsPage() {
                       </td>
                     )}
                     <td className="py-3.5 px-4 text-right">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); deleteTransaction(txn.id) }}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-all"
-                        aria-label={`Delete transaction ${txn.payee}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      {canDeleteTransactionFromList(txn) && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); requestDelete(txn) }}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-all"
+                          aria-label={`Delete transaction ${txn.payee}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )
@@ -787,6 +794,7 @@ export function TransactionsPage() {
           setSelectedTxn(incomeTxn)
         }}
       />
+      {confirmDialog}
     </div>
   )
 }

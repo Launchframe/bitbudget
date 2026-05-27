@@ -160,7 +160,10 @@ export function MobileNav() {
 
   return (
     <>
-      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-[#0D0D0D] border-t border-[#1F1F1F] pb-[env(safe-area-inset-bottom)]">
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-[#0D0D0D] border-t border-[#1F1F1F] pb-[env(safe-area-inset-bottom)]"
+        data-walkthrough="app-nav"
+      >
         <div className="flex items-center justify-around px-1 h-16">
           {navItems.map((item, i) => {
             const isActive = currentPage === item.id || (item.id === "envelopes" && (currentPage === "envelope-detail" || currentPage === "envelope-allocations"))
@@ -177,6 +180,7 @@ export function MobileNav() {
                       fabNudge && "-translate-y-3",
                     )}
                     aria-label="New transaction"
+                    data-walkthrough="new-transaction"
                     onClick={handleFabClick}
                   >
                     <FabIcon className="h-6 w-6" />

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import { detectAchievementsForUser } from "@/lib/achievements"
 
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -31,4 +32,15 @@ export async function GET(req: NextRequest) {
       metadata: r.metadata,
     })),
   })
+}
+
+/** Run achievement detection (side effects). Call before polling GET when tasks may have changed. */
+export async function POST() {
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const newlyAwarded = await detectAchievementsForUser(session.user.id)
+  return NextResponse.json({ newlyAwarded })
 }

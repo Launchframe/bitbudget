@@ -15,7 +15,7 @@ transaction_history.csv
 
 # agents
 docs/plans
-.cursor/real-steel/*.md
+.cursor/real-steel/
 
 # debug
 npm-debug.log*
