@@ -9,6 +9,7 @@ import {
   entriesNeedMonthlyIncome,
   filterImportDatesThroughToday,
   importBatchPeriodKey,
+  incomeImportBatchPeriodMatches,
   isImportPeriodFuture,
   isLegacyImportBatchPeriodKey,
   isPeriodCurrent,
@@ -237,6 +238,40 @@ describe("sumPriorIncomeImportForPeriod", () => {
       "2026-05",
     )
     expect(total).toBe(1000)
+  })
+
+  it("uses exact import batch period keys when available", () => {
+    const total = sumPriorIncomeImportForPeriod(
+      [
+        {
+          type: "credit",
+          source: "income_import",
+          amount: 1200,
+          date: "2023-01-15",
+          fundingBatchPeriodKey: "import-user-1-2023-01",
+        },
+        {
+          type: "credit",
+          source: "income_import",
+          amount: 12000,
+          date: "2023-01-15",
+          fundingBatchPeriodKey: "import-user-1-2023",
+        },
+      ],
+      "2023",
+    )
+
+    expect(total).toBe(12000)
+  })
+})
+
+describe("incomeImportBatchPeriodMatches", () => {
+  it("keeps annual and monthly stable batches independent while accepting legacy amount keys", () => {
+    expect(incomeImportBatchPeriodMatches("import-user-1-2023", "2023")).toBe(true)
+    expect(incomeImportBatchPeriodMatches("import-user-1-2023-5000", "2023")).toBe(true)
+    expect(incomeImportBatchPeriodMatches("import-user-1-2023-01", "2023")).toBe(false)
+    expect(incomeImportBatchPeriodMatches("import-user-1-2023-01", "2023-01")).toBe(true)
+    expect(incomeImportBatchPeriodMatches("import-user-1-2023-01-500", "2023-01")).toBe(true)
   })
 })
 

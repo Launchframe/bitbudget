@@ -62,6 +62,7 @@ export type ApiTransactionRow = {
   source?: TransactionSource
   excludeFromMainHistory?: boolean
   fundingBatchId?: string | null
+  fundingBatchPeriodKey?: string | null
   createdAt?: string
   /** Present after API migration; callers may synthesize for older payloads. */
   updatedAt?: string
@@ -391,6 +392,7 @@ export function apiRowToCachedLocked(row: ApiTransactionRow): CachedTransaction 
     source: row.source,
     excludeFromMainHistory: row.excludeFromMainHistory ?? false,
     fundingBatchId: row.fundingBatchId ?? null,
+    fundingBatchPeriodKey: row.fundingBatchPeriodKey ?? null,
     createdAt: rowCreatedAt(row),
     updatedAt: rowUpdatedAt(row),
     isDecrypted: false,
@@ -414,6 +416,7 @@ export function apiRowToCachedPlaintext(row: ApiTransactionRow): CachedTransacti
     source: row.source,
     excludeFromMainHistory: row.excludeFromMainHistory ?? false,
     fundingBatchId: row.fundingBatchId ?? null,
+    fundingBatchPeriodKey: row.fundingBatchPeriodKey ?? null,
     createdAt: rowCreatedAt(row),
     updatedAt: rowUpdatedAt(row),
     isDecrypted: true,
@@ -474,6 +477,7 @@ export function decryptSingleCachedRow(row: ApiTransactionRow, secretKey: Uint8A
     source: row.source,
     excludeFromMainHistory: row.excludeFromMainHistory ?? false,
     fundingBatchId: row.fundingBatchId ?? null,
+    fundingBatchPeriodKey: row.fundingBatchPeriodKey ?? null,
     createdAt: rowCreatedAt(row),
     updatedAt: rowUpdatedAt(row),
     isDecrypted,
@@ -602,6 +606,7 @@ function cachedUndecryptedToApiRow(c: CachedTransaction): ApiTransactionRow {
     source: c.source,
     excludeFromMainHistory: c.excludeFromMainHistory,
     fundingBatchId: c.fundingBatchId ?? null,
+    fundingBatchPeriodKey: c.fundingBatchPeriodKey ?? null,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
   }

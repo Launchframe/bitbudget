@@ -36,6 +36,7 @@ function jsonTxnRow(t: {
   source: string
   excludeFromMainHistory: boolean
   fundingBatchId: string | null
+  fundingBatch?: { periodKey: string } | null
   createdAt: Date
   updatedAt: Date
 }) {
@@ -53,6 +54,7 @@ function jsonTxnRow(t: {
     source: t.source,
     excludeFromMainHistory: t.excludeFromMainHistory,
     fundingBatchId: t.fundingBatchId,
+    fundingBatchPeriodKey: t.fundingBatch?.periodKey ?? null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
   }
@@ -104,6 +106,7 @@ export async function GET(req: NextRequest) {
   const transactions = await prisma.transaction.findMany({
     where,
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+    include: { fundingBatch: { select: { periodKey: true } } },
   })
 
   const formatted = transactions.map(jsonTxnRow)

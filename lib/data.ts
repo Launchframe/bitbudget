@@ -38,6 +38,7 @@ export interface Transaction {
   /** Funding allocation legs hidden from global transaction lists */
   excludeFromMainHistory?: boolean
   fundingBatchId?: string | null
+  fundingBatchPeriodKey?: string | null
   /** Server creation timestamp for ordering same-day transactions. */
   createdAt?: string
   /** Server row version for delta sync (ISO 8601). */

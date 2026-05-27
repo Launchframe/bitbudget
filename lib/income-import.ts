@@ -148,6 +148,27 @@ export function isLegacyImportBatchPeriodKey(
   return /^\d+(\.\d{1,2})?$/.test(suffix)
 }
 
+export function incomeImportBatchPeriodMatches(
+  batchPeriodKey: string | null | undefined,
+  importedPeriodKey: string,
+): boolean {
+  if (!batchPeriodKey) return false
+  if (batchPeriodKey.endsWith(`-${importedPeriodKey}`)) return true
+  const marker = `-${importedPeriodKey}-`
+  const markerIndex = batchPeriodKey.lastIndexOf(marker)
+  if (markerIndex < 0) return false
+  const suffix = batchPeriodKey.slice(markerIndex + marker.length)
+
+  // Annual imports and stable month imports share the year prefix; keep their
+  // overwrite baselines independent unless the suffix is an old amount key.
+  if (YEAR_KEY_RE.test(importedPeriodKey) && /^\d{2}$/.test(suffix)) {
+    const month = Number(suffix)
+    if (month >= 1 && month <= 12) return false
+  }
+
+  return /^\d+(\.\d{1,2})?$/.test(suffix)
+}
+
 /** Remove prior income-import batch for a period (Savings credits + allocation legs). */
 export async function deletePriorImportForPeriod(
   tx: Prisma.TransactionClient,
@@ -315,6 +336,7 @@ export interface IncomeImportTransactionRow {
   amount: number
   date: string
   excludeFromMainHistory?: boolean
+  fundingBatchPeriodKey?: string | null
 }
 
 /** Sum prior income-import credits in a period (overwrite baseline for review UI). */
@@ -330,6 +352,9 @@ export function sumPriorIncomeImportForPeriod(
     .filter((t) => {
       if (t.type !== "credit" || t.excludeFromMainHistory) return false
       if (t.source !== TX_SOURCE_INCOME_IMPORT) return false
+      if (t.fundingBatchPeriodKey !== undefined) {
+        return incomeImportBatchPeriodMatches(t.fundingBatchPeriodKey, periodKey)
+      }
       const d = new Date(`${t.date}T12:00:00.000Z`).getTime()
       return d >= startMs && d < endMs
     })
