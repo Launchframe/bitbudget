@@ -1,6 +1,7 @@
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import type { Envelope, Transaction } from "@/lib/data"
 import { getCurrentMonthKey } from "@/lib/data"
+import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
 
 /**
  * Stable signature for setup-status refetch when transaction fields that affect
@@ -60,6 +61,11 @@ function scrollWhenPresent(selector: string, attemptsLeft = 12): void {
 }
 
 export function focusSettingsSection(tab: SetupGuideSettingsTab): void {
+  try {
+    sessionStorage.setItem(SETTINGS_INITIAL_TAB_STORAGE_KEY, tab)
+  } catch {
+    /* ignore */
+  }
   window.dispatchEvent(
     new CustomEvent("bitbudget-walkthrough-settings-tab", { detail: { tab } }),
   )

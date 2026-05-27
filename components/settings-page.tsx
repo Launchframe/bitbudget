@@ -129,6 +129,9 @@ export function SettingsPage() {
       } else if (t === "integrations") {
         selectSettingsTab("integrations", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      } else if (t === "general") {
+        selectSettingsTab("general", "replace")
+        sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       } else if (t === "savings" || t === "savings-tracking") {
         selectSettingsTab("savings", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
