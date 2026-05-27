@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import * as Sentry from "@sentry/nextjs"
 import { prisma } from "@/lib/db"
 import { sendAlert } from "@/lib/alert"
+import { scrubAlertText } from "@/lib/sentry-scrub"
 
 export interface CronResult {
   processed?: number
@@ -46,6 +47,8 @@ export async function runCron<T extends CronResult>(
     const errorClass = err instanceof Error ? err.constructor.name : "Error"
     const errorMessage = err instanceof Error ? err.message : String(err)
 
+    const safeMessage = scrubAlertText(errorMessage).slice(0, 500)
+
     await prisma.cronRun.update({
       where: { id: run.id },
       data: {
@@ -53,7 +56,7 @@ export async function runCron<T extends CronResult>(
         finishedAt: new Date(),
         durationMs,
         errorClass,
-        errorMessage: errorMessage.slice(0, 500),
+        errorMessage: safeMessage,
       },
     })
 
@@ -68,7 +71,7 @@ export async function runCron<T extends CronResult>(
     })
 
     return NextResponse.json(
-      { error: "Processing failed", message: errorMessage },
+      { error: "Processing failed", message: safeMessage },
       { status: 500 },
     )
   }

@@ -28,4 +28,18 @@ describe("scrubSentryEvent", () => {
     expect((event?.request?.headers as Record<string, string>).Authorization).toBe("[redacted]")
     expect((event?.extra as Record<string, unknown>).payee).toBe("[redacted]")
   })
+
+  it("redacts PII from exception message values", () => {
+    const event = scrubSentryEvent({
+      exception: {
+        values: [
+          { type: "Error", value: "Failed to send to admin@example.com" },
+          { type: "TypeError", value: "Cannot read property of null" },
+        ],
+      },
+    })
+    expect(event?.exception?.values?.[0].value).toContain("[redacted-email]")
+    expect(event?.exception?.values?.[0].value).not.toContain("admin@example.com")
+    expect(event?.exception?.values?.[1].value).toBe("Cannot read property of null")
+  })
 })

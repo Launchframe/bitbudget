@@ -62,6 +62,19 @@ describe("runCron", () => {
       expect.objectContaining({ source: "cron/fail-job", fingerprint: "cron:fail-job:failure" }),
     )
   })
+
+  it("scrubs PII from errorMessage before storing in CronRun", async () => {
+    const { runCron } = await import("../run-cron")
+    const res = await runCron("pii-job", async () => {
+      throw new Error("Failed for user@example.com")
+    })
+    expect(res.status).toBe(500)
+    const updateCall = cronRunUpdate.mock.calls[0][0]
+    expect(updateCall.data.errorMessage).not.toContain("user@example.com")
+    expect(updateCall.data.errorMessage).toContain("[redacted-email]")
+    const body = await res.json()
+    expect(body.message).not.toContain("user@example.com")
+  })
 })
 
 describe("verifyCronSecret", () => {

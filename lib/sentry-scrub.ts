@@ -32,6 +32,12 @@ function scrubValue(value: unknown, depth = 0): unknown {
   return "[redacted]"
 }
 
+interface SentryExceptionValue {
+  type?: string
+  value?: string
+  [key: string]: unknown
+}
+
 interface ScrubbableSentryEvent {
   user?: { id?: string; email?: string; [key: string]: unknown }
   request?: {
@@ -39,6 +45,7 @@ interface ScrubbableSentryEvent {
     cookies?: unknown
     [key: string]: unknown
   }
+  exception?: { values?: SentryExceptionValue[] }
   extra?: Record<string, unknown>
   contexts?: Record<string, unknown>
   breadcrumbs?: Array<{ message?: string; data?: Record<string, unknown> }>
@@ -75,6 +82,12 @@ export function scrubSentryEvent(event: ScrubbableSentryEvent, hint?: unknown): 
       ...b,
       message: b.message ? redactString(b.message) : b.message,
       data: b.data ? (scrubValue(b.data) as Record<string, unknown>) : b.data,
+    }))
+  }
+  if (event.exception?.values) {
+    event.exception.values = event.exception.values.map(v => ({
+      ...v,
+      value: v.value ? redactString(v.value) : v.value,
     }))
   }
   return event
