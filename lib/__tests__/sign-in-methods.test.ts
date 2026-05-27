@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -49,6 +50,102 @@ function uniqueConstraint(field: string) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+// ---------------------------------------------------------------------------
+// parseNostrAuthEvent — the semantic gate that lib/auth.ts calls before verifyEvent.
+// These tests document the auth-bypass vulnerability (relay-note replay) and prove
+// the guard blocks it. Without this validation any scraped kind=1 Nostr note would
+// authenticate as its author.
+// ---------------------------------------------------------------------------
+describe("parseNostrAuthEvent", () => {
+  const pubkey = "b".repeat(64)
+  const NOW = Math.floor(Date.now() / 1000)
+
+  const validEvent = (overrides: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: NOW,
+      pubkey,
+      tags: [["method", NOSTR_AUTH_EVENT_METHOD]],
+      id: "event-id",
+      sig: "sig",
+      ...overrides,
+    })
+
+  it("accepts a well-formed auth event and returns the parsed object", () => {
+    const result = parseNostrAuthEvent(validEvent(), pubkey)
+    expect(result.kind).toBe(NOSTR_AUTH_EVENT_KIND)
+    expect(result.content).toBe(NOSTR_AUTH_EVENT_CONTENT)
+  })
+
+  it("rejects a kind=1 note (relay-note replay attack)", () => {
+    // This is the exact scenario that was exploited: attacker submits a public Nostr
+    // note (kind=1) signed by the victim to authenticate as them.
+    expect(() =>
+      parseNostrAuthEvent(validEvent({ kind: 1, content: "hello world" }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event with wrong content", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent({ content: "not a login" }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event signed by a different pubkey than claimed", () => {
+    const differentPubkey = "c".repeat(64)
+    expect(() =>
+      parseNostrAuthEvent(validEvent({ pubkey: differentPubkey }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects a stale event (> 5 minutes old)", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent({ created_at: NOW - 400 }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects a future-dated event (> 60s skew)", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent({ created_at: NOW + 120 }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event missing the method tag", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent({ tags: [] }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event with a wrong method tag value", () => {
+    expect(() =>
+      parseNostrAuthEvent(
+        validEvent({ tags: [["method", "not-login"]] }),
+        pubkey,
+      ),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects malformed JSON", () => {
+    expect(() => parseNostrAuthEvent("{bad json", pubkey)).toThrow(SignInMethodError)
+  })
+
+  it("rejects when expectedOrigin is provided but not in the event tags", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent(), pubkey, "https://app.example.com"),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("accepts when expectedOrigin matches a u tag in the event", () => {
+    const eventWithU = validEvent({
+      tags: [["method", NOSTR_AUTH_EVENT_METHOD], ["u", "https://app.example.com"]],
+    })
+    expect(() =>
+      parseNostrAuthEvent(eventWithU, pubkey, "https://app.example.com"),
+    ).not.toThrow()
+  })
 })
 
 describe("getSignInMethods", () => {
