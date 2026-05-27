@@ -1,5 +1,5 @@
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
-import type { Envelope, Transaction } from "@/lib/data"
+import type { Envelope, PendingTransaction, Transaction } from "@/lib/data"
 import { getCurrentMonthKey } from "@/lib/data"
 import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
 
@@ -31,6 +31,17 @@ export function discretionaryAllotmentSignature(
     .map((e) => `${e.id}:${e.monthlyAllotment}`)
     .sort()
     .join("|")
+}
+
+/** Stable signature for setup-status refetch when receipt inbox pending rows change. */
+export function receiptInboxPendingSetupSignature(
+  pendingTransactions: readonly PendingTransaction[],
+): string {
+  return pendingTransactions
+    .filter((t) => t.source === "email_forward")
+    .map((t) => `${t.id}\t${t.source}\t${t.createdAt}`)
+    .sort()
+    .join("\n")
 }
 
 export async function fetchSavingsGoalSetForMonth(

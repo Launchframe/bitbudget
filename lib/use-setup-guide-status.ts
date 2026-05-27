@@ -5,6 +5,7 @@ import { useApp } from "@/lib/app-context"
 import {
   activeTransactionSetupSignature,
   discretionaryAllotmentSignature,
+  receiptInboxPendingSetupSignature,
 } from "@/lib/setup-guide-client"
 import {
   needsAllotmentSetupTracking,
@@ -19,7 +20,7 @@ type UseSetupGuideStatusOptions = {
 
 export function useSetupGuideStatus(options: UseSetupGuideStatusOptions = {}) {
   const { refetchOnWindowFocus = false } = options
-  const { state, activeTransactions, discretionaryEnvelopes } = useApp()
+  const { state, activeTransactions, discretionaryEnvelopes, pendingTransactions } = useApp()
 
   const [remote, setRemote] = useState<SetupStatusApiResponse | null>(null)
   const completedCountRef = useRef(0)
@@ -54,6 +55,11 @@ export function useSetupGuideStatus(options: UseSetupGuideStatusOptions = {}) {
     if (!trackAllotments) return ""
     return discretionaryAllotmentSignature(discretionaryEnvelopes)
   }, [trackAllotments, discretionaryEnvelopes])
+
+  const pendingReceiptInboxSignature = useMemo(() => {
+    if (!trackTransactions) return ""
+    return receiptInboxPendingSetupSignature(pendingTransactions)
+  }, [trackTransactions, pendingTransactions])
 
   const monthlyIncomeTrigger = trackMonthlyIncome ? state.monthlyIncome : -1
 
@@ -123,6 +129,7 @@ export function useSetupGuideStatus(options: UseSetupGuideStatusOptions = {}) {
   }, [
     loadStatus,
     transactionSetupSignature,
+    pendingReceiptInboxSignature,
     monthlyIncomeTrigger,
     allotmentSignature,
   ])

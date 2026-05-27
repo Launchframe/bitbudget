@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest"
 import {
   activeTransactionSetupSignature,
   discretionaryAllotmentSignature,
+  receiptInboxPendingSetupSignature,
 } from "@/lib/setup-guide-client"
-import type { Envelope, Transaction } from "@/lib/data"
+import type { Envelope, PendingTransaction, Transaction } from "@/lib/data"
 
 describe("setup-guide-client", () => {
   it("discretionaryAllotmentSignature ignores savings and archived", () => {
@@ -32,5 +33,34 @@ describe("setup-guide-client", () => {
     ])
     expect(a).not.toBe(b)
     expect(activeTransactionSetupSignature([base])).toBe(a)
+  })
+
+  it("receiptInboxPendingSetupSignature tracks forwarded receipt pending rows only", () => {
+    const pending: PendingTransaction[] = [
+      {
+        id: "receipt-1",
+        source: "email_forward",
+        payee: "enc",
+        amount: 12,
+        date: "2026-05-01",
+        suggestedEnvelopeId: null,
+        confidence: 0.9,
+        createdAt: "2026-05-01T00:00:00.000Z",
+      },
+      {
+        id: "sms-1",
+        source: "sms",
+        payee: "enc",
+        amount: 8,
+        date: "2026-05-01",
+        suggestedEnvelopeId: null,
+        confidence: 0.8,
+        createdAt: "2026-05-01T00:00:01.000Z",
+      },
+    ]
+
+    expect(receiptInboxPendingSetupSignature(pending)).toBe(
+      "receipt-1\temail_forward\t2026-05-01T00:00:00.000Z",
+    )
   })
 })
