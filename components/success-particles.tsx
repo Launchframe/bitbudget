@@ -104,10 +104,6 @@ export function SuccessParticles({ opportunityCostEnabled }: SuccessParticlesPro
     }
   }, [opportunityCostEnabled])
 
-  if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    return null
-  }
-
   return (
     <canvas
       ref={canvasRef}

@@ -829,7 +829,7 @@ function EnvelopeMappingRow({
 
         <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground hidden sm:block" />
 
-        <div className="w-36 xs:w-42 sm:w-52 shrink-0">
+        <div className="w-36 xs:w-[10.5rem] sm:w-52 shrink-0">
           <Select value={value} onValueChange={onChange}>
             <SelectTrigger className="w-full bg-[#0D0D0D] border-[#333] text-sm h-9">
               <SelectValue>
