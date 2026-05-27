@@ -38,6 +38,10 @@ export async function routeTransaction(
 
   const route = routeByConfidence(parsed.confidence)
 
+  // When the suggested envelope fails the ownership check, null it out so the
+  // pending transaction doesn't carry a dangling reference to a foreign envelope.
+  let effectiveSuggestedEnvelopeId = parsed.suggestedEnvelopeId ?? null
+
   if (route === "live" && parsed.suggestedEnvelopeId) {
     const envelope = await prisma.envelope.findFirst({
       where: { id: parsed.suggestedEnvelopeId, userId, archived: false },
@@ -58,7 +62,9 @@ export async function routeTransaction(
       })
       return { route: "live" as const, id: transaction.id }
     }
-    // Envelope not found or does not belong to this user — downgrade to pending.
+    // Envelope not found or does not belong to this user — downgrade to pending
+    // and clear the reference so the review UI doesn't try to display a foreign envelope.
+    effectiveSuggestedEnvelopeId = null
     console.warn(
       `[confidence-router] envelope ${parsed.suggestedEnvelopeId} not found for user ${userId}; routing to pending`,
     )
@@ -72,7 +78,7 @@ export async function routeTransaction(
       amount: parsed.amount,
       date: parsed.date,
       notes: encryptedNotes,
-      suggestedEnvelopeId: parsed.suggestedEnvelopeId,
+      suggestedEnvelopeId: effectiveSuggestedEnvelopeId,
       confidence: parsed.confidence,
       rawInput: parsed.rawInput,
       tags: parsed.tags,

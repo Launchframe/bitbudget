@@ -131,6 +131,10 @@ describe("routeTransaction", () => {
     expect(out.route).toBe("pending")
     expect(prisma.transaction.create).not.toHaveBeenCalled()
     expect(prisma.pendingTransaction.create).toHaveBeenCalled()
+    // Foreign envelope reference must be cleared so the review UI doesn't
+    // try to display an envelope that belongs to a different user.
+    const call = vi.mocked(prisma.pendingTransaction.create).mock.calls[0][0]
+    expect(call.data.suggestedEnvelopeId).toBeNull()
   })
 
   it("uses encrypted payee/notes when user has publicKey", async () => {
