@@ -100,7 +100,7 @@ export async function confirmPendingTransactionAtomic(
         finalAmount,
         finalNotes,
         finalTags,
-      } = resolveConfirmFields(pending, overrides, envelopeId)
+      } = resolveConfirmFields(pending, overrides)
 
       const dateStr = finalDate.toISOString().split("T")[0]
       const btcPrice = await getBtcPriceForDate(dateStr)
