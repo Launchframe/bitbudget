@@ -24,6 +24,18 @@ export function setupGuideSnoozedUntilError(value: unknown): string | null {
   return null
 }
 
+/**
+ * Validate the `monthlyIncome` value from a PUT /api/user/settings body.
+ * Returns an error string when invalid, null when the value is acceptable.
+ */
+export function monthlyIncomeError(value: unknown): string | null {
+  if (value === undefined) return null
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return "monthlyIncome must be a non-negative finite number"
+  }
+  return null
+}
+
 export type UserSettingsBooleanField = (typeof USER_SETTINGS_BOOLEAN_FIELDS)[number]
 
 /** Returns an error message when a provided boolean field has the wrong type. */

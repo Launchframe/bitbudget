@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   booleanSettingsFieldError,
+  monthlyIncomeError,
   setupGuideSnoozedUntilError,
 } from "@/lib/user-settings-validation"
 
@@ -31,6 +32,40 @@ describe("booleanSettingsFieldError", () => {
     expect(booleanSettingsFieldError({ opportunityCostEnabled: null })).toBe(
       "opportunityCostEnabled must be a boolean",
     )
+  })
+})
+
+describe("monthlyIncomeError", () => {
+  it("returns null when value is undefined (field not in request)", () => {
+    expect(monthlyIncomeError(undefined)).toBeNull()
+  })
+
+  it("accepts zero (income not yet set)", () => {
+    expect(monthlyIncomeError(0)).toBeNull()
+  })
+
+  it("accepts a typical positive monthly income", () => {
+    expect(monthlyIncomeError(5000)).toBeNull()
+    expect(monthlyIncomeError(0.01)).toBeNull()
+  })
+
+  it("rejects a negative income", () => {
+    expect(monthlyIncomeError(-1)).toContain("non-negative")
+  })
+
+  it("rejects Infinity (would cascade to undefined sweep math)", () => {
+    expect(monthlyIncomeError(Infinity)).toContain("non-negative finite")
+    expect(monthlyIncomeError(-Infinity)).toContain("non-negative finite")
+  })
+
+  it("rejects NaN", () => {
+    expect(monthlyIncomeError(NaN)).toContain("non-negative finite")
+  })
+
+  it("rejects non-number types that would bypass DB type coercion", () => {
+    expect(monthlyIncomeError("5000")).toContain("non-negative finite")
+    expect(monthlyIncomeError(null)).toContain("non-negative finite")
+    expect(monthlyIncomeError(true)).toContain("non-negative finite")
   })
 })
 

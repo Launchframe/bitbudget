@@ -21,7 +21,7 @@ import {
 import { assertPayCadencePersistable, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import { PAYDAY_LAST_OF_MONTH } from "@/lib/payday-cadence"
 import { validateDecimal12_2, validateDecimal4_2Positive } from "@/lib/decimal-validation"
-import { booleanSettingsFieldError, setupGuideSnoozedUntilError } from "@/lib/user-settings-validation"
+import { booleanSettingsFieldError, monthlyIncomeError, setupGuideSnoozedUntilError } from "@/lib/user-settings-validation"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
 type UserSettingsPutBody = Partial<{
@@ -346,6 +346,11 @@ export async function PUT(req: NextRequest) {
     if (parsed === "invalid") {
       return NextResponse.json({ error: "lastPaydayAt must be a valid ISO date or null" }, { status: 400 })
     }
+  }
+
+  if (body.monthlyIncome !== undefined) {
+    const err = monthlyIncomeError(body.monthlyIncome)
+    if (err) return NextResponse.json({ error: err }, { status: 400 })
   }
 
   if (body.estimatedAnnualIncome !== undefined && body.estimatedAnnualIncome !== null) {
