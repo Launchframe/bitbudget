@@ -797,7 +797,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
             nextTxns = Array.from(byId.values()).sort(compareTransactionsDesc)
           } else {
-            nextTxns = []
+            // Empty delta means no changes since lastSync — keep in-memory history (no IDB fallback).
+            nextTxns = prev.transactions
           }
           return { ...prev, transactions: nextTxns }
         })

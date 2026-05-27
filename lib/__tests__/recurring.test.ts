@@ -1,15 +1,26 @@
 // @vitest-environment node
 import { describe, expect, it, vi, beforeEach } from "vitest"
 
+const txRecurringFindFirst = vi.fn()
+const txRecurringUpdateMany = vi.fn()
+const txTransactionCreate = vi.fn()
+
 vi.mock("@/lib/db", () => ({
   prisma: {
     recurringTransaction: {
       findMany: vi.fn(),
-      update: vi.fn(),
     },
-    transaction: {
-      create: vi.fn(),
-    },
+    $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({
+        recurringTransaction: {
+          findFirst: txRecurringFindFirst,
+          updateMany: txRecurringUpdateMany,
+        },
+        transaction: {
+          create: txTransactionCreate,
+        },
+      }),
+    ),
   },
 }))
 
@@ -51,42 +62,49 @@ describe("processRecurringTransactions", () => {
   const recId = "rec_1"
   const envId = "env_1"
 
+  const baseRec = {
+    id: recId,
+    userId,
+    envelopeId: envId,
+    payee: "p",
+    amount: 10,
+    type: "expense",
+    tags: "[]",
+    notes: null,
+    cadence: "weekly",
+    endDate: null,
+  }
+
   beforeEach(() => {
     vi.mocked(prisma.recurringTransaction.findMany).mockReset()
-    vi.mocked(prisma.recurringTransaction.update).mockReset()
-    vi.mocked(prisma.transaction.create).mockReset()
-    vi.mocked(prisma.transaction.create).mockResolvedValue({ id: "txn_1" } as never)
-    vi.mocked(prisma.recurringTransaction.update).mockResolvedValue({} as never)
+    txRecurringFindFirst.mockReset()
+    txRecurringUpdateMany.mockReset()
+    txTransactionCreate.mockReset()
+    vi.mocked(prisma.$transaction).mockClear()
+    txTransactionCreate.mockResolvedValue({ id: "txn_1" } as never)
+    txRecurringUpdateMany.mockResolvedValue({ count: 1 } as never)
   })
 
   it("creates one transaction and advances nextDueDate when one weekly occurrence is due", async () => {
     const nextDue = new Date(Date.UTC(2026, 3, 10, 0, 0, 0))
     vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([
-      {
-        id: recId,
-        userId,
-        envelopeId: envId,
-        payee: "p",
-        amount: 10,
-        type: "expense",
-        tags: "[]",
-        notes: null,
-        cadence: "weekly",
-        nextDueDate: nextDue,
-        endDate: null,
-      },
+      { ...baseRec, nextDueDate: nextDue },
     ] as never)
+
+    txRecurringFindFirst
+      .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
 
     const asOf = new Date(Date.UTC(2026, 3, 15, 10, 0, 0))
     const created = await processRecurringTransactions(userId, asOf)
 
     expect(created).toBe(1)
-    expect(prisma.transaction.create).toHaveBeenCalledTimes(1)
-    expect(prisma.recurringTransaction.update).toHaveBeenCalledWith({
-      where: { id: recId },
+    expect(txTransactionCreate).toHaveBeenCalledTimes(1)
+    expect(txRecurringUpdateMany).toHaveBeenCalledWith({
+      where: { id: recId, nextDueDate: nextDue },
       data: { nextDueDate: expect.any(Date) },
     })
-    const updated = vi.mocked(prisma.recurringTransaction.update).mock.calls[0][0].data.nextDueDate as Date
+    const updated = txRecurringUpdateMany.mock.calls[0][0].data.nextDueDate as Date
     expect(updated.getTime()).toBe(advanceDate(nextDue, "weekly").getTime())
   })
 
@@ -94,6 +112,26 @@ describe("processRecurringTransactions", () => {
     vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([])
     const created = await processRecurringTransactions(userId, new Date(Date.UTC(2026, 3, 15)))
     expect(created).toBe(0)
-    expect(prisma.transaction.create).not.toHaveBeenCalled()
+    expect(txTransactionCreate).not.toHaveBeenCalled()
+  })
+
+  it("retries once and skips when optimistic nextDueDate update loses a race", async () => {
+    const nextDue = new Date(Date.UTC(2026, 3, 10, 0, 0, 0))
+    vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([
+      { ...baseRec, nextDueDate: nextDue },
+    ] as never)
+
+    txRecurringFindFirst
+      .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
+      .mockResolvedValueOnce(null as never)
+    txRecurringUpdateMany.mockResolvedValueOnce({ count: 0 } as never)
+
+    const asOf = new Date(Date.UTC(2026, 3, 15, 10, 0, 0))
+    const created = await processRecurringTransactions(userId, asOf)
+
+    expect(created).toBe(0)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2)
+    expect(txTransactionCreate).toHaveBeenCalledTimes(1)
+    expect(txRecurringUpdateMany).toHaveBeenCalledTimes(1)
   })
 })

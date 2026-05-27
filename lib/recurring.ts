@@ -3,6 +3,16 @@ import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 
 export type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
+const MAX_RECURRING_CATCHUP_PER_RULE = 52
+
+/** Thrown inside `$transaction` when another worker advanced `nextDueDate` first (rolls back the insert). */
+export class RecurringConcurrentUpdateError extends Error {
+  constructor() {
+    super("RECURRING_CONCURRENT_UPDATE")
+    this.name = "RecurringConcurrentUpdateError"
+  }
+}
+
 export function advanceDate(date: Date, cadence: Cadence): Date {
   const next = new Date(date)
   switch (cadence) {
@@ -23,6 +33,96 @@ export function advanceDate(date: Date, cadence: Cadence): Date {
       break
   }
   return next
+}
+
+type DueRecurringRow = {
+  id: string
+  userId: string
+  envelopeId: string
+  payee: string
+  amount: number
+  type: string
+  tags: string
+  notes: string | null
+  cadence: string
+  nextDueDate: Date
+  endDate: Date | null
+}
+
+/**
+ * Post one due occurrence and advance `nextDueDate` atomically.
+ * Uses optimistic locking on `nextDueDate` so concurrent cron + refresh cannot double-post.
+ * Returns 1 when a transaction was created, 0 when nothing due, -1 when a peer won the race (retry).
+ */
+async function postOneDueOccurrence(
+  recurringId: string,
+  endOfDay: Date,
+): Promise<number> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const rec = await tx.recurringTransaction.findFirst({
+        where: {
+          id: recurringId,
+          active: true,
+          nextDueDate: { lte: endOfDay },
+        },
+      })
+      if (!rec) return 0
+
+      const dueDate = rec.nextDueDate
+      const dateStr = dueDate.toISOString().split("T")[0]
+      const btcPrice = await getBtcPriceForDate(dateStr)
+
+      await tx.transaction.create({
+        data: {
+          userId: rec.userId,
+          envelopeId: rec.envelopeId,
+          date: dueDate,
+          payee: rec.payee,
+          amount: rec.amount,
+          type: rec.type,
+          tags: rec.tags,
+          notes: rec.notes,
+          recurringId: rec.id,
+          satsAmount: btcPrice ? usdToSats(rec.amount, btcPrice) : null,
+        },
+      })
+
+      const nextDue = advanceDate(dueDate, rec.cadence as Cadence)
+
+      if (rec.endDate && nextDue > rec.endDate) {
+        const updated = await tx.recurringTransaction.updateMany({
+          where: { id: rec.id, nextDueDate: dueDate },
+          data: { active: false, nextDueDate: nextDue },
+        })
+        if (updated.count === 0) throw new RecurringConcurrentUpdateError()
+        return 1
+      }
+
+      const updated = await tx.recurringTransaction.updateMany({
+        where: { id: rec.id, nextDueDate: dueDate },
+        data: { nextDueDate: nextDue },
+      })
+      if (updated.count === 0) throw new RecurringConcurrentUpdateError()
+      return 1
+    })
+  } catch (e) {
+    if (e instanceof RecurringConcurrentUpdateError) return -1
+    throw e
+  }
+}
+
+async function processOneRecurringRule(rec: DueRecurringRow, endOfDay: Date): Promise<number> {
+  let created = 0
+  for (let attempt = 0; attempt < MAX_RECURRING_CATCHUP_PER_RULE; attempt++) {
+    let result = await postOneDueOccurrence(rec.id, endOfDay)
+    if (result === -1) {
+      result = await postOneDueOccurrence(rec.id, endOfDay)
+    }
+    if (result <= 0) break
+    created += result
+  }
+  return created
 }
 
 /**
@@ -46,47 +146,8 @@ export async function processRecurringTransactions(userId: string, asOf?: Date):
   })
 
   let created = 0
-
   for (const rec of dueRecurrings) {
-    let dueDate = new Date(rec.nextDueDate)
-
-    while (dueDate <= endOfDay) {
-      const dateStr = dueDate.toISOString().split("T")[0]
-      const btcPrice = await getBtcPriceForDate(dateStr)
-
-      await prisma.transaction.create({
-        data: {
-          userId: rec.userId,
-          envelopeId: rec.envelopeId,
-          date: dueDate,
-          payee: rec.payee,
-          amount: rec.amount,
-          type: rec.type,
-          tags: rec.tags,
-          notes: rec.notes,
-          recurringId: rec.id,
-          satsAmount: btcPrice ? usdToSats(rec.amount, btcPrice) : null,
-        },
-      })
-      created++
-
-      dueDate = advanceDate(dueDate, rec.cadence as Cadence)
-
-      if (rec.endDate && dueDate > rec.endDate) {
-        await prisma.recurringTransaction.update({
-          where: { id: rec.id },
-          data: { active: false, nextDueDate: dueDate },
-        })
-        break
-      }
-    }
-
-    if (!rec.endDate || dueDate <= rec.endDate) {
-      await prisma.recurringTransaction.update({
-        where: { id: rec.id },
-        data: { nextDueDate: dueDate },
-      })
-    }
+    created += await processOneRecurringRule(rec, endOfDay)
   }
 
   return created
