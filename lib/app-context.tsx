@@ -141,6 +141,11 @@ export interface TransactionPrefill {
    * Large; omit from persistence. Cleared when the new-transaction dialog closes.
    */
   receiptPreviewDataUrl?: string
+  /**
+   * Extraction confidence (0–1) returned by the receipt scanner.
+   * When below RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD the dialog shows a "please double-check" banner.
+   */
+  receiptScanConfidence?: number
 }
 
 export interface ReferralSummaryState {

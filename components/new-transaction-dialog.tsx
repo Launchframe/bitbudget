@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { X, Repeat, Tag, ChevronRight, FileText } from "lucide-react"
+import { X, Repeat, Tag, ChevronRight, FileText, AlertTriangle } from "lucide-react"
 import { ShortcutsPanel, useTransactionShortcuts } from "@/components/shortcuts-panel"
 import {
   mergePayeeCandidates,
@@ -39,6 +39,7 @@ import {
 } from "@/lib/transaction-dates"
 import { pickTransactionSuccessMessage } from "@/lib/transaction-success-messages"
 import { TransactionSuccessView } from "@/components/transaction-success-view"
+import { RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD } from "@/lib/receipt-scan-validate"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -143,6 +144,7 @@ export function NewTransactionDialog() {
   /** Short-lived object URL for PDF previews (see `pdfDataUrlToBlob`). */
   const [receiptPdfBlobUrl, setReceiptPdfBlobUrl] = useState<string | null>(null)
   const [receiptLightboxOpen, setReceiptLightboxOpen] = useState(false)
+  const [receiptScanWarningDismissed, setReceiptScanWarningDismissed] = useState(false)
   const [successSnapshot, setSuccessSnapshot] = useState<{
     message: string
     payee: string
@@ -166,6 +168,7 @@ export function NewTransactionDialog() {
     if (!transactionDialogOpen) {
       setDuplicateExisting(null)
       setSuccessSnapshot(null)
+      setReceiptScanWarningDismissed(false)
     }
   }, [transactionDialogOpen])
 
@@ -759,9 +762,27 @@ export function NewTransactionDialog() {
                     ) : null}
                   </div>
                   <p className="text-[11px] text-muted-foreground px-3 pb-2 pt-0">
-                    Cross-check payee, amount, and date with the receipt before saving. Tap the preview to
-                    enlarge.
+                    Tap the preview to enlarge.
                   </p>
+                </div>
+              )}
+              {/* Low-confidence receipt scan warning */}
+              {!receiptScanWarningDismissed &&
+                typeof transactionPrefill?.receiptScanConfidence === "number" &&
+                transactionPrefill.receiptScanConfidence < RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD && (
+                <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 shrink-0">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden />
+                  <p className="flex-1 text-sm text-amber-200 leading-snug">
+                    We had some trouble reading this receipt — please double-check the details before saving.
+                  </p>
+                  <button
+                    type="button"
+                    className="shrink-0 text-amber-400/70 hover:text-amber-300 transition-colors"
+                    onClick={() => setReceiptScanWarningDismissed(true)}
+                    aria-label="Dismiss receipt quality warning"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               )}
               {/* Type toggle */}
@@ -858,7 +879,7 @@ export function NewTransactionDialog() {
                         <span className="font-medium text-foreground">{payeeMatchHint.original}</span> was
                         treated as the same merchant as{" "}
                         <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>{" "}
-                        (hyphens / spacing only). Add a mapping in Settings if this is wrong.
+                        {". You can override this in Settings > Payee mapping."}
                       </>
                     )}{" "}
                     <button
@@ -878,9 +899,8 @@ export function NewTransactionDialog() {
                   <div className="flex flex-col gap-1.5 rounded-lg border border-[#333] bg-[#1A1A1A] px-3 py-2">
                     <p className="text-xs text-muted-foreground">
                       Import showed{" "}
-                      <span className="font-medium text-foreground">{importSourcePayee}</span> — always use{" "}
-                      <span className="font-medium text-foreground">{payee.trim()}</span> for that text next
-                      time?
+                      <span className="font-medium text-foreground">{importSourcePayee}</span> — want to use{" "}
+                      <span className="font-medium text-foreground">{payee.trim()}</span> for this payee next time?
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
                       <button

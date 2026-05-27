@@ -5,6 +5,11 @@ import { useApp } from "@/lib/app-context"
 import { RECEIPT_SCAN_MAX_BYTES } from "@/lib/receipt-scan-validate"
 import { receiptCapturePrefillDate } from "@/lib/transaction-dates"
 import {
+  receiptCameraMode,
+  type ReceiptCameraMode,
+} from "@/lib/receipt-camera-capability"
+import { ReceiptLiveCamera } from "@/components/receipt-live-camera"
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -35,6 +40,9 @@ export function ScanReceiptDialog({
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<string | null>(null)
+  const [liveCameraOpen, setLiveCameraOpen] = useState(false)
+  const cameraMode = receiptCameraMode()
+  const showTakePhoto = cameraMode !== "upload-only"
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   /** After programmatic file/camera click, next focus/visibility return without a file means picker was dismissed. */
@@ -44,6 +52,7 @@ export function ScanReceiptDialog({
     setScanning(false)
     setError("")
     setPreview(null)
+    setLiveCameraOpen(false)
   }
 
   function handleClose(isOpen: boolean) {
@@ -57,14 +66,28 @@ export function ScanReceiptDialog({
       return
     }
     const t = setTimeout(() => {
-      if (initialSource === "camera") cameraInputRef.current?.click()
-      else fileInputRef.current?.click()
-      expectCloseAfterPickerRef.current = true
+      if (initialSource === "camera") {
+        if (cameraMode === "live") setLiveCameraOpen(true)
+        else if (cameraMode === "capture-input") cameraInputRef.current?.click()
+        else fileInputRef.current?.click()
+      } else {
+        fileInputRef.current?.click()
+      }
+      expectCloseAfterPickerRef.current = cameraMode === "capture-input" || initialSource === "upload"
     }, 150)
     return () => {
       clearTimeout(t)
     }
-  }, [open, initialSource])
+  }, [open, initialSource, cameraMode])
+
+  function handleTakePhotoClick(mode: ReceiptCameraMode) {
+    setError("")
+    if (mode === "live") {
+      setLiveCameraOpen(true)
+      return
+    }
+    cameraInputRef.current?.click()
+  }
 
   useEffect(() => {
     if (!open || !initialSource) return
@@ -122,6 +145,7 @@ export function ScanReceiptDialog({
         amount?: string
         date?: string
         suggestedEnvelopeId?: string
+        extractionConfidence?: number
       }
       try {
         data = await res.json()
@@ -143,6 +167,10 @@ export function ScanReceiptDialog({
           ? receiptCapturePrefillDate(data.date || "", file.lastModified)
           : data.date || ""
 
+      const extractionConfidence = typeof data.extractionConfidence === "number"
+        ? data.extractionConfidence
+        : undefined
+
       onOpenChange(false)
       reset()
       openNewTransaction({
@@ -151,6 +179,7 @@ export function ScanReceiptDialog({
         date: prefillDate,
         ...(data.suggestedEnvelopeId && { envelopeId: data.suggestedEnvelopeId }),
         ...(receiptPreviewDataUrl ? { receiptPreviewDataUrl } : {}),
+        ...(extractionConfidence !== undefined ? { receiptScanConfidence: extractionConfidence } : {}),
       })
     } catch {
       setError("Something went wrong. Please try again.")
@@ -171,7 +200,7 @@ export function ScanReceiptDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-md"
-        invisible={!!initialSource && !scanning && !error}
+        invisible={!!initialSource && !scanning && !error && !liveCameraOpen}
       >
         <DialogHeader>
           <DialogTitle className="text-lg font-bold text-foreground">Scan Receipt</DialogTitle>
@@ -198,25 +227,39 @@ export function ScanReceiptDialog({
             <Loader2 className="h-8 w-8 text-[#F7931A] animate-spin" />
             <p className="text-sm text-muted-foreground">Extracting receipt details...</p>
           </div>
+        ) : liveCameraOpen ? (
+          <ReceiptLiveCamera
+            onCapture={(file) => {
+              setLiveCameraOpen(false)
+              void processFile(file)
+            }}
+            onCancel={() => setLiveCameraOpen(false)}
+          />
         ) : (
           <div className="flex flex-col gap-3 py-2">
             <p className="text-sm text-muted-foreground mb-2">
               Scan a receipt to auto-fill a new transaction.
             </p>
 
-            <button
-              type="button"
-              onClick={() => cameraInputRef.current?.click()}
-              className="flex items-center gap-4 w-full py-4 px-4 bg-[#1A1A1A] rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
-            >
-              <div className="p-2.5 rounded-lg bg-[#F7931A]/10">
-                <Camera className="h-5 w-5 text-[#F7931A]" />
-              </div>
-              <div className="flex flex-col text-left">
-                <span className="font-semibold text-foreground">Take Photo</span>
-                <span className="text-xs text-muted-foreground">Use your camera to scan a receipt</span>
-              </div>
-            </button>
+            {showTakePhoto ? (
+              <button
+                type="button"
+                onClick={() => handleTakePhotoClick(cameraMode)}
+                className="flex items-center gap-4 w-full py-4 px-4 bg-[#1A1A1A] rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
+              >
+                <div className="p-2.5 rounded-lg bg-[#F7931A]/10">
+                  <Camera className="h-5 w-5 text-[#F7931A]" />
+                </div>
+                <div className="flex flex-col text-left">
+                  <span className="font-semibold text-foreground">Take Photo</span>
+                  <span className="text-xs text-muted-foreground">
+                    {cameraMode === "live"
+                      ? "Use your webcam to capture a receipt"
+                      : "Use your camera to scan a receipt"}
+                  </span>
+                </div>
+              </button>
+            ) : null}
 
             <button
               type="button"
@@ -232,14 +275,16 @@ export function ScanReceiptDialog({
               </div>
             </button>
 
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleFileChange}
-              className="hidden"
-            />
+            {cameraMode === "capture-input" ? (
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            ) : null}
             <input
               ref={fileInputRef}
               type="file"

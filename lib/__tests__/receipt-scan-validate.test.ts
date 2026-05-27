@@ -108,4 +108,24 @@ describe("normalizeScanExtraction", () => {
     expect(invalidFormat.date).toBe("")
     expect(missingPadding.date).toBe("")
   })
+
+  describe("extractionConfidence", () => {
+    it("uses model-reported confidence when present and clamps to [0,1]", () => {
+      expect(normalizeScanExtraction({ payee: "A", amount: "5.00", date: "2024-01-01", confidence: 0.6 }).extractionConfidence).toBe(0.6)
+      expect(normalizeScanExtraction({ payee: "A", amount: "5.00", date: "2024-01-01", confidence: 1.5 }).extractionConfidence).toBe(1)
+      expect(normalizeScanExtraction({ payee: "A", amount: "5.00", date: "2024-01-01", confidence: -0.1 }).extractionConfidence).toBe(0)
+    })
+    it("falls back to field-completeness heuristic when confidence is absent", () => {
+      // All fields present → full score (0.3 + 0.5 + 0.2 = 1.0)
+      expect(normalizeScanExtraction({ payee: "Store", amount: "10", date: "2024-01-01" }).extractionConfidence).toBe(1.0)
+      // Only payee → 0.3
+      expect(normalizeScanExtraction({ payee: "Store", amount: "", date: "" }).extractionConfidence).toBeCloseTo(0.3)
+      // Nothing → 0
+      expect(normalizeScanExtraction({ payee: "", amount: "", date: "" }).extractionConfidence).toBe(0)
+    })
+    it("ignores non-numeric confidence values and uses heuristic", () => {
+      const result = normalizeScanExtraction({ payee: "A", amount: "5.00", date: "2024-01-01", confidence: "high" })
+      expect(result.extractionConfidence).toBe(1.0)
+    })
+  })
 })

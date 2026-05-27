@@ -4,8 +4,9 @@ const EXTRACTION_PROMPT = `You are a receipt parser. Extract the following from 
 1. payee — the merchant/store/company name
 2. amount — the total amount paid (number only, no currency symbol)
 3. date — the transaction date in YYYY-MM-DD format
+4. confidence — a number from 0.0 to 1.0 reflecting how clearly you could read the receipt (1.0 = all fields clearly legible, 0.0 = unreadable or heavily damaged)
 
-Respond ONLY with valid JSON: {"payee":"...","amount":"...","date":"..."}
+Respond ONLY with valid JSON: {"payee":"...","amount":"...","date":"...","confidence":0.9}
 If you cannot determine a field, use an empty string for that field.`
 
 export interface ParsedReceipt {
