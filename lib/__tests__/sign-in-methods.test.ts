@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -354,5 +355,72 @@ describe("linkNostrSignInMethod", () => {
       code: "NOSTR_ALREADY_LINKED",
       status: 409,
     } satisfies Partial<SignInMethodError>)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseNostrAuthEvent — guards that protect the login flow in auth.ts
+// ---------------------------------------------------------------------------
+// These tests document that the same semantic checks applied during Nostr key
+// linking are also applied at login time. The attack vector is: an adversary
+// submitting any publicly-known valid Nostr event (e.g. a kind=1 relay note
+// signed by the victim) to the Nostr credentials provider to gain a session.
+// ---------------------------------------------------------------------------
+
+describe("parseNostrAuthEvent", () => {
+  const pubkey = "b".repeat(64)
+
+  function validEvent(overrides: Record<string, unknown> = {}) {
+    return JSON.stringify({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: Math.floor(Date.now() / 1000),
+      pubkey,
+      tags: [
+        ["u", "https://app.example.com"],
+        ["method", NOSTR_AUTH_EVENT_METHOD],
+      ],
+      id: "event-id",
+      sig: "event-sig",
+      ...overrides,
+    })
+  }
+
+  it("accepts a correctly structured kind-27235 auth event", () => {
+    expect(() => parseNostrAuthEvent(validEvent(), pubkey)).not.toThrow()
+  })
+
+  // This is the primary attack vector: an adversary replays any publicly-known
+  // Nostr event (kind=1 social note, etc.) signed by the victim. Before the
+  // fix, auth.ts only called verifyEvent() and skipped kind/content checks.
+  it("rejects a kind=1 relay note even with a valid cryptographic signature", () => {
+    const relayNote = validEvent({ kind: 1, content: "just a public note" })
+    expect(() => parseNostrAuthEvent(relayNote, pubkey)).toThrow(SignInMethodError)
+    expect(() => parseNostrAuthEvent(relayNote, pubkey)).toThrow("Invalid signed Nostr event")
+  })
+
+  it("rejects a stale auth event (replay of an old login attempt)", () => {
+    const staleEvent = validEvent({ created_at: Math.floor(Date.now() / 1000) - 3600 })
+    expect(() => parseNostrAuthEvent(staleEvent, pubkey)).toThrow(SignInMethodError)
+    expect(() => parseNostrAuthEvent(staleEvent, pubkey)).toThrow("Nostr sign-in request expired")
+  })
+
+  it("rejects an event with wrong content field", () => {
+    const wrongContent = validEvent({ content: "Not BitBudget Login" })
+    expect(() => parseNostrAuthEvent(wrongContent, pubkey)).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event whose pubkey does not match the claimed signer", () => {
+    const wrongPubkey = validEvent({ pubkey: "c".repeat(64) })
+    expect(() => parseNostrAuthEvent(wrongPubkey, pubkey)).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event missing the method login tag", () => {
+    const noMethodTag = validEvent({ tags: [["u", "https://app.example.com"]] })
+    expect(() => parseNostrAuthEvent(noMethodTag, pubkey)).toThrow(SignInMethodError)
+  })
+
+  it("rejects malformed JSON", () => {
+    expect(() => parseNostrAuthEvent("not-json", pubkey)).toThrow(SignInMethodError)
   })
 })

@@ -4,6 +4,7 @@ import Credentials from "next-auth/providers/credentials"
 import Google from "next-auth/providers/google"
 import GitHub from "next-auth/providers/github"
 import { prisma } from "@/lib/db"
+import { parseNostrAuthEvent, SignInMethodError } from "@/lib/sign-in-methods"
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -66,11 +67,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const profileImage = (credentials.profileImage as string) || ""
 
         try {
+          let parsedEvent: Parameters<(typeof import("nostr-tools"))["verifyEvent"]>[0]
+          try {
+            parsedEvent = parseNostrAuthEvent(eventStr, pubkey)
+          } catch (err) {
+            if (err instanceof SignInMethodError) return null
+            return null
+          }
           const { verifyEvent } = await import("nostr-tools")
-          const event = JSON.parse(eventStr)
-          const isValid = verifyEvent(event)
-          if (!isValid) return null
-          if (typeof event.pubkey !== "string" || event.pubkey.toLowerCase() !== pubkey) return null
+          if (!verifyEvent(parsedEvent)) return null
 
           let user = await prisma.user.findUnique({ where: { nostrPubkey: pubkey } })
           if (!user) {
