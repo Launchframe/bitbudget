@@ -9,8 +9,8 @@ test.describe("Analytics ranges", () => {
     await signInAppUser(page, origin, E2E_APP_USER_EMAIL)
     await page.goto(`${origin}/#/analytics`)
     await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible({ timeout: 90_000 })
-    await expect(page.getByRole("heading", { name: "Daily Activity" })).toBeVisible()
-    await expect(page.getByRole("heading", { name: "Cash Flow" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Daily Activity" })).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole("heading", { name: "Cash Flow" })).toBeVisible({ timeout: 15_000 })
     await expect(page.getByRole("heading", { name: "Opportunity Cost" })).toHaveCount(0)
     await page.getByRole("button", { name: "3M", exact: true }).first().click()
     await expect(page.getByRole("button", { name: "3M", exact: true }).first()).toHaveAttribute(

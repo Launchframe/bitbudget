@@ -33,7 +33,9 @@ test.describe("Settings tabs", () => {
       timeout: 30_000,
     })
     await expect(page.getByRole("heading", { name: "BTC Display" })).toBeVisible({ timeout: 15_000 })
-    await page.getByRole("button", { name: "BTC", exact: true }).nth(1).click()
+    // Scope to the BTC Display card to avoid coupling to the sidebar "BTC Price" nav button.
+    const btcDisplayCard = page.locator("div").filter({ has: page.getByRole("heading", { name: "BTC Display" }) })
+    await btcDisplayCard.getByRole("button", { name: "BTC", exact: true }).click()
     await expect(page.getByText(/decimal BTC/i)).toBeVisible()
   })
 
@@ -45,6 +47,9 @@ test.describe("Settings tabs", () => {
     await expect(page.getByRole("heading", { name: "Turn off Savings tracking?" })).toBeVisible()
     await page.getByRole("button", { name: "Turn off tracking" }).click()
     await expect(page.getByRole("button", { name: "Turn on Savings tracking" })).toBeVisible()
+    // Re-enable so later tests in this session see the default engaged state.
+    await page.getByRole("button", { name: "Turn on Savings tracking" }).click()
+    await expect(page.getByRole("switch", { name: "Enable Savings tracking" })).toBeChecked()
   })
 
   test("import transactions dialog opens from integrations", async ({ page, baseURL }) => {
