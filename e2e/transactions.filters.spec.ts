@@ -14,10 +14,10 @@ function transactionRow(page: Page, payee: string) {
 
 async function seededTransactionDate(payee: string): Promise<string> {
   const txn = await prisma.transaction.findFirst({
-    where: { payee },
+    where: { payee, user: { email: E2E_APP_USER_EMAIL } },
     select: { date: true },
   })
-  if (!txn) throw new Error(`Missing seeded transaction: ${payee}`)
+  if (!txn) throw new Error(`Missing seeded transaction for ${E2E_APP_USER_EMAIL}: ${payee}`)
   return txn.date.toISOString().slice(0, 10)
 }
 
