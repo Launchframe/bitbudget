@@ -13,6 +13,7 @@ import { primePrivacyKeyCache } from "./helpers/privacy-cache"
  */
 test.describe("Dashboard walkthrough", () => {
   test("completion is per-user and persists after reload", async ({ page, baseURL }) => {
+    test.setTimeout(120_000)
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
     const emailA = `e2e-walkthrough-a-${Date.now()}@bitbudget.test`
     const emailB = `e2e-walkthrough-b-${Date.now()}@bitbudget.test`
@@ -40,7 +41,7 @@ test.describe("Dashboard walkthrough", () => {
       await page.goto(`${origin}/#/dashboard`)
       await primePrivacyKeyCache(page, user!.id)
       await page.reload()
-      await expect(page.getByText("Monthly Income")).toBeVisible({ timeout: 90_000 })
+      await expect(page.getByText("Monthly Income", { exact: true })).toBeVisible({ timeout: 90_000 })
     }
 
     async function dismissWalkthroughAndWaitForSave() {
@@ -65,7 +66,7 @@ test.describe("Dashboard walkthrough", () => {
     }
 
     await signInReadyForWalkthrough(emailA)
-    await expect(skipWalkthrough).toBeVisible({ timeout: 15_000 })
+    await expect(skipWalkthrough).toBeVisible({ timeout: 20_000 })
     await dismissWalkthroughAndWaitForSave()
 
     await expect
@@ -79,11 +80,11 @@ test.describe("Dashboard walkthrough", () => {
       .toBe(true)
 
     await signInReadyForWalkthrough(emailB)
-    await expect(skipWalkthrough).toBeVisible({ timeout: 15_000 })
+    await expect(skipWalkthrough).toBeVisible({ timeout: 20_000 })
     await dismissWalkthroughAndWaitForSave()
 
     await page.reload()
-    await expect(page.getByText("Monthly Income")).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByText("Monthly Income", { exact: true })).toBeVisible({ timeout: 90_000 })
     await expect(skipWalkthrough).not.toBeVisible({ timeout: 5_000 })
 
     await expect

@@ -209,6 +209,12 @@ interface AppContextValue {
   setCommunicationPreference: (key: CommunicationPreferenceKey, enabled: boolean) => Promise<void>
   setSavingsExperience: (experience: "engaged" | "dismissed") => Promise<void>
   completeWalkthrough: () => Promise<void>
+  restartWalkthrough: () => Promise<void>
+  updateSetupGuidePrefs: (patch: {
+    setupGuideSnoozedUntil?: string | null
+    setupGuideDismissed?: boolean
+    setupGuideShowOnDashboard?: boolean
+  }) => Promise<void>
   addTag: (tag: string) => void
   deleteTag: (id: string) => void
   refreshData: () => Promise<void>
@@ -662,6 +668,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ? (settings as { savingsExperience: string }).savingsExperience
             : "engaged",
         walkthroughCompleted: settings.walkthroughCompleted === true,
+        setupGuideSnoozedUntil:
+          typeof (settings as { setupGuideSnoozedUntil?: string | null }).setupGuideSnoozedUntil ===
+          "string"
+            ? (settings as { setupGuideSnoozedUntil: string }).setupGuideSnoozedUntil
+            : null,
+        setupGuideDismissed:
+          (settings as { setupGuideDismissed?: boolean }).setupGuideDismissed === true,
+        setupGuideShowOnDashboard:
+          (settings as { setupGuideShowOnDashboard?: boolean }).setupGuideShowOnDashboard !==
+          false,
       }))
 
       const uid = currentUserIdRef.current
@@ -1315,6 +1331,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const restartWalkthrough = useCallback(async () => {
+    setState(prev => ({ ...prev, walkthroughCompleted: false }))
+    try {
+      const res = await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walkthroughCompleted: false }),
+      })
+      if (!res.ok) await refreshData()
+    } catch {
+      await refreshData()
+    }
+  }, [refreshData])
+
+  const updateSetupGuidePrefs = useCallback(
+    async (patch: {
+      setupGuideSnoozedUntil?: string | null
+      setupGuideDismissed?: boolean
+      setupGuideShowOnDashboard?: boolean
+    }) => {
+      setState(prev => ({
+        ...prev,
+        ...(patch.setupGuideSnoozedUntil !== undefined
+          ? { setupGuideSnoozedUntil: patch.setupGuideSnoozedUntil }
+          : {}),
+        ...(patch.setupGuideDismissed !== undefined
+          ? { setupGuideDismissed: patch.setupGuideDismissed }
+          : {}),
+        ...(patch.setupGuideShowOnDashboard !== undefined
+          ? { setupGuideShowOnDashboard: patch.setupGuideShowOnDashboard }
+          : {}),
+      }))
+      try {
+        const res = await fetch("/api/user/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        })
+        if (!res.ok) await refreshData()
+      } catch {
+        await refreshData()
+      }
+    },
+    [refreshData],
+  )
+
   const addTag = useCallback(async (tag: string) => {
     const trimmed = tag.trim()
     if (!trimmed) return
@@ -1623,6 +1685,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setCommunicationPreference,
         setSavingsExperience,
         completeWalkthrough,
+        restartWalkthrough,
+        updateSetupGuidePrefs,
         addTag,
         deleteTag,
         refreshData,

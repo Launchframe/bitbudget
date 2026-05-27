@@ -24,7 +24,7 @@ export function Sidebar() {
 
   return (
     <aside className="sticky top-24 h-[calc(100vh-8rem)] w-16 lg:w-64 bg-[#0D0D0D] rounded-2xl hidden md:flex flex-col py-8 px-3 lg:px-8 overflow-y-auto">
-      <nav className="flex flex-col gap-8">
+      <nav className="flex flex-col gap-8" data-walkthrough="app-nav">
         {navItems.filter(item => item.id !== "btc-price" || state.opportunityCostEnabled).map((item) => {
           const isActive = currentPage === item.id || (item.id === "envelopes" && (currentPage === "envelope-detail" || currentPage === "envelope-allocations"))
           const isPlaceholder = item.id === "researcher" || item.id === "funds"
@@ -36,7 +36,6 @@ export function Sidebar() {
                 if (!isPlaceholder) navigateTo(item.id)
               }}
               title={item.label}
-              {...(item.id === "transactions" ? { "data-walkthrough": "transactions" } : {})}
               className={`relative flex items-center justify-center lg:justify-start gap-4 transition-colors text-left ${
                 isActive
                   ? "text-[#F7931A]"
@@ -78,6 +77,7 @@ export function Sidebar() {
         <button
           onClick={() => setScanOpen(true)}
           title="Scan Receipt"
+          data-walkthrough="scan-receipt"
           className="flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-4 py-2.5 bg-[#1A1A1A] text-foreground rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
         >
           <ScanLine className="h-4 w-4 text-[#F7931A] shrink-0" />

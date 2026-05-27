@@ -38,6 +38,9 @@ model User {
   onboardingComplete        Boolean   @default(false)
   onboardingCompletedAt     DateTime?
   walkthroughCompleted      Boolean   @default(false)
+  setupGuideSnoozedUntil    DateTime?
+  setupGuideDismissed       Boolean   @default(false)
+  setupGuideShowOnDashboard Boolean   @default(true)
   btcDisplayUnit            String    @default("sats") // "sats" | "btc"
   opportunityCostEnabled    Boolean   @default(false)
   role                      String?   @default("user")

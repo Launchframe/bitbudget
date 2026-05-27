@@ -21,7 +21,7 @@ import {
 import { assertPayCadencePersistable, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import { PAYDAY_LAST_OF_MONTH } from "@/lib/payday-cadence"
 import { validateDecimal12_2, validateDecimal4_2Positive } from "@/lib/decimal-validation"
-import { booleanSettingsFieldError } from "@/lib/user-settings-validation"
+import { booleanSettingsFieldError, setupGuideSnoozedUntilError } from "@/lib/user-settings-validation"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
 type UserSettingsPutBody = Partial<{
@@ -47,6 +47,9 @@ type UserSettingsPutBody = Partial<{
   sweepDefaultPolicy: string
   sweepDefaultCapMultiplier: number | null
   savingsExperience: string
+  setupGuideSnoozedUntil: string | null
+  setupGuideDismissed: boolean
+  setupGuideShowOnDashboard: boolean
 }>
 
 const ALLOWED_PAY_CADENCES = new Set([
@@ -88,6 +91,9 @@ const ALLOWED_SETTINGS_PUT_FIELDS = [
   "sweepDefaultPolicy",
   "sweepDefaultCapMultiplier",
   "savingsExperience",
+  "setupGuideSnoozedUntil",
+  "setupGuideDismissed",
+  "setupGuideShowOnDashboard",
 ] as const satisfies readonly (keyof UserSettingsPutBody)[]
 
 const userSettingsSelect = {
@@ -104,6 +110,9 @@ const userSettingsSelect = {
   onboardingCompletedAt: true,
   createdAt: true,
   walkthroughCompleted: true,
+  setupGuideSnoozedUntil: true,
+  setupGuideDismissed: true,
+  setupGuideShowOnDashboard: true,
   btcDisplayUnit: true,
   opportunityCostEnabled: true,
   nostrPubkey: true,
@@ -140,6 +149,7 @@ function serializeUserSettings(user: {
   [key: string]: unknown
 }) {
   const { _count, premiumGratisUntil, premiumTrialUntil, ...rest } = user
+  const snoozed = rest.setupGuideSnoozedUntil
   return {
     ...rest,
     createdAt:
@@ -148,6 +158,8 @@ function serializeUserSettings(user: {
       rest.onboardingCompletedAt instanceof Date
         ? rest.onboardingCompletedAt.toISOString()
         : (rest.onboardingCompletedAt as string | null | undefined) ?? null,
+    setupGuideSnoozedUntil:
+      snoozed instanceof Date ? snoozed.toISOString() : snoozed ?? null,
     lastPaydayAt: rest.lastPaydayAt instanceof Date ? rest.lastPaydayAt.toISOString() : rest.lastPaydayAt ?? null,
     estimatedAnnualIncome: serializeDecimal(rest.estimatedAnnualIncome as Prisma.Decimal | null),
     sweepDefaultCapMultiplier: serializeDecimal(rest.sweepDefaultCapMultiplier as Prisma.Decimal | null),
@@ -380,6 +392,11 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  const snoozeError = setupGuideSnoozedUntilError(body.setupGuideSnoozedUntil)
+  if (snoozeError) {
+    return NextResponse.json({ error: snoozeError }, { status: 400 })
+  }
+
   const booleanFieldError = booleanSettingsFieldError(body)
   if (booleanFieldError) {
     return NextResponse.json({ error: booleanFieldError }, { status: 400 })
@@ -427,6 +444,12 @@ export async function PUT(req: NextRequest) {
       }
       continue
     }
+    if (field === "setupGuideSnoozedUntil") {
+      const rawSnooze = body.setupGuideSnoozedUntil
+      data.setupGuideSnoozedUntil =
+        rawSnooze === null ? null : new Date(rawSnooze as string)
+      continue
+    }
     data[field] = body[field]
   }
 
@@ -449,6 +472,9 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: prefError }, { status: 400 })
     }
     Object.assign(data, emailPreferenceUpdateData(body.communicationPreferences))
+  }
+  if (body.setupGuideShowOnDashboard === true) {
+    data.setupGuideDismissed = false
   }
 
   if (
@@ -482,6 +508,9 @@ export async function PUT(req: NextRequest) {
       savingsExperience: true,
       onboardingComplete: true,
       walkthroughCompleted: true,
+      setupGuideSnoozedUntil: true,
+      setupGuideDismissed: true,
+      setupGuideShowOnDashboard: true,
       btcDisplayUnit: true,
       opportunityCostEnabled: true,
       receiptInboxToken: true,

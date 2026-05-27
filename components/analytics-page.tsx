@@ -394,7 +394,10 @@ export function AnalyticsPage() {
           Historical data is still loading - charts will update as more transactions arrive.
         </p>
       )}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl">
+      <div
+        data-walkthrough="analytics-header"
+        className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl"
+      >
         <div>
           <h2 className="text-xl font-semibold text-foreground">Analytics</h2>
           {invalidRange && (

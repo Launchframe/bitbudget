@@ -15,8 +15,7 @@ test.describe("New Transaction manual entry", () => {
     await page.goto(`${origin}/#/transactions`)
     await expect(page.getByText("E2E Recurring Payee").first()).toBeVisible({ timeout: 90_000 })
 
-    // Sidebar CTA (unique); transactions page also has a header "New Transaction" button.
-    await page.locator('[data-walkthrough="new-transaction"]').click()
+    await page.getByTitle("New Transaction").click()
     await expect(page.getByRole("heading", { name: "New Transaction" })).toBeVisible({ timeout: 15_000 })
 
     const payee = page.locator("#payee")

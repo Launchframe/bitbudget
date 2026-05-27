@@ -368,6 +368,7 @@ export function SavingsHeroCard() {
             type="button"
             variant="outline"
             size="sm"
+            data-walkthrough="sweep-cta"
             className="border-[#333] hover:border-[#D4AF37]/50"
             onClick={() => setSweepOpen(true)}
           >

@@ -112,6 +112,9 @@ export interface AppState {
   communicationPreferences: CommunicationPreferences
   savingsExperience: string
   walkthroughCompleted: boolean
+  setupGuideSnoozedUntil: string | null
+  setupGuideDismissed: boolean
+  setupGuideShowOnDashboard: boolean
 }
 
 export function compareTransactionsDesc(a: Transaction, b: Transaction): number {
@@ -294,6 +297,9 @@ export function getDefaultState(): AppState {
     },
     savingsExperience: "engaged",
     walkthroughCompleted: false,
+    setupGuideSnoozedUntil: null,
+    setupGuideDismissed: false,
+    setupGuideShowOnDashboard: true,
   }
 }
 
