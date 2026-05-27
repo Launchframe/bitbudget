@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import { confirmPendingTransactionAtomic } from "@/lib/pending-transaction-confirm"
 import { recordPayeeMapping } from "@/lib/envelope-matcher"
 
 export async function POST(req: NextRequest) {
@@ -36,26 +36,13 @@ export async function POST(req: NextRequest) {
     })
     if (!envelope) continue
 
-    const dateStr = pending.date.toISOString().split("T")[0]
-    const btcPrice = await getBtcPriceForDate(dateStr)
-    const absAmount = Math.abs(pending.amount)
+    const transaction = await confirmPendingTransactionAtomic(
+      session.user.id,
+      pending.id,
+      envelopeId,
+    )
+    if (!transaction) continue
 
-    await prisma.transaction.create({
-      data: {
-        userId: session.user.id,
-        envelopeId,
-        date: pending.date,
-        payee: pending.payee,
-        amount: absAmount,
-        type: "expense",
-        source: pending.source,
-        tags: pending.tags ?? "[]",
-        notes: pending.notes ?? null,
-        satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
-      },
-    })
-
-    await prisma.pendingTransaction.delete({ where: { id: pending.id } })
     const plain = payeePlainById[pending.id]?.trim()
     if (plain) {
       await recordPayeeMapping(session.user.id, plain, envelopeId)

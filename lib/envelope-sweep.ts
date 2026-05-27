@@ -110,28 +110,7 @@ export async function sweepDiscretionaryEnvelopesForUser(
   })
 
   const budgetRows = envelopeRows.filter((env) => isBudgetEnvelope(env.systemRole))
-  const balances = await envelopeBalancesAllTimeBatch(
-    userId,
-    budgetRows.map((env) => env.id),
-  )
-
-  type SweepEntry = { envelopeId: string; name: string; amount: number }
-  const entries: SweepEntry[] = []
-
-  for (const env of budgetRows) {
-    const balance = balances.get(env.id) ?? 0
-    const policy = env.sweepPolicy || user.sweepDefaultPolicy || SWEEP_POLICY_RESET
-    const capMult = resolveSweepCapMultiplier(env.sweepCapMultiplier, user.sweepDefaultCapMultiplier)
-    const amount = sweepAmountForEnvelope({
-      balance,
-      policy,
-      monthlyAllotment: env.monthlyAllotment,
-      capMultiplier: capMult,
-    })
-    if (amount > 0) entries.push({ envelopeId: env.id, name: env.name, amount })
-  }
-
-  if (entries.length === 0) return 0
+  if (budgetRows.length === 0) return 0
 
   const dateStr = now.toISOString().split("T")[0]!
   const btcPrice = await getBtcPriceForDate(dateStr)
@@ -165,6 +144,30 @@ export async function sweepDiscretionaryEnvelopesForUser(
       }
       throw e
     }
+
+    const balances = await envelopeBalancesAllTimeBatch(
+      userId,
+      budgetRows.map((env) => env.id),
+      tx,
+    )
+
+    type SweepEntry = { envelopeId: string; name: string; amount: number }
+    const entries: SweepEntry[] = []
+
+    for (const env of budgetRows) {
+      const balance = balances.get(env.id) ?? 0
+      const policy = env.sweepPolicy || user.sweepDefaultPolicy || SWEEP_POLICY_RESET
+      const capMult = resolveSweepCapMultiplier(env.sweepCapMultiplier, user.sweepDefaultCapMultiplier)
+      const amount = sweepAmountForEnvelope({
+        balance,
+        policy,
+        monthlyAllotment: env.monthlyAllotment,
+        capMultiplier: capMult,
+      })
+      if (amount > 0) entries.push({ envelopeId: env.id, name: env.name, amount })
+    }
+
+    if (entries.length === 0) return 0
 
     let created = 0
     for (const entry of entries) {
@@ -315,23 +318,8 @@ export async function createManualEnvelopeSweep(
     const env = envelopeById.get(entry.envelopeId)
     return env != null && isBudgetEnvelope(env.systemRole)
   })
-  const balances = await envelopeBalancesAllTimeBatch(
-    userId,
-    validEntries.map((e) => e.envelopeId),
-  )
 
-  type ResolvedEntry = { envelopeId: string; name: string; amount: number }
-  const resolved: ResolvedEntry[] = []
-
-  for (const entry of validEntries) {
-    const env = envelopeById.get(entry.envelopeId)!
-    const balance = balances.get(entry.envelopeId) ?? 0
-    const amount = Math.min(entry.amount, Math.max(0, balance))
-    if (amount <= 0) continue
-    resolved.push({ envelopeId: entry.envelopeId, name: env.name, amount })
-  }
-
-  if (resolved.length === 0) return 0
+  if (validEntries.length === 0) return 0
 
   const dateStr = now.toISOString().split("T")[0]!
   const btcPrice = await getBtcPriceForDate(dateStr)
@@ -339,6 +327,25 @@ export async function createManualEnvelopeSweep(
   const periodKey = `manual-sweep-${randomUUID()}`
 
   return prisma.$transaction(async (tx) => {
+    const balances = await envelopeBalancesAllTimeBatch(
+      userId,
+      validEntries.map((e) => e.envelopeId),
+      tx,
+    )
+
+    type ResolvedEntry = { envelopeId: string; name: string; amount: number }
+    const resolved: ResolvedEntry[] = []
+
+    for (const entry of validEntries) {
+      const env = envelopeById.get(entry.envelopeId)!
+      const balance = balances.get(entry.envelopeId) ?? 0
+      const amount = Math.min(entry.amount, Math.max(0, balance))
+      if (amount <= 0) continue
+      resolved.push({ envelopeId: entry.envelopeId, name: env.name, amount })
+    }
+
+    if (resolved.length === 0) return 0
+
     const batch = await tx.envelopeFundingBatch.create({
       data: {
         userId,
