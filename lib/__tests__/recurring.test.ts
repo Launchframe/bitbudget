@@ -1,14 +1,16 @@
 // @vitest-environment node
 import { describe, expect, it, vi, beforeEach } from "vitest"
 
-const txRecurringFindFirst = vi.fn()
-const txRecurringUpdateMany = vi.fn()
-const txTransactionCreate = vi.fn()
+const prismaRecurringFindFirst = vi.hoisted(() => vi.fn())
+const txRecurringFindFirst = vi.hoisted(() => vi.fn())
+const txRecurringUpdateMany = vi.hoisted(() => vi.fn())
+const txTransactionCreate = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/db", () => ({
   prisma: {
     recurringTransaction: {
       findMany: vi.fn(),
+      findFirst: prismaRecurringFindFirst,
     },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
@@ -77,6 +79,7 @@ describe("processRecurringTransactions", () => {
 
   beforeEach(() => {
     vi.mocked(prisma.recurringTransaction.findMany).mockReset()
+    prismaRecurringFindFirst.mockReset()
     txRecurringFindFirst.mockReset()
     txRecurringUpdateMany.mockReset()
     txTransactionCreate.mockReset()
@@ -91,6 +94,11 @@ describe("processRecurringTransactions", () => {
       { ...baseRec, nextDueDate: nextDue },
     ] as never)
 
+    // Pre-read outside transaction returns the preview row
+    prismaRecurringFindFirst
+      .mockResolvedValueOnce({ nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+    // Re-read inside transaction returns the full row; second attempt returns null
     txRecurringFindFirst
       .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
       .mockResolvedValue(null as never)
@@ -121,17 +129,60 @@ describe("processRecurringTransactions", () => {
       { ...baseRec, nextDueDate: nextDue },
     ] as never)
 
-    txRecurringFindFirst
-      .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
-      .mockResolvedValueOnce(null as never)
+    // Attempt 1: pre-read finds the record; attempt 2: pre-read finds nothing (race winner advanced it)
+    prismaRecurringFindFirst
+      .mockResolvedValueOnce({ nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+    // Inner tx: first read finds row; CAS update returns 0 (race lost)
+    txRecurringFindFirst.mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
     txRecurringUpdateMany.mockResolvedValueOnce({ count: 0 } as never)
 
     const asOf = new Date(Date.UTC(2026, 3, 15, 10, 0, 0))
     const created = await processRecurringTransactions(userId, asOf)
 
     expect(created).toBe(0)
-    expect(prisma.$transaction).toHaveBeenCalledTimes(2)
+    // With the pre-read optimisation the second retry bails out before opening
+    // a second $transaction because prismaRecurringFindFirst returns null.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(txTransactionCreate).toHaveBeenCalledTimes(1)
     expect(txRecurringUpdateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not call getBtcPriceForDate inside the prisma transaction", async () => {
+    const { getBtcPriceForDate } = await import("@/lib/btc-price")
+    const getBtcSpy = vi.mocked(getBtcPriceForDate)
+    getBtcSpy.mockReset()
+    getBtcSpy.mockResolvedValue(50000)
+
+    const nextDue = new Date(Date.UTC(2026, 3, 10, 0, 0, 0))
+    vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([
+      { ...baseRec, nextDueDate: nextDue },
+    ] as never)
+
+    prismaRecurringFindFirst
+      .mockResolvedValueOnce({ nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+    txRecurringFindFirst
+      .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+
+    // Track call order: getBtcPriceForDate must be called before $transaction opens
+    const callOrder: string[] = []
+    getBtcSpy.mockImplementation(async () => {
+      callOrder.push("getBtcPrice")
+      return 50000
+    })
+    vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn: (tx: unknown) => Promise<unknown>) => {
+      callOrder.push("$transaction")
+      return fn({
+        recurringTransaction: { findFirst: txRecurringFindFirst, updateMany: txRecurringUpdateMany },
+        transaction: { create: txTransactionCreate },
+      })
+    })
+
+    await processRecurringTransactions(userId, new Date(Date.UTC(2026, 3, 15)))
+
+    expect(callOrder[0]).toBe("getBtcPrice")
+    expect(callOrder[1]).toBe("$transaction")
   })
 })
