@@ -377,3 +377,34 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **Missing `min-w-0` in flex/grid layouts** — a child row (tabs, toolbars, input+button pairs) expands the page horizontally on phones. Add `min-w-0 w-full max-w-full` down the layout chain, or stack on mobile. **`overflow-x-auto` without a bounded parent does not fix this.**
 - **Desktop-first breakpoints** — building a wide horizontal layout by default and only wrapping at `lg`/`md` often breaks between 320–640px. Default to mobile layout; enhance upward with `sm:` / `md:` / `lg:`.
 - **Fixed padding and min-widths on cards** — uniform `p-6` plus wide inner flex rows can clip buttons and text on 390px-wide screens. Use responsive padding and `flex-col sm:flex-row` for compound controls.
+
+## Cursor Cloud-specific instructions
+
+### Services overview
+
+| Service | How to run | Notes |
+|---------|-----------|-------|
+| PostgreSQL | `sudo pg_ctlcluster 16 main start` | Required. Must be running before dev server or tests. |
+| Next.js dev server | `pnpm dev` | Runs on port 3000. |
+| Unit tests | `pnpm test` | Vitest; no DB required. |
+| Lint | `pnpm lint` | ESLint with `--max-warnings 0`. |
+| E2E tests | `pnpm test:e2e` | Requires PostgreSQL + Playwright browsers. Builds and runs on port 3100. Do not run while `pnpm dev` is active (lock conflict). |
+
+### Environment setup
+
+- **PostgreSQL** is required but not Docker-based. Install via `apt-get install postgresql postgresql-client` and start with `sudo pg_ctlcluster 16 main start` (no systemd in Cloud VMs).
+- **Prisma CLI** reads `.env` (not `.env.local`). Create a symlink once so CLI commands pick up `.env.local`: `ln -sf .env.local .env` (skip if `.env` already exists and points at the right file).
+- **`.env.local`** must contain at minimum: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`. For E2E testing, also add `E2E_TEST="true"` and `E2E_EMAIL_CODE="424242"`.
+- After `pnpm install`, run `prisma migrate deploy` (not `prisma migrate dev`, which prompts interactively) to apply pending migrations non-interactively.
+
+### Testing with E2E mode
+
+- Set `E2E_TEST="true"` and `E2E_EMAIL_CODE="424242"` in `.env.local` to enable fixed OTP login for `@bitbudget.test` email addresses. This also suppresses outbound email/Nostr DM notifications.
+- Playwright e2e global setup runs `prisma migrate deploy` and seeds fixtures automatically.
+- Install Playwright browsers once. Use the same command as in **End-to-end (Playwright)** (`pnpm exec playwright install`); on Cursor Cloud VMs, use **`pnpm exec playwright install chromium --with-deps`** so Chromium’s system libraries are installed via apt, matching CI.
+
+### Gotchas
+
+- The `pnpm install` postinstall hook runs `prisma generate` automatically, so no separate generate step is needed after install.
+- `pnpm.onlyBuiltDependencies` in `package.json` handles native dependency build approvals non-interactively — do not run `pnpm approve-builds`.
+- The Next.js dev server hot-reloads code changes but does **not** pick up new `.env.local` values without a restart.
