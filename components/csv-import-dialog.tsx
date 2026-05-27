@@ -711,7 +711,7 @@ export function CSVImportDialog({
           {step === "importing" && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Encrypting &amp; importing...
+              Encrypting your transactions...
             </div>
           )}
           {step === "done" && result && result.newEnvelopes.length > 0 && (
@@ -819,14 +819,17 @@ function EnvelopeMappingRow({
           <div className="text-sm font-medium text-foreground truncate">
             {csvEnvelope.csvName}
           </div>
-          <div className="text-xs text-muted-foreground">
+          <div className="hidden sm:block text-xs text-muted-foreground">
             {csvEnvelope.count} transaction{csvEnvelope.count !== 1 ? "s" : ""}
+          </div>
+          <div className="block sm:hidden text-xs text-muted-foreground">
+            {csvEnvelope.count} tx{csvEnvelope.count !== 1 ? "s" : ""}
           </div>
         </div>
 
         <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground hidden sm:block" />
 
-        <div className="w-44 sm:w-52 shrink-0">
+        <div className="w-36 xs:w-42 sm:w-52 shrink-0">
           <Select value={value} onValueChange={onChange}>
             <SelectTrigger className="w-full bg-[#0D0D0D] border-[#333] text-sm h-9">
               <SelectValue>
@@ -884,7 +887,7 @@ function EnvelopeMappingRow({
 
       {expanded && hasSamples && (
         <div className="border-t border-[#252525] px-3 py-2 ml-5 sm:ml-8">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Sample transactions</p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Recent transactions</p>
           <div className="space-y-1">
             {csvEnvelope.samples.map((s, i) => (
               <div key={i} className="flex items-center justify-between gap-4 text-xs">
