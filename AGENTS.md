@@ -112,6 +112,32 @@ Product notifications (referrals, premium trial/gratis reminders, notification-e
 
 **Agents:** When helping developers set up outbound messaging, walk through [docs/outbound-messaging.md](docs/outbound-messaging.md) in order (local → preview → production). Do not put service `nsec` or app passwords in client code, logs, or PR descriptions. Do not promise Tor relay publish on Vercel without custom Tor-capable infrastructure.
 
+### Android bank notification forwarding (DIY ingest)
+
+BitBudget **cannot** read other apps’ notifications from the web app. Users on Android may forward **bank app notifications** to BitBudget via **Tasker**, **MacroDroid**, or **Automate** (notification listener + HTTP POST). This is a **premium/trial** capture path; transaction source is `notification_forward`.
+
+**Integrator / support / chatbot guide:** [docs/android-notification-forwarding.md](docs/android-notification-forwarding.md) — prerequisites, privacy warnings, per-app setup (Tasker / MacroDroid / Automate), webhook JSON contract, troubleshooting playbook, curl tests.
+
+**API surface:**
+
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `GET` / `POST` `/api/user/notification-ingest` | Session | Issue or rotate `notificationIngestToken`; returns `webhookUrl` |
+| `POST` `/api/webhooks/notification-ingest` | `Authorization: Bearer <token>` or `X-BitBudget-Ingest-Token` | Ingest alert JSON → parse → `routeTransaction` (pending or live) |
+
+**Code:** `lib/bank-alert-parser.ts`, `lib/notification-ingest.ts`, `lib/ingest-token.ts`, `User.notificationIngestToken` in Prisma. Trial monthly cap uses the same bucket as email/SMS (`PREMIUM_CAPTURE_SOURCES` in `lib/subscription.ts`).
+
+**Agents helping users:**
+
+1. Confirm **premium or trial**, encryption setup, and that the bank app actually posts **notifications** (not toast-only).
+2. Walk through the **privacy** section — notification access is granted to the automation app, not BitBudget.
+3. Use the doc’s **Tasker / MacroDroid / Automate** sections; adapt variable names to the user’s app version.
+4. Token via authenticated `GET /api/user/notification-ingest` (Settings UI may not exist yet — do not invent URLs).
+5. Test with **curl** from the doc before debugging phone automation.
+6. Never ask users to paste ingest tokens in public channels; never log notification bodies or tokens.
+
+**Not supported:** iOS notification forwarding (no equivalent user automation to a custom webhook without a native helper app), reading **toasts**, BitBudget listening without user-installed automation.
+
 ## Tech Stack
 
 - **Framework:** Next.js (App Router), React, TypeScript

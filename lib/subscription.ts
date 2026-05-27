@@ -7,7 +7,7 @@ export type SubscriptionTier = "free" | "premium"
 /** Resolved tier including referral trial and gratis premium windows. */
 export type EffectiveSubscriptionTier = "free" | "premium-trial" | "premium"
 
-const RECEIPT_SMS_SOURCES = ["email_forward", "sms"] as const
+const PREMIUM_CAPTURE_SOURCES = ["email_forward", "sms", "notification_forward"] as const
 
 export const PREMIUM_TRIAL_RECEIPT_SMS_MONTHLY_CAP = 100
 
@@ -104,14 +104,14 @@ export async function countTrialReceiptSmsSubmissionsThisMonth(
     prisma.transaction.count({
       where: {
         userId,
-        source: { in: [...RECEIPT_SMS_SOURCES] },
+        source: { in: [...PREMIUM_CAPTURE_SOURCES] },
         createdAt: { gte: start, lt: end },
       },
     }),
     prisma.pendingTransaction.count({
       where: {
         userId,
-        source: { in: [...RECEIPT_SMS_SOURCES] },
+        source: { in: [...PREMIUM_CAPTURE_SOURCES] },
         createdAt: { gte: start, lt: end },
       },
     }),
@@ -120,7 +120,7 @@ export async function countTrialReceiptSmsSubmissionsThisMonth(
 }
 
 /**
- * Trial users are capped on combined email_forward + SMS capture; full premium is unlimited.
+ * Trial users are capped on combined email_forward, SMS, and notification_forward capture; full premium is unlimited.
  */
 export async function assertPremiumTrialInboxAllowed(
   userId: string,
@@ -133,7 +133,7 @@ export async function assertPremiumTrialInboxAllowed(
     if (n >= PREMIUM_TRIAL_RECEIPT_SMS_MONTHLY_CAP) {
       return {
         ok: false,
-        message: `Premium trial allows up to ${PREMIUM_TRIAL_RECEIPT_SMS_MONTHLY_CAP} receipt or SMS captures per month. Upgrade for unlimited.`,
+        message: `Premium trial allows up to ${PREMIUM_TRIAL_RECEIPT_SMS_MONTHLY_CAP} receipt, SMS, or notification captures per month. Upgrade for unlimited.`,
       }
     }
     return { ok: true }
