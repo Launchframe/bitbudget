@@ -58,7 +58,7 @@ export async function configureIncomeStep(page: Page, opts: OnboardingIncomeOpti
   if (opts.mode === "regular" || opts.mode === "mix") {
     const paycheck = opts.paycheck ?? "2500"
     await page.getByRole("button", { name: "Monthly", exact: true }).click()
-    const incomeInput = page.locator('input[type="number"]').first()
+    const incomeInput = page.locator('input[placeholder="2,500"]')
     await incomeInput.fill(paycheck)
   }
 
@@ -98,7 +98,11 @@ export async function continueSavingsGoalStep(page: Page): Promise<void> {
 }
 
 export async function continueSavingsGamePlan(page: Page): Promise<void> {
-  await page.getByRole("heading", { name: "Your Savings game plan" }).locator("..").locator("..").getByRole("button", { name: "Continue" }).click()
+  await page
+    .locator("div")
+    .filter({ has: page.getByRole("heading", { name: "Your Savings game plan" }) })
+    .getByRole("button", { name: "Continue" })
+    .click()
   await expect(page.getByRole("heading", { name: "Import Transactions" })).toBeVisible({
     timeout: 30_000,
   })

@@ -23,7 +23,7 @@ test.describe("Onboarding income modes", () => {
     testInfo.annotations.push({ type: "email", description: email })
   })
 
-  async function emailFromAnnotations(testInfo: import("@playwright/test").TestInfo): Promise<string> {
+  function emailFromAnnotations(testInfo: import("@playwright/test").TestInfo): string {
     const a = testInfo.annotations.find(x => x.type === "email")
     if (!a?.description) throw new Error("missing email annotation")
     return a.description
@@ -31,7 +31,7 @@ test.describe("Onboarding income modes", () => {
 
   test("regular paycheck saves monthly cadence and bounded budget UI", async ({ page, baseURL }, testInfo) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
-    const email = await emailFromAnnotations(testInfo)
+    const email = emailFromAnnotations(testInfo)
     await startOnboardingUser(page, origin, email)
     await skipReferralStep(page)
     await completeSecurityPassphrase(page)
@@ -55,7 +55,7 @@ test.describe("Onboarding income modes", () => {
     baseURL,
   }, testInfo) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
-    const email = await emailFromAnnotations(testInfo)
+    const email = emailFromAnnotations(testInfo)
     await startOnboardingUser(page, origin, email)
     await skipReferralStep(page)
     await completeSecurityPassphrase(page)
@@ -77,7 +77,7 @@ test.describe("Onboarding income modes", () => {
 
   test("irregular with annual estimate bounds budget to annual/12", async ({ page, baseURL }, testInfo) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
-    const email = await emailFromAnnotations(testInfo)
+    const email = emailFromAnnotations(testInfo)
     await startOnboardingUser(page, origin, email)
     await skipReferralStep(page)
     await completeSecurityPassphrase(page)
@@ -97,7 +97,7 @@ test.describe("Onboarding income modes", () => {
 
   test("mixed timing saves mixed cadence and combines incomes", async ({ page, baseURL }, testInfo) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
-    const email = await emailFromAnnotations(testInfo)
+    const email = emailFromAnnotations(testInfo)
     await startOnboardingUser(page, origin, email)
     await skipReferralStep(page)
     await completeSecurityPassphrase(page)
