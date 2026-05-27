@@ -12,7 +12,7 @@ The full suite was run successfully in a cloud agent environment matching GitHub
 | `DATABASE_URL` / `DATABASE_URL_UNPOOLED` | `postgresql://postgres:postgres@127.0.0.1:5432/bitbudget_e2e` |
 | `AUTH_SECRET` | ≥ 32 characters |
 | Build | `pnpm exec next build` then `PW_WEBSERVER_SKIP_BUILD=true pnpm test:e2e` |
-| Result | **41 passed** (~54s test time with v1 implementation branches merged) |
+| Result | **41 passed** (~54s test time with the original v1 implementation branches merged) |
 
 Local/cloud setup steps (when `.env` is missing):
 
@@ -23,11 +23,11 @@ Local/cloud setup steps (when `.env` is missing):
 5. `pnpm exec next build` (or let Playwright build via default `PW_WEBSERVER_COMMAND`)
 6. `pnpm test:e2e`
 
-Playwright config: [`playwright.config.ts`](../../playwright.config.ts). Current `main` global setup runs `prisma migrate deploy` plus referral and recurring seeds; the full v1 implementation stack adds app-user seeds.
+Playwright config: [`playwright.config.ts`](../../playwright.config.ts). Current `main` global setup runs `prisma migrate deploy` plus referral, recurring, app-user, and income-importer seeds.
 
-## Target v1 baseline (41 tests after implementation stack)
+## Target v1 baseline (46 tests after remaining implementation stack)
 
-Current `main` baseline is 5 specs / 18 tests: `referrals.program`, `new-transaction.manual-entry`, `receipt-scan.prefill`, `recurring.lifecycle`, and `walkthrough.per-user`. The table below is the planned v1 CI contract once the stacked implementation PRs land.
+Current `main` baseline is 11 specs / 34 tests: `referrals.program`, `new-transaction.manual-entry`, `receipt-scan.prefill`, `recurring.lifecycle`, `walkthrough.per-user`, `landing-auth.smoke`, `onboarding.income-matrix`, `onboarding.import-branches`, `envelopes.lifecycle`, `envelopes.archive`, and `income-importer`. The table below is the planned v1 CI contract once the remaining stacked implementation PRs land.
 
 | Spec | Tests | What it locks in |
 |------|-------|------------------|
@@ -42,16 +42,17 @@ Current `main` baseline is 5 specs / 18 tests: `referrals.program`, `new-transac
 | `e2e/payee-mappings.spec.ts` | 1 | Manual mapping in settings |
 | `e2e/analytics.ranges.spec.ts` | 2 | Range chips; vanilla vs OC chart gating |
 | `e2e/settings.tabs.spec.ts` | 5 | Tags CRUD, OC/BTC toggles, savings dismiss, import dialog, `@mobile` overflow |
+| `e2e/income-importer.spec.ts` | 5 | Past income painter, draft restore, zero-monthly-income edge cases, dashboard handoff |
 | `e2e/receipt-scan.prefill.spec.ts` | 2 | Mocked scan → PNG/PDF prefill |
 | `e2e/recurring.lifecycle.spec.ts` | 1 | Seeded due rule in list + upcoming |
 | `e2e/referrals.program.spec.ts` | 13 | Validate/redeem API, activation, OC inheritance |
 | `e2e/walkthrough.per-user.spec.ts` | 1 | Per-user `walkthroughCompleted` in DB |
 
-**Seeds:** current `main` has `e2e/seed-referral-e2e.ts` and `e2e/seed-recurring-e2e.ts`, with reset via `POST /api/e2e/reset-referral-seed` for referrals. The full v1 stack adds `e2e/seed-app-e2e.ts` and onboarding cleanup via `POST /api/e2e/delete-user` for `@bitbudget.test` users.
+**Seeds:** current `main` has `e2e/seed-referral-e2e.ts`, `e2e/seed-recurring-e2e.ts`, `e2e/seed-app-e2e.ts`, and `e2e/seed-income-importer-e2e.ts`, with reset via `POST /api/e2e/reset-referral-seed` for referrals and `POST /api/e2e/delete-user` for onboarding cleanup.
 
-**Helpers:** current `main` has `e2e/helpers/auth-email.ts`; the full v1 stack adds `onboarding.ts`, `app-session.ts`, `e2e-user.ts`, `fetch-json.ts`, and `privacy-cache.ts`.
+**Helpers:** current `main` has `e2e/helpers/auth-email.ts`, `onboarding.ts`, `app-session.ts`, `e2e-user.ts`, `fetch-json.ts`, `privacy-cache.ts`, and `income-importer.ts`.
 
-**Fixtures:** current `main` has referral/recurring constants and receipt files; the full v1 stack adds `encryption-e2e-constants.ts` (passphrase `4242`), `onboarding-e2e-constants.ts`, `onboarding-import*.csv`, and `app-e2e-constants.ts`.
+**Fixtures:** current `main` has referral/recurring constants, receipt files, `encryption-e2e-constants.ts` (passphrase `4242`), `onboarding-e2e-constants.ts`, `onboarding-import*.csv`, `app-e2e-constants.ts`, and income-importer constants.
 
 **Deferred (documented, not in CI yet):** `/landing` btc source smoke, duplicate-guard txn (MT-07), payee review banner (PAY-03–05), smart payee suggestion (MT-06), export download bytes (SET-06), Nostr/nsec auth, savings dismiss during onboarding.
 
@@ -298,15 +299,16 @@ Use a small fixture under `e2e/fixtures/onboarding-import.csv` with columns `Dat
 
 | Phase | Status | Scope | Specs | Tests | Branch (stacked PRs) |
 |-------|--------|-------|-------|-------|----------------------|
-| **0** | On `main` | Baseline | 5 legacy files | 18 | `main` |
-| **1** | Stacked | Onboarding + landing | `landing-auth`, `onboarding.*` | 9 | `cursor/e2e-phase1-foundation-8992` → `main` |
-| **2** | Stacked | Envelopes + app seed | `envelopes.*`, `seed-app-e2e` | 2 | `cursor/e2e-phase2-envelopes-8992` → phase 1 |
+| **0** | On `main` | Legacy baseline | 5 legacy files | 18 | `main` |
+| **1** | On `main` | Onboarding + landing | `landing-auth`, `onboarding.*` | 9 | Merged via #51 |
+| **2** | On `main` | Envelopes + app seed | `envelopes.*`, `seed-app-e2e` | 2 | Merged via #52 |
+| **2.5** | On `main` | Income importer | `income-importer`, `seed-income-importer-e2e` | 5 | Merged via #49 |
 | **3** | Stacked | Transaction filters | `transactions.filters` | 1 | `cursor/e2e-phase3-transactions-8992` → phase 2 |
 | **4** | Stacked | Manual txn features | `new-transaction.features` | 3 | `cursor/e2e-phase4-new-transaction-8992` → phase 3 |
 | **5** | Stacked | Payee mappings | `payee-mappings` | 1 | `cursor/e2e-phase5-payee-mappings-8992` → phase 4 |
 | **6–7** | Stacked | Analytics, settings, mobile | `analytics.ranges`, `settings.tabs` | 7 | `cursor/e2e-phase6-settings-analytics-8992` → phase 5 |
 
-**Full stack:** `cursor/e2e-v1-implementation-8992` (all phases, 41 tests). Merge stacked PRs in order or merge the full branch once reviewed.
+**Original full stack:** `cursor/e2e-v1-implementation-8992` covered phases 1–7 for 41 tests. With the income-importer spec now on `main`, the expected v1 CI contract is 46 tests after the remaining stacked phases land.
 
 **Follow-up for v1.1:** duplicate guard, payee banner, export assertion, `/landing` smoke, Nostr fixture (see deferred list above).
 
@@ -317,11 +319,14 @@ Use a small fixture under `e2e/fixtures/onboarding-import.csv` with columns `Dat
 | Asset | Status |
 |-------|--------|
 | `e2e/helpers/auth-email.ts` | On `main`; email OTP helper |
-| `e2e/helpers/onboarding.ts` | Stacked; step navigation, passphrase setup |
-| `e2e/fixtures/encryption-e2e-constants.ts` | Stacked; deterministic privacy key wrap |
-| `e2e/seed-app-e2e.ts` | Stacked; app + premium users, envelopes, txns, tags |
-| `e2e/fixtures/onboarding-import*.csv` | Stacked; import branch tests |
-| `POST /api/e2e/delete-user` | Stacked; `@bitbudget.test` cleanup for onboarding |
+| `e2e/helpers/onboarding.ts` | On `main`; step navigation, passphrase setup |
+| `e2e/helpers/app-session.ts`, `e2e/helpers/e2e-user.ts`, `e2e/helpers/fetch-json.ts`, `e2e/helpers/privacy-cache.ts` | On `main`; signed-in app sessions and privacy-key cache setup |
+| `e2e/helpers/income-importer.ts` | On `main`; income importer UI helpers |
+| `e2e/fixtures/encryption-e2e-constants.ts` | On `main`; deterministic privacy key wrap |
+| `e2e/seed-app-e2e.ts` | On `main`; app + premium users, envelopes, txns, tags |
+| `e2e/seed-income-importer-e2e.ts` | On `main`; income importer users and reset helper |
+| `e2e/fixtures/onboarding-import*.csv` | On `main`; import branch tests |
+| `POST /api/e2e/delete-user` | On `main`; `@bitbudget.test` cleanup for onboarding |
 | `POST /api/e2e/reset-referral-seed` | On `main`; referral seed reset |
 | `e2e/seed-onboarding-e2e.ts` | Optional partial-progress users (not added) |
 | `POST /api/e2e/reset-*` (beyond referral) | Optional per-suite resets |
