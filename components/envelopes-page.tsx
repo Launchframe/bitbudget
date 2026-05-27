@@ -61,6 +61,14 @@ export function EnvelopesPage() {
     if (archiveToastTimer.current) clearTimeout(archiveToastTimer.current)
   }
 
+  function handlePermanentDelete(envId: string) {
+    if (archiveToast?.id === envId) {
+      setArchiveToast(null)
+      if (archiveToastTimer.current) clearTimeout(archiveToastTimer.current)
+    }
+    deleteEnvelope(envId)
+  }
+
   const activeEnvelopes = useMemo(
     () => discretionaryEnvelopes,
     [discretionaryEnvelopes]
@@ -546,7 +554,7 @@ export function EnvelopesPage() {
                       </button>
                       <div className="w-px h-5 bg-[#1A1A1A]" />
                       <button
-                        onClick={() => deleteEnvelope(env.id)}
+                        onClick={() => handlePermanentDelete(env.id)}
                         className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-[#EF4444] hover:bg-[#1A1A1A] transition-colors"
                         aria-label={`Permanently delete ${env.name}`}
                       >
