@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Pencil, Trash2, Repeat, X, Bitcoin } from "lucide-react"
+import { Pencil, Trash2, Repeat, RotateCcw, X, Bitcoin } from "lucide-react"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { cn } from "@/lib/utils"
 import {
@@ -37,6 +37,7 @@ import {
   formatTransactionDetailDateTime,
   mergeCalendarDayIntoTransactionDate,
 } from "@/lib/transaction-dates"
+import { transactionPostAgainPrefill } from "@/lib/transaction-post-again-prefill"
 import { useTransactionDeleteConfirm } from "@/components/use-transaction-delete-confirm"
 
 const CADENCE_LABELS = {
@@ -61,7 +62,7 @@ export function TransactionDetailDialog({
   onOpenChange,
   onNavigateToLinkedIncome,
 }: TransactionDetailDialogProps) {
-  const { state, activeEnvelopes, editTransaction, addTag, navigateTo } = useApp()
+  const { state, activeEnvelopes, editTransaction, addTag, navigateTo, openNewTransaction } = useApp()
   const { requestDelete, confirmDialog } = useTransactionDeleteConfirm()
   const { getPriceOnDate, currentPrice, calculateOpportunityCost } = useBtcPrices()
 
@@ -136,6 +137,14 @@ export function TransactionDetailDialog({
   function handleDelete() {
     if (!transaction) return
     requestDelete(transaction, () => onOpenChange(false))
+  }
+
+  function handlePostAgain() {
+    if (!transaction) return
+    const prefill = transactionPostAgainPrefill(transaction)
+    if (!prefill) return
+    openNewTransaction(prefill)
+    handleClose()
   }
 
   function toggleTag(tag: string) {
@@ -315,7 +324,9 @@ export function TransactionDetailDialog({
             currentPrice={currentPrice}
             onDelete={handleDelete}
             onEdit={() => setEditing(true)}
+            onPostAgain={handlePostAgain}
             canEdit={transaction.isDecrypted !== false && !systemFundingLeg}
+            canPostAgain={transaction.isDecrypted !== false && !systemFundingLeg}
             displayPayee={displayPayee}
             linkedIncome={linkedIncomePeer}
             onViewLinkedIncome={
@@ -361,7 +372,9 @@ function ViewMode({
   currentPrice,
   onDelete,
   onEdit,
+  onPostAgain,
   canEdit,
+  canPostAgain,
   displayPayee,
   linkedIncome,
   onViewLinkedIncome,
@@ -376,7 +389,9 @@ function ViewMode({
   currentPrice: number | null
   onDelete: () => void
   onEdit: () => void
+  onPostAgain: () => void
   canEdit: boolean
+  canPostAgain: boolean
   displayPayee: string
   linkedIncome?: Transaction
   onViewLinkedIncome?: () => void
@@ -547,6 +562,17 @@ function ViewMode({
         </div>
       )}
 
+      {canPostAgain && (
+        <button
+          type="button"
+          onClick={onPostAgain}
+          className="w-full flex items-center justify-center gap-2 py-3 text-sm font-medium text-[#F7931A] border border-[#F7931A]/40 rounded-xl hover:bg-[#F7931A]/10 transition-colors"
+        >
+          <RotateCcw className="h-4 w-4 shrink-0" aria-hidden />
+          Post again
+        </button>
+      )}
+
       <div className="flex items-center border-t border-[#1A1A1A] mt-1 -mx-6">
         <button
           type="button"
@@ -559,6 +585,7 @@ function ViewMode({
         </button>
         <div className="w-px h-5 bg-[#1A1A1A]" />
         <button
+          type="button"
           onClick={onDelete}
           disabled={onDeleteDisabled}
           title={onDeleteDisabled ? "Income allocation rows are managed by your Income entry" : undefined}
