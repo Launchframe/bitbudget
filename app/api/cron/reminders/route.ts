@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import webpush from "web-push"
+import { unauthorizedCronResponse } from "@/lib/cron-auth"
 import { prisma } from "@/lib/db"
 
 function startOfToday(): Date {
@@ -8,9 +9,8 @@ function startOfToday(): Date {
 }
 
 export async function GET(req: NextRequest) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const cronAuth = unauthorizedCronResponse(req)
+  if (cronAuth) return cronAuth
 
   const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
   const vapidPrivate = process.env.VAPID_PRIVATE_KEY

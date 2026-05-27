@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { unauthorizedCronResponse } from "@/lib/cron-auth"
 import { prisma } from "@/lib/db"
 import {
   notifyGratisExpiredUser,
@@ -18,9 +19,8 @@ function addUtcDays(d: Date, days: number): Date {
 }
 
 export async function GET(req: NextRequest) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const cronAuth = unauthorizedCronResponse(req)
+  if (cronAuth) return cronAuth
 
   const now = new Date()
   const todayStart = startOfUtcDay(now)
