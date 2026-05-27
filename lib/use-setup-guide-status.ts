@@ -117,13 +117,11 @@ export function useSetupGuideStatus(options: UseSetupGuideStatusOptions = {}) {
   }, [loadStatus, refetchOnWindowFocus])
 
   useEffect(() => {
-    if (!setupIncomplete && remote != null) return
+    if (!setupIncompleteRef.current) return
     const t = window.setTimeout(() => void loadStatus(), 0)
     return () => window.clearTimeout(t)
   }, [
     loadStatus,
-    setupIncomplete,
-    remote,
     transactionSetupSignature,
     monthlyIncomeTrigger,
     allotmentSignature,
