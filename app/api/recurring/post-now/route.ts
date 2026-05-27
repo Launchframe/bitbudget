@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import { prisma } from "@/lib/db"
-import { advanceDate } from "@/lib/recurring"
-import type { Cadence } from "@/lib/recurring"
+import { postRecurringOccurrenceEarly } from "@/lib/recurring"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 import {
   assertTagStringArray,
@@ -10,6 +8,7 @@ import {
   parseCalendarDateString,
   RECURRING_TXN_TYPES,
 } from "@/lib/recurring-field-validation"
+import { prisma } from "@/lib/db"
 
 /**
  * POST /api/recurring/post-now
@@ -70,48 +69,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
   }
 
-  const rec = await prisma.recurringTransaction.findFirst({
-    where: { id: normalizedRecurringId, userId, active: true },
-  })
-  if (!rec) {
-    return NextResponse.json({ error: "Recurring rule not found" }, { status: 404 })
-  }
-
   const dateStr = txnDate.toISOString().split("T")[0]
   const btcPrice = await getBtcPriceForDate(dateStr)
   const absAmount = Math.abs(amountNum)
 
-  // Advance nextDueDate from its current scheduled value (not from today),
-  // so the skip lands on the correct future occurrence.
-  const nextDue = advanceDate(rec.nextDueDate, rec.cadence as Cadence)
-
-  const [transaction] = await prisma.$transaction(async (tx) => {
-    const txn = await tx.transaction.create({
-      data: {
-        userId,
-        envelopeId: normalizedEnvelopeId,
-        date: txnDate,
-        payee: normalizedPayee,
-        amount: absAmount,
-        type,
-        tags: JSON.stringify(tags ?? []),
-        notes: notes ?? null,
-        recurringId: normalizedRecurringId,
-        satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
-        source: "manual",
-      },
-    })
-
-    await tx.recurringTransaction.update({
-      where: { id: normalizedRecurringId },
-      data: {
-        nextDueDate: nextDue,
-        ...(rec.endDate && nextDue > rec.endDate ? { active: false } : {}),
-      },
-    })
-
-    return [txn]
+  const result = await postRecurringOccurrenceEarly({
+    userId,
+    recurringId: normalizedRecurringId,
+    envelopeId: normalizedEnvelopeId,
+    txnDate,
+    payee: normalizedPayee,
+    amount: absAmount,
+    type,
+    tags: JSON.stringify(tags ?? []),
+    notes: notes ?? null,
+    satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
   })
+
+  if (!result.ok) {
+    if (result.reason === "not_found") {
+      return NextResponse.json({ error: "Recurring rule not found" }, { status: 404 })
+    }
+    return NextResponse.json(
+      {
+        error:
+          "This recurring payment was already posted or updated. Refresh and try again if you still need to record it.",
+        code: "RECURRING_CONCURRENT_UPDATE",
+      },
+      { status: 409 },
+    )
+  }
+
+  const { transaction } = result
 
   return NextResponse.json(
     {
@@ -127,7 +116,7 @@ export async function POST(req: NextRequest) {
         satsAmount: transaction.satsAmount ?? null,
         recurringId: transaction.recurringId,
       },
-      nextDueDate: nextDue.toISOString().split("T")[0],
+      nextDueDate: result.nextDueDate.toISOString().split("T")[0],
     },
     { status: 201 },
   )
