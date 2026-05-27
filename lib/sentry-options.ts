@@ -7,10 +7,15 @@ function sentryEnvironment(): string {
   return "development"
 }
 
+function sentryDsn(): string | undefined {
+  return process.env.NEXT_PUBLIC_SENTRY_DSN || process.env.SENTRY_DSN
+}
+
 export function baseSentryOptions(): Parameters<typeof Sentry.init>[0] {
+  const dsn = sentryDsn()
   return {
-    dsn: process.env.SENTRY_DSN,
-    enabled: Boolean(process.env.SENTRY_DSN),
+    dsn,
+    enabled: Boolean(dsn),
     environment: sentryEnvironment(),
     release: process.env.VERCEL_GIT_COMMIT_SHA,
     tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 0,
