@@ -53,11 +53,26 @@ type DueRecurringRow = {
  * Post one due occurrence and advance `nextDueDate` atomically.
  * Uses optimistic locking on `nextDueDate` so concurrent cron + refresh cannot double-post.
  * Returns 1 when a transaction was created, 0 when nothing due, -1 when a peer won the race (retry).
+ *
+ * BTC price is pre-fetched outside the interactive transaction so a cache miss (which may
+ * require an HTTP call) never holds the DB connection open during external I/O.
  */
 async function postOneDueOccurrence(
   recurringId: string,
   endOfDay: Date,
 ): Promise<number> {
+  // Pre-check eligibility to obtain the due date for BTC price lookup before opening the
+  // DB transaction. The in-transaction findFirst re-confirms the row is still due, so a
+  // race between pre-check and the transaction is handled by the optimistic-lock updateMany.
+  const precheck = await prisma.recurringTransaction.findFirst({
+    where: { id: recurringId, active: true, nextDueDate: { lte: endOfDay } },
+    select: { nextDueDate: true },
+  })
+  if (!precheck) return 0
+
+  const preDateStr = precheck.nextDueDate.toISOString().split("T")[0]!
+  const btcPrice = await getBtcPriceForDate(preDateStr)
+
   try {
     return await prisma.$transaction(async (tx) => {
       const rec = await tx.recurringTransaction.findFirst({
@@ -70,8 +85,6 @@ async function postOneDueOccurrence(
       if (!rec) return 0
 
       const dueDate = rec.nextDueDate
-      const dateStr = dueDate.toISOString().split("T")[0]
-      const btcPrice = await getBtcPriceForDate(dateStr)
 
       await tx.transaction.create({
         data: {

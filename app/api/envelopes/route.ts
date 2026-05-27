@@ -234,6 +234,19 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  if (
+    monthlyAllotment !== undefined &&
+    monthlyAllotment !== null &&
+    (typeof monthlyAllotment !== "number" ||
+      !Number.isFinite(monthlyAllotment) ||
+      monthlyAllotment < 0)
+  ) {
+    return NextResponse.json(
+      { error: "monthlyAllotment must be a non-negative number" },
+      { status: 400 },
+    )
+  }
+
   if (sweepPolicy !== undefined) {
     if (typeof sweepPolicy !== "string" || !ALLOWED_SWEEP_POLICIES.has(sweepPolicy)) {
       return NextResponse.json({ error: "Invalid sweepPolicy" }, { status: 400 })
