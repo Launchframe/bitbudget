@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
 
     const recipientMatch = extractReceiptInboxToken(to)
     const senderEmail = extractEmail(from)
+    const resolvedViaInboxToken = !!recipientMatch
     const user = recipientMatch
       ? await prisma.user.findUnique({
           where: { receiptInboxToken: recipientMatch },
@@ -147,7 +148,11 @@ export async function POST(req: NextRequest) {
     const date = parsed.date ? new Date(parsed.date) : new Date()
     const envelopeMatch = parsed.payee ? await matchEnvelope(user.id, parsed.payee) : null
 
-    const confidence = envelopeMatch?.confidence ?? 0.3
+    const matchedConfidence = envelopeMatch?.confidence ?? 0.3
+    // Legacy sender-email routing cannot trust the From header; never auto-post live.
+    const confidence = resolvedViaInboxToken
+      ? matchedConfidence
+      : Math.min(matchedConfidence, 0.74)
     const result = await routeTransaction(user.id, {
       payee: parsed.payee || "Unknown",
       amount,

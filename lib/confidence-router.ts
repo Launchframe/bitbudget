@@ -36,20 +36,25 @@ export async function routeTransaction(
   const route = routeByConfidence(parsed.confidence)
 
   if (route === "live" && parsed.suggestedEnvelopeId) {
-    const transaction = await prisma.transaction.create({
-      data: {
-        userId,
-        envelopeId: parsed.suggestedEnvelopeId,
-        date: parsed.date,
-        payee: encryptedPayee,
-        amount: parsed.amount,
-        type: "expense",
-        source: parsed.source,
-        notes: encryptedNotes,
-        tags: parsed.tags ?? "[]",
-      },
+    const envelope = await prisma.envelope.findFirst({
+      where: { id: parsed.suggestedEnvelopeId, userId, archived: false },
     })
-    return { route: "live" as const, id: transaction.id }
+    if (envelope) {
+      const transaction = await prisma.transaction.create({
+        data: {
+          userId,
+          envelopeId: parsed.suggestedEnvelopeId,
+          date: parsed.date,
+          payee: encryptedPayee,
+          amount: parsed.amount,
+          type: "expense",
+          source: parsed.source,
+          notes: encryptedNotes,
+          tags: parsed.tags ?? "[]",
+        },
+      })
+      return { route: "live" as const, id: transaction.id }
+    }
   }
 
   const pending = await prisma.pendingTransaction.create({
