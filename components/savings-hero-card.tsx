@@ -26,6 +26,7 @@ import {
   savingsBalanceSince,
 } from "@/lib/savings-display"
 import { IrregularIncomeDialog } from "@/components/irregular-income-dialog"
+import { SavingsGoalsWalkthroughDialog } from "@/components/savings-goals-walkthrough-dialog"
 import { EnvelopeSweepDialog } from "@/components/envelope-sweep-dialog"
 import {
   Dialog,
@@ -126,6 +127,7 @@ export function SavingsHeroCard() {
   const [achievements, setAchievements] = useState<UserAchievement[]>([])
   const [sweepOpen, setSweepOpen] = useState(false)
   const [goalOpen, setGoalOpen] = useState(false)
+  const [walkthroughOpen, setWalkthroughOpen] = useState(false)
   const [goalAmount, setGoalAmount] = useState(0)
   const [goalSaving, setGoalSaving] = useState(false)
   const [goalError, setGoalError] = useState<string | null>(null)
@@ -376,6 +378,15 @@ export function SavingsHeroCard() {
             type="button"
             variant="outline"
             size="sm"
+            className="border-[#333] hover:border-[#D4AF37]/50"
+            onClick={() => setWalkthroughOpen(true)}
+          >
+            How it works
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
             className="border-[#333]"
             onClick={() => {
               setGoalAmount(target)
@@ -396,6 +407,8 @@ export function SavingsHeroCard() {
           </Button>
         </div>
       </div>
+
+      <SavingsGoalsWalkthroughDialog open={walkthroughOpen} onOpenChange={setWalkthroughOpen} />
 
       <EnvelopeSweepDialog
         open={sweepOpen}
