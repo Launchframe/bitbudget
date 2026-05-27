@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { backfillBtcPrices, fetchBtcPriceHistory } from "@/lib/btc-price"
+import { cronAuthFailureResponse } from "@/lib/cron-auth"
 
 export const maxDuration = 60
 
 export async function GET(req: NextRequest) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const authFailure = cronAuthFailureResponse(req.headers.get("authorization"))
+  if (authFailure) return authFailure
 
   try {
     await fetchBtcPriceHistory(365)
