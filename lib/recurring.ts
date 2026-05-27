@@ -59,6 +59,17 @@ async function postOneDueOccurrence(
   endOfDay: Date,
 ): Promise<number> {
   try {
+    const previewRec = await prisma.recurringTransaction.findFirst({
+      where: {
+        id: recurringId,
+        active: true,
+        nextDueDate: { lte: endOfDay },
+      },
+    })
+    if (!previewRec) return 0
+    const previewDateStr = previewRec.nextDueDate.toISOString().split("T")[0]
+    const btcPrice = await getBtcPriceForDate(previewDateStr)
+
     return await prisma.$transaction(async (tx) => {
       const rec = await tx.recurringTransaction.findFirst({
         where: {
@@ -71,7 +82,7 @@ async function postOneDueOccurrence(
 
       const dueDate = rec.nextDueDate
       const dateStr = dueDate.toISOString().split("T")[0]
-      const btcPrice = await getBtcPriceForDate(dateStr)
+      const effectiveBtcPrice = dateStr === previewDateStr ? btcPrice : await getBtcPriceForDate(dateStr)
 
       await tx.transaction.create({
         data: {
@@ -84,7 +95,7 @@ async function postOneDueOccurrence(
           tags: rec.tags,
           notes: rec.notes,
           recurringId: rec.id,
-          satsAmount: btcPrice ? usdToSats(rec.amount, btcPrice) : null,
+          satsAmount: effectiveBtcPrice ? usdToSats(rec.amount, effectiveBtcPrice) : null,
         },
       })
 

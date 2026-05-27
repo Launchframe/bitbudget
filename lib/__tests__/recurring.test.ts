@@ -4,11 +4,13 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 const txRecurringFindFirst = vi.fn()
 const txRecurringUpdateMany = vi.fn()
 const txTransactionCreate = vi.fn()
+const previewRecurringFindFirst = vi.fn()
 
 vi.mock("@/lib/db", () => ({
   prisma: {
     recurringTransaction: {
       findMany: vi.fn(),
+      findFirst: (...args: unknown[]) => previewRecurringFindFirst(...args),
     },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
@@ -77,6 +79,7 @@ describe("processRecurringTransactions", () => {
 
   beforeEach(() => {
     vi.mocked(prisma.recurringTransaction.findMany).mockReset()
+    previewRecurringFindFirst.mockReset()
     txRecurringFindFirst.mockReset()
     txRecurringUpdateMany.mockReset()
     txTransactionCreate.mockReset()
@@ -91,6 +94,9 @@ describe("processRecurringTransactions", () => {
       { ...baseRec, nextDueDate: nextDue },
     ] as never)
 
+    previewRecurringFindFirst
+      .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
     txRecurringFindFirst
       .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
       .mockResolvedValue(null as never)
@@ -110,6 +116,7 @@ describe("processRecurringTransactions", () => {
 
   it("returns 0 when nothing is due", async () => {
     vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([])
+    previewRecurringFindFirst.mockResolvedValue(null as never)
     const created = await processRecurringTransactions(userId, new Date(Date.UTC(2026, 3, 15)))
     expect(created).toBe(0)
     expect(txTransactionCreate).not.toHaveBeenCalled()
@@ -121,6 +128,9 @@ describe("processRecurringTransactions", () => {
       { ...baseRec, nextDueDate: nextDue },
     ] as never)
 
+    previewRecurringFindFirst
+      .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
+      .mockResolvedValueOnce(null as never)
     txRecurringFindFirst
       .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
       .mockResolvedValueOnce(null as never)
@@ -130,8 +140,48 @@ describe("processRecurringTransactions", () => {
     const created = await processRecurringTransactions(userId, asOf)
 
     expect(created).toBe(0)
-    expect(prisma.$transaction).toHaveBeenCalledTimes(2)
+    // With the preview-read optimisation the retry's outer findFirst returns null
+    // (peer advanced the date), so $transaction is only entered once.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(txTransactionCreate).toHaveBeenCalledTimes(1)
     expect(txRecurringUpdateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it("calls getBtcPriceForDate outside $transaction to avoid holding DB connections during HTTP", async () => {
+    const { getBtcPriceForDate } = await import("@/lib/btc-price")
+    const getMock = vi.mocked(getBtcPriceForDate)
+    const txMock = vi.mocked(prisma.$transaction)
+    const callOrder: string[] = []
+    getMock.mockImplementation(async () => {
+      callOrder.push("getBtcPrice")
+      return null
+    })
+    txMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      callOrder.push("$transaction")
+      return fn({
+        recurringTransaction: { findFirst: txRecurringFindFirst, updateMany: txRecurringUpdateMany },
+        transaction: { create: txTransactionCreate },
+      })
+    })
+
+    const nextDue = new Date(Date.UTC(2026, 3, 10, 0, 0, 0))
+    vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([
+      { ...baseRec, nextDueDate: nextDue },
+    ] as never)
+    previewRecurringFindFirst
+      .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+    txRecurringFindFirst
+      .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+    txRecurringUpdateMany.mockResolvedValue({ count: 1 } as never)
+
+    await processRecurringTransactions(userId, new Date(Date.UTC(2026, 3, 15)))
+
+    const btcIdx = callOrder.indexOf("getBtcPrice")
+    const txIdx = callOrder.indexOf("$transaction")
+    expect(btcIdx).toBeGreaterThanOrEqual(0)
+    expect(txIdx).toBeGreaterThanOrEqual(0)
+    expect(btcIdx).toBeLessThan(txIdx)
   })
 })

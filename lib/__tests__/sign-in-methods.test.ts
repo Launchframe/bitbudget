@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -354,5 +355,65 @@ describe("linkNostrSignInMethod", () => {
       code: "NOSTR_ALREADY_LINKED",
       status: 409,
     } satisfies Partial<SignInMethodError>)
+  })
+})
+
+describe("parseNostrAuthEvent (exported — used by auth.ts Nostr credentials provider)", () => {
+  const pubkey = "b".repeat(64)
+  const validEventObj = () => ({
+    kind: NOSTR_AUTH_EVENT_KIND,
+    content: NOSTR_AUTH_EVENT_CONTENT,
+    created_at: Math.floor(Date.now() / 1000),
+    pubkey,
+    tags: [["method", NOSTR_AUTH_EVENT_METHOD]],
+    id: "id-1",
+    sig: "sig-1",
+  })
+  const validEvent = () => JSON.stringify(validEventObj())
+
+  it("accepts a structurally valid auth event and returns a typed object", () => {
+    const result = parseNostrAuthEvent(validEvent(), pubkey)
+    expect(result.kind).toBe(NOSTR_AUTH_EVENT_KIND)
+    expect(result.content).toBe(NOSTR_AUTH_EVENT_CONTENT)
+  })
+
+  it("rejects a non-auth-event kind (e.g. kind=1 text note) — prevents auth bypass", () => {
+    expect(() =>
+      parseNostrAuthEvent(
+        JSON.stringify({ ...validEventObj(), kind: 1, content: "hello world" }),
+        pubkey,
+      ),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event with wrong content", () => {
+    expect(() =>
+      parseNostrAuthEvent(
+        JSON.stringify({ ...validEventObj(), content: "wrong content" }),
+        pubkey,
+      ),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event whose pubkey does not match the supplied pubkey", () => {
+    expect(() =>
+      parseNostrAuthEvent(
+        JSON.stringify({ ...validEventObj(), pubkey: "c".repeat(64) }),
+        pubkey,
+      ),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects a stale auth event (older than 5 minutes)", () => {
+    expect(() =>
+      parseNostrAuthEvent(
+        JSON.stringify({ ...validEventObj(), created_at: Math.floor(Date.now() / 1000) - 400 }),
+        pubkey,
+      ),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects malformed JSON", () => {
+    expect(() => parseNostrAuthEvent("{not json}", pubkey)).toThrow(SignInMethodError)
   })
 })
