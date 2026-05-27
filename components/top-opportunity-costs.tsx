@@ -16,6 +16,7 @@ import { findSavingsEnvelope, isSavingsInflowCredit } from "@/lib/savings-ui-met
 import { SAVINGS_EXPERIENCE_DISMISSED, SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
 import type { Transaction } from "@/lib/data"
+import { formatTransactionTableDate } from "@/lib/transaction-dates"
 
 interface EnrichedTransaction extends Transaction {
   btcValueToday: number
@@ -137,7 +138,7 @@ export function TopOpportunityCosts() {
                     </span>
                   </td>
                   <td className="py-3 text-muted-foreground text-sm hidden sm:table-cell">
-                    {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    {formatTransactionTableDate(txn.date)}
                   </td>
                   <td className="py-3 text-right text-muted-foreground text-sm pr-1 sm:pr-0">
                     {formatUsd(txn.amount)}

@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, Repeat, Trash2 } from "lucide-react"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
+import { formatTransactionTableDate } from "@/lib/transaction-dates"
 
 const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
@@ -82,7 +83,7 @@ export function RecentTransactions() {
                   onClick={() => setSelectedTxn(txn)}
                 >
                   <td className="py-3.5 px-4 text-sm text-muted-foreground whitespace-nowrap">
-                    {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    {formatTransactionTableDate(txn.date)}
                   </td>
                   <td className="py-3.5 px-4 text-sm font-medium text-foreground">
                     <span className="flex items-center gap-1.5">

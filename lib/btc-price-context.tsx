@@ -1,6 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react"
+import { transactionCalendarDay } from "@/lib/transaction-dates"
 
 interface BtcPricePoint {
   date: string
@@ -197,7 +198,7 @@ export function BtcPriceProvider({
 
   const getPriceOnDate = useCallback(
     (date: string): number => {
-      const d = date.split("T")[0]
+      const d = transactionCalendarDay(date)
       if (priceMap[d]) return priceMap[d]
 
       let closest = priceHistory[0]?.price ?? currentPrice ?? 0

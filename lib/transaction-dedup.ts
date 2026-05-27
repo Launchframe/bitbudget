@@ -1,5 +1,6 @@
 import type { Transaction, TransactionType } from "@/lib/data"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
+import { transactionCalendarDay } from "@/lib/transaction-dates"
 
 /**
  * Integer cents from absolute USD for stable collision keys (avoids float artifacts like
@@ -35,7 +36,7 @@ export function transactionCollisionKey(candidate: {
 }): string {
   const payeeNorm = candidate.payee.toLowerCase().trim()
   const cents = normalizeDedupCents(candidate.amount)
-  return `${candidate.date}|${candidate.type}|${payeeNorm}|${cents}`
+  return `${transactionCalendarDay(candidate.date)}|${candidate.type}|${payeeNorm}|${cents}`
 }
 
 export function findCollidingTransaction(

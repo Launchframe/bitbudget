@@ -32,6 +32,11 @@ import {
   type PayeeCandidate,
 } from "@/lib/payee-canonical"
 import { findCollidingTransaction } from "@/lib/transaction-dedup"
+import {
+  dateInputValueFromTransactionDate,
+  mergeCalendarDayIntoTransactionDate,
+  todayTransactionCalendarDay,
+} from "@/lib/transaction-dates"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -111,7 +116,7 @@ export function NewTransactionDialog() {
   const [payee, setPayee] = useState("")
   const [amount, setAmount] = useState("")
   const [envelopeId, setEnvelopeId] = useState("")
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0])
+  const [date, setDate] = useState(() => todayTransactionCalendarDay())
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [newTag, setNewTag] = useState("")
   const [notes, setNotes] = useState("")
@@ -465,7 +470,7 @@ export function NewTransactionDialog() {
     setPayee("")
     setAmount("")
     setEnvelopeId("")
-    setDate(new Date().toISOString().split("T")[0])
+    setDate(todayTransactionCalendarDay())
     setSelectedTags([])
     setNewTag("")
     setNotes("")
@@ -907,8 +912,10 @@ export function NewTransactionDialog() {
                 <Input
                   id="date"
                   type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  value={dateInputValueFromTransactionDate(date)}
+                  onChange={(e) =>
+                    setDate(mergeCalendarDayIntoTransactionDate(date, e.target.value))
+                  }
                   className="bg-[#1A1A1A] border-[#333] text-foreground"
                   required
                 />

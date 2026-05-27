@@ -1,4 +1,5 @@
 import type { CommunicationPreferences } from "./communication-preferences"
+import { transactionCalendarDay } from "@/lib/transaction-dates"
 
 export type { CommunicationPreferenceKey, CommunicationPreferences } from "./communication-preferences"
 
@@ -23,7 +24,8 @@ export type TransactionSource =
 
 export interface Transaction {
   id: string
-  date: string // ISO date string YYYY-MM-DD
+  /** Calendar `YYYY-MM-DD` or full ISO 8601 when a capture timestamp is stored. */
+  date: string
   payee: string
   amount: number
   type: TransactionType
@@ -301,7 +303,7 @@ export function generateId(): string {
 }
 
 export function getMonthKey(date: string): string {
-  return date.slice(0, 7)
+  return transactionCalendarDay(date).slice(0, 7)
 }
 
 export function getCurrentMonthKey(): string {

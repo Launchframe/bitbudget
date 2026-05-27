@@ -32,6 +32,11 @@ import {
 import { Pencil, Trash2, Repeat, X, Bitcoin } from "lucide-react"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { cn } from "@/lib/utils"
+import {
+  dateInputValueFromTransactionDate,
+  formatTransactionDetailDateTime,
+  mergeCalendarDayIntoTransactionDate,
+} from "@/lib/transaction-dates"
 
 const CADENCE_LABELS = {
   weekly: "Weekly",
@@ -230,8 +235,10 @@ export function TransactionDetailDialog({
               <Label className="text-muted-foreground text-xs uppercase tracking-wider">Date</Label>
               <Input
                 type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
+                value={dateInputValueFromTransactionDate(date)}
+                onChange={(e) =>
+                  setDate(mergeCalendarDayIntoTransactionDate(date, e.target.value))
+                }
                 className="bg-[#1A1A1A] border-[#333] text-foreground"
               />
             </div>
@@ -413,9 +420,7 @@ function ViewMode({
         )}
         <DetailRow
           label="Date"
-          value={new Date(transaction.date + "T00:00:00").toLocaleDateString("en-US", {
-            weekday: "long", month: "long", day: "numeric", year: "numeric",
-          })}
+          value={formatTransactionDetailDateTime(transaction.date)}
         />
         <DetailRow
           label="Type"

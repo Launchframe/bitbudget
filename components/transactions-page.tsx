@@ -15,6 +15,7 @@ import {
 import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { PriceGainLossBadge } from "@/components/price-gain-loss-badge"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
+import { formatTransactionTableDate, transactionCalendarDay } from "@/lib/transaction-dates"
 import type { Transaction } from "@/lib/data"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -153,10 +154,10 @@ export function TransactionsPage() {
     }
 
     if (startDate) {
-      result = result.filter((t) => t.date >= startDate)
+      result = result.filter((t) => transactionCalendarDay(t.date) >= startDate)
     }
     if (endDate) {
-      result = result.filter((t) => t.date <= endDate)
+      result = result.filter((t) => transactionCalendarDay(t.date) <= endDate)
     }
 
     return [...result].sort(compareTransactionsDesc)
@@ -583,7 +584,7 @@ export function TransactionsPage() {
                     onClick={() => setSelectedTxn(txn)}
                   >
                     <td className="py-3.5 px-4 text-sm text-muted-foreground whitespace-nowrap">
-                      {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      {formatTransactionTableDate(txn.date)}
                     </td>
                     <td className="py-3.5 px-4 text-sm font-medium text-foreground">
                       <div className="flex flex-col gap-1">
