@@ -36,7 +36,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         let user = await prisma.user.findUnique({ where: { email } })
         if (!user) {
           user = await prisma.user.create({
-            data: { email, name: email.split("@")[0] },
+            data: { email, emailVerified: new Date(), name: email.split("@")[0] },
+          })
+        } else if (!user.emailVerified) {
+          user = await prisma.user.update({
+            where: { id: user.id },
+            data: { emailVerified: new Date() },
           })
         }
 
