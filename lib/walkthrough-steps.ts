@@ -38,10 +38,10 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       id: "dashboard-chart",
       page: "dashboard",
       target: "dashboard-chart",
-      title: "Spending over time",
+      title: "Track your cash flow",
       description: ctx.opportunityCostEnabled
-        ? "This chart fills in as you record expenses — including Bitcoin opportunity cost when enabled."
-        : "This chart fills in as you record expenses.",
+        ? "See how your money moves across income and expenses — including your bitcoin opportunity cost, in case you ever wondered, 'how much would that be worth now?'"
+        : "See how your money moves across income and expenses.",
       position: "bottom",
     },
     {
@@ -93,8 +93,8 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       target: "savings-hero",
       title: "Savings first",
       description: ctx.savingsEngaged
-        ? "Paychecks land in Savings first. You fund envelopes from there and can set monthly goals."
-        : "Paychecks land in Savings first. You fund envelopes from there.",
+        ? "Here to help you save for that vacation or that rainy day. Your paychecks land in Savings first, so they can fund spending envelopes from there."
+        : "Your paychecks land in Savings first, so they can fund spending envelopes from there.",
       position: "bottom",
     },
     {
@@ -102,7 +102,7 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       page: "envelopes",
       target: "envelope-grid",
       title: "Your envelopes",
-      description: "Each category has a monthly amount and a running balance for what’s left to spend.",
+      description: "Plan your spend ahead of time, and see how you're tracking throughout the month. Envelopes refill from Savings at the start of each month.",
       position: "bottom",
     },
     {
@@ -110,28 +110,28 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       page: "envelopes",
       target: "allocations-entry",
       title: "Divide your paycheck",
-      description: "Open allocations to give every envelope a share of your income.",
+      description: "You can always adjust how much of each paycheck goes into each envelope.",
       position: "bottom",
     },
     {
       id: "sweep-cta",
       page: "envelopes",
       target: "sweep-cta",
-      title: ctx.savingsEngaged ? "Sweep leftovers" : "Return extra to Savings",
+      title: ctx.savingsEngaged ? "Sweep to Savings" : "Return extra to Savings",
       description: ctx.savingsEngaged
-        ? "Move unspent envelope money back to Savings when you’re ready."
-        : "Move unspent envelope money back to Savings anytime.",
+        ? "Supercharge your savings by moving extra cash from envelopes back to Savings."
+        : "Sweep extra cash back to Savings anytime you want.",
       position: "bottom",
     },
     {
       id: "review-header",
       page: "review-inbox",
       target: "review-header",
-      title: "Review imports",
+      title: "Pending transactions",
       description:
         ctx.pendingCount > 0
-          ? "You have items waiting — approve them before they hit your budget."
-          : "Bank and inbox imports land here for you to approve first.",
+          ? "You have transactions waiting to be reviewed. — approve them before they hit your budget."
+          : "Transactions from connected bank accounts and automatic receipt scans will land here for your review.",
       position: "right",
     },
     {
@@ -141,8 +141,8 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       settingsTab: "integrations",
       title: "Optional connections",
       description: ctx.hasPremiumFeatures
-        ? "Link a bank or receipt inbox if you want — each adds identifying info to your account, so only connect what you’re comfortable with."
-        : "Premium unlocks bank sync and a receipt inbox. Each connection adds identifying info — connect only what you’re comfortable with.",
+        ? "Link a bank account, connect your email set up email forwarding to let BitBudget automatically record transactions. Sensitive details are encrypted the moment they arrive, so nobody but you can read them."
+        : "Premium features like connected bank accounts and receipt scanning makes budgeting a breeze. Reach out to us for a free trial.",
       position: "bottom",
     },
     {
@@ -150,8 +150,8 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       page: "settings",
       target: "settings-setup-guide",
       settingsTab: "general",
-      title: "Setup guide in Settings",
-      description: "Track progress, snooze, or bring the checklist back to your dashboard whenever you like.",
+      title: "Setup guide",
+      description: "Track your progress and view your achievements on the road to becoming a budgeting pro.",
       position: "bottom",
     },
   ]
