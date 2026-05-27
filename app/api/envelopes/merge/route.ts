@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
+import { mergeEnvelopeRecords } from "@/lib/server-merge-envelope"
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -35,17 +36,9 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  await prisma.$transaction([
-    prisma.transaction.updateMany({
-      where: { envelopeId: sourceId, userId },
-      data: { envelopeId: targetId },
-    }),
-    prisma.recurringTransaction.updateMany({
-      where: { envelopeId: sourceId, userId },
-      data: { envelopeId: targetId },
-    }),
-    prisma.envelope.delete({ where: { id: sourceId } }),
-  ])
+  await prisma.$transaction((tx) =>
+    mergeEnvelopeRecords(tx, userId, sourceId, targetId),
+  )
 
   const movedCount = await prisma.transaction.count({
     where: { envelopeId: targetId, userId },

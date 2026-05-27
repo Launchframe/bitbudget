@@ -58,6 +58,19 @@ async function postOneDueOccurrence(
   recurringId: string,
   endOfDay: Date,
 ): Promise<number> {
+  // Pre-read the row outside the transaction to learn the due date so we can fetch
+  // the BTC price (an HTTP call) before opening the DB transaction. Holding a DB
+  // connection open during a network round-trip to CoinGecko can exhaust the pool
+  // and cause Prisma P2028 / P2034 transaction-timeout errors.
+  const preview = await prisma.recurringTransaction.findFirst({
+    where: { id: recurringId, active: true, nextDueDate: { lte: endOfDay } },
+    select: { nextDueDate: true },
+  })
+  if (!preview) return 0
+
+  const dueDateStr = preview.nextDueDate.toISOString().split("T")[0]
+  const btcPrice = await getBtcPriceForDate(dueDateStr)
+
   try {
     return await prisma.$transaction(async (tx) => {
       const rec = await tx.recurringTransaction.findFirst({
@@ -70,8 +83,6 @@ async function postOneDueOccurrence(
       if (!rec) return 0
 
       const dueDate = rec.nextDueDate
-      const dateStr = dueDate.toISOString().split("T")[0]
-      const btcPrice = await getBtcPriceForDate(dateStr)
 
       await tx.transaction.create({
         data: {

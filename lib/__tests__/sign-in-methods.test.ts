@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -354,5 +355,89 @@ describe("linkNostrSignInMethod", () => {
       code: "NOSTR_ALREADY_LINKED",
       status: 409,
     } satisfies Partial<SignInMethodError>)
+  })
+})
+
+/**
+ * Direct tests for parseNostrAuthEvent — the shared validation gate used by both
+ * auth.ts (sign-in) and sign-in-methods.ts (link). These tests form the regression
+ * suite for the Nostr replay-attack fix.
+ */
+describe("parseNostrAuthEvent (replay-attack guard)", () => {
+  const pubkey = "b".repeat(64)
+  const now = Math.floor(Date.now() / 1000)
+
+  const validEventObj = () => ({
+    kind: NOSTR_AUTH_EVENT_KIND,
+    content: NOSTR_AUTH_EVENT_CONTENT,
+    created_at: now,
+    pubkey,
+    tags: [
+      ["method", NOSTR_AUTH_EVENT_METHOD],
+      ["u", "https://app.example.com"],
+    ],
+    id: "some-id",
+    sig: "some-sig",
+  })
+
+  it("accepts a well-formed fresh auth event", () => {
+    expect(() =>
+      parseNostrAuthEvent(JSON.stringify(validEventObj()), pubkey),
+    ).not.toThrow()
+  })
+
+  it("rejects an event with the wrong kind (replay of a non-auth event)", () => {
+    const bad = { ...validEventObj(), kind: 1 }
+    expect(() =>
+      parseNostrAuthEvent(JSON.stringify(bad), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event with the wrong content (relay note replay)", () => {
+    const bad = { ...validEventObj(), content: "hello world" }
+    expect(() =>
+      parseNostrAuthEvent(JSON.stringify(bad), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects a stale event older than 5 minutes (classic replay attack)", () => {
+    const bad = { ...validEventObj(), created_at: now - 301 }
+    expect(() =>
+      parseNostrAuthEvent(JSON.stringify(bad), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects a far-future event (prevents pre-minted replay tokens)", () => {
+    const bad = { ...validEventObj(), created_at: now + 120 }
+    expect(() =>
+      parseNostrAuthEvent(JSON.stringify(bad), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event missing the method tag", () => {
+    const bad = { ...validEventObj(), tags: [["u", "https://app.example.com"]] }
+    expect(() =>
+      parseNostrAuthEvent(JSON.stringify(bad), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event whose pubkey does not match the claimed pubkey", () => {
+    const bad = { ...validEventObj(), pubkey: "c".repeat(64) }
+    expect(() =>
+      parseNostrAuthEvent(JSON.stringify(bad), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event for the wrong origin when expectedOrigin is provided", () => {
+    expect(() =>
+      parseNostrAuthEvent(JSON.stringify(validEventObj()), pubkey, "https://evil.example.com"),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("does NOT reject an event with no origin tag when expectedOrigin is omitted (auth.ts path)", () => {
+    const noOriginTags = { ...validEventObj(), tags: [["method", NOSTR_AUTH_EVENT_METHOD]] }
+    expect(() =>
+      parseNostrAuthEvent(JSON.stringify(noOriginTags), pubkey),
+    ).not.toThrow()
   })
 })
