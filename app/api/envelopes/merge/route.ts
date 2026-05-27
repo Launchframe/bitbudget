@@ -35,17 +35,18 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  await prisma.$transaction([
-    prisma.transaction.updateMany({
+  await prisma.$transaction(async (tx) => {
+    await tx.transactionShortcut.deleteMany({ where: { envelopeId: sourceId } })
+    await tx.transaction.updateMany({
       where: { envelopeId: sourceId, userId },
       data: { envelopeId: targetId },
-    }),
-    prisma.recurringTransaction.updateMany({
+    })
+    await tx.recurringTransaction.updateMany({
       where: { envelopeId: sourceId, userId },
       data: { envelopeId: targetId },
-    }),
-    prisma.envelope.delete({ where: { id: sourceId } }),
-  ])
+    })
+    await tx.envelope.delete({ where: { id: sourceId } })
+  })
 
   const movedCount = await prisma.transaction.count({
     where: { envelopeId: targetId, userId },
