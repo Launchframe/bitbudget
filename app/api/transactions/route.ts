@@ -3,6 +3,11 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 import {
+  parseTransactionDateInput,
+  transactionCalendarDay,
+  transactionDateFromDb,
+} from "@/lib/transaction-dates"
+import {
   parseTransactionQueryCalendarDate,
   utcEndOfCalendarDay,
 } from "@/lib/transaction-query-dates"
@@ -35,7 +40,7 @@ function jsonTxnRow(t: {
 }) {
   return {
     id: t.id,
-    date: t.date.toISOString().split("T")[0],
+    date: transactionDateFromDb(t.date),
     payee: t.payee,
     amount: t.amount,
     type: t.type,
@@ -140,11 +145,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Envelope not found" }, { status: 404 })
   }
 
-  const txnDate = new Date(date)
-  if (Number.isNaN(txnDate.getTime())) {
+  const txnDate = parseTransactionDateInput(String(date))
+  if (!txnDate) {
     return NextResponse.json({ error: "Invalid date" }, { status: 400 })
   }
-  const dateStr = txnDate.toISOString().split("T")[0]
+  const dateStr = transactionCalendarDay(String(date))
   const btcPrice = await getBtcPriceForDate(dateStr)
   const absAmount = Math.abs(amountNum)
 
@@ -199,11 +204,8 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  if (date !== undefined) {
-    const d = new Date(date)
-    if (Number.isNaN(d.getTime())) {
-      return NextResponse.json({ error: "Invalid date" }, { status: 400 })
-    }
+  if (date !== undefined && parseTransactionDateInput(String(date)) == null) {
+    return NextResponse.json({ error: "Invalid date" }, { status: 400 })
   }
   if (amount !== undefined) {
     const n = typeof amount === "number" ? amount : Number(amount)
@@ -225,13 +227,16 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  const newDate = date !== undefined ? new Date(date) : existing.date
+  const newDate =
+    date !== undefined ? parseTransactionDateInput(String(date))! : existing.date
   const newAmount =
     amount !== undefined ? Math.abs(typeof amount === "number" ? amount : Number(amount)) : existing.amount
 
   let satsAmount: number | null = existing.satsAmount
   if (date !== undefined || amount !== undefined) {
-    const dateStr = newDate.toISOString().split("T")[0]
+    const dateStr = transactionCalendarDay(
+      date !== undefined ? String(date) : transactionDateFromDb(existing.date),
+    )
     const btcPrice = await getBtcPriceForDate(dateStr)
     satsAmount = btcPrice ? usdToSats(newAmount, btcPrice) : null
   }

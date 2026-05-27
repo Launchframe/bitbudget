@@ -15,6 +15,7 @@ import {
   type TransactionListTypeFilter,
 } from "@/lib/ledger-funding-display"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
+import { formatTransactionTableDate } from "@/lib/transaction-dates"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { FormattedBtcAmountFromSats } from "@/components/formatted-btc-sats-amount"
 import { Progress } from "@/components/ui/progress"
@@ -261,7 +262,7 @@ export function EnvelopeDetailPage() {
                     onClick={() => setSelectedTxn(txn)}
                   >
                     <td className="py-3.5 px-4 text-sm text-muted-foreground">
-                      {new Date(txn.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      {formatTransactionTableDate(txn.date)}
                     </td>
                     <td className="py-3.5 px-4 text-sm font-medium text-foreground">
                       <span className="flex items-center gap-1.5">

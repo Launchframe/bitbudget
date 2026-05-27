@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { RECEIPT_SCAN_MAX_BYTES } from "@/lib/receipt-scan-validate"
+import { receiptCapturePrefillDate } from "@/lib/transaction-dates"
 import {
   Dialog,
   DialogContent,
@@ -137,12 +138,17 @@ export function ScanReceiptDialog({
 
       const receiptPreviewDataUrl = (await dataUrlPromise) ?? undefined
 
+      const prefillDate =
+        file.type.startsWith("image/")
+          ? receiptCapturePrefillDate(data.date || "", file.lastModified)
+          : data.date || ""
+
       onOpenChange(false)
       reset()
       openNewTransaction({
         payee: data.payee || "",
         amount: data.amount || "",
-        date: data.date || "",
+        date: prefillDate,
         ...(data.suggestedEnvelopeId && { envelopeId: data.suggestedEnvelopeId }),
         ...(receiptPreviewDataUrl ? { receiptPreviewDataUrl } : {}),
       })

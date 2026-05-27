@@ -32,6 +32,10 @@ import {
   type PayeeCandidate,
 } from "@/lib/payee-canonical"
 import { findCollidingTransaction } from "@/lib/transaction-dedup"
+import {
+  dateInputValueFromTransactionDate,
+  mergeCalendarDayIntoTransactionDate,
+} from "@/lib/transaction-dates"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -907,8 +911,10 @@ export function NewTransactionDialog() {
                 <Input
                   id="date"
                   type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  value={dateInputValueFromTransactionDate(date)}
+                  onChange={(e) =>
+                    setDate(mergeCalendarDayIntoTransactionDate(date, e.target.value))
+                  }
                   className="bg-[#1A1A1A] border-[#333] text-foreground"
                   required
                 />
