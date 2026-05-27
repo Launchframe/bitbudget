@@ -33,8 +33,10 @@ test.describe("Settings tabs", () => {
       timeout: 30_000,
     })
     await expect(page.getByRole("heading", { name: "BTC Display" })).toBeVisible({ timeout: 15_000 })
-    // Scope to the BTC Display card to avoid coupling to the sidebar "BTC Price" nav button.
-    const btcDisplayCard = page.locator("div").filter({ has: page.getByRole("heading", { name: "BTC Display" }) })
+    // Scope to the nearest card so the collapsed sidebar's "BTC" icon button is excluded.
+    const btcDisplayCard = page
+      .getByRole("heading", { name: "BTC Display" })
+      .locator("xpath=ancestor::div[contains(@class, 'rounded-2xl')][1]")
     await btcDisplayCard.getByRole("button", { name: "BTC", exact: true }).click()
     await expect(page.getByText(/decimal BTC/i)).toBeVisible()
   })
