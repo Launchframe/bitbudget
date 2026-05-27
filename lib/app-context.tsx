@@ -192,7 +192,7 @@ interface AppContextValue {
   setTransactionDialogOpen: (open: boolean) => void
   openNewTransaction: (prefill?: TransactionPrefill) => void
 
-  addTransaction: (txn: Omit<Transaction, "id">) => void
+  addTransaction: (txn: Omit<Transaction, "id">) => Promise<boolean>
   editTransaction: (id: string, updates: Partial<Omit<Transaction, "id">>) => void
   deleteTransaction: (id: string) => void
 
@@ -989,17 +989,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             t.id === optimisticId ? cachedToClientTransaction(cached) : t,
           ),
         }))
+        return true
       } else {
         setState(prev => ({
           ...prev,
           transactions: prev.transactions.filter(t => t.id !== optimisticId),
         }))
+        return false
       }
     } catch {
       setState(prev => ({
         ...prev,
         transactions: prev.transactions.filter(t => t.id !== optimisticId),
       }))
+      return false
     }
   }, [])
 
