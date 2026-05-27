@@ -303,6 +303,19 @@ export async function PUT(req: NextRequest) {
     )
   }
 
+  if (body.monthlyIncome !== undefined) {
+    if (
+      typeof body.monthlyIncome !== "number" ||
+      !Number.isFinite(body.monthlyIncome) ||
+      body.monthlyIncome < 0
+    ) {
+      return NextResponse.json(
+        { error: "monthlyIncome must be a non-negative finite number" },
+        { status: 400 },
+      )
+    }
+  }
+
   if (body.payCadence !== undefined) {
     if (typeof body.payCadence !== "string") {
       return NextResponse.json({ error: "Invalid pay cadence" }, { status: 400 })

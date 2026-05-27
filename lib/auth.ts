@@ -4,6 +4,14 @@ import Credentials from "next-auth/providers/credentials"
 import Google from "next-auth/providers/google"
 import GitHub from "next-auth/providers/github"
 import { prisma } from "@/lib/db"
+import {
+  NOSTR_AUTH_EVENT_CONTENT,
+  NOSTR_AUTH_EVENT_KIND,
+  NOSTR_AUTH_EVENT_METHOD,
+} from "@/lib/nostr-auth-event"
+
+const NOSTR_AUTH_MAX_AGE_SECONDS = 5 * 60
+const NOSTR_AUTH_FUTURE_SKEW_SECONDS = 60
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -68,6 +76,22 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         try {
           const { verifyEvent } = await import("nostr-tools")
           const event = JSON.parse(eventStr)
+          // Validate kind, content, and timestamp to block relay-note replay attacks.
+          if (event.kind !== NOSTR_AUTH_EVENT_KIND) return null
+          if (event.content !== NOSTR_AUTH_EVENT_CONTENT) return null
+          if (typeof event.created_at !== "number") return null
+          const now = Math.floor(Date.now() / 1000)
+          if (
+            event.created_at < now - NOSTR_AUTH_MAX_AGE_SECONDS ||
+            event.created_at > now + NOSTR_AUTH_FUTURE_SKEW_SECONDS
+          ) {
+            return null
+          }
+          if (!Array.isArray(event.tags)) return null
+          const hasMethodTag = event.tags.some(
+            (tag: unknown[]) => Array.isArray(tag) && tag[0] === "method" && tag[1] === NOSTR_AUTH_EVENT_METHOD,
+          )
+          if (!hasMethodTag) return null
           const isValid = verifyEvent(event)
           if (!isValid) return null
           if (typeof event.pubkey !== "string" || event.pubkey.toLowerCase() !== pubkey) return null
