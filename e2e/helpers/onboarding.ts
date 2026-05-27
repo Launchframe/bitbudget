@@ -98,7 +98,11 @@ export async function continueSavingsGoalStep(page: Page): Promise<void> {
 }
 
 export async function continueSavingsGamePlan(page: Page): Promise<void> {
-  await page.getByRole("heading", { name: "Your Savings game plan" }).locator("..").locator("..").getByRole("button", { name: "Continue" }).click()
+  await page
+    .locator("div")
+    .filter({ has: page.getByRole("heading", { name: "Your Savings game plan" }) })
+    .getByRole("button", { name: "Continue" })
+    .click()
   await expect(page.getByRole("heading", { name: "Import Transactions" })).toBeVisible({
     timeout: 30_000,
   })
