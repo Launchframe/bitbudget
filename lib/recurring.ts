@@ -170,3 +170,89 @@ export async function processAllRecurringTransactions(): Promise<number> {
   }
   return total
 }
+
+export type PostRecurringEarlyInput = {
+  userId: string
+  recurringId: string
+  envelopeId: string
+  txnDate: Date
+  payee: string
+  amount: number
+  type: string
+  tags: string
+  notes: string | null
+  satsAmount: number | null
+}
+
+type CreatedRecurringTxn = {
+  id: string
+  date: Date
+  payee: string
+  amount: number
+  type: string
+  envelopeId: string
+  tags: string
+  notes: string | null
+  satsAmount: number | null
+  recurringId: string | null
+}
+
+export type PostRecurringEarlyResult =
+  | { ok: true; transaction: CreatedRecurringTxn; nextDueDate: Date }
+  | { ok: false; reason: "not_found" | "concurrent" }
+
+/**
+ * Manual early post of a recurring rule (post-now). Atomically creates the transaction
+ * and advances nextDueDate from the value read inside the transaction. Optimistic lock
+ * on nextDueDate prevents duplicate posts when cron or refresh runs process in parallel.
+ */
+export async function postRecurringOccurrenceEarly(
+  input: PostRecurringEarlyInput,
+): Promise<PostRecurringEarlyResult> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const rec = await tx.recurringTransaction.findFirst({
+        where: { id: input.recurringId, userId: input.userId, active: true },
+      })
+      if (!rec) return { ok: false as const, reason: "not_found" as const }
+
+      const nextDue = advanceDate(rec.nextDueDate, rec.cadence as Cadence)
+
+      const transaction = await tx.transaction.create({
+        data: {
+          userId: input.userId,
+          envelopeId: input.envelopeId,
+          date: input.txnDate,
+          payee: input.payee,
+          amount: input.amount,
+          type: input.type,
+          tags: input.tags,
+          notes: input.notes,
+          recurringId: input.recurringId,
+          satsAmount: input.satsAmount,
+          source: "manual",
+        },
+      })
+
+      const updated = await tx.recurringTransaction.updateMany({
+        where: { id: rec.id, nextDueDate: rec.nextDueDate },
+        data: {
+          nextDueDate: nextDue,
+          ...(rec.endDate && nextDue > rec.endDate ? { active: false } : {}),
+        },
+      })
+      if (updated.count === 0) throw new RecurringConcurrentUpdateError()
+
+      return {
+        ok: true as const,
+        transaction,
+        nextDueDate: nextDue,
+      }
+    })
+  } catch (e) {
+    if (e instanceof RecurringConcurrentUpdateError) {
+      return { ok: false, reason: "concurrent" }
+    }
+    throw e
+  }
+}
