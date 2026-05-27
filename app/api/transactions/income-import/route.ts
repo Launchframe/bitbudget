@@ -3,9 +3,8 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { awardIfMissing, detectAchievementsForUser } from "@/lib/achievements"
 import {
-  type IncomeImportEntry,
   entriesNeedMonthlyIncome,
-  entriesIncludeFuturePeriod,
+  type IncomeImportEntry,
   parseIncomePeriodKey,
   processIncomeImport,
 } from "@/lib/income-import"
@@ -74,22 +73,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  if (entriesIncludeFuturePeriod(entries)) {
+  const needsMonthlyIncome = entriesNeedMonthlyIncome(entries)
+  if (!Number.isFinite(user.monthlyIncome) || user.monthlyIncome < 0) {
     return NextResponse.json(
-      { error: "Past income can't include future months or years." },
+      { error: "Monthly Income must be zero or greater before importing income." },
       { status: 400 },
     )
   }
-
-  if (
-    entriesNeedMonthlyIncome(entries) &&
-    (!Number.isFinite(user.monthlyIncome) || user.monthlyIncome <= 0)
-  ) {
+  if (needsMonthlyIncome && user.monthlyIncome <= 0) {
     return NextResponse.json(
-      {
-        error:
-          "Set a positive Monthly Income in Settings before importing the current month or year.",
-      },
+      { error: "Set a positive Monthly Income before adding income for the current month or year." },
       { status: 400 },
     )
   }
