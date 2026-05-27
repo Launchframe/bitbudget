@@ -38,16 +38,19 @@ export function SuccessParticles({ opportunityCostEnabled }: SuccessParticlesPro
     window.addEventListener("resize", resize)
 
     const count = 90
-    const particles: Particle[] = Array.from({ length: count }, () => ({
-      x: Math.random() * canvas.width,
-      y: -20 - Math.random() * canvas.height,
-      vx: (Math.random() - 0.5) * 1.2,
-      vy: 1.5 + Math.random() * 2,
-      rotation: Math.random() * Math.PI,
-      spin: (Math.random() - 0.5) * 0.08,
-      size: 12 + Math.random() * 16,
-      kind: opportunityCostEnabled ? "btc" : "bill",
-    }))
+    const particles: Particle[] = Array.from({ length: count }, () => {
+      const kind = opportunityCostEnabled ? "btc" : "bill"
+      return {
+        x: Math.random() * canvas.width,
+        y: -20 - Math.random() * canvas.height,
+        vx: (Math.random() - 0.5) * (kind === "btc" ? 0.6 : 1.2),
+        vy: kind === "btc" ? 0.75 + Math.random() : 1.5 + Math.random() * 2,
+        rotation: Math.random() * Math.PI,
+        spin: (Math.random() - 0.5) * (kind === "btc" ? 0.04 : 0.08),
+        size: 12 + Math.random() * 16,
+        kind,
+      }
+    })
 
     let frame = 0
     const tick = () => {
@@ -55,7 +58,7 @@ export function SuccessParticles({ opportunityCostEnabled }: SuccessParticlesPro
       ctx.clearRect(0, 0, canvas.width, canvas.height)
       for (const p of particles) {
         if (p.kind === "btc") {
-          p.vy += 0.04
+          p.vy += 0.02
         } else {
           p.x += Math.sin(frame * 0.02 + p.y * 0.01) * 0.8
         }
@@ -66,7 +69,7 @@ export function SuccessParticles({ opportunityCostEnabled }: SuccessParticlesPro
         if (p.y > canvas.height + 40) {
           p.y = -20
           p.x = Math.random() * canvas.width
-          p.vy = p.kind === "btc" ? 1 + Math.random() : 1.5 + Math.random() * 2
+          p.vy = p.kind === "btc" ? 0.5 + Math.random() * 0.5 : 1.5 + Math.random() * 2
         }
 
         ctx.save()

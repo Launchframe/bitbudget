@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 import { buildSavingsGoalsWalkthroughSlides } from "@/lib/savings-goals-walkthrough-slides"
@@ -13,8 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-
-const CELEBRATION_AUTO_CLOSE_MS = 2500
 
 interface SavingsGoalsWalkthroughDialogProps {
   open: boolean
@@ -29,20 +27,11 @@ export function SavingsGoalsWalkthroughDialog({
   const slides = useMemo(() => buildSavingsGoalsWalkthroughSlides(), [])
   const [step, setStep] = useState(0)
   const [celebrating, setCelebrating] = useState(false)
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const clearCloseTimer = useCallback(() => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current)
-      closeTimerRef.current = null
-    }
-  }, [])
 
   const resetState = useCallback(() => {
-    clearCloseTimer()
     setStep(0)
     setCelebrating(false)
-  }, [clearCloseTimer])
+  }, [])
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
@@ -52,18 +41,12 @@ export function SavingsGoalsWalkthroughDialog({
     [onOpenChange, resetState],
   )
 
-  useEffect(() => () => clearCloseTimer(), [clearCloseTimer])
-
   const slide = slides[step]
   const isLastSlide = step === slides.length - 1
   const isFirstSlide = step === 0
 
   const startCelebration = () => {
     setCelebrating(true)
-    clearCloseTimer()
-    closeTimerRef.current = setTimeout(() => {
-      handleOpenChange(false)
-    }, CELEBRATION_AUTO_CLOSE_MS)
   }
 
   if (!slide && !celebrating) return null
