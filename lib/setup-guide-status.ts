@@ -123,7 +123,7 @@ export function allocationsComplete(
   return discretionaryEnvelopes.every((e) => (e.monthlyAllotment ?? 0) > ALLOTMENT_EPSILON)
 }
 
-export function hasFirstExpense(transactions: readonly Transaction[]): boolean {
+export function hasAnyVisibleTransaction(transactions: readonly Transaction[]): boolean {
   return transactions.some(
     (t) => !t.excludeFromMainHistory && (t.type === "expense" || t.type === "credit"),
   )
@@ -163,7 +163,7 @@ export function computeSetupGuideTasks(input: SetupGuideClientInput): SetupGuide
     },
     {
       id: "first_expense",
-      complete: signals ? signals.hasAnyTransaction : hasFirstExpense(txns),
+      complete: signals ? signals.hasAnyTransaction : hasAnyVisibleTransaction(txns),
     },
     {
       id: "savings_goal",

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   allocationsComplete,
   computeSetupGuideTasks,
+  hasAnyVisibleTransaction,
   hasIncomeSignal,
   needsAllotmentSetupTracking,
   needsMonthlyIncomeSetupTracking,
@@ -150,5 +151,15 @@ describe("setup-guide-status", () => {
         ],
       ),
     ).toBe(true)
+  })
+
+  it("hasAnyVisibleTransaction accepts visible credits and expenses only", () => {
+    expect(
+      hasAnyVisibleTransaction([
+        txn({ id: "hidden", type: "expense", excludeFromMainHistory: true }),
+      ]),
+    ).toBe(false)
+    expect(hasAnyVisibleTransaction([txn({ id: "credit", type: "credit" })])).toBe(true)
+    expect(hasAnyVisibleTransaction([txn({ id: "expense", type: "expense" })])).toBe(true)
   })
 })

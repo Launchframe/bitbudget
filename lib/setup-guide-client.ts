@@ -59,7 +59,7 @@ export async function fetchSavingsGoalSetForMonth(
   }
 }
 
-export type SetupGuideSettingsTab = "general" | "integrations"
+export type SetupGuideSettingsTab = "general" | "integrations" | "data"
 
 function scrollWhenPresent(selector: string, attemptsLeft = 12): void {
   const el = document.querySelector(selector)
@@ -83,6 +83,8 @@ export function focusSettingsSection(tab: SetupGuideSettingsTab): void {
   const selector =
     tab === "integrations"
       ? '[data-walkthrough="settings-connections"]'
-      : "#settings-linked-sign-in"
+      : tab === "data"
+        ? "#settings-linked-sign-in"
+        : '[data-walkthrough="settings-setup-guide"]'
   requestAnimationFrame(() => scrollWhenPresent(selector))
 }

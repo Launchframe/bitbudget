@@ -1,12 +1,29 @@
-import { describe, expect, it } from "vitest"
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   activeTransactionSetupSignature,
   discretionaryAllotmentSignature,
+  focusSettingsSection,
   receiptInboxPendingSetupSignature,
 } from "@/lib/setup-guide-client"
+import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
 import type { Envelope, PendingTransaction, Transaction } from "@/lib/data"
 
 describe("setup-guide-client", () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      cb(0)
+      return 0
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    sessionStorage.clear()
+    document.body.innerHTML = ""
+  })
+
   it("discretionaryAllotmentSignature ignores savings and archived", () => {
     const envelopes: Envelope[] = [
       { id: "s", name: "Savings", monthlyAllotment: 100, color: "#", systemRole: "savings" },
@@ -62,5 +79,25 @@ describe("setup-guide-client", () => {
     expect(receiptInboxPendingSetupSignature(pending)).toBe(
       "receipt-1\temail_forward\t2026-05-01T00:00:00.000Z",
     )
+  })
+
+  it("focusSettingsSection opens Data & Security for linked sign-in email controls", () => {
+    document.body.innerHTML = `<div id="settings-linked-sign-in"></div>`
+    const target = document.getElementById("settings-linked-sign-in")!
+    const scrollIntoView = vi.fn()
+    target.scrollIntoView = scrollIntoView
+
+    const events: string[] = []
+    const onSettingsTab = (e: Event) => {
+      events.push((e as CustomEvent<{ tab?: string }>).detail?.tab ?? "")
+    }
+    window.addEventListener("bitbudget-walkthrough-settings-tab", onSettingsTab)
+
+    focusSettingsSection("data")
+    window.removeEventListener("bitbudget-walkthrough-settings-tab", onSettingsTab)
+
+    expect(sessionStorage.getItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)).toBe("data")
+    expect(events).toEqual(["data"])
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" })
   })
 })

@@ -135,6 +135,9 @@ export function SettingsPage() {
       } else if (t === "savings" || t === "savings-tracking") {
         selectSettingsTab("savings", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      } else if (t === "data" || t === "data-security") {
+        selectSettingsTab("data", "replace")
+        sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       }
     } catch {
       /* ignore */

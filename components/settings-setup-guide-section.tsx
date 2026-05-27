@@ -54,7 +54,7 @@ export function SettingsSetupGuideSection() {
         navigateTo("envelopes")
         break
       case "account_email":
-        focusSettingsSection("general")
+        focusSettingsSection("data")
         break
       case "plaid":
       case "receipt_inbox":
