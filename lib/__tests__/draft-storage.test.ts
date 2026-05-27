@@ -19,12 +19,12 @@ describe("draft-storage", () => {
 
   it("corrupt JSON returns null", () => {
     sessionStorage.setItem("bitbudget-bad-draft", "{not json")
-    expect(loadDraft("bitbudget-bad-draft", () => true)).toBeNull()
+    expect(loadDraft("bitbudget-bad-draft", (_v: unknown): _v is unknown => true)).toBeNull()
   })
 
   it("validator false drops draft", () => {
     saveDraftImmediate("bitbudget-invalid-draft", { n: 1 })
-    expect(loadDraft("bitbudget-invalid-draft", () => false)).toBeNull()
+    expect(loadDraft("bitbudget-invalid-draft", (_v: unknown): _v is never => false)).toBeNull()
   })
 
   it("clearDraft removes key", () => {
