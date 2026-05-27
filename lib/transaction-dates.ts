@@ -24,6 +24,12 @@ export function isDateOnlyStorageInstant(d: Date): boolean {
   return d.getTime() === parseIsoDateLocal(cal).getTime()
 }
 
+function dateOnlyStorageCalendarDay(d: Date): string {
+  const iso = d.toISOString()
+  if (iso.endsWith("T00:00:00.000Z")) return iso.slice(0, 10)
+  return transactionCalendarDayFromDate(d)
+}
+
 /**
  * Parse client/API transaction date input for DB storage.
  * Calendar days use local noon; full ISO strings use the instant.
@@ -42,7 +48,7 @@ export function parseTransactionDateInput(value: string): Date | null {
 /** Serialize a stored transaction `DateTime` for API/client (preserve real capture times). */
 export function serializeTransactionDateForClient(d: Date): string {
   if (isDateOnlyStorageInstant(d)) {
-    return transactionCalendarDayFromDate(d)
+    return dateOnlyStorageCalendarDay(d)
   }
   return d.toISOString()
 }
@@ -59,10 +65,16 @@ export function transactionCalendarDay(value: string): string {
   if (isCalendarDateOnly(value)) return value
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return value.slice(0, 10)
+  if (isDateOnlyStorageInstant(d)) return dateOnlyStorageCalendarDay(d)
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, "0")
   const day = String(d.getDate()).padStart(2, "0")
   return `${y}-${m}-${day}`
+}
+
+/** Current local calendar day for transaction date inputs. */
+export function todayTransactionCalendarDay(now = new Date()): string {
+  return transactionCalendarDay(now.toISOString())
 }
 
 /** Value for `<input type="date" />` from a transaction date string. */
@@ -118,7 +130,7 @@ export function formatTransactionDetailDateTime(
     return formatTransactionDetailDateTime(transactionCalendarDay(value), locale)
   }
   if (isDateOnlyStorageInstant(d)) {
-    return parseIsoDateLocal(transactionCalendarDay(value)).toLocaleDateString(locale, {
+    return parseIsoDateLocal(dateOnlyStorageCalendarDay(d)).toLocaleDateString(locale, {
       weekday: "long",
       month: "long",
       day: "numeric",
