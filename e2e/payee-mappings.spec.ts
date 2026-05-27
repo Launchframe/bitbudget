@@ -4,9 +4,23 @@ import { E2E_APP_USER_EMAIL } from "./fixtures/app-e2e-constants"
 import { signInAppUser } from "./helpers/app-session"
 
 test.describe("Payee mappings", () => {
+  let createdAliasId: string | null = null
+
   test.beforeEach(async ({ page, baseURL }) => {
+    createdAliasId = null
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
     await signInAppUser(page, origin, E2E_APP_USER_EMAIL)
+  })
+
+  test.afterEach(async ({ page }) => {
+    if (!createdAliasId) return
+
+    await page.evaluate(async (aliasId) => {
+      await fetch(`/api/payee-aliases?id=${encodeURIComponent(aliasId)}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+    }, createdAliasId)
   })
 
   test("manual mapping in settings", async ({ page, baseURL }) => {
@@ -24,7 +38,18 @@ test.describe("Payee mappings", () => {
     const canonical = `E2E Canonical ${ts}`
     await page.locator("#payee-map-source").fill(source)
     await page.locator("#payee-map-canonical").fill(canonical)
+    const aliasResponsePromise = page.waitForResponse((res) => {
+      return res.url().includes("/api/payee-aliases") && res.request().method() === "POST"
+    })
     await page.getByRole("button", { name: "Save mapping" }).click()
+    const aliasResponse = await aliasResponsePromise
+    const aliasRow: unknown = await aliasResponse.json()
+    createdAliasId =
+      aliasRow && typeof aliasRow === "object" && "id" in aliasRow && typeof aliasRow.id === "string"
+        ? aliasRow.id
+        : null
+    expect(createdAliasId).toBeTruthy()
+
     await expect(page.getByText(`From ${source} → ${canonical}`)).toBeVisible()
   })
 })
