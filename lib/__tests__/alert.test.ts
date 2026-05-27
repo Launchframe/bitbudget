@@ -73,6 +73,25 @@ describe("sendAlert", () => {
     expect(data.fingerprint).toBe("alert:[redacted-email]")
   })
 
+  it("scrubs sensitive key-value pairs before persisting alert bodies", async () => {
+    process.env.E2E_TEST = "true"
+    const { sendAlert } = await import("../alert")
+    await sendAlert({
+      severity: "error",
+      source: "incoming",
+      title: "Webhook failed",
+      body: 'payload {"password":"hunter2","payee":"Coffee Shop"} token=plain-secret',
+    })
+
+    const data = opsEventCreate.mock.calls[0][0].data
+    expect(data.body).toContain('"password":[redacted]')
+    expect(data.body).toContain('"payee":[redacted]')
+    expect(data.body).toContain("token=[redacted]")
+    expect(data.body).not.toContain("hunter2")
+    expect(data.body).not.toContain("Coffee Shop")
+    expect(data.body).not.toContain("plain-secret")
+  })
+
   it("scrubs title in outbound channel messages and email subjects", async () => {
     process.env.DISCORD_OPS_WEBHOOK_URL = "https://discord.example/webhook"
     userFindMany.mockResolvedValue([{ email: "admin@example.com" }])
@@ -92,6 +111,29 @@ describe("sendAlert", () => {
       "admin@example.com",
       "[BitBudget error] Failed [redacted-email]",
       expect.not.stringContaining("user@example.com"),
+    )
+  })
+
+  it("escapes alert email HTML", async () => {
+    userFindMany.mockResolvedValue([{ email: "admin@example.com" }])
+    const { sendAlert } = await import("../alert")
+
+    await sendAlert({
+      severity: "error",
+      source: "incoming",
+      title: "HTML",
+      body: '<img src=x onerror="alert(1)">',
+    })
+
+    expect(sendOpsAlertEmail).toHaveBeenCalledWith(
+      "admin@example.com",
+      "[BitBudget error] HTML",
+      expect.stringContaining("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;"),
+    )
+    expect(sendOpsAlertEmail).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.not.stringContaining("<img"),
     )
   })
 

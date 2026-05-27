@@ -3,9 +3,14 @@ const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi
 const NSEC_RE = /\bnsec1[a-z0-9]+\b/gi
 const NPUB_RE = /\bnpub1[a-z0-9]+\b/gi
 const HEX64_RE = /\b[0-9a-f]{64}\b/gi
+const BEARER_RE = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi
+const SENSITIVE_TEXT_PAIR_RE =
+  /(["']?)(email|password|passphrase|pin|token|secret|encryptedPrivacyKey|privacyKeySalt|authorization|cookie|nsec|npub|payee|notes|accessToken|refreshToken)\1(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,}&\]]+)/gi
 
 function redactString(value: string): string {
   return value
+    .replace(SENSITIVE_TEXT_PAIR_RE, (_match, quote: string, key: string, separator: string) => `${quote}${key}${quote}${separator}[redacted]`)
+    .replace(BEARER_RE, "Bearer [redacted]")
     .replace(EMAIL_RE, "[redacted-email]")
     .replace(NSEC_RE, "[redacted-nsec]")
     .replace(NPUB_RE, "[redacted-npub]")

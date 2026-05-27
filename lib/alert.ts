@@ -46,6 +46,15 @@ function formatAlertMessage(input: SendAlertInput): string {
   return lines.join("\n")
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+}
+
 async function sendDiscordAlert(message: string, severity: AlertSeverity): Promise<boolean> {
   const url = process.env.DISCORD_OPS_WEBHOOK_URL?.trim()
   if (!url) return false
@@ -127,7 +136,7 @@ export async function sendAlert(input: SendAlertInput): Promise<{ sent: boolean;
     channelStatus.telegram = await sendTelegramAlert(message)
     channelStatus.email = await sendEmailAlertToAdmins(
       `[BitBudget ${input.severity}] ${safeInput.title}`,
-      message.replace(/\n/g, "<br>"),
+      escapeHtml(message).replace(/\n/g, "<br>"),
     )
   }
 

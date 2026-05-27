@@ -12,6 +12,26 @@ describe("scrubAlertText", () => {
     const npub = "npub1" + "a".repeat(58)
     expect(scrubAlertText(`key ${npub}`)).toContain("[redacted-npub]")
   })
+
+  it("redacts sensitive key-value pairs in free text", () => {
+    const scrubbed = scrubAlertText(
+      'payload {"password":"hunter2","payee":"Coffee Shop","authorization":"Bearer abc123"} token=plain-secret',
+    )
+    expect(scrubbed).toContain('"password":[redacted]')
+    expect(scrubbed).toContain('"payee":[redacted]')
+    expect(scrubbed).toContain('"authorization":[redacted]')
+    expect(scrubbed).toContain("token=[redacted]")
+    expect(scrubbed).not.toContain("hunter2")
+    expect(scrubbed).not.toContain("Coffee Shop")
+    expect(scrubbed).not.toContain("abc123")
+    expect(scrubbed).not.toContain("plain-secret")
+  })
+
+  it("redacts standalone bearer tokens", () => {
+    const scrubbed = scrubAlertText("request failed with Bearer abc.def-123")
+    expect(scrubbed).toContain("Bearer [redacted]")
+    expect(scrubbed).not.toContain("abc.def-123")
+  })
 })
 
 describe("scrubSentryEvent", () => {
