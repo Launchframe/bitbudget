@@ -42,6 +42,24 @@ export function sweepFromLabel(envelopeName: string): string {
 
 const EMPTY_TAGS = "[]"
 
+export async function lockEnvelopeRowsForSweepBalance(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  envelopeIds: readonly string[],
+): Promise<void> {
+  const ids = [...new Set(envelopeIds)].sort()
+  if (ids.length === 0) return
+
+  await tx.$queryRaw`
+    SELECT "id"
+    FROM "Envelope"
+    WHERE "userId" = ${userId}
+      AND "id" IN (${Prisma.join(ids)})
+    ORDER BY "id"
+    FOR UPDATE
+  `
+}
+
 function sweepPeriodKeyForUser(user: PaydayUserFields, runDateUtc: Date): string | null {
   if (isDailyCadenceBlocked(user.payCadence)) return null
 
@@ -129,11 +147,14 @@ export async function sweepDiscretionaryEnvelopesForUser(
     })
     if (dup) return 0
 
-    // Read balances inside the transaction so they reflect committed state at the
-    // moment we decide amounts — preventing overdraft from a concurrent funding leg.
+    const budgetEnvelopeIds = budgetRows.map((env) => env.id)
+    // Serialize sweep balance reads for these envelopes so concurrent sweep
+    // requests cannot both spend the same remaining balance.
+    await lockEnvelopeRowsForSweepBalance(tx, userId, budgetEnvelopeIds)
+
     const balances = await envelopeBalancesAllTimeBatch(
       userId,
-      budgetRows.map((env) => env.id),
+      budgetEnvelopeIds,
       tx,
     )
 
@@ -332,9 +353,12 @@ export async function createManualEnvelopeSweep(
   const periodKey = `manual-sweep-${randomUUID()}`
 
   return prisma.$transaction(async (tx) => {
+    const validEnvelopeIds = validEntries.map((e) => e.envelopeId)
+    await lockEnvelopeRowsForSweepBalance(tx, userId, validEnvelopeIds)
+
     const balances = await envelopeBalancesAllTimeBatch(
       userId,
-      validEntries.map((e) => e.envelopeId),
+      validEnvelopeIds,
       tx,
     )
 
