@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -49,6 +50,100 @@ function uniqueConstraint(field: string) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+// ---------------------------------------------------------------------------
+// parseNostrAuthEvent — covers the auth bypass vector: a relay-scraped event
+// that passes cryptographic verifyEvent() must still be rejected semantically.
+// ---------------------------------------------------------------------------
+describe("parseNostrAuthEvent", () => {
+  const pubkey = "b".repeat(64)
+  const now = Math.floor(Date.now() / 1000)
+
+  const validEvent = () => JSON.stringify({
+    kind: NOSTR_AUTH_EVENT_KIND,
+    content: NOSTR_AUTH_EVENT_CONTENT,
+    created_at: now,
+    pubkey,
+    tags: [
+      ["u", "https://app.example.com"],
+      ["method", NOSTR_AUTH_EVENT_METHOD],
+    ],
+  })
+
+  it("accepts a well-formed auth event", () => {
+    expect(() => parseNostrAuthEvent(validEvent(), pubkey)).not.toThrow()
+  })
+
+  it("rejects a relay-scraped kind-1 note that would bypass verifyEvent-only check", () => {
+    const relayNote = JSON.stringify({
+      kind: 1,
+      content: "just a public note — should never authenticate anyone",
+      created_at: now,
+      pubkey,
+      tags: [],
+    })
+    expect(() => parseNostrAuthEvent(relayNote, pubkey)).toThrow()
+  })
+
+  it("rejects a kind-1 note even when content matches the auth constant", () => {
+    const spoofed = JSON.stringify({
+      kind: 1,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: now,
+      pubkey,
+      tags: [["method", NOSTR_AUTH_EVENT_METHOD]],
+    })
+    expect(() => parseNostrAuthEvent(spoofed, pubkey)).toThrow()
+  })
+
+  it("rejects an event whose pubkey does not match the credential pubkey", () => {
+    const wrongPubkey = "c".repeat(64)
+    expect(() => parseNostrAuthEvent(validEvent(), wrongPubkey)).toThrow()
+  })
+
+  it("rejects a stale event (older than 5 minutes)", () => {
+    const stale = JSON.stringify({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: now - 3600,
+      pubkey,
+      tags: [["method", NOSTR_AUTH_EVENT_METHOD]],
+    })
+    expect(() => parseNostrAuthEvent(stale, pubkey)).toThrow(/expired/i)
+  })
+
+  it("rejects an event from the future beyond allowed skew", () => {
+    const future = JSON.stringify({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: now + 3600,
+      pubkey,
+      tags: [["method", NOSTR_AUTH_EVENT_METHOD]],
+    })
+    expect(() => parseNostrAuthEvent(future, pubkey)).toThrow()
+  })
+
+  it("rejects an event missing the method tag", () => {
+    const noMethod = JSON.stringify({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: now,
+      pubkey,
+      tags: [],
+    })
+    expect(() => parseNostrAuthEvent(noMethod, pubkey)).toThrow()
+  })
+
+  it("rejects an event targeting the wrong origin", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent(), pubkey, "https://evil.example.com"),
+    ).toThrow()
+  })
+
+  it("rejects malformed JSON", () => {
+    expect(() => parseNostrAuthEvent("{not valid json", pubkey)).toThrow()
+  })
 })
 
 describe("getSignInMethods", () => {

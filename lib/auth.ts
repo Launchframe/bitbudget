@@ -4,6 +4,7 @@ import Credentials from "next-auth/providers/credentials"
 import Google from "next-auth/providers/google"
 import GitHub from "next-auth/providers/github"
 import { prisma } from "@/lib/db"
+import { parseNostrAuthEvent } from "@/lib/sign-in-methods"
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -67,10 +68,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         try {
           const { verifyEvent } = await import("nostr-tools")
-          const event = JSON.parse(eventStr)
-          const isValid = verifyEvent(event)
+          // Semantic validation first: ensures event is a fresh BitBudget auth request
+          // (correct kind, content, method tag, and created_at within window). This
+          // prevents relay-scraped events of any kind from being replayed to sign in.
+          const validatedEvent = parseNostrAuthEvent(eventStr, pubkey)
+          const isValid = verifyEvent(validatedEvent)
           if (!isValid) return null
-          if (typeof event.pubkey !== "string" || event.pubkey.toLowerCase() !== pubkey) return null
 
           let user = await prisma.user.findUnique({ where: { nostrPubkey: pubkey } })
           if (!user) {
