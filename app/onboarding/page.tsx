@@ -292,6 +292,15 @@ export default function OnboardingPage() {
   const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
   const allocSliderRangeInputRefs = useRef<(HTMLInputElement | null)[]>([])
   const allocSliderPointerRef = useRef<{ pointerId: number; idx: number } | null>(null)
+  const allocSliderPendingPointerRef = useRef<{
+    pointerId: number
+    idx: number
+    startX: number
+    startY: number
+    gestureMax: number
+    init: number
+    committed: boolean
+  } | null>(null)
   /** Coarse horizontal slider vs fine scroller — controls snap step and live display. */
   const allocSliderGestureKindRef = useRef<"coarse" | "fine" | null>(null)
   const allocSliderDragSessionRef = useRef<{
@@ -1665,7 +1674,11 @@ export default function OnboardingPage() {
 
         <Progress value={progress} className="h-1.5" />
 
-        <div className="bg-[#0D0D0D] rounded-2xl p-2">
+        <div
+          className={`bg-[#0D0D0D] rounded-2xl ${
+            step === "allocations" && allocPhase === "budget" ? "p-2 sm:py-8 sm:p-8" : "py-8 px-4 sm:p-8"
+          }`}
+        >
           {restoredSession && !isNostr && step !== "referral" && step !== "security" && step !== "complete" && step !== "referral-bank" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
@@ -2444,7 +2457,10 @@ export default function OnboardingPage() {
                   border-radius: 3px;
                   outline: none;
                   cursor: pointer;
-                  touch-action: pan-y;
+                  touch-action: pan-x;
+                  padding: 0;
+                  margin: 0;
+                  background: transparent;
                 }
                 input[type="range"].alloc-slider::-webkit-slider-thumb {
                   -webkit-appearance: none;
@@ -2526,7 +2542,9 @@ export default function OnboardingPage() {
                     }}
                   >
                     <p className="text-sm text-muted-foreground leading-relaxed">
-                      BitBudget is a full ledger-style budgeting app. Your income goes right into Savings, and then Savings is drawn down to cover expenses and to fill your envelopes each month.
+                      BitBudget maintains a continuous ledger to help you budget. Your income goes directly 
+                      into Savings, and then Savings is drawn down each month to fill your
+                      budget envelopes.
                     </p>
                     <p className="text-sm text-muted-foreground leading-relaxed">
                       Pick a ballpark target for now. You can adjust it anytime as your budget takes shape.
@@ -2647,7 +2665,7 @@ export default function OnboardingPage() {
               </div>
 
               {/* Stacked bar + sliders — scrollable on small screens so Continue stays reachable */}
-              <div className="flex min-w-0 flex-col gap-4 max-md:max-h-[calc(100dvh-13rem)] max-md:overflow-x-hidden max-md:overflow-y-auto max-md:overscroll-y-contain max-md:[-webkit-overflow-scrolling:touch]">
+              <div className="flex min-w-0 flex-col max-md:max-h-[calc(100dvh-13rem)] max-md:space-y-4 max-md:overflow-x-hidden max-md:overflow-y-scroll max-md:overscroll-y-contain max-md:touch-pan-y max-md:[-webkit-overflow-scrolling:touch]">
               {showAllocStackBar && (
                 <div
                   className="sticky top-0 z-20 max-md:mx-0 max-md:px-0 -mx-8 px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
@@ -2760,8 +2778,8 @@ export default function OnboardingPage() {
                 </div>
               )}
 
-              {/* Per-envelope slider rows */}
-              <div className="flex min-w-0 flex-col gap-4">
+              {/* Per-envelope slider rows — space-y (not gap) so iOS can scroll between rows */}
+              <div className="flex min-w-0 flex-col max-md:space-y-4">
                 {envelopes.map((env, idx) => {
                   const lockedGestureMax =
                     unboundedAlloc && allocSliderLockedMax?.idx === idx
@@ -2832,16 +2850,16 @@ export default function OnboardingPage() {
                     <div
                       key={idx}
                       ref={el => { sliderRowRefs.current[idx] = el }}
-                      className={`flex min-w-0 flex-col gap-2 p-3 rounded-xl transition-colors ${
+                      className={`flex min-w-0 flex-col gap-2 p-3 rounded-xl transition-colors max-md:pointer-events-none ${
                         activeEnvIdx === idx ? "bg-[#1A1A1A]" : "bg-transparent"
                       }`}
                       onClick={() => setActiveEnvIdx(idx)}
                     >
                       {/* Narrow screens: title row so name isn&apos;t squeezed out by amount controls */}
-                      <p className="sm:hidden text-xs font-semibold text-foreground leading-snug truncate">
+                      <p className="sm:hidden text-xs font-semibold text-foreground leading-snug truncate max-md:pointer-events-auto">
                         {env.name}
                       </p>
-                      <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3 max-md:pointer-events-auto">
                         <div
                           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                           style={{ backgroundColor: `${env.color}22` }}
@@ -2920,7 +2938,8 @@ export default function OnboardingPage() {
                         </div>
                       </div>
 
-                      <div className="flex min-w-0 items-center gap-2">
+                      <div className="flex min-w-0 items-center gap-2 max-md:pointer-events-auto">
+                      <div className="relative flex h-8 min-w-0 flex-1 items-center overflow-hidden">
                       <input
                         type="range"
                         ref={el => { allocSliderRangeInputRefs.current[idx] = el }}
@@ -2955,7 +2974,31 @@ export default function OnboardingPage() {
                           const init = Number.isFinite(rawInit)
                             ? Math.min(gestureMax, Math.max(0, rawInit))
                             : 0
-                          beginAllocSliderGesture(idx, init, gestureMax)
+                          allocSliderPendingPointerRef.current = {
+                            pointerId: e.pointerId,
+                            idx,
+                            startX: e.clientX,
+                            startY: e.clientY,
+                            gestureMax,
+                            init,
+                            committed: false,
+                          }
+                        }}
+                        onPointerMove={e => {
+                          const pending = allocSliderPendingPointerRef.current
+                          if (!pending || pending.pointerId !== e.pointerId || pending.idx !== idx) return
+                          if (pending.committed) return
+
+                          const dx = e.clientX - pending.startX
+                          const dy = e.clientY - pending.startY
+                          if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 8) {
+                            allocSliderPendingPointerRef.current = null
+                            return
+                          }
+                          if (Math.abs(dx) <= Math.abs(dy) || Math.abs(dx) <= 8) return
+
+                          pending.committed = true
+                          beginAllocSliderGesture(idx, pending.init, pending.gestureMax)
                           allocSliderGestureKindRef.current = "coarse"
                           allocSliderPointerRef.current = { pointerId: e.pointerId, idx }
                           try {
@@ -2965,23 +3008,41 @@ export default function OnboardingPage() {
                           }
                         }}
                         onPointerUp={e => {
-                          if (allocSliderPointerRef.current?.pointerId === e.pointerId) {
-                            try {
-                              e.currentTarget.releasePointerCapture(e.pointerId)
-                            } catch {
-                              /* noop */
-                            }
+                          const pending = allocSliderPendingPointerRef.current
+                          if (
+                            pending?.pointerId === e.pointerId &&
+                            pending.idx === idx &&
+                            !pending.committed
+                          ) {
+                            allocSliderPendingPointerRef.current = null
+                            return
+                          }
+                          allocSliderPendingPointerRef.current = null
+                          if (allocSliderPointerRef.current?.pointerId !== e.pointerId) return
+                          try {
+                            e.currentTarget.releasePointerCapture(e.pointerId)
+                          } catch {
+                            /* noop */
                           }
                           releaseAllocSliderRow(idx, e.currentTarget, unboundedAlloc)
                           allocSliderSkipBlurCommitRef.current = idx
                         }}
                         onPointerCancel={e => {
-                          if (allocSliderPointerRef.current?.pointerId === e.pointerId) {
-                            try {
-                              e.currentTarget.releasePointerCapture(e.pointerId)
-                            } catch {
-                              /* noop */
-                            }
+                          const pending = allocSliderPendingPointerRef.current
+                          if (
+                            pending?.pointerId === e.pointerId &&
+                            pending.idx === idx &&
+                            !pending.committed
+                          ) {
+                            allocSliderPendingPointerRef.current = null
+                            return
+                          }
+                          allocSliderPendingPointerRef.current = null
+                          if (allocSliderPointerRef.current?.pointerId !== e.pointerId) return
+                          try {
+                            e.currentTarget.releasePointerCapture(e.pointerId)
+                          } catch {
+                            /* noop */
                           }
                           releaseAllocSliderRow(idx, e.currentTarget, unboundedAlloc)
                           allocSliderSkipBlurCommitRef.current = idx
@@ -2999,6 +3060,7 @@ export default function OnboardingPage() {
                           "--slider-pct": `${sliderPct}%`,
                         } as React.CSSProperties}
                       />
+                      </div>
                       <OnboardingAllocFineScroller
                         accentColor={env.color}
                         ariaLabel={`Fine adjust ${env.name} monthly allotment`}
