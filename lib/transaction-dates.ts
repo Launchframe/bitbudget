@@ -8,25 +8,50 @@ export function isCalendarDateOnly(value: string): boolean {
   return ISO_CALENDAR_DAY.test(value)
 }
 
+/** Store a calendar day at local noon (avoids UTC-midnight off-by-one). */
+export function calendarDateToStorageInstant(isoDate: string): Date {
+  return parseIsoDateLocal(isoDate)
+}
+
+/** True when the DB instant is a date-only value (legacy UTC midnight or local noon). */
+export function isDateOnlyStorageInstant(d: Date): boolean {
+  const iso = d.toISOString()
+  if (iso.endsWith("T00:00:00.000Z")) return true
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  const cal = `${y}-${m}-${day}`
+  return d.getTime() === parseIsoDateLocal(cal).getTime()
+}
+
 /**
  * Parse client/API transaction date input for DB storage.
- * Calendar days use UTC midnight; full ISO strings use the instant.
+ * Calendar days use local noon; full ISO strings use the instant.
  */
 export function parseTransactionDateInput(value: string): Date | null {
   const trimmed = value.trim()
   if (!trimmed) return null
   if (isCalendarDateOnly(trimmed)) {
-    return parseTransactionQueryCalendarDate(trimmed)
+    if (parseTransactionQueryCalendarDate(trimmed) == null) return null
+    return calendarDateToStorageInstant(trimmed)
   }
   const d = new Date(trimmed)
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-/** Serialize a stored transaction `DateTime` for API/client (preserve time when not UTC midnight). */
+/** Serialize a stored transaction `DateTime` for API/client (preserve real capture times). */
 export function serializeTransactionDateForClient(d: Date): string {
-  const iso = d.toISOString()
-  if (iso.endsWith("T00:00:00.000Z")) return iso.slice(0, 10)
-  return iso
+  if (isDateOnlyStorageInstant(d)) {
+    return transactionCalendarDayFromDate(d)
+  }
+  return d.toISOString()
+}
+
+function transactionCalendarDayFromDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
 }
 
 /** Local calendar day `YYYY-MM-DD` for filters, month keys, and date inputs. */
@@ -91,6 +116,14 @@ export function formatTransactionDetailDateTime(
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) {
     return formatTransactionDetailDateTime(transactionCalendarDay(value), locale)
+  }
+  if (isDateOnlyStorageInstant(d)) {
+    return parseIsoDateLocal(transactionCalendarDay(value)).toLocaleDateString(locale, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    })
   }
   return d.toLocaleString(locale, {
     weekday: "long",

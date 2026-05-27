@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest"
+import { parseIsoDateLocal } from "../chart-x-axis-format"
 import {
+  calendarDateToStorageInstant,
   dateInputValueFromTransactionDate,
   formatTransactionDetailDateTime,
   formatTransactionTableDate,
   isCalendarDateOnly,
+  isDateOnlyStorageInstant,
   mergeCalendarDayIntoTransactionDate,
   parseTransactionDateInput,
   serializeTransactionDateForClient,
@@ -18,9 +21,10 @@ describe("transaction-dates", () => {
     expect(isCalendarDateOnly("2026-05-14T16:54:53.000Z")).toBe(false)
   })
 
-  it("parseTransactionDateInput uses UTC midnight for calendar days", () => {
+  it("parseTransactionDateInput uses local noon for calendar days", () => {
     const d = parseTransactionDateInput("2026-05-14")
-    expect(d?.toISOString()).toBe("2026-05-14T00:00:00.000Z")
+    expect(d?.getTime()).toBe(parseIsoDateLocal("2026-05-14").getTime())
+    expect(isDateOnlyStorageInstant(d!)).toBe(true)
   })
 
   it("parseTransactionDateInput preserves instants for ISO timestamps", () => {
@@ -28,8 +32,11 @@ describe("transaction-dates", () => {
     expect(d?.toISOString()).toBe("2026-05-14T16:54:53.000Z")
   })
 
-  it("serializeTransactionDateForClient drops midnight UTC to YYYY-MM-DD", () => {
+  it("serializeTransactionDateForClient drops date-only instants to YYYY-MM-DD", () => {
     expect(serializeTransactionDateForClient(new Date("2026-05-14T00:00:00.000Z"))).toBe(
+      "2026-05-14",
+    )
+    expect(serializeTransactionDateForClient(calendarDateToStorageInstant("2026-05-14"))).toBe(
       "2026-05-14",
     )
     expect(
@@ -38,9 +45,14 @@ describe("transaction-dates", () => {
   })
 
   it("transactionDateFromDb matches serialize helper", () => {
-    expect(transactionDateFromDb(new Date("2026-05-14T12:00:00.000Z"))).toBe(
-      "2026-05-14T12:00:00.000Z",
-    )
+    expect(transactionDateFromDb(calendarDateToStorageInstant("2026-05-14"))).toBe("2026-05-14")
+  })
+
+  it("formatTransactionDetailDateTime omits time for date-only storage instants", () => {
+    const noonStored = calendarDateToStorageInstant("2026-05-14").toISOString()
+    const label = formatTransactionDetailDateTime(noonStored)
+    expect(label).toContain("May")
+    expect(label).not.toMatch(/12:00/)
   })
 
   it("formatTransactionTableDate uses calendar day for UTC-midnight storage", () => {
