@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -354,5 +355,80 @@ describe("linkNostrSignInMethod", () => {
       code: "NOSTR_ALREADY_LINKED",
       status: 409,
     } satisfies Partial<SignInMethodError>)
+  })
+})
+
+// ─── parseNostrAuthEvent export — guards auth.ts Nostr credentials provider ──
+// These tests prove the function is exported and rejects events that would
+// previously have bypassed login validation in lib/auth.ts (relay-event replay).
+
+describe("parseNostrAuthEvent (exported for auth.ts)", () => {
+  const pubkey = "a".repeat(64)
+
+  function validEventJson(overrides: Record<string, unknown> = {}): string {
+    return JSON.stringify({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: Math.floor(Date.now() / 1000),
+      pubkey,
+      tags: [["method", NOSTR_AUTH_EVENT_METHOD]],
+      id: "event-id",
+      sig: "event-sig",
+      ...overrides,
+    })
+  }
+
+  it("accepts a fresh valid auth event and returns a parsed event object", () => {
+    const result = parseNostrAuthEvent(validEventJson(), pubkey)
+    expect(result).toMatchObject({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      pubkey,
+    })
+  })
+
+  it("rejects a relay-scraped text note (kind=1) that would bypass login before the fix", () => {
+    // Before the fix, lib/auth.ts called verifyEvent() directly without parseNostrAuthEvent.
+    // A valid kind=1 note signed by the victim would authenticate them.
+    expect(() =>
+      parseNostrAuthEvent(validEventJson({ kind: 1, content: "hello world" }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event with wrong content string", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEventJson({ content: "other app login" }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event that is older than the freshness window (relay replay)", () => {
+    const stale = Math.floor(Date.now() / 1000) - 3600
+    expect(() =>
+      parseNostrAuthEvent(validEventJson({ created_at: stale }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event that is too far in the future", () => {
+    const future = Math.floor(Date.now() / 1000) + 300
+    expect(() =>
+      parseNostrAuthEvent(validEventJson({ created_at: future }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event signed by a different pubkey", () => {
+    const other = "b".repeat(64)
+    expect(() =>
+      parseNostrAuthEvent(validEventJson({ pubkey: other }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event missing the method tag", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEventJson({ tags: [] }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects malformed JSON", () => {
+    expect(() => parseNostrAuthEvent("{not-json}", pubkey)).toThrow(SignInMethodError)
   })
 })
