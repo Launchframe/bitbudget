@@ -5,7 +5,7 @@ import { Camera, Loader2, X, Zap, ZapOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   analyzeVideoFrame,
-  getAutoCapureHint,
+  getAutoCaptureHint,
   ANALYSIS_W,
   ANALYSIS_H,
   ANALYSIS_INTERVAL_MS,
@@ -41,6 +41,8 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
   const lastAnalysisTimeRef = useRef<number>(0)
   const holdStartRef = useRef<number | null>(null)
   const rafRef = useRef<number>(0)
+  // Always points to the latest doCapture so the rAF loop never holds a stale closure.
+  const doCaptureRef = useRef<() => void>(() => {})
 
   const [countdownProgress, setCountdownProgress] = useState(0)
   const [frameScore, setFrameScore] = useState<FrameScore | null>(null)
@@ -161,7 +163,7 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
               if (mountedRef.current) setFlashOpacity(0)
             }, 80)
             setTimeout(() => {
-              if (mountedRef.current) doCapture()
+              if (mountedRef.current) doCaptureRef.current()
             }, 120)
           }
         } else {
@@ -174,7 +176,6 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
 
     rafRef.current = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(rafRef.current)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraReady])
 
   // ── Mode toggle ───────────────────────────────────────────────────────────────
@@ -190,6 +191,8 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
   }
 
   // ── Capture ───────────────────────────────────────────────────────────────────
+  // Ref is updated synchronously on every render so the rAF loop always calls
+  // the version that closes over the current onCapture prop.
   function doCapture() {
     const video = videoRef.current
     if (!video || video.videoWidth === 0 || capturingRef.current) return
@@ -223,6 +226,8 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
     )
   }
 
+  doCaptureRef.current = doCapture
+
   function handleManualCapture() {
     if (autoMode) {
       // In auto mode the button acts as an immediate override.
@@ -238,7 +243,7 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
   const hintText = autoMode
     ? isHolding
       ? "Hold still…"
-      : getAutoCapureHint(frameScore)
+      : getAutoCaptureHint(frameScore)
     : "Position the receipt in view, then capture."
 
   return (

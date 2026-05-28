@@ -165,7 +165,7 @@ export function analyzeVideoFrame(
 // ─── UI helpers ──────────────────────────────────────────────────────────────
 
 /** Returns a short hint string for the current detection state. */
-export function getAutoCapureHint(score: FrameScore | null): string {
+export function getAutoCaptureHint(score: FrameScore | null): string {
   if (!score) return "Point camera at a receipt"
 
   const hasContent =

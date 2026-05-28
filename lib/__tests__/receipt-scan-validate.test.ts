@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
+  formatModelDisplayName,
   isLowConfidenceReceiptScan,
   normalizeScanExtraction,
   RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD,
@@ -184,5 +185,19 @@ describe("isLowConfidenceReceiptScan", () => {
   it("warns below the threshold but not at the boundary", () => {
     expect(isLowConfidenceReceiptScan(RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD - 0.01)).toBe(true)
     expect(isLowConfidenceReceiptScan(RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD)).toBe(false)
+  })
+})
+
+describe("formatModelDisplayName", () => {
+  it("maps known model IDs to friendly display names", () => {
+    expect(formatModelDisplayName("gpt-4o-mini")).toBe("GPT-4o mini")
+    expect(formatModelDisplayName("gpt-4o")).toBe("GPT-4o")
+    expect(formatModelDisplayName("gpt-4-turbo")).toBe("GPT-4 Turbo")
+    expect(formatModelDisplayName("gpt-4-vision-preview")).toBe("GPT-4 Vision")
+  })
+
+  it("falls back to the raw ID for unknown models", () => {
+    expect(formatModelDisplayName("gpt-5-unknown")).toBe("gpt-5-unknown")
+    expect(formatModelDisplayName("")).toBe("")
   })
 })

@@ -144,6 +144,8 @@ function ScanStatsPopover({ stats }: { stats: ReceiptScanStats }) {
         side="bottom"
         className="w-56 bg-[#181818] border-[#2A2A2A] p-0 text-sm"
         onEscapeKeyDown={(e) => e.stopPropagation()}
+        onInteractOutside={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}
       >
         <div className="px-3 pt-2.5 pb-1 border-b border-[#2A2A2A]">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -994,6 +996,8 @@ export function NewTransactionDialog() {
                         side="bottom"
                         className="w-72 bg-[#181818] border-[#2A2A2A] p-3 text-sm"
                         onEscapeKeyDown={(e) => e.stopPropagation()}
+                        onInteractOutside={(e) => e.preventDefault()}
+                        onPointerDownOutside={(e) => e.preventDefault()}
                       >
                         {payeeMatchHint.reason === "alias" ? (
                           <>

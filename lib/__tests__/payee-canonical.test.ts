@@ -54,6 +54,37 @@ describe("matchLongestAlias", () => {
     ])
     expect(hit?.canonicalPayee).toBe("Walmart")
   })
+
+  // Pass 2: soft-equal fallback — the core fix for the normalization bug
+  it("soft-equal pass: fires wal-mart alias for Walmart input", () => {
+    // An existing alias keyed as "wal-mart" should also fire when receipt says "Walmart"
+    const hit = matchLongestAlias("Walmart", [
+      { sourceNormalized: "wal-mart", canonicalPayee: "Walmart" },
+    ])
+    expect(hit?.canonicalPayee).toBe("Walmart")
+  })
+
+  it("exact pass wins over soft pass when exact key matches", () => {
+    const exact: PayeeAliasRule = { sourceNormalized: "wal-mart", canonicalPayee: "Walmart" }
+    const hit = matchLongestAlias("Wal-Mart", [exact])
+    expect(hit?.canonicalPayee).toBe("Walmart")
+  })
+
+  it("soft-equal pass returns null when no soft match exists", () => {
+    const hit = matchLongestAlias("Starbucks", [
+      { sourceNormalized: "wal-mart", canonicalPayee: "Walmart" },
+    ])
+    expect(hit).toBeNull()
+  })
+
+  it("soft-equal picks longest matching alias when multiple soft-match", () => {
+    // "wal mart stores" (longer) should beat "wal mart" when input collapses to "walmart..."
+    const hit = matchLongestAlias("WAL MART STORES", [
+      { sourceNormalized: "wal mart", canonicalPayee: "Short" },
+      { sourceNormalized: "wal mart stores", canonicalPayee: "Long" },
+    ])
+    expect(hit?.canonicalPayee).toBe("Long")
+  })
 })
 
 describe("resolveCanonicalPayee", () => {

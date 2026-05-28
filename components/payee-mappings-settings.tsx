@@ -387,7 +387,7 @@ function ClusterCard({
           type="button"
           onClick={() => onApply(canonical)}
           disabled={busy}
-          className="rounded-full border border-[#2A2A2A] bg-btc-orange hover:bg-btc-orange/90 px-5 py-1.5 text-xs font-medium text-[#0D0D0D] transition-colors hover:border-btc-orange/40 hover:bg-btc-orange/5 disabled:opacity-50"
+          className="rounded-full border border-btc-orange/30 bg-btc-orange hover:bg-btc-orange/90 px-5 py-1.5 text-xs font-medium text-[#0D0D0D] transition-colors disabled:opacity-50"
         >
           {busy ? (
             <span className="flex items-center gap-1.5">
