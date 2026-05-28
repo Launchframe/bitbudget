@@ -64,4 +64,17 @@ describe("buildWalkthroughSteps", () => {
     expect(step?.awaitClose).toBe("input-mode-sheet")
     expect(step?.closeOnAdvance).toBe("input-mode-sheet")
   })
+
+  it("keeps connection and pending review copy readable", () => {
+    const premiumSteps = buildWalkthroughSteps({ ...baseCtx, hasPremiumFeatures: true })
+    const connections = premiumSteps.find((s) => s.id === "settings-connections")
+    expect(connections?.description).toContain("Link a bank account or set up email forwarding")
+    expect(connections?.description).not.toContain("connect your email set up")
+
+    const pendingSteps = buildWalkthroughSteps({ ...baseCtx, pendingCount: 1 })
+    const review = pendingSteps.find((s) => s.id === "review-header")
+    expect(review?.description).toBe(
+      "You have transactions waiting to be reviewed. Approve them before they hit your budget.",
+    )
+  })
 })

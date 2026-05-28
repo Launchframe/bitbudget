@@ -92,6 +92,7 @@ export function WalkthroughOverlay() {
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const endHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const transitionReadyRafRef = useRef<number | null>(null)
   // Skip CSS position transition on first placement
   const positionedOnce = useRef(false)
   const [hasPositioned, setHasPositioned] = useState(false)
@@ -99,18 +100,25 @@ export function WalkthroughOverlay() {
   const step: WalkthroughStepDef | undefined = steps[currentStep]
   const isLast = currentStep >= steps.length - 1
 
+  const clearTransitionReadyRaf = useCallback(() => {
+    if (transitionReadyRafRef.current === null) return
+    cancelAnimationFrame(transitionReadyRafRef.current)
+    transitionReadyRafRef.current = null
+  }, [])
+
   // ─── Reset & show on walkthroughCompleted change ────────────────────────────
   useEffect(() => {
     let cancelled = false
     const raf = requestAnimationFrame(() => {
       if (cancelled) return
       setVisible(false)
-      setShowEndHint(false)
       setCurrentStep(0)
       setOverlayMode("tooltip")
+      clearTransitionReadyRaf()
       positionedOnce.current = false
       setHasPositioned(false)
       if (!state.walkthroughCompleted) {
+        setShowEndHint(false)
         showTimerRef.current = setTimeout(() => {
           if (!cancelled) setVisible(true)
         }, 800)
@@ -124,7 +132,19 @@ export function WalkthroughOverlay() {
         showTimerRef.current = null
       }
     }
-  }, [state.walkthroughCompleted])
+  }, [state.walkthroughCompleted, clearTransitionReadyRaf])
+
+  const markPositioned = useCallback(() => {
+    if (positionedOnce.current) return
+    positionedOnce.current = true
+    if (transitionReadyRafRef.current !== null) {
+      cancelAnimationFrame(transitionReadyRafRef.current)
+    }
+    transitionReadyRafRef.current = requestAnimationFrame(() => {
+      transitionReadyRafRef.current = null
+      setHasPositioned(true)
+    })
+  }, [])
 
   // ─── Navigate to step page & fire settings tab event ───────────────────────
   useEffect(() => {
@@ -165,10 +185,7 @@ export function WalkthroughOverlay() {
       } else {
         setTooltipPos({ top: vh / 2 - 80, left: cx, centred: true, variant: "above" })
       }
-      if (!positionedOnce.current) {
-        positionedOnce.current = true
-        setHasPositioned(true)
-      }
+      markPositioned()
       return
     }
 
@@ -186,10 +203,7 @@ export function WalkthroughOverlay() {
       const tipW = measured?.width ?? EST_TOOLTIP_W
       left = Math.max(VIEW_PAD, Math.min(vw - VIEW_PAD - tipW, left))
       setTooltipPos({ top, left, centred: false, variant: "right" })
-      if (!positionedOnce.current) {
-        positionedOnce.current = true
-        setHasPositioned(true)
-      }
+      markPositioned()
       return
     }
 
@@ -229,11 +243,8 @@ export function WalkthroughOverlay() {
     left = Math.max(VIEW_PAD + tipW / 2, Math.min(vw - VIEW_PAD - tipW / 2, left))
 
     setTooltipPos({ top, left, centred: false, variant })
-    if (!positionedOnce.current) {
-      positionedOnce.current = true
-      setHasPositioned(true)
-    }
-  }, [step])
+    markPositioned()
+  }, [step, markPositioned])
 
   // ─── Reposition after navigation / step change ──────────────────────────────
   useLayoutEffect(() => {
@@ -264,11 +275,20 @@ export function WalkthroughOverlay() {
 
   // ─── Compute spotlight rect ─────────────────────────────────────────────────
   const computeSpotlightRect = useCallback(() => {
-    if (!step) return
+    if (!step) {
+      setSpotlightRect(null)
+      return
+    }
     const target = step.spotlight ? step.target : null
-    if (!target) return
+    if (!target) {
+      setSpotlightRect(null)
+      return
+    }
     const el = findWalkthroughTarget(target)
-    if (!el) return
+    if (!el) {
+      setSpotlightRect(null)
+      return
+    }
     const r = el.getBoundingClientRect()
     setSpotlightRect({ x: r.left, y: r.top, w: r.width, h: r.height })
   }, [step])
@@ -288,11 +308,12 @@ export function WalkthroughOverlay() {
     setContentVisible(false)
     setTimeout(() => {
       setCurrentStep(newStep)
+      clearTransitionReadyRaf()
       positionedOnce.current = false
       setHasPositioned(false)
       setContentVisible(true)
     }, 120)
-  }, [])
+  }, [clearTransitionReadyRaf])
 
   // ─── Advance step (shared) ──────────────────────────────────────────────────
   const advanceStep = useCallback(() => {
@@ -377,6 +398,7 @@ export function WalkthroughOverlay() {
   function handleBack() {
     if (currentStep <= 0) return
     setOverlayMode("tooltip")
+    clearTransitionReadyRaf()
     positionedOnce.current = false
     setHasPositioned(false)
     setCurrentStep(currentStep - 1)
@@ -406,12 +428,19 @@ export function WalkthroughOverlay() {
     advanceStep()
   }
 
+  function handleSpotlightKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Enter" && e.key !== " ") return
+    e.preventDefault()
+    handleSpotlightActivate()
+  }
+
   // ─── Tour end hint auto-dismiss cleanup ─────────────────────────────────────
   useEffect(() => {
     return () => {
       if (endHintTimerRef.current) clearTimeout(endHintTimerRef.current)
+      clearTransitionReadyRaf()
     }
-  }, [])
+  }, [clearTransitionReadyRaf])
 
   // ─── Nothing to render ───────────────────────────────────────────────────────
   if (state.walkthroughCompleted && !showEndHint) return null
@@ -420,7 +449,7 @@ export function WalkthroughOverlay() {
   // ─── Tour-end hint ──────────────────────────────────────────────────────────
   if (showEndHint && !visible) {
     return (
-      <div className="fixed inset-0 z-[70] pointer-events-none flex items-end justify-center pb-24 px-4">
+      <div className="fixed inset-0 z-70 pointer-events-none flex items-end justify-center pb-24 px-4">
         <div
           className="pointer-events-auto bg-[#1A1A1A] border border-[#333] rounded-2xl p-5 shadow-2xl max-w-sm w-full animate-in slide-in-from-bottom-4 fade-in duration-300"
           role="status"
@@ -450,7 +479,7 @@ export function WalkthroughOverlay() {
                 setShowEndHint(false)
                 void restartWalkthrough()
               }}
-              className="flex items-center gap-2 text-xs font-medium text-[#F7931A] hover:text-[#F7931A]/80 transition-colors"
+              className="flex items-center gap-2 text-xs font-medium text-btc-orange hover:text-btc-orange/80 transition-colors"
             >
               <RotateCcw className="h-3.5 w-3.5" aria-hidden />
               Replay tour
@@ -496,7 +525,12 @@ export function WalkthroughOverlay() {
     const labelX = r ? r.x + r.w / 2 : vw / 2
 
     return (
-      <div className="fixed inset-0 z-[55]" aria-modal aria-label="Tour: interact with the highlighted element">
+      <div
+        className="fixed inset-0 z-55"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Tour: interact with the highlighted element"
+      >
         {/* SVG dimming mask with spotlight cutout */}
         <svg
           className="absolute inset-0 w-full h-full pointer-events-none"
@@ -552,7 +586,9 @@ export function WalkthroughOverlay() {
               height: r.h + pad * 2,
             }}
             onClick={handleSpotlightActivate}
+            onKeyDown={handleSpotlightKeyDown}
             role="button"
+            tabIndex={0}
             aria-label={step.spotlight?.prompt ?? "Activate"}
           />
         )}
@@ -560,7 +596,7 @@ export function WalkthroughOverlay() {
         {/* Prompt label */}
         {step.spotlight && (
           <div
-            className="absolute pointer-events-none flex items-center gap-1.5 text-xs font-medium text-[#F7931A] animate-in fade-in duration-300"
+            className="absolute pointer-events-none flex items-center gap-1.5 text-xs font-medium text-btc-orange animate-in fade-in duration-300"
             style={{
               left: labelX,
               top: labelY,
@@ -605,9 +641,6 @@ export function WalkthroughOverlay() {
       <div
         ref={(el) => {
           tooltipRef.current = el
-          if (el && !positionedOnce.current) {
-            positionedOnce.current = true
-          }
         }}
         className="absolute bg-[#1A1A1A] border border-[#333] rounded-xl p-4 shadow-xl max-w-xs"
         style={{
@@ -644,13 +677,13 @@ export function WalkthroughOverlay() {
                 <div
                   key={i}
                   className={`h-1.5 rounded-full transition-all duration-200 ${
-                    i === currentStep ? "w-4 bg-[#F7931A]" : "w-1.5 bg-[#333]"
+                    i === currentStep ? "w-4 bg-btc-orange" : "w-1.5 bg-[#333]"
                   }`}
                 />
               ))}
             </div>
             <div className="flex items-center gap-2">
-              {currentStep > 0 && overlayMode !== "spotlight" && (
+              {currentStep > 0 && (
                 <button
                   type="button"
                   onClick={handleBack}
@@ -662,7 +695,7 @@ export function WalkthroughOverlay() {
               <button
                 type="button"
                 onClick={handleNext}
-                className="text-xs font-medium text-[#F7931A] hover:text-[#F7931A]/80 transition-colors"
+                className="text-xs font-medium text-btc-orange hover:text-btc-orange/80 transition-colors"
               >
                 {nextLabel}
               </button>

@@ -210,7 +210,7 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       title: "Pending transactions",
       description:
         ctx.pendingCount > 0
-          ? "You have transactions waiting to be reviewed. — approve them before they hit your budget."
+          ? "You have transactions waiting to be reviewed. Approve them before they hit your budget."
           : "Transactions from connected bank accounts and automatic receipt scans will land here for your review.",
       position: "right",
     },
@@ -221,8 +221,8 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       settingsTab: "integrations",
       title: "Optional connections",
       description: ctx.hasPremiumFeatures
-        ? "Link a bank account, connect your email set up email forwarding to let BitBudget automatically record transactions. Sensitive details are encrypted the moment they arrive, so nobody but you can read them."
-        : "Premium features like connected bank accounts and receipt scanning makes budgeting a breeze. Reach out to us for a free trial.",
+        ? "Link a bank account or set up email forwarding to let BitBudget automatically record transactions. Sensitive details are encrypted the moment they arrive, so nobody but you can read them."
+        : "Premium features like connected bank accounts and receipt scanning make budgeting easier. Reach out to us for a free trial.",
       position: "bottom",
     },
     {
