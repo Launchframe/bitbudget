@@ -144,8 +144,6 @@ function ScanStatsPopover({ stats }: { stats: ReceiptScanStats }) {
         side="bottom"
         className="w-56 bg-[#181818] border-[#2A2A2A] p-0 text-sm"
         onEscapeKeyDown={(e) => e.stopPropagation()}
-        onInteractOutside={(e) => e.preventDefault()}
-        onPointerDownOutside={(e) => e.preventDefault()}
       >
         <div className="px-3 pt-2.5 pb-1 border-b border-[#2A2A2A]">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -907,7 +905,7 @@ export function NewTransactionDialog() {
                     onClick={() => setType("expense")}
                     className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
                       type === "expense"
-                        ? "bg-[#F7931A] text-[#0D0D0D]"
+                        ? "bg-btc-orange text-[#0D0D0D]"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -918,7 +916,7 @@ export function NewTransactionDialog() {
                     onClick={() => setType("credit")}
                     className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
                       type === "credit"
-                        ? "bg-[#22C55E] text-[#0D0D0D]"
+                        ? "bg-success text-[#0D0D0D]"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -996,8 +994,6 @@ export function NewTransactionDialog() {
                         side="bottom"
                         className="w-72 bg-[#181818] border-[#2A2A2A] p-3 text-sm"
                         onEscapeKeyDown={(e) => e.stopPropagation()}
-                        onInteractOutside={(e) => e.preventDefault()}
-                        onPointerDownOutside={(e) => e.preventDefault()}
                       >
                         {payeeMatchHint.reason === "alias" ? (
                           <>
@@ -1179,7 +1175,7 @@ export function NewTransactionDialog() {
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Add any notes..."
                   rows={2}
-                  className="w-full rounded-md bg-[#1A1A1A] border border-[#333] text-foreground placeholder:text-[#555] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#F7931A]/50 focus:border-[#F7931A]/50"
+                  className="w-full rounded-md bg-[#1A1A1A] border border-[#333] text-foreground placeholder:text-[#555] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-btc-orange/50 focus:border-btc-orange/50"
                 />
               </div>
 
@@ -1292,7 +1288,7 @@ export function NewTransactionDialog() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full rounded-lg bg-[#F7931A] py-3 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90 disabled:opacity-50"
+                  className="w-full rounded-lg bg-btc-orange py-3 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90 disabled:opacity-50"
                 >
                   {submitting
                     ? transactionPrefill?.recurringId
@@ -1326,7 +1322,7 @@ export function NewTransactionDialog() {
                   id="recurring-toggle"
                   checked={isRecurring}
                   onCheckedChange={setIsRecurring}
-                  className="data-[state=checked]:bg-[#F7931A]"
+                  className="data-[state=checked]:bg-btc-orange"
                 />
               </div>
 
@@ -1380,7 +1376,7 @@ export function NewTransactionDialog() {
                 <button
                   type="button"
                   onClick={() => setModalView("main")}
-                  className="flex-1 rounded-lg bg-[#F7931A] py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90"
+                  className="flex-1 rounded-lg bg-btc-orange py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90"
                 >
                   Done
                 </button>
@@ -1400,8 +1396,8 @@ export function NewTransactionDialog() {
                     variant={selectedTags.includes(tag.name) ? "default" : "outline"}
                     className={`cursor-pointer transition-colors ${
                       selectedTags.includes(tag.name)
-                        ? "bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/80 border-transparent"
-                        : "border-[#333] text-muted-foreground hover:border-[#F7931A]/50 hover:text-foreground"
+                        ? "bg-btc-orange text-[#0D0D0D] hover:bg-btc-orange/80 border-transparent"
+                        : "border-[#333] text-muted-foreground hover:border-btc-orange/50 hover:text-foreground"
                     }`}
                     onClick={() => toggleTag(tag.name)}
                   >
@@ -1442,7 +1438,7 @@ export function NewTransactionDialog() {
                 <button
                   type="button"
                   onClick={() => { setNewTag(""); setModalView("main") }}
-                  className="flex-1 rounded-lg bg-[#F7931A] py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90"
+                  className="flex-1 rounded-lg bg-btc-orange py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90"
                 >
                   Done
                 </button>
