@@ -584,6 +584,7 @@ export function EnvelopesPage() {
           </span>
           <button
             type="button"
+            data-testid="archive-undo"
             onClick={handleUndoArchive}
             className="text-sm font-semibold text-[#F7931A] hover:text-[#F7931A]/80 transition-colors ml-2"
           >

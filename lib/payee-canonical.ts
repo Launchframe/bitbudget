@@ -36,6 +36,8 @@ export interface PayeeCandidate {
 export type CanonicalMatchReason = "alias" | "soft-equal"
 
 export interface PayeeAliasRule {
+  /** Database row id — present when loaded from the API, absent in test fixtures. */
+  id?: string
   sourceNormalized: string
   canonicalPayee: string
 }
@@ -45,6 +47,8 @@ export interface CanonicalPayeeResult {
   /** Raw extracted string before canonicalization */
   originalExtracted: string
   reason: CanonicalMatchReason
+  /** The specific alias rule that fired (alias reason only). */
+  matchedAlias?: PayeeAliasRule
 }
 
 export interface PayeeNameVariant {
@@ -61,6 +65,11 @@ export interface PayeeNameCluster {
 
 /**
  * Longest `sourceNormalized` wins so "wm super" beats "wm" when both prefix-match.
+ *
+ * Two passes:
+ *  1. Exact normalized-key match (e.g. "wal-mart" alias matches "Wal-Mart" input).
+ *  2. Soft-equal fallback: collapsed form matches (e.g. "walmart" input matches "wal-mart" alias).
+ *     This ensures an existing "Wal-Mart → Walmart" alias also fires when the receipt says "Walmart".
  */
 export function matchLongestAlias(
   extracted: string,
@@ -69,6 +78,7 @@ export function matchLongestAlias(
   const e = normalizePayeeKey(extracted)
   if (!e || aliases.length === 0) return null
 
+  // Pass 1: exact normalized key match
   let best: PayeeAliasRule | null = null
   let bestLen = -1
 
@@ -82,7 +92,22 @@ export function matchLongestAlias(
       }
     }
   }
-  return best
+  if (best) return best
+
+  // Pass 2: soft-equal fallback (strips spaces, hyphens, apostrophes)
+  const ec = collapsePayeeSoftKey(e)
+  let softBest: PayeeAliasRule | null = null
+  let softBestLen = -1
+
+  for (const a of aliases) {
+    const s = a.sourceNormalized
+    if (s.length < 2) continue
+    if (collapsePayeeSoftKey(s) === ec && s.length > softBestLen) {
+      softBestLen = s.length
+      softBest = a
+    }
+  }
+  return softBest
 }
 
 /**
@@ -105,6 +130,7 @@ export function resolveCanonicalPayee(
       canonicalPayee: canon,
       originalExtracted: extRaw,
       reason: "alias",
+      matchedAlias: aliasHit,
     }
   }
 

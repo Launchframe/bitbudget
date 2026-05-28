@@ -6,7 +6,9 @@ import { matchEnvelope } from "@/lib/envelope-matcher"
 import { parseReceiptText } from "@/lib/receipt-parser"
 import {
   RECEIPT_EXTRACTION_PROMPT,
+  RECEIPT_EXTRACTION_MODEL_ID,
   RECEIPT_SCAN_MAX_BYTES,
+  formatModelDisplayName,
   normalizeScanExtraction,
   resolveReceiptFileKind,
 } from "@/lib/receipt-scan-validate"
@@ -24,8 +26,22 @@ function httpStatusFromError(err: unknown): number | undefined {
   return undefined
 }
 
+interface ExtractionResult {
+  payee: string
+  amount: string
+  date: string
+  extractionConfidence: number
+  model: string
+  processingMs: number
+}
+
 /** Caller must ensure `apiKey` is set (POST handler checks env before calling). */
-async function extractFromImage(base64: string, mimeType: string, apiKey: string) {
+async function extractFromImage(
+  base64: string,
+  mimeType: string,
+  apiKey: string,
+): Promise<ExtractionResult> {
+  const start = Date.now()
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -33,7 +49,7 @@ async function extractFromImage(base64: string, mimeType: string, apiKey: string
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: RECEIPT_EXTRACTION_MODEL_ID,
       messages: [
         {
           role: "user",
@@ -47,6 +63,7 @@ async function extractFromImage(base64: string, mimeType: string, apiKey: string
       temperature: 0,
     }),
   })
+  const processingMs = Date.now() - start
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
@@ -67,7 +84,11 @@ async function extractFromImage(base64: string, mimeType: string, apiKey: string
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Unexpected model response shape")
   }
-  return normalizeScanExtraction(parsed as Record<string, unknown>)
+  return {
+    ...normalizeScanExtraction(parsed as Record<string, unknown>),
+    model: RECEIPT_EXTRACTION_MODEL_ID,
+    processingMs,
+  }
 }
 
 /** Loads canvas shims then pdf-parse only when needed (image uploads skip this). */
@@ -126,7 +147,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    let result: { payee: string; amount: string; date: string; extractionConfidence: number }
+    let result: ExtractionResult
 
     if (kind === "application/pdf") {
       const text = (await extractTextFromPdfBuffer(buffer)).trim()
@@ -155,13 +176,13 @@ export async function POST(req: NextRequest) {
 
     let suggestedEnvelopeId: string | null = null
     let suggestedEnvelopeName: string | null = null
-    let confidence = 0
+    let envelopeMatchConfidence = 0
 
     if (result.payee) {
       const match = await matchEnvelope(session.user.id, result.payee)
       if (match) {
         suggestedEnvelopeId = match.envelopeId
-        confidence = match.confidence
+        envelopeMatchConfidence = match.confidence
         const envelope = await prisma.envelope.findUnique({
           where: { id: match.envelopeId },
           select: { name: true },
@@ -174,7 +195,13 @@ export async function POST(req: NextRequest) {
       ...result,
       suggestedEnvelopeId,
       suggestedEnvelopeName,
-      confidence,
+      confidence: envelopeMatchConfidence,
+      // Stats for nerds — safe to expose (no infra/hosting details)
+      model: formatModelDisplayName(result.model),
+      processingMs: result.processingMs,
+      inputType: kind === "application/pdf" ? "pdf" : "photo",
+      fileSizeBytes: buffer.length,
+      envelopeMatchConfidence: suggestedEnvelopeId ? envelopeMatchConfidence : null,
     })
   } catch (err) {
     console.error("receipt scan error:", err)

@@ -13,6 +13,39 @@ export const RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD = 0.8
 /** Max upload size for receipt scan (DoS / OpenAI cost control). */
 export const RECEIPT_SCAN_MAX_BYTES = 12 * 1024 * 1024
 
+/** Internal model ID used for receipt extraction. */
+export const RECEIPT_EXTRACTION_MODEL_ID = "gpt-4o-mini"
+
+/**
+ * Friendly display name for an AI model ID.
+ * Only maps known extraction models; falls back to the raw ID.
+ */
+export function formatModelDisplayName(modelId: string): string {
+  const known: Record<string, string> = {
+    "gpt-4o-mini": "GPT-4o mini",
+    "gpt-4o": "GPT-4o",
+    "gpt-4-turbo": "GPT-4 Turbo",
+    "gpt-4-vision-preview": "GPT-4 Vision",
+  }
+  return known[modelId] ?? modelId
+}
+
+/** Stats from a receipt or statement scan — safe to surface to the user. */
+export interface ReceiptScanStats {
+  /** Friendly display name of the AI model used, e.g. "GPT-4o mini". */
+  model: string
+  /** Wall-clock time for the AI extraction step in milliseconds. */
+  processingMs: number
+  /** Whether the source was a photo or a PDF document. */
+  inputType: "photo" | "pdf"
+  /** File size in bytes. */
+  fileSizeBytes: number
+  /** Model-reported extraction confidence (0–1). */
+  extractionConfidence: number
+  /** Envelope matching confidence (0–1), or null if no match was found. */
+  envelopeMatchConfidence: number | null
+}
+
 export type ResolvedReceiptKind =
   | "application/pdf"
   | "image/jpeg"

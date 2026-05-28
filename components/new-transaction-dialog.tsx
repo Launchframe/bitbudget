@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { X, Repeat, Tag, ChevronRight, FileText, AlertTriangle } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { X, Repeat, Tag, ChevronRight, FileText, AlertTriangle, FlaskConical, Link2 } from "lucide-react"
 import { ShortcutsPanel, useTransactionShortcuts } from "@/components/shortcuts-panel"
 import {
   mergePayeeCandidates,
@@ -40,6 +41,7 @@ import {
 import { pickTransactionSuccessMessage } from "@/lib/transaction-success-messages"
 import { TransactionSuccessView } from "@/components/transaction-success-view"
 import { isLowConfidenceReceiptScan } from "@/lib/receipt-scan-validate"
+import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -100,6 +102,67 @@ function bestEnvelopeIdForPayee(
   return ""
 }
 
+function formatPct(value: number): string {
+  return `${Math.round(value * 100)}%`
+}
+
+function formatMs(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${Math.round(bytes / 1024)} KB`
+}
+
+function ScanStatsPopover({ stats }: { stats: ReceiptScanStats }) {
+  const rows: { label: string; value: string }[] = [
+    { label: "Reading quality", value: formatPct(stats.extractionConfidence) },
+    { label: "Processing time", value: formatMs(stats.processingMs) },
+    { label: "Model", value: stats.model },
+    { label: "Input", value: stats.inputType === "pdf" ? "PDF document" : "Photo" },
+    { label: "File size", value: formatBytes(stats.fileSizeBytes) },
+  ]
+  if (stats.envelopeMatchConfidence !== null) {
+    rows.push({ label: "Category match", value: formatPct(stats.envelopeMatchConfidence) })
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex items-center gap-1 text-[11px] text-blue-500/75 hover:text-blue-500 transition-colors rounded px-1 py-0.5 hover:bg-white/5"
+          aria-label="Show scan details"
+        >
+          <FlaskConical className="h-3 w-3" aria-hidden />
+          <span>Stats for nerds</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        className="w-56 bg-[#181818] border-[#2A2A2A] p-0 text-sm"
+        onEscapeKeyDown={(e) => e.stopPropagation()}
+      >
+        <div className="px-3 pt-2.5 pb-1 border-b border-[#2A2A2A]">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Stats for nerds
+          </p>
+        </div>
+        <div className="px-3 py-2 flex flex-col gap-1.5">
+          {rows.map(({ label, value }) => (
+            <div key={label} className="flex items-center justify-between gap-3">
+              <span className="text-[12px] text-muted-foreground shrink-0">{label}</span>
+              <span className="text-[12px] font-mono text-foreground text-right">{value}</span>
+            </div>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function NewTransactionDialog() {
   const {
     state,
@@ -135,11 +198,13 @@ export function NewTransactionDialog() {
     original: string
     canonical: string
     reason: CanonicalMatchReason
+    matchedAlias?: PayeeAliasRule
   } | null>(null)
   const [payeeAliasRules, setPayeeAliasRules] = useState<PayeeAliasRule[]>([])
   const [importSourcePayee, setImportSourcePayee] = useState<string | null>(null)
   const [aliasSaveBusy, setAliasSaveBusy] = useState(false)
   const [aliasSaveMessage, setAliasSaveMessage] = useState<string | null>(null)
+  const [savePayeeMappingDismissed, setSavePayeeMappingDismissed] = useState(false)
   const [receiptAttachmentPreview, setReceiptAttachmentPreview] = useState<string | null>(null)
   /** Short-lived object URL for PDF previews (see `pdfDataUrlToBlob`). */
   const [receiptPdfBlobUrl, setReceiptPdfBlobUrl] = useState<string | null>(null)
@@ -189,9 +254,10 @@ export function NewTransactionDialog() {
     if (!transactionDialogOpen) return
     fetch("/api/payee-aliases")
       .then((r) => (r.ok ? r.json() : []))
-      .then((rows: { sourceNormalized: string; canonicalPayee: string }[]) => {
+      .then((rows: { id: string; sourceNormalized: string; canonicalPayee: string }[]) => {
         setPayeeAliasRules(
           rows.map((row) => ({
+            id: row.id,
             sourceNormalized: row.sourceNormalized,
             canonicalPayee: row.canonicalPayee,
           })),
@@ -298,6 +364,7 @@ export function NewTransactionDialog() {
       setPayeeMatchHint(null)
       setImportSourcePayee(null)
       setAliasSaveMessage(null)
+      setSavePayeeMappingDismissed(false)
       return
     }
     const raw = transactionPrefill?.payee?.trim()
@@ -318,7 +385,12 @@ export function NewTransactionDialog() {
 
     const applyResolved = (
       resolved: string,
-      hint: { original: string; canonical: string; reason: CanonicalMatchReason } | null,
+      hint: {
+        original: string
+        canonical: string
+        reason: CanonicalMatchReason
+        matchedAlias?: PayeeAliasRule
+      } | null,
     ) => {
       setPayee(resolved)
       setPayeeMatchHint(hint)
@@ -333,12 +405,14 @@ export function NewTransactionDialog() {
       skipCanonicalForPrefillRef.current = false
       setImportSourcePayee(raw)
       setAliasSaveMessage(null)
+      setSavePayeeMappingDismissed(false)
       const r = resolveCanonicalPayee(raw, payeeCanonicalCandidates, payeeAliasRules)
       if (r) {
         applyResolved(r.canonicalPayee, {
           original: r.originalExtracted,
           canonical: r.canonicalPayee,
           reason: r.reason,
+          matchedAlias: r.matchedAlias,
         })
       } else {
         applyResolved(raw, null)
@@ -366,6 +440,7 @@ export function NewTransactionDialog() {
           original: r.originalExtracted,
           canonical: r.canonicalPayee,
           reason: r.reason,
+          matchedAlias: r.matchedAlias,
         })
       }
     }
@@ -393,7 +468,8 @@ export function NewTransactionDialog() {
     !!importSourcePayee &&
     payee.trim().length >= 2 &&
     normalizePayeeKey(importSourcePayee) !== normalizePayeeKey(payee) &&
-    !payeeAliasAlreadyMatches
+    !payeeAliasAlreadyMatches &&
+    !savePayeeMappingDismissed
 
   const duplicateEnvelopeName = useMemo(() => {
     if (!duplicateExisting) return null
@@ -431,10 +507,34 @@ export function NewTransactionDialog() {
         })
         return next
       })
+      window.dispatchEvent(new CustomEvent("payee-aliases-updated"))
       setAliasSaveMessage("Saved for future imports.")
     } finally {
       setAliasSaveBusy(false)
     }
+  }
+
+  /** Delete the alias rule that matched the current payee hint, then revert to original text. */
+  async function deleteAliasAndRevert() {
+    const hint = payeeMatchHint
+    const alias = hint?.matchedAlias
+    if (!hint) return
+    if (alias?.id) {
+      try {
+        const res = await fetch(`/api/payee-aliases?id=${encodeURIComponent(alias.id)}`, {
+          method: "DELETE",
+        })
+        if (res.ok) {
+          setPayeeAliasRules((prev) => prev.filter((a) => a.id !== alias.id))
+          window.dispatchEvent(new CustomEvent("payee-aliases-updated"))
+        }
+      } catch {
+        // best-effort; still revert the field
+      }
+    }
+    setPayee(hint.original)
+    setPayeeMatchHint(null)
+    skipCanonicalForPrefillRef.current = true
   }
 
   const payeeSuggestions = useMemo(() => {
@@ -699,13 +799,18 @@ export function NewTransactionDialog() {
                     <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       Receipt preview
                     </span>
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={() => setReceiptAttachmentPreview(null)}
-                    >
-                      Hide
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {transactionPrefill?.receiptScanStats && (
+                        <ScanStatsPopover stats={transactionPrefill.receiptScanStats} />
+                      )}
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => setReceiptAttachmentPreview(null)}
+                      >
+                        Hide
+                      </button>
+                    </div>
                   </div>
                   <div className="max-h-[min(260px,38vh)] overflow-auto px-3 pb-2">
                     {receiptAttachmentPreview.startsWith("data:image/") ? (
@@ -761,9 +866,15 @@ export function NewTransactionDialog() {
                       </div>
                     ) : null}
                   </div>
-                  <p className="text-[11px] text-muted-foreground px-3 pb-2 pt-0">
+                  <p className="text-[11px] text-muted-foreground px-3 pb-2 -mb-1 pt-2">
                     Tap the preview to enlarge.
                   </p>
+                </div>
+              )}
+              {/* Scan stats fallback: show outside card when no preview is visible */}
+              {!receiptAttachmentPreview && transactionPrefill?.receiptScanStats && (
+                <div className="flex justify-end shrink-0">
+                  <ScanStatsPopover stats={transactionPrefill.receiptScanStats} />
                 </div>
               )}
               {/* Low-confidence receipt scan warning */}
@@ -794,7 +905,7 @@ export function NewTransactionDialog() {
                     onClick={() => setType("expense")}
                     className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
                       type === "expense"
-                        ? "bg-[#F7931A] text-[#0D0D0D]"
+                        ? "bg-btc-orange text-[#0D0D0D]"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -805,7 +916,7 @@ export function NewTransactionDialog() {
                     onClick={() => setType("credit")}
                     className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
                       type === "credit"
-                        ? "bg-[#22C55E] text-[#0D0D0D]"
+                        ? "bg-success text-[#0D0D0D]"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -819,102 +930,164 @@ export function NewTransactionDialog() {
                 <Label htmlFor="payee" className="text-muted-foreground text-xs uppercase tracking-wider">
                   {type === "expense" ? "Payee" : "Payer"}
                 </Label>
-                <Input
-                  ref={payeeInputRef}
-                  id="payee"
-                  value={payee}
-                  onChange={(e) => {
-                    setPayee(e.target.value)
-                    setPayeeMatchHint(null)
-                    setAliasSaveMessage(null)
-                    if (validationErrors.payee) setValidationErrors(prev => { const next = { ...prev }; delete next.payee; return next })
-                    setShowSuggestions(true)
-                  }}
-                  onFocus={() => { if (payee.trim()) setShowSuggestions(true) }}
-                  placeholder={type === "expense" ? "Who did you pay?" : "Who paid you?"}
-                  className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
-                  autoComplete="off"
-                  required
-                />
-                {showSuggestions && payeeSuggestions.length > 0 && (
-                  <div
-                    ref={suggestionsRef}
-                    className="absolute top-full left-0 right-0 z-50 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg shadow-xl overflow-hidden max-h-52 overflow-y-auto"
-                  >
-                    {payeeSuggestions.map((s) => {
-                      const env = state.envelopes.find(e => e.id === s.envelopeId)
-                      return (
-                        <button
-                          key={s.name}
-                          type="button"
-                          onClick={() => selectPayeeSuggestion(s.name, s.envelopeId)}
-                          className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[#252525] transition-colors"
-                        >
-                          <span className="text-sm text-foreground truncate">{s.name}</span>
-                          {env && (
-                            <span className="flex items-center gap-1.5 shrink-0 text-xs text-muted-foreground">
-                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: env.color }} />
-                              {env.name}
-                            </span>
-                          )}
-                        </button>
-                      )
-                    })}
+                {/* Input + optional mapping-applied icon */}
+                <div className="flex items-center gap-1.5">
+                  <div className="relative flex-1 min-w-0">
+                    <Input
+                      ref={payeeInputRef}
+                      id="payee"
+                      value={payee}
+                      onChange={(e) => {
+                        setPayee(e.target.value)
+                        setPayeeMatchHint(null)
+                        setAliasSaveMessage(null)
+                        if (validationErrors.payee) setValidationErrors(prev => { const next = { ...prev }; delete next.payee; return next })
+                        setShowSuggestions(true)
+                      }}
+                      onFocus={() => { if (payee.trim()) setShowSuggestions(true) }}
+                      placeholder={type === "expense" ? "Who did you pay?" : "Who paid you?"}
+                      className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] w-full"
+                      autoComplete="off"
+                      required
+                    />
+                    {showSuggestions && payeeSuggestions.length > 0 && (
+                      <div
+                        ref={suggestionsRef}
+                        className="absolute top-full left-0 right-0 z-50 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg shadow-xl overflow-hidden max-h-52 overflow-y-auto"
+                      >
+                        {payeeSuggestions.map((s) => {
+                          const env = state.envelopes.find(e => e.id === s.envelopeId)
+                          return (
+                            <button
+                              key={s.name}
+                              type="button"
+                              onClick={() => selectPayeeSuggestion(s.name, s.envelopeId)}
+                              className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[#252525] transition-colors"
+                            >
+                              <span className="text-sm text-foreground truncate">{s.name}</span>
+                              {env && (
+                                <span className="flex items-center gap-1.5 shrink-0 text-xs text-muted-foreground">
+                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: env.color }} />
+                                  {env.name}
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
+                  {/* Mapping-applied indicator — small icon reveals details on click */}
+                  {payeeMatchHint && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+                          aria-label="Payee was automatically matched — tap for details"
+                        >
+                          <Link2 className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="end"
+                        side="bottom"
+                        className="w-72 bg-[#181818] border-[#2A2A2A] p-3 text-sm"
+                        onEscapeKeyDown={(e) => e.stopPropagation()}
+                      >
+                        {payeeMatchHint.reason === "alias" ? (
+                          <>
+                            <p className="text-xs text-muted-foreground leading-snug">
+                              Matched using a saved spelling rule:
+                            </p>
+                            <div className="mt-2 rounded-md border border-[#2A2A2A] bg-[#111] px-3 py-2 font-mono text-xs text-foreground">
+                              {payeeMatchHint.original}
+                              <span className="mx-1.5 text-muted-foreground">→</span>
+                              {payeeMatchHint.canonical}
+                            </div>
+                            <div className="mt-3 flex flex-col gap-1.5 border-t border-[#222] pt-3">
+                              <button
+                                type="button"
+                                className="text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+                                onClick={() => {
+                                  setPayee(payeeMatchHint.original)
+                                  setPayeeMatchHint(null)
+                                  skipCanonicalForPrefillRef.current = true
+                                }}
+                              >
+                                Ignore this time
+                              </button>
+                              {payeeMatchHint.matchedAlias?.id && (
+                                <button
+                                  type="button"
+                                  className="text-left text-xs text-red-400/80 transition-colors hover:text-red-400"
+                                  onClick={() => void deleteAliasAndRevert()}
+                                >
+                                  Remove this rule
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-xs text-muted-foreground leading-snug">
+                              <span className="font-medium text-foreground">{payeeMatchHint.original}</span>{" "}
+                              was matched as a similar spelling of{" "}
+                              <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>.
+                              Add a mapping in Settings to make this permanent.
+                            </p>
+                            <button
+                              type="button"
+                              className="mt-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+                              onClick={() => {
+                                setPayee(payeeMatchHint.original)
+                                setPayeeMatchHint(null)
+                                skipCanonicalForPrefillRef.current = true
+                              }}
+                            >
+                              Ignore this time
+                            </button>
+                          </>
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                </div>
                 {validationErrors.payee && (
-                  <p className="text-xs text-red-400 mt-1">{validationErrors.payee}</p>
+                  <p className="text-xs text-red-400">{validationErrors.payee}</p>
                 )}
-                {payeeMatchHint && (
-                  <p className="text-xs text-muted-foreground">
-                    {payeeMatchHint.reason === "alias" && (
+                {/* Save mapping prompt — compact single row, no extra card */}
+                {showSavePayeeMapping && (
+                  <div className="flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#141414] px-3 py-2">
+                    <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                      Save{" "}
+                      <span className="font-medium text-foreground">{importSourcePayee}</span>
+                      {" → "}
+                      <span className="font-medium text-foreground">{payee.trim()}</span>
+                      {" for next time?"}
+                    </p>
+                    {aliasSaveMessage ? (
+                      <span className="shrink-0 text-xs text-muted-foreground">{aliasSaveMessage}</span>
+                    ) : (
                       <>
-                        Using your saved payee{" "}
-                        <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>{" "}
-                        for <span className="font-medium text-foreground">{payeeMatchHint.original}</span>.
+                        <button
+                          type="button"
+                          disabled={aliasSaveBusy}
+                          onClick={() => void savePayeeMapping()}
+                          className="shrink-0 rounded-md bg-[#333] px-2.5 py-1 text-xs font-medium text-foreground hover:bg-[#444] disabled:opacity-50"
+                        >
+                          {aliasSaveBusy ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSavePayeeMappingDismissed(true)}
+                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                          aria-label="Dismiss"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
                       </>
                     )}
-                    {payeeMatchHint.reason === "soft-equal" && (
-                      <>
-                        <span className="font-medium text-foreground">{payeeMatchHint.original}</span> was
-                        treated as the same merchant as{" "}
-                        <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>{" "}
-                        {". You can override this in Settings > Payee mapping."}
-                      </>
-                    )}{" "}
-                    <button
-                      type="button"
-                      className="text-btc-orange underline decoration-btc-orange/50 hover:decoration-btc-orange"
-                      onClick={() => {
-                        setPayee(payeeMatchHint.original)
-                        setPayeeMatchHint(null)
-                        skipCanonicalForPrefillRef.current = true
-                      }}
-                    >
-                      Use original text
-                    </button>
-                  </p>
-                )}
-                {showSavePayeeMapping && (
-                  <div className="flex flex-col gap-1.5 rounded-lg border border-[#333] bg-[#1A1A1A] px-3 py-2">
-                    <p className="text-xs text-muted-foreground">
-                      Import showed{" "}
-                      <span className="font-medium text-foreground">{importSourcePayee}</span> — want to use{" "}
-                      <span className="font-medium text-foreground">{payee.trim()}</span> for this payee next time?
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={aliasSaveBusy}
-                        onClick={() => void savePayeeMapping()}
-                        className="rounded-md bg-[#333] px-3 py-1.5 text-xs font-medium text-foreground hover:bg-[#444] disabled:opacity-50"
-                      >
-                        {aliasSaveBusy ? "Saving…" : "Save payee mapping"}
-                      </button>
-                      {aliasSaveMessage && (
-                        <span className="text-xs text-muted-foreground">{aliasSaveMessage}</span>
-                      )}
-                    </div>
                   </div>
                 )}
               </div>
@@ -1002,7 +1175,7 @@ export function NewTransactionDialog() {
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Add any notes..."
                   rows={2}
-                  className="w-full rounded-md bg-[#1A1A1A] border border-[#333] text-foreground placeholder:text-[#555] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#F7931A]/50 focus:border-[#F7931A]/50"
+                  className="w-full rounded-md bg-[#1A1A1A] border border-[#333] text-foreground placeholder:text-[#555] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-btc-orange/50 focus:border-btc-orange/50"
                 />
               </div>
 
@@ -1115,7 +1288,7 @@ export function NewTransactionDialog() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full rounded-lg bg-[#F7931A] py-3 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90 disabled:opacity-50"
+                  className="w-full rounded-lg bg-btc-orange py-3 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90 disabled:opacity-50"
                 >
                   {submitting
                     ? transactionPrefill?.recurringId
@@ -1149,7 +1322,7 @@ export function NewTransactionDialog() {
                   id="recurring-toggle"
                   checked={isRecurring}
                   onCheckedChange={setIsRecurring}
-                  className="data-[state=checked]:bg-[#F7931A]"
+                  className="data-[state=checked]:bg-btc-orange"
                 />
               </div>
 
@@ -1203,7 +1376,7 @@ export function NewTransactionDialog() {
                 <button
                   type="button"
                   onClick={() => setModalView("main")}
-                  className="flex-1 rounded-lg bg-[#F7931A] py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90"
+                  className="flex-1 rounded-lg bg-btc-orange py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90"
                 >
                   Done
                 </button>
@@ -1223,8 +1396,8 @@ export function NewTransactionDialog() {
                     variant={selectedTags.includes(tag.name) ? "default" : "outline"}
                     className={`cursor-pointer transition-colors ${
                       selectedTags.includes(tag.name)
-                        ? "bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/80 border-transparent"
-                        : "border-[#333] text-muted-foreground hover:border-[#F7931A]/50 hover:text-foreground"
+                        ? "bg-btc-orange text-[#0D0D0D] hover:bg-btc-orange/80 border-transparent"
+                        : "border-[#333] text-muted-foreground hover:border-btc-orange/50 hover:text-foreground"
                     }`}
                     onClick={() => toggleTag(tag.name)}
                   >
@@ -1265,7 +1438,7 @@ export function NewTransactionDialog() {
                 <button
                   type="button"
                   onClick={() => { setNewTag(""); setModalView("main") }}
-                  className="flex-1 rounded-lg bg-[#F7931A] py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90"
+                  className="flex-1 rounded-lg bg-btc-orange py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90"
                 >
                   Done
                 </button>

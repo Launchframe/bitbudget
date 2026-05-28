@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import { RECEIPT_SCAN_MAX_BYTES } from "@/lib/receipt-scan-validate"
+import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 import { receiptCapturePrefillDate } from "@/lib/transaction-dates"
 import {
   receiptCameraMode,
@@ -167,6 +168,11 @@ export function ScanReceiptDialog({
         date?: string
         suggestedEnvelopeId?: string
         extractionConfidence?: number
+        model?: string
+        processingMs?: number
+        inputType?: "photo" | "pdf"
+        fileSizeBytes?: number
+        envelopeMatchConfidence?: number | null
       }
       try {
         data = await res.json()
@@ -192,6 +198,18 @@ export function ScanReceiptDialog({
         ? data.extractionConfidence
         : undefined
 
+      const receiptScanStats: ReceiptScanStats | undefined =
+        typeof data.model === "string" && typeof data.processingMs === "number"
+          ? {
+              model: data.model,
+              processingMs: data.processingMs,
+              inputType: data.inputType ?? (file.type === "application/pdf" ? "pdf" : "photo"),
+              fileSizeBytes: data.fileSizeBytes ?? file.size,
+              extractionConfidence: extractionConfidence ?? 0,
+              envelopeMatchConfidence: data.envelopeMatchConfidence ?? null,
+            }
+          : undefined
+
       onOpenChange(false)
       reset()
       openNewTransaction({
@@ -201,6 +219,7 @@ export function ScanReceiptDialog({
         ...(data.suggestedEnvelopeId && { envelopeId: data.suggestedEnvelopeId }),
         ...(receiptPreviewDataUrl ? { receiptPreviewDataUrl } : {}),
         ...(extractionConfidence !== undefined ? { receiptScanConfidence: extractionConfidence } : {}),
+        ...(receiptScanStats ? { receiptScanStats } : {}),
       })
     } catch {
       setError("Something went wrong. Please try again.")

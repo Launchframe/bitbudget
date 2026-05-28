@@ -13,6 +13,7 @@ import type {
   CommunicationPreferenceKey,
 } from "@/lib/data"
 import { compareTransactionsDesc, generateId, getDefaultState } from "@/lib/data"
+import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import { shouldCascadeDeleteFundingBatch } from "@/lib/transaction-batch-delete"
 import {
@@ -146,6 +147,11 @@ export interface TransactionPrefill {
    * When below RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD the dialog shows a "please double-check" banner.
    */
   receiptScanConfidence?: number
+  /**
+   * Full scan stats from the receipt/statement parser.
+   * Shown via the "Stats for nerds" popover in the New Transaction dialog.
+   */
+  receiptScanStats?: ReceiptScanStats
 }
 
 export interface ReferralSummaryState {
