@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -354,5 +355,72 @@ describe("linkNostrSignInMethod", () => {
       code: "NOSTR_ALREADY_LINKED",
       status: 409,
     } satisfies Partial<SignInMethodError>)
+  })
+})
+
+/**
+ * Direct tests for parseNostrAuthEvent — the guard now used by BOTH
+ * lib/auth.ts (initial sign-in) and lib/sign-in-methods.ts (link flow).
+ *
+ * These tests document the auth.ts regression: previously auth.ts only
+ * called verifyEvent() (signature check) without parseNostrAuthEvent(),
+ * letting any valid Nostr event — including public kind-1 notes and
+ * arbitrarily old replay events — authenticate as the key owner.
+ */
+describe("parseNostrAuthEvent", () => {
+  const pubkey = "b".repeat(64)
+
+  function validEventStr(overrides: Record<string, unknown> = {}) {
+    return JSON.stringify({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: Math.floor(Date.now() / 1000),
+      pubkey,
+      tags: [
+        ["u", "https://app.bitbudget.test"],
+        ["method", NOSTR_AUTH_EVENT_METHOD],
+      ],
+      id: "event-id",
+      sig: "event-sig",
+      ...overrides,
+    })
+  }
+
+  it("accepts a well-formed auth event and returns a parsed object", () => {
+    const result = parseNostrAuthEvent(validEventStr(), pubkey)
+    expect(result).toMatchObject({ kind: NOSTR_AUTH_EVENT_KIND, content: NOSTR_AUTH_EVENT_CONTENT })
+  })
+
+  it("rejects a non-auth kind event (e.g. a public note kind=1)", () => {
+    // Before fix, auth.ts only called verifyEvent() — this would pass and
+    // allow any valid Nostr event to authenticate.
+    expect(() =>
+      parseNostrAuthEvent(validEventStr({ kind: 1, content: "hello world" }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects a valid event with wrong content", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEventStr({ content: "not-the-auth-marker" }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects a stale event (replay attack — event created >5 min ago)", () => {
+    const staleTs = Math.floor(Date.now() / 1000) - 6 * 60
+    expect(() =>
+      parseNostrAuthEvent(validEventStr({ created_at: staleTs }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event whose pubkey does not match the expected pubkey", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEventStr(), "c".repeat(64)),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event missing the method tag", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEventStr({ tags: [["u", "https://app.bitbudget.test"]] }), pubkey),
+    ).toThrow(SignInMethodError)
   })
 })
