@@ -27,16 +27,16 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  await prisma.pushSubscription.upsert({
-    where: { endpoint },
-    create: {
+  // Delete any existing subscription for this endpoint (including one that may
+  // belong to a different user — e.g. the previous person logged in on this device)
+  // before creating a fresh one for the current user.  The upsert update branch
+  // must not write userId because that would silently reassign another user's
+  // subscription to the current session.
+  await prisma.pushSubscription.deleteMany({ where: { endpoint } })
+  await prisma.pushSubscription.create({
+    data: {
       userId: session.user.id,
       endpoint,
-      p256dh: keys.p256dh,
-      auth: keys.auth,
-    },
-    update: {
-      userId: session.user.id,
       p256dh: keys.p256dh,
       auth: keys.auth,
     },
