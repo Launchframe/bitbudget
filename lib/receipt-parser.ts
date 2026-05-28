@@ -1,17 +1,12 @@
+import { RECEIPT_EXTRACTION_PROMPT, normalizeScanExtraction } from "@/lib/receipt-scan-validate"
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
-
-const EXTRACTION_PROMPT = `You are a receipt parser. Extract the following from this receipt:
-1. payee — the merchant/store/company name
-2. amount — the total amount paid (number only, no currency symbol)
-3. date — the transaction date in YYYY-MM-DD format
-
-Respond ONLY with valid JSON: {"payee":"...","amount":"...","date":"..."}
-If you cannot determine a field, use an empty string for that field.`
 
 export interface ParsedReceipt {
   payee: string
   amount: string
   date: string
+  extractionConfidence: number
 }
 
 export async function parseReceiptText(text: string): Promise<ParsedReceipt> {
@@ -28,7 +23,7 @@ export async function parseReceiptText(text: string): Promise<ParsedReceipt> {
       messages: [
         {
           role: "user",
-          content: `${EXTRACTION_PROMPT}\n\nReceipt text:\n${text.slice(0, 4000)}`,
+          content: `${RECEIPT_EXTRACTION_PROMPT}\n\nReceipt text:\n${text.slice(0, 4000)}`,
         },
       ],
       max_tokens: 200,
@@ -54,5 +49,6 @@ export async function parseReceiptText(text: string): Promise<ParsedReceipt> {
     "choices" in body ? body.choices?.[0]?.message?.content?.trim() ?? "" : ""
   const jsonMatch = responseText.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error("Could not parse response.")
-  return JSON.parse(jsonMatch[0])
+  const raw = JSON.parse(jsonMatch[0]) as Record<string, unknown>
+  return normalizeScanExtraction(raw)
 }

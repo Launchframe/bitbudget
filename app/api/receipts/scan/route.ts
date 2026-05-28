@@ -5,6 +5,7 @@ import { premiumForbiddenResponse, requirePremiumOrTrial } from "@/lib/subscript
 import { matchEnvelope } from "@/lib/envelope-matcher"
 import { parseReceiptText } from "@/lib/receipt-parser"
 import {
+  RECEIPT_EXTRACTION_PROMPT,
   RECEIPT_SCAN_MAX_BYTES,
   normalizeScanExtraction,
   resolveReceiptFileKind,
@@ -14,13 +15,6 @@ import {
 export const runtime = "nodejs"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
-const EXTRACTION_PROMPT = `You are a receipt parser. Extract the following from this receipt:
-1. payee — the merchant/store/company name
-2. amount — the total amount paid (number only, no currency symbol)
-3. date — the transaction date in YYYY-MM-DD format
-
-Respond ONLY with valid JSON: {"payee":"...","amount":"...","date":"..."}
-If you cannot determine a field, use an empty string for that field.`
 
 function httpStatusFromError(err: unknown): number | undefined {
   if (err !== null && typeof err === "object" && "status" in err) {
@@ -44,7 +38,7 @@ async function extractFromImage(base64: string, mimeType: string, apiKey: string
         {
           role: "user",
           content: [
-            { type: "text", text: EXTRACTION_PROMPT },
+            { type: "text", text: RECEIPT_EXTRACTION_PROMPT },
             { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
           ],
         },
@@ -132,7 +126,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    let result: { payee: string; amount: string; date: string }
+    let result: { payee: string; amount: string; date: string; extractionConfidence: number }
 
     if (kind === "application/pdf") {
       const text = (await extractTextFromPdfBuffer(buffer)).trim()

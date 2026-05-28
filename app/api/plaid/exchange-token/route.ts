@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { plaidClient } from "@/lib/plaid"
 import { activateReferral } from "@/lib/referral"
+import { plaidApiErrorMessage } from "@/lib/plaid-link-feedback"
 import { premiumForbiddenResponse, requirePremiumOrTrialOrReferralBankLinkPending } from "@/lib/subscription"
 
 export async function POST(req: NextRequest) {
@@ -61,18 +62,27 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    const accounts = accountsResponse.data.accounts.map((account) => ({
+      accountName: account.name,
+      mask: account.mask ?? null,
+      type: account.type,
+    }))
+
     const activation = await activateReferral(session.user.id)
     return NextResponse.json({
       success: true,
       itemId,
+      institutionName: institution?.name?.trim() || null,
+      accounts,
       referralActivated: activation.didActivate,
       referralTrialMonths: activation.refereeTrialMonths,
     })
   } catch (err) {
     console.error("Plaid exchange error:", err)
+    const message = plaidApiErrorMessage(err)
     return NextResponse.json(
-      { error: "Failed to exchange token" },
-      { status: 500 },
+      { error: message ?? "Failed to exchange token", message: message ?? undefined },
+      { status: message ? 400 : 500 },
     )
   }
 }
