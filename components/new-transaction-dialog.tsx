@@ -119,7 +119,7 @@ function ScanStatsPopover({ stats }: { stats: ReceiptScanStats }) {
   const rows: { label: string; value: string }[] = [
     { label: "Reading quality", value: formatPct(stats.extractionConfidence) },
     { label: "Processing time", value: formatMs(stats.processingMs) },
-    { label: "AI model", value: stats.model },
+    { label: "Model", value: stats.model },
     { label: "Input", value: stats.inputType === "pdf" ? "PDF document" : "Photo" },
     { label: "File size", value: formatBytes(stats.fileSizeBytes) },
   ]
@@ -132,11 +132,11 @@ function ScanStatsPopover({ stats }: { stats: ReceiptScanStats }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors rounded px-1 py-0.5 hover:bg-white/5"
+          className="flex items-center gap-1 text-[11px] text-blue-500/75 hover:text-blue-500 transition-colors rounded px-1 py-0.5 hover:bg-white/5"
           aria-label="Show scan details"
         >
           <FlaskConical className="h-3 w-3" aria-hidden />
-          <span>Scan details</span>
+          <span>Stats for nerds</span>
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -829,7 +829,7 @@ export function NewTransactionDialog() {
                       </div>
                     ) : null}
                   </div>
-                  <p className="text-[11px] text-muted-foreground px-3 pb-2 pt-0">
+                  <p className="text-[11px] text-muted-foreground px-3 pb-2 -mb-1 pt-2">
                     Tap the preview to enlarge.
                   </p>
                 </div>
