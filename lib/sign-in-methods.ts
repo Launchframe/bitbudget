@@ -78,7 +78,7 @@ function sanitizeProfileImage(profileImage?: string) {
   }
 }
 
-function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigin?: string) {
+export function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigin?: string) {
   let parsed: unknown
   try {
     parsed = JSON.parse(event)

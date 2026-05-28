@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -143,6 +144,75 @@ describe("linkEmailSignInMethod", () => {
     } satisfies Partial<SignInMethodError>)
 
     expect(emailCodeDeleteMany).not.toHaveBeenCalled()
+  })
+})
+
+// These tests verify that parseNostrAuthEvent prevents relay-note replay attacks.
+// The auth.ts Nostr provider calls parseNostrAuthEvent before verifyEvent so that
+// an attacker who captures ANY valid Nostr event (e.g. a public note, kind 1) cannot
+// submit it to log in as that user.
+describe("parseNostrAuthEvent", () => {
+  const pubkey = "a".repeat(64)
+  const validEvent = (overrides: Record<string, unknown> = {}) => JSON.stringify({
+    kind: NOSTR_AUTH_EVENT_KIND,
+    content: NOSTR_AUTH_EVENT_CONTENT,
+    created_at: Math.floor(Date.now() / 1000),
+    pubkey,
+    tags: [["method", NOSTR_AUTH_EVENT_METHOD]],
+    id: "event-id",
+    sig: "event-sig",
+    ...overrides,
+  })
+
+  it("returns a parsed event object for a valid auth event", () => {
+    const result = parseNostrAuthEvent(validEvent(), pubkey)
+    expect(result.kind).toBe(NOSTR_AUTH_EVENT_KIND)
+    expect(result.content).toBe(NOSTR_AUTH_EVENT_CONTENT)
+  })
+
+  it("rejects a kind-1 public note that an attacker could replay from relays", () => {
+    expect(() =>
+      parseNostrAuthEvent(
+        validEvent({ kind: 1, content: "hello world" }),
+        pubkey,
+      ),
+    ).toThrow()
+  })
+
+  it("rejects a valid-kind event with wrong content", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent({ content: "Not BitBudget Login" }), pubkey),
+    ).toThrow()
+  })
+
+  it("rejects an event for a different pubkey", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent(), "b".repeat(64)),
+    ).toThrow()
+  })
+
+  it("rejects a stale event (older than allowed window)", () => {
+    expect(() =>
+      parseNostrAuthEvent(
+        validEvent({ created_at: Math.floor(Date.now() / 1000) - 3600 }),
+        pubkey,
+      ),
+    ).toThrow()
+  })
+
+  it("rejects an event missing the method tag", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent({ tags: [] }), pubkey),
+    ).toThrow()
+  })
+
+  it("rejects an event for a different origin when expectedOrigin is provided", () => {
+    const withOrigin = validEvent({
+      tags: [["method", NOSTR_AUTH_EVENT_METHOD], ["u", "https://app.example.com"]],
+    })
+    expect(() =>
+      parseNostrAuthEvent(withOrigin, pubkey, "https://evil.example.com"),
+    ).toThrow()
   })
 })
 
