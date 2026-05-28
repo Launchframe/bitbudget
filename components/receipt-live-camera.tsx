@@ -13,6 +13,7 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [starting, setStarting] = useState(true)
+  const [capturing, setCapturing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -58,18 +59,25 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
 
   function handleCapture() {
     const video = videoRef.current
-    if (!video || video.videoWidth === 0) return
+    if (!video || video.videoWidth === 0 || capturing) return
 
+    setCapturing(true)
     const canvas = document.createElement("canvas")
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     const ctx = canvas.getContext("2d")
-    if (!ctx) return
+    if (!ctx) {
+      setCapturing(false)
+      return
+    }
     ctx.drawImage(video, 0, 0)
 
     canvas.toBlob(
       (blob) => {
-        if (!blob) return
+        if (!blob) {
+          setCapturing(false)
+          return
+        }
         streamRef.current?.getTracks().forEach((track) => track.stop())
         onCapture(new File([blob], `receipt-${Date.now()}.jpg`, { type: "image/jpeg" }))
       },
@@ -110,7 +118,7 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
         <Button
           type="button"
           className="flex-1 bg-btc-orange text-[#0D0D0D] hover:bg-btc-orange/90"
-          disabled={starting || !!error}
+          disabled={starting || !!error || capturing}
           onClick={handleCapture}
         >
           <Camera className="h-4 w-4" aria-hidden />

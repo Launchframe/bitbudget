@@ -211,6 +211,11 @@ export function PlaidConnectionsSection({
               will stop syncing.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {disconnectError ? (
+            <p className="text-sm text-red-400" role="alert">
+              {disconnectError}
+            </p>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel className="border-[#333] bg-transparent">Cancel</AlertDialogCancel>
             <AlertDialogAction

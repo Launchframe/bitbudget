@@ -41,8 +41,16 @@ export function ScanReceiptDialog({
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<string | null>(null)
   const [liveCameraOpen, setLiveCameraOpen] = useState(false)
-  const cameraMode = receiptCameraMode()
+  // Initialize to "upload-only" (safe SSR default); updated on mount to avoid hydration mismatch.
+  const [cameraMode, setCameraMode] = useState<ReceiptCameraMode>("upload-only")
   const showTakePhoto = cameraMode !== "upload-only"
+
+  useEffect(() => {
+    const rafId = requestAnimationFrame(() => {
+      setCameraMode(receiptCameraMode())
+    })
+    return () => cancelAnimationFrame(rafId)
+  }, [])
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   /** After programmatic file/camera click, next focus/visibility return without a file means picker was dismissed. */
