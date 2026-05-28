@@ -256,12 +256,13 @@ export default function AuthPage() {
       const signedPubkey = normalizeHexPubkey(
         String((signed as { pubkey?: string }).pubkey ?? pubkey),
       )
+      const profile = await fetchNostrProfile(signedPubkey)
 
       const result = await signIn("nostr", {
         pubkey: signedPubkey,
         event: JSON.stringify(signed),
-        profileName: "",
-        profileImage: "",
+        profileName: profile.name ?? "",
+        profileImage: profile.image ?? "",
         redirect: false,
       })
 
