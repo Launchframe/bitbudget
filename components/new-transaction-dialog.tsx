@@ -385,7 +385,12 @@ export function NewTransactionDialog() {
 
     const applyResolved = (
       resolved: string,
-      hint: { original: string; canonical: string; reason: CanonicalMatchReason } | null,
+      hint: {
+        original: string
+        canonical: string
+        reason: CanonicalMatchReason
+        matchedAlias?: PayeeAliasRule
+      } | null,
     ) => {
       setPayee(resolved)
       setPayeeMatchHint(hint)

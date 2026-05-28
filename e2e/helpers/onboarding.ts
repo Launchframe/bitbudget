@@ -1,5 +1,6 @@
 import path from "node:path"
 import type { Page } from "@playwright/test"
+import { expectAppShellReady } from "./shell"
 import { expect } from "@playwright/test"
 import { E2E_ONBOARDING_PASSPHRASE } from "../fixtures/onboarding-e2e-constants"
 import { signInWithE2eEmail } from "./auth-email"
@@ -149,7 +150,7 @@ export async function finishOnboardingToDashboard(page: Page, origin: string): P
   await page.getByRole("button", { name: "Go to Dashboard" }).click()
   await page.waitForURL(url => url.pathname === "/", { timeout: 30_000 })
   await page.goto(`${origin}/#/dashboard`)
-  await expect(page.locator('[data-walkthrough="new-transaction"]')).toBeVisible({ timeout: 90_000 })
+  await expectAppShellReady(page)
 }
 
 export async function runOnboardingThroughSavingsGamePlan(

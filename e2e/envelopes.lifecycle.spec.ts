@@ -2,12 +2,15 @@ import "./load-env"
 import { test, expect } from "@playwright/test"
 import { E2E_APP_USER_EMAIL } from "./fixtures/app-e2e-constants"
 import { signInAppUser } from "./helpers/app-session"
+import { dismissWalkthroughIfPresent, expectEnvelopesPageReady } from "./helpers/shell"
 
 test.describe("Envelope lifecycle", () => {
   test.beforeEach(async ({ page, baseURL }) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
     await signInAppUser(page, origin, E2E_APP_USER_EMAIL)
     await page.goto(`${origin}/#/envelopes`)
+    await dismissWalkthroughIfPresent(page)
+    await expectEnvelopesPageReady(page)
     await expect(page.getByText("E2E Groceries").first()).toBeVisible({ timeout: 90_000 })
   })
 
@@ -23,7 +26,9 @@ test.describe("Envelope lifecycle", () => {
     await expect(page.getByRole("heading", { name: "New Envelope" })).toBeHidden({ timeout: 30_000 })
     await expect(page.getByText(name).first()).toBeVisible({ timeout: 30_000 })
 
-    await page.getByRole("button", { name: `Edit ${name}` }).click()
+    const editButton = page.getByRole("button", { name: `Edit ${name}` })
+    await expect(editButton).toBeEnabled({ timeout: 15_000 })
+    await editButton.click()
     await page.getByPlaceholder("e.g. Groceries").fill(edited)
     await page.getByRole("button", { name: "Save Changes" }).click()
     await expect(page.getByText(edited).first()).toBeVisible()

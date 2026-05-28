@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test"
 import { signInWithE2eEmail } from "./auth-email"
 import { fetchJsonInPage } from "./fetch-json"
 import { primePrivacyKeyCache, unlockPassphraseIfNeeded, expectAppShell } from "./privacy-cache"
+import { dismissWalkthroughIfPresent } from "./shell"
 
 export async function signInAppUser(page: Page, origin: string, email: string): Promise<string> {
   await signInWithE2eEmail(page, origin, email)
@@ -13,5 +14,6 @@ export async function signInAppUser(page: Page, origin: string, email: string): 
   await primePrivacyKeyCache(page, userId)
   await page.reload()
   await expectAppShell(page)
+  await dismissWalkthroughIfPresent(page)
   return userId
 }

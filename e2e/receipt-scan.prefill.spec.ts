@@ -67,7 +67,7 @@ test.describe("Receipt scan → New Transaction prefill", () => {
     await expect(page.getByRole("button", { name: "Show scan details" })).toBeVisible()
     // Popover opens and shows key stats
     await page.getByRole("button", { name: "Show scan details" }).click()
-    await expect(page.getByText("Stats for nerds")).toBeVisible()
+    await expect(page.getByText("Reading quality")).toBeVisible()
     await expect(page.getByText("GPT-4o mini")).toBeVisible()
   })
 
@@ -107,7 +107,7 @@ test.describe("Receipt scan → New Transaction prefill", () => {
     // Stats for nerds button also appears for PDF uploads
     await expect(page.getByRole("button", { name: "Show scan details" })).toBeVisible()
     await page.getByRole("button", { name: "Show scan details" }).click()
-    await expect(page.getByText("Stats for nerds")).toBeVisible()
+    await expect(page.getByText("Reading quality")).toBeVisible()
     await expect(page.getByText("PDF document")).toBeVisible()
     await expect(page.getByText("GPT-4o mini")).toBeVisible()
   })
