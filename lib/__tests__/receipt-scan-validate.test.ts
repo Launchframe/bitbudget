@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest"
-import { resolveReceiptFileKind, normalizeScanExtraction } from "../receipt-scan-validate"
+import {
+  isLowConfidenceReceiptScan,
+  normalizeScanExtraction,
+  RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD,
+  resolveReceiptFileKind,
+} from "../receipt-scan-validate"
 
 describe("resolveReceiptFileKind", () => {
   it("detects PDF from magic bytes", () => {
@@ -111,21 +116,73 @@ describe("normalizeScanExtraction", () => {
 
   describe("extractionConfidence", () => {
     it("uses model-reported confidence when present and clamps to [0,1]", () => {
-      expect(normalizeScanExtraction({ payee: "A", amount: "5.00", date: "2024-01-01", confidence: 0.6 }).extractionConfidence).toBe(0.6)
-      expect(normalizeScanExtraction({ payee: "A", amount: "5.00", date: "2024-01-01", confidence: 1.5 }).extractionConfidence).toBe(1)
-      expect(normalizeScanExtraction({ payee: "A", amount: "5.00", date: "2024-01-01", confidence: -0.1 }).extractionConfidence).toBe(0)
+      expect(
+        normalizeScanExtraction({
+          payee: "A",
+          amount: "5.00",
+          date: "2024-01-01",
+          confidence: 0.6,
+        }).extractionConfidence,
+      ).toBe(0.6)
+      expect(
+        normalizeScanExtraction({
+          payee: "A",
+          amount: "5.00",
+          date: "2024-01-01",
+          confidence: 1.5,
+        }).extractionConfidence,
+      ).toBe(1)
+      expect(
+        normalizeScanExtraction({
+          payee: "A",
+          amount: "5.00",
+          date: "2024-01-01",
+          confidence: -0.1,
+        }).extractionConfidence,
+      ).toBe(0)
+    })
+    it("accepts numeric string confidence values from model JSON", () => {
+      expect(
+        normalizeScanExtraction({
+          payee: "A",
+          amount: "5.00",
+          date: "2024-01-01",
+          confidence: "0.6",
+        }).extractionConfidence,
+      ).toBe(0.6)
     })
     it("falls back to field-completeness heuristic when confidence is absent", () => {
       // All fields present → full score (0.3 + 0.5 + 0.2 = 1.0)
-      expect(normalizeScanExtraction({ payee: "Store", amount: "10", date: "2024-01-01" }).extractionConfidence).toBe(1.0)
+      expect(
+        normalizeScanExtraction({ payee: "Store", amount: "10", date: "2024-01-01" })
+          .extractionConfidence,
+      ).toBe(1.0)
       // Only payee → 0.3
-      expect(normalizeScanExtraction({ payee: "Store", amount: "", date: "" }).extractionConfidence).toBeCloseTo(0.3)
+      expect(
+        normalizeScanExtraction({ payee: "Store", amount: "", date: "" }).extractionConfidence,
+      ).toBeCloseTo(0.3)
+      // Only amount → 0.5, which should trigger the low-confidence warning.
+      expect(
+        normalizeScanExtraction({ payee: "", amount: "10", date: "" }).extractionConfidence,
+      ).toBe(0.5)
       // Nothing → 0
       expect(normalizeScanExtraction({ payee: "", amount: "", date: "" }).extractionConfidence).toBe(0)
     })
     it("ignores non-numeric confidence values and uses heuristic", () => {
-      const result = normalizeScanExtraction({ payee: "A", amount: "5.00", date: "2024-01-01", confidence: "high" })
+      const result = normalizeScanExtraction({
+        payee: "A",
+        amount: "5.00",
+        date: "2024-01-01",
+        confidence: "high",
+      })
       expect(result.extractionConfidence).toBe(1.0)
     })
+  })
+})
+
+describe("isLowConfidenceReceiptScan", () => {
+  it("warns below the threshold but not at the boundary", () => {
+    expect(isLowConfidenceReceiptScan(RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD - 0.01)).toBe(true)
+    expect(isLowConfidenceReceiptScan(RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD)).toBe(false)
   })
 })

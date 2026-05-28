@@ -39,7 +39,7 @@ import {
 } from "@/lib/transaction-dates"
 import { pickTransactionSuccessMessage } from "@/lib/transaction-success-messages"
 import { TransactionSuccessView } from "@/components/transaction-success-view"
-import { RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD } from "@/lib/receipt-scan-validate"
+import { isLowConfidenceReceiptScan } from "@/lib/receipt-scan-validate"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -769,7 +769,7 @@ export function NewTransactionDialog() {
               {/* Low-confidence receipt scan warning */}
               {!receiptScanWarningDismissed &&
                 typeof transactionPrefill?.receiptScanConfidence === "number" &&
-                transactionPrefill.receiptScanConfidence < RECEIPT_SCAN_LOW_CONFIDENCE_THRESHOLD && (
+                isLowConfidenceReceiptScan(transactionPrefill.receiptScanConfidence) && (
                 <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 shrink-0">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden />
                   <p className="flex-1 text-sm text-amber-200 leading-snug">

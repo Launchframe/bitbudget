@@ -3,6 +3,17 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { plaidClient } from "@/lib/plaid"
 
+function plaidErrorCode(err: unknown): string | null {
+  if (!err || typeof err !== "object" || !("response" in err)) return null
+  const data = (err as { response?: { data?: { error_code?: unknown } } }).response?.data
+  return typeof data?.error_code === "string" ? data.error_code : null
+}
+
+function plaidItemAlreadyRemoved(err: unknown): boolean {
+  const code = plaidErrorCode(err)?.toUpperCase()
+  return code === "ITEM_NOT_FOUND" || code === "INVALID_ACCESS_TOKEN"
+}
+
 export async function DELETE(
   _req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
@@ -30,6 +41,10 @@ export async function DELETE(
   try {
     await plaidClient.itemRemove({ access_token: plaidItem.accessToken })
   } catch (err) {
+    if (plaidItemAlreadyRemoved(err)) {
+      await prisma.plaidItem.delete({ where: { id: plaidItem.id } })
+      return NextResponse.json({ success: true })
+    }
     console.error("Plaid itemRemove error:", err)
     return NextResponse.json(
       { error: "Failed to disconnect bank" },
@@ -37,6 +52,8 @@ export async function DELETE(
     )
   }
 
+  // If this delete fails after Plaid succeeds, a retry can still clear the local row because
+  // already-removed Plaid items are treated as successful disconnects above.
   await prisma.plaidItem.delete({ where: { id: plaidItem.id } })
 
   return NextResponse.json({ success: true })
