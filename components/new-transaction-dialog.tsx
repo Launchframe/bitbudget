@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { X, Repeat, Tag, ChevronRight, FileText, AlertTriangle } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { X, Repeat, Tag, ChevronRight, FileText, AlertTriangle, FlaskConical } from "lucide-react"
 import { ShortcutsPanel, useTransactionShortcuts } from "@/components/shortcuts-panel"
 import {
   mergePayeeCandidates,
@@ -40,6 +41,7 @@ import {
 import { pickTransactionSuccessMessage } from "@/lib/transaction-success-messages"
 import { TransactionSuccessView } from "@/components/transaction-success-view"
 import { isLowConfidenceReceiptScan } from "@/lib/receipt-scan-validate"
+import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -98,6 +100,67 @@ function bestEnvelopeIdForPayee(
   }
   if (best && activeEnvelopes.some((e) => e.id === best)) return best
   return ""
+}
+
+function formatPct(value: number): string {
+  return `${Math.round(value * 100)}%`
+}
+
+function formatMs(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${Math.round(bytes / 1024)} KB`
+}
+
+function ScanStatsPopover({ stats }: { stats: ReceiptScanStats }) {
+  const rows: { label: string; value: string }[] = [
+    { label: "Reading quality", value: formatPct(stats.extractionConfidence) },
+    { label: "Processing time", value: formatMs(stats.processingMs) },
+    { label: "AI model", value: stats.model },
+    { label: "Input", value: stats.inputType === "pdf" ? "PDF document" : "Photo" },
+    { label: "File size", value: formatBytes(stats.fileSizeBytes) },
+  ]
+  if (stats.envelopeMatchConfidence !== null) {
+    rows.push({ label: "Category match", value: formatPct(stats.envelopeMatchConfidence) })
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors rounded px-1 py-0.5 hover:bg-white/5"
+          aria-label="Show scan details"
+        >
+          <FlaskConical className="h-3 w-3" aria-hidden />
+          <span>Scan details</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        className="w-56 bg-[#181818] border-[#2A2A2A] p-0 text-sm"
+        onEscapeKeyDown={(e) => e.stopPropagation()}
+      >
+        <div className="px-3 pt-2.5 pb-1 border-b border-[#2A2A2A]">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Stats for nerds
+          </p>
+        </div>
+        <div className="px-3 py-2 flex flex-col gap-1.5">
+          {rows.map(({ label, value }) => (
+            <div key={label} className="flex items-center justify-between gap-3">
+              <span className="text-[12px] text-muted-foreground shrink-0">{label}</span>
+              <span className="text-[12px] font-mono text-foreground text-right">{value}</span>
+            </div>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 export function NewTransactionDialog() {
@@ -699,13 +762,18 @@ export function NewTransactionDialog() {
                     <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       Receipt preview
                     </span>
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={() => setReceiptAttachmentPreview(null)}
-                    >
-                      Hide
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {transactionPrefill?.receiptScanStats && (
+                        <ScanStatsPopover stats={transactionPrefill.receiptScanStats} />
+                      )}
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => setReceiptAttachmentPreview(null)}
+                      >
+                        Hide
+                      </button>
+                    </div>
                   </div>
                   <div className="max-h-[min(260px,38vh)] overflow-auto px-3 pb-2">
                     {receiptAttachmentPreview.startsWith("data:image/") ? (
@@ -764,6 +832,12 @@ export function NewTransactionDialog() {
                   <p className="text-[11px] text-muted-foreground px-3 pb-2 pt-0">
                     Tap the preview to enlarge.
                   </p>
+                </div>
+              )}
+              {/* Scan stats fallback: show outside card when no preview is visible */}
+              {!receiptAttachmentPreview && transactionPrefill?.receiptScanStats && (
+                <div className="flex justify-end shrink-0">
+                  <ScanStatsPopover stats={transactionPrefill.receiptScanStats} />
                 </div>
               )}
               {/* Low-confidence receipt scan warning */}

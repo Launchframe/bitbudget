@@ -1,4 +1,8 @@
-import { RECEIPT_EXTRACTION_PROMPT, normalizeScanExtraction } from "@/lib/receipt-scan-validate"
+import {
+  RECEIPT_EXTRACTION_PROMPT,
+  RECEIPT_EXTRACTION_MODEL_ID,
+  normalizeScanExtraction,
+} from "@/lib/receipt-scan-validate"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
@@ -7,11 +11,16 @@ export interface ParsedReceipt {
   amount: string
   date: string
   extractionConfidence: number
+  /** Raw model ID used for extraction, e.g. "gpt-4o-mini". */
+  model: string
+  /** Wall-clock time for the AI extraction call in milliseconds. */
+  processingMs: number
 }
 
 export async function parseReceiptText(text: string): Promise<ParsedReceipt> {
   if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured")
 
+  const start = Date.now()
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -19,7 +28,7 @@ export async function parseReceiptText(text: string): Promise<ParsedReceipt> {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: RECEIPT_EXTRACTION_MODEL_ID,
       messages: [
         {
           role: "user",
@@ -30,6 +39,7 @@ export async function parseReceiptText(text: string): Promise<ParsedReceipt> {
       temperature: 0,
     }),
   })
+  const processingMs = Date.now() - start
 
   const body = (await res.json().catch(() => ({}))) as
     | { choices?: Array<{ message?: { content?: string } }> }
@@ -50,5 +60,5 @@ export async function parseReceiptText(text: string): Promise<ParsedReceipt> {
   const jsonMatch = responseText.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error("Could not parse response.")
   const raw = JSON.parse(jsonMatch[0]) as Record<string, unknown>
-  return normalizeScanExtraction(raw)
+  return { ...normalizeScanExtraction(raw), model: RECEIPT_EXTRACTION_MODEL_ID, processingMs }
 }
