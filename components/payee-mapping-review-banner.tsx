@@ -233,7 +233,7 @@ function ReviewClusterRow({
                 Saving…
               </span>
             ) : (
-              "Map to this payee"
+              "Spell it like this"
             )}
           </button>
         </div>

@@ -22,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { X, Repeat, Tag, ChevronRight, FileText, AlertTriangle, FlaskConical } from "lucide-react"
+import { X, Repeat, Tag, ChevronRight, FileText, AlertTriangle, FlaskConical, Link2 } from "lucide-react"
 import { ShortcutsPanel, useTransactionShortcuts } from "@/components/shortcuts-panel"
 import {
   mergePayeeCandidates,
@@ -198,11 +198,13 @@ export function NewTransactionDialog() {
     original: string
     canonical: string
     reason: CanonicalMatchReason
+    matchedAlias?: PayeeAliasRule
   } | null>(null)
   const [payeeAliasRules, setPayeeAliasRules] = useState<PayeeAliasRule[]>([])
   const [importSourcePayee, setImportSourcePayee] = useState<string | null>(null)
   const [aliasSaveBusy, setAliasSaveBusy] = useState(false)
   const [aliasSaveMessage, setAliasSaveMessage] = useState<string | null>(null)
+  const [savePayeeMappingDismissed, setSavePayeeMappingDismissed] = useState(false)
   const [receiptAttachmentPreview, setReceiptAttachmentPreview] = useState<string | null>(null)
   /** Short-lived object URL for PDF previews (see `pdfDataUrlToBlob`). */
   const [receiptPdfBlobUrl, setReceiptPdfBlobUrl] = useState<string | null>(null)
@@ -252,9 +254,10 @@ export function NewTransactionDialog() {
     if (!transactionDialogOpen) return
     fetch("/api/payee-aliases")
       .then((r) => (r.ok ? r.json() : []))
-      .then((rows: { sourceNormalized: string; canonicalPayee: string }[]) => {
+      .then((rows: { id: string; sourceNormalized: string; canonicalPayee: string }[]) => {
         setPayeeAliasRules(
           rows.map((row) => ({
+            id: row.id,
             sourceNormalized: row.sourceNormalized,
             canonicalPayee: row.canonicalPayee,
           })),
@@ -361,6 +364,7 @@ export function NewTransactionDialog() {
       setPayeeMatchHint(null)
       setImportSourcePayee(null)
       setAliasSaveMessage(null)
+      setSavePayeeMappingDismissed(false)
       return
     }
     const raw = transactionPrefill?.payee?.trim()
@@ -396,12 +400,14 @@ export function NewTransactionDialog() {
       skipCanonicalForPrefillRef.current = false
       setImportSourcePayee(raw)
       setAliasSaveMessage(null)
+      setSavePayeeMappingDismissed(false)
       const r = resolveCanonicalPayee(raw, payeeCanonicalCandidates, payeeAliasRules)
       if (r) {
         applyResolved(r.canonicalPayee, {
           original: r.originalExtracted,
           canonical: r.canonicalPayee,
           reason: r.reason,
+          matchedAlias: r.matchedAlias,
         })
       } else {
         applyResolved(raw, null)
@@ -429,6 +435,7 @@ export function NewTransactionDialog() {
           original: r.originalExtracted,
           canonical: r.canonicalPayee,
           reason: r.reason,
+          matchedAlias: r.matchedAlias,
         })
       }
     }
@@ -456,7 +463,8 @@ export function NewTransactionDialog() {
     !!importSourcePayee &&
     payee.trim().length >= 2 &&
     normalizePayeeKey(importSourcePayee) !== normalizePayeeKey(payee) &&
-    !payeeAliasAlreadyMatches
+    !payeeAliasAlreadyMatches &&
+    !savePayeeMappingDismissed
 
   const duplicateEnvelopeName = useMemo(() => {
     if (!duplicateExisting) return null
@@ -494,10 +502,34 @@ export function NewTransactionDialog() {
         })
         return next
       })
+      window.dispatchEvent(new CustomEvent("payee-aliases-updated"))
       setAliasSaveMessage("Saved for future imports.")
     } finally {
       setAliasSaveBusy(false)
     }
+  }
+
+  /** Delete the alias rule that matched the current payee hint, then revert to original text. */
+  async function deleteAliasAndRevert() {
+    const hint = payeeMatchHint
+    const alias = hint?.matchedAlias
+    if (!hint) return
+    if (alias?.id) {
+      try {
+        const res = await fetch(`/api/payee-aliases?id=${encodeURIComponent(alias.id)}`, {
+          method: "DELETE",
+        })
+        if (res.ok) {
+          setPayeeAliasRules((prev) => prev.filter((a) => a.id !== alias.id))
+          window.dispatchEvent(new CustomEvent("payee-aliases-updated"))
+        }
+      } catch {
+        // best-effort; still revert the field
+      }
+    }
+    setPayee(hint.original)
+    setPayeeMatchHint(null)
+    skipCanonicalForPrefillRef.current = true
   }
 
   const payeeSuggestions = useMemo(() => {
@@ -893,102 +925,164 @@ export function NewTransactionDialog() {
                 <Label htmlFor="payee" className="text-muted-foreground text-xs uppercase tracking-wider">
                   {type === "expense" ? "Payee" : "Payer"}
                 </Label>
-                <Input
-                  ref={payeeInputRef}
-                  id="payee"
-                  value={payee}
-                  onChange={(e) => {
-                    setPayee(e.target.value)
-                    setPayeeMatchHint(null)
-                    setAliasSaveMessage(null)
-                    if (validationErrors.payee) setValidationErrors(prev => { const next = { ...prev }; delete next.payee; return next })
-                    setShowSuggestions(true)
-                  }}
-                  onFocus={() => { if (payee.trim()) setShowSuggestions(true) }}
-                  placeholder={type === "expense" ? "Who did you pay?" : "Who paid you?"}
-                  className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
-                  autoComplete="off"
-                  required
-                />
-                {showSuggestions && payeeSuggestions.length > 0 && (
-                  <div
-                    ref={suggestionsRef}
-                    className="absolute top-full left-0 right-0 z-50 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg shadow-xl overflow-hidden max-h-52 overflow-y-auto"
-                  >
-                    {payeeSuggestions.map((s) => {
-                      const env = state.envelopes.find(e => e.id === s.envelopeId)
-                      return (
-                        <button
-                          key={s.name}
-                          type="button"
-                          onClick={() => selectPayeeSuggestion(s.name, s.envelopeId)}
-                          className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[#252525] transition-colors"
-                        >
-                          <span className="text-sm text-foreground truncate">{s.name}</span>
-                          {env && (
-                            <span className="flex items-center gap-1.5 shrink-0 text-xs text-muted-foreground">
-                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: env.color }} />
-                              {env.name}
-                            </span>
-                          )}
-                        </button>
-                      )
-                    })}
+                {/* Input + optional mapping-applied icon */}
+                <div className="flex items-center gap-1.5">
+                  <div className="relative flex-1 min-w-0">
+                    <Input
+                      ref={payeeInputRef}
+                      id="payee"
+                      value={payee}
+                      onChange={(e) => {
+                        setPayee(e.target.value)
+                        setPayeeMatchHint(null)
+                        setAliasSaveMessage(null)
+                        if (validationErrors.payee) setValidationErrors(prev => { const next = { ...prev }; delete next.payee; return next })
+                        setShowSuggestions(true)
+                      }}
+                      onFocus={() => { if (payee.trim()) setShowSuggestions(true) }}
+                      placeholder={type === "expense" ? "Who did you pay?" : "Who paid you?"}
+                      className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] w-full"
+                      autoComplete="off"
+                      required
+                    />
+                    {showSuggestions && payeeSuggestions.length > 0 && (
+                      <div
+                        ref={suggestionsRef}
+                        className="absolute top-full left-0 right-0 z-50 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg shadow-xl overflow-hidden max-h-52 overflow-y-auto"
+                      >
+                        {payeeSuggestions.map((s) => {
+                          const env = state.envelopes.find(e => e.id === s.envelopeId)
+                          return (
+                            <button
+                              key={s.name}
+                              type="button"
+                              onClick={() => selectPayeeSuggestion(s.name, s.envelopeId)}
+                              className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[#252525] transition-colors"
+                            >
+                              <span className="text-sm text-foreground truncate">{s.name}</span>
+                              {env && (
+                                <span className="flex items-center gap-1.5 shrink-0 text-xs text-muted-foreground">
+                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: env.color }} />
+                                  {env.name}
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
+                  {/* Mapping-applied indicator — small icon reveals details on click */}
+                  {payeeMatchHint && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+                          aria-label="Payee was automatically matched — tap for details"
+                        >
+                          <Link2 className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="end"
+                        side="bottom"
+                        className="w-72 bg-[#181818] border-[#2A2A2A] p-3 text-sm"
+                        onEscapeKeyDown={(e) => e.stopPropagation()}
+                      >
+                        {payeeMatchHint.reason === "alias" ? (
+                          <>
+                            <p className="text-xs text-muted-foreground leading-snug">
+                              Matched using a saved spelling rule:
+                            </p>
+                            <div className="mt-2 rounded-md border border-[#2A2A2A] bg-[#111] px-3 py-2 font-mono text-xs text-foreground">
+                              {payeeMatchHint.original}
+                              <span className="mx-1.5 text-muted-foreground">→</span>
+                              {payeeMatchHint.canonical}
+                            </div>
+                            <div className="mt-3 flex flex-col gap-1.5 border-t border-[#222] pt-3">
+                              <button
+                                type="button"
+                                className="text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+                                onClick={() => {
+                                  setPayee(payeeMatchHint.original)
+                                  setPayeeMatchHint(null)
+                                  skipCanonicalForPrefillRef.current = true
+                                }}
+                              >
+                                Ignore this time
+                              </button>
+                              {payeeMatchHint.matchedAlias?.id && (
+                                <button
+                                  type="button"
+                                  className="text-left text-xs text-red-400/80 transition-colors hover:text-red-400"
+                                  onClick={() => void deleteAliasAndRevert()}
+                                >
+                                  Remove this rule
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-xs text-muted-foreground leading-snug">
+                              <span className="font-medium text-foreground">{payeeMatchHint.original}</span>{" "}
+                              was matched as a similar spelling of{" "}
+                              <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>.
+                              Add a mapping in Settings to make this permanent.
+                            </p>
+                            <button
+                              type="button"
+                              className="mt-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+                              onClick={() => {
+                                setPayee(payeeMatchHint.original)
+                                setPayeeMatchHint(null)
+                                skipCanonicalForPrefillRef.current = true
+                              }}
+                            >
+                              Ignore this time
+                            </button>
+                          </>
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                </div>
                 {validationErrors.payee && (
-                  <p className="text-xs text-red-400 mt-1">{validationErrors.payee}</p>
+                  <p className="text-xs text-red-400">{validationErrors.payee}</p>
                 )}
-                {payeeMatchHint && (
-                  <p className="text-xs text-muted-foreground">
-                    {payeeMatchHint.reason === "alias" && (
+                {/* Save mapping prompt — compact single row, no extra card */}
+                {showSavePayeeMapping && (
+                  <div className="flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#141414] px-3 py-2">
+                    <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                      Save{" "}
+                      <span className="font-medium text-foreground">{importSourcePayee}</span>
+                      {" → "}
+                      <span className="font-medium text-foreground">{payee.trim()}</span>
+                      {" for next time?"}
+                    </p>
+                    {aliasSaveMessage ? (
+                      <span className="shrink-0 text-xs text-muted-foreground">{aliasSaveMessage}</span>
+                    ) : (
                       <>
-                        Using your saved payee{" "}
-                        <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>{" "}
-                        for <span className="font-medium text-foreground">{payeeMatchHint.original}</span>.
+                        <button
+                          type="button"
+                          disabled={aliasSaveBusy}
+                          onClick={() => void savePayeeMapping()}
+                          className="shrink-0 rounded-md bg-[#333] px-2.5 py-1 text-xs font-medium text-foreground hover:bg-[#444] disabled:opacity-50"
+                        >
+                          {aliasSaveBusy ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSavePayeeMappingDismissed(true)}
+                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                          aria-label="Dismiss"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
                       </>
                     )}
-                    {payeeMatchHint.reason === "soft-equal" && (
-                      <>
-                        <span className="font-medium text-foreground">{payeeMatchHint.original}</span> was
-                        treated as the same merchant as{" "}
-                        <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>{" "}
-                        {". You can override this in Settings > Payee mapping."}
-                      </>
-                    )}{" "}
-                    <button
-                      type="button"
-                      className="text-btc-orange underline decoration-btc-orange/50 hover:decoration-btc-orange"
-                      onClick={() => {
-                        setPayee(payeeMatchHint.original)
-                        setPayeeMatchHint(null)
-                        skipCanonicalForPrefillRef.current = true
-                      }}
-                    >
-                      Use original text
-                    </button>
-                  </p>
-                )}
-                {showSavePayeeMapping && (
-                  <div className="flex flex-col gap-1.5 rounded-lg border border-[#333] bg-[#1A1A1A] px-3 py-2">
-                    <p className="text-xs text-muted-foreground">
-                      Import showed{" "}
-                      <span className="font-medium text-foreground">{importSourcePayee}</span> — want to use{" "}
-                      <span className="font-medium text-foreground">{payee.trim()}</span> for this payee next time?
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={aliasSaveBusy}
-                        onClick={() => void savePayeeMapping()}
-                        className="rounded-md bg-[#333] px-3 py-1.5 text-xs font-medium text-foreground hover:bg-[#444] disabled:opacity-50"
-                      >
-                        {aliasSaveBusy ? "Saving…" : "Save payee mapping"}
-                      </button>
-                      {aliasSaveMessage && (
-                        <span className="text-xs text-muted-foreground">{aliasSaveMessage}</span>
-                      )}
-                    </div>
                   </div>
                 )}
               </div>
