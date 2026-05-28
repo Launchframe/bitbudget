@@ -1,3 +1,5 @@
+import { normalizeScanExtraction } from "@/lib/receipt-scan-validate"
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
 const EXTRACTION_PROMPT = `You are a receipt parser. Extract the following from this receipt:
@@ -13,6 +15,7 @@ export interface ParsedReceipt {
   payee: string
   amount: string
   date: string
+  extractionConfidence: number
 }
 
 export async function parseReceiptText(text: string): Promise<ParsedReceipt> {
@@ -55,5 +58,6 @@ export async function parseReceiptText(text: string): Promise<ParsedReceipt> {
     "choices" in body ? body.choices?.[0]?.message?.content?.trim() ?? "" : ""
   const jsonMatch = responseText.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error("Could not parse response.")
-  return JSON.parse(jsonMatch[0])
+  const raw = JSON.parse(jsonMatch[0]) as Record<string, unknown>
+  return normalizeScanExtraction(raw)
 }

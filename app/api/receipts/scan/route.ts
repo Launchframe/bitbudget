@@ -182,7 +182,6 @@ export async function POST(req: NextRequest) {
       suggestedEnvelopeId,
       suggestedEnvelopeName,
       confidence,
-      extractionConfidence: result.extractionConfidence,
     })
   } catch (err) {
     console.error("receipt scan error:", err)
