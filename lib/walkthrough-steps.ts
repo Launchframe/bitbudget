@@ -65,7 +65,7 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       id: "dashboard-metrics",
       page: "dashboard",
       target: "dashboard-metrics",
-      title: "Your month at a glance",
+      title: "Your budget at a glance",
       description:
         "Income, what's left in your envelopes, and Savings show up here as you add activity.",
       position: "bottom",

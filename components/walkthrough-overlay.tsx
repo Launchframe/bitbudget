@@ -14,6 +14,20 @@ const EST_TOOLTIP_W = 300
 const EST_TOOLTIP_H = 200
 const VIEW_PAD = 12
 const NAV_SETTLE_MS = 200
+/** Content opacity fade in/out — keep in sync with duration-500 classes below. */
+const CONTENT_FADE_MS = 500
+/** When positioning/navigation step index updates during a transition. */
+const STEP_CONTENT_SWAP_MS = 160
+/** Tooltip card top/left CSS transition — keep in sync with inline style below. */
+const TOOLTIP_MOVE_MS = 350
+/** When visible copy swaps: after fade-out + reposition slide completes. */
+const DISPLAY_SWAP_MS = STEP_CONTENT_SWAP_MS + NAV_SETTLE_MS + TOOLTIP_MOVE_MS
+/** Tooltip card width (matches max-w-xs); fixed so step changes never reflow width. */
+const TOOLTIP_CARD_W = 320
+/** Comfortable content floor — most steps fit; taller copy animates open. */
+const TOOLTIP_CONTENT_MIN_H = 148
+/** Content height ease when copy swaps. */
+const TOOLTIP_SIZE_MS = 300
 
 type TooltipVariant = "right" | "below" | "above"
 
@@ -72,6 +86,8 @@ export function WalkthroughOverlay() {
   )
 
   const [currentStep, setCurrentStep] = useState(0)
+  /** Rendered tooltip copy; lags currentStep during transitions so the card keeps its size while sliding. */
+  const [displayStep, setDisplayStep] = useState(0)
   const [visible, setVisible] = useState(false)
   const [overlayMode, setOverlayMode] = useState<OverlayMode>("tooltip")
   const [showEndHint, setShowEndHint] = useState(false)
@@ -89,22 +105,41 @@ export function WalkthroughOverlay() {
   const [spotlightRect, setSpotlightRect] = useState<SpotlightRect | null>(null)
 
   const tooltipRef = useRef<HTMLDivElement>(null)
+  const contentInnerRef = useRef<HTMLDivElement>(null)
+  const [contentHeight, setContentHeight] = useState<number | null>(null)
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const endHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const transitionReadyRafRef = useRef<number | null>(null)
+  const stepTransitionIdRef = useRef(0)
   // Skip CSS position transition on first placement
   const positionedOnce = useRef(false)
   const [hasPositioned, setHasPositioned] = useState(false)
 
   const step: WalkthroughStepDef | undefined = steps[currentStep]
-  const isLast = currentStep >= steps.length - 1
+  const displayStepDef: WalkthroughStepDef | undefined = steps[displayStep]
 
   const clearTransitionReadyRaf = useCallback(() => {
     if (transitionReadyRafRef.current === null) return
     cancelAnimationFrame(transitionReadyRafRef.current)
     transitionReadyRafRef.current = null
   }, [])
+
+  const measureContentHeight = useCallback(() => {
+    const el = contentInnerRef.current
+    if (!el) return
+    setContentHeight(Math.max(el.scrollHeight, TOOLTIP_CONTENT_MIN_H))
+  }, [])
+
+  // Keep sizer height in sync when visible copy changes or wraps on resize.
+  useLayoutEffect(() => {
+    measureContentHeight()
+    const el = contentInnerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => measureContentHeight())
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [displayStep, steps.length, measureContentHeight])
 
   // ─── Reset & show on walkthroughCompleted change ────────────────────────────
   useEffect(() => {
@@ -113,6 +148,7 @@ export function WalkthroughOverlay() {
       if (cancelled) return
       setVisible(false)
       setCurrentStep(0)
+      setDisplayStep(0)
       setOverlayMode("tooltip")
       clearTransitionReadyRaf()
       positionedOnce.current = false
@@ -305,14 +341,22 @@ export function WalkthroughOverlay() {
 
   // ─── Content fade transition helper ─────────────────────────────────────────
   const fadeAndChangeStep = useCallback((newStep: number) => {
+    const transitionId = ++stepTransitionIdRef.current
     setContentVisible(false)
+    // Update positioning step first; keep displayStep on old copy so the card
+    // does not resize until the slide finishes at the new anchor.
     setTimeout(() => {
-      setCurrentStep(newStep)
+      if (stepTransitionIdRef.current !== transitionId) return
       clearTransitionReadyRaf()
       positionedOnce.current = false
+      setCurrentStep(newStep)
       setHasPositioned(false)
+    }, STEP_CONTENT_SWAP_MS)
+    setTimeout(() => {
+      if (stepTransitionIdRef.current !== transitionId) return
+      setDisplayStep(newStep)
       setContentVisible(true)
-    }, 120)
+    }, DISPLAY_SWAP_MS)
   }, [clearTransitionReadyRaf])
 
   // ─── Advance step (shared) ──────────────────────────────────────────────────
@@ -397,11 +441,15 @@ export function WalkthroughOverlay() {
 
   function handleBack() {
     if (currentStep <= 0) return
+    stepTransitionIdRef.current += 1
     setOverlayMode("tooltip")
     clearTransitionReadyRaf()
     positionedOnce.current = false
     setHasPositioned(false)
-    setCurrentStep(currentStep - 1)
+    setContentVisible(true)
+    const prev = currentStep - 1
+    setCurrentStep(prev)
+    setDisplayStep(prev)
   }
 
   function dismiss() {
@@ -625,14 +673,16 @@ export function WalkthroughOverlay() {
   if (overlayMode === "watching") return null
 
   // ─── Normal tooltip mode ─────────────────────────────────────────────────────
-  const nextLabel = step.awaitClose
+  const nextLabel = displayStepDef?.awaitClose
     ? "Explore it — I'll wait"
-    : isLast
+    : displayStep >= steps.length - 1
       ? "Got it!"
       : "Next"
 
+  if (!displayStepDef) return null
+
   return (
-    <div className={`fixed inset-0 ${rootZ}`}>
+    <div className={`fixed inset-0 ${rootZ}${isAwaitingOpen ? " pointer-events-none" : ""}`}>
       {/* Backdrop — clicks are swallowed (no dismiss on backdrop click) */}
       {!isAwaitingOpen && (
         <div className="absolute inset-0 bg-black/50" aria-hidden />
@@ -642,16 +692,19 @@ export function WalkthroughOverlay() {
         ref={(el) => {
           tooltipRef.current = el
         }}
-        className="absolute bg-[#1A1A1A] border border-[#333] rounded-xl p-4 shadow-xl max-w-xs"
+        className={`absolute bg-[#1A1A1A] border border-[#333] rounded-xl p-4 shadow-xl${isAwaitingOpen ? " pointer-events-auto" : ""}`}
         style={{
+          width: TOOLTIP_CARD_W,
+          maxWidth: `min(${TOOLTIP_CARD_W}px, calc(100vw - ${VIEW_PAD * 2}px))`,
           top: tooltipPos.top,
           left: tooltipPos.left,
           transform: tooltipTransform,
           // Skip CSS transition on first placement so the card doesn't fly in from (0,0)
           transition: hasPositioned
-            ? "top 350ms cubic-bezier(0.4,0,0.2,1), left 350ms cubic-bezier(0.4,0,0.2,1)"
+            ? `top ${TOOLTIP_MOVE_MS}ms cubic-bezier(0.4,0,0.2,1), left ${TOOLTIP_MOVE_MS}ms cubic-bezier(0.4,0,0.2,1)`
             : undefined,
         }}
+        onPointerDown={isAwaitingOpen ? (e) => e.stopPropagation() : undefined}
       >
         <button
           type="button"
@@ -663,42 +716,61 @@ export function WalkthroughOverlay() {
         </button>
 
         <div
-          className="transition-opacity duration-100"
-          style={{ opacity: contentVisible ? 1 : 0 }}
+          className="flex flex-col overflow-hidden"
+          style={{
+            minHeight: TOOLTIP_CONTENT_MIN_H,
+            height: contentHeight ?? "auto",
+            transition: `height ${TOOLTIP_SIZE_MS}ms cubic-bezier(0.4,0,0.2,1)`,
+          }}
         >
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-            Step {currentStep + 1} of {steps.length}
-          </p>
-          <h3 className="text-sm font-semibold text-foreground mb-1 pr-4">{step.title}</h3>
-          <p className="text-xs text-muted-foreground leading-relaxed mb-3">{step.description}</p>
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex gap-1">
-              {steps.map((_, i) => (
-                <div
-                  key={i}
-                  className={`h-1.5 rounded-full transition-all duration-200 ${
-                    i === currentStep ? "w-4 bg-btc-orange" : "w-1.5 bg-[#333]"
-                  }`}
-                />
-              ))}
+          <div
+            ref={contentInnerRef}
+            className={`flex flex-1 flex-col justify-between${
+              contentVisible
+                ? " animate-in fade-in"
+                : " opacity-0 transition-opacity"
+            }`}
+            style={{
+              transitionDuration: `${CONTENT_FADE_MS}ms`,
+              animationDuration: contentVisible ? `${CONTENT_FADE_MS}ms` : undefined,
+            }}
+          >
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                Step {displayStep + 1} of {steps.length}
+              </p>
+              <h3 className="text-sm font-semibold text-foreground mb-1 pr-4">{displayStepDef.title}</h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">{displayStepDef.description}</p>
             </div>
-            <div className="flex items-center gap-2">
-              {currentStep > 0 && (
+            <div className="flex items-center justify-between gap-2 pt-3">
+              <div className="flex gap-1">
+                {steps.map((_, i) => (
+                  <div
+                    key={i}
+                    className={`h-1.5 rounded-full transition-all duration-200 ${
+                      i === displayStep ? "w-4 bg-btc-orange" : "w-1.5 bg-[#333]"
+                    }`}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                {displayStep > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleBack}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Back
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={handleBack}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={handleNext}
+                  className="text-xs font-medium text-btc-orange hover:text-btc-orange/80 transition-colors"
                 >
-                  Back
+                  {nextLabel}
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={handleNext}
-                className="text-xs font-medium text-btc-orange hover:text-btc-orange/80 transition-colors"
-              >
-                {nextLabel}
-              </button>
+              </div>
             </div>
           </div>
         </div>
