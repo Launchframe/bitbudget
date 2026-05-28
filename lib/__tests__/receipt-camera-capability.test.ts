@@ -3,6 +3,7 @@ import {
   canTakeReceiptPhoto,
   prefersNativeCaptureInput,
   receiptCameraMode,
+  shouldCloseReceiptDialogAfterPickerDismissed,
   supportsLiveCamera,
 } from "@/lib/receipt-camera-capability"
 
@@ -45,5 +46,12 @@ describe("receipt camera capability", () => {
     vi.stubGlobal("navigator", {})
     expect(receiptCameraMode()).toBe("upload-only")
     expect(canTakeReceiptPhoto()).toBe(false)
+  })
+
+  it("closes auto-opened picker flows when the picker is dismissed", () => {
+    expect(shouldCloseReceiptDialogAfterPickerDismissed("upload", "upload-only")).toBe(true)
+    expect(shouldCloseReceiptDialogAfterPickerDismissed("camera", "capture-input")).toBe(true)
+    expect(shouldCloseReceiptDialogAfterPickerDismissed("camera", "upload-only")).toBe(true)
+    expect(shouldCloseReceiptDialogAfterPickerDismissed("camera", "live")).toBe(false)
   })
 })

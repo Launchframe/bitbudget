@@ -219,7 +219,10 @@ export function PlaidLinkButton({ onConnected, align = "end" }: PlaidLinkButtonP
         },
         onEvent: (eventName, metadata) => {
           if (eventName !== "ERROR" || outcomeHandledRef.current) return
-          const meta = metadata as { error_code?: string; error_message?: string } | null
+          const meta =
+            metadata !== null && typeof metadata === "object"
+              ? (metadata as { error_code?: string; error_message?: string })
+              : null
           if (!meta?.error_code && !meta?.error_message) return
           showConnectFailure(
             plaidConnectFailureMessage({

@@ -6,7 +6,9 @@ import { RECEIPT_SCAN_MAX_BYTES } from "@/lib/receipt-scan-validate"
 import { receiptCapturePrefillDate } from "@/lib/transaction-dates"
 import {
   receiptCameraMode,
+  shouldCloseReceiptDialogAfterPickerDismissed,
   type ReceiptCameraMode,
+  type ReceiptDialogInitialSource,
 } from "@/lib/receipt-camera-capability"
 import { ReceiptLiveCamera } from "@/components/receipt-live-camera"
 import {
@@ -81,7 +83,10 @@ export function ScanReceiptDialog({
       } else {
         fileInputRef.current?.click()
       }
-      expectCloseAfterPickerRef.current = cameraMode === "capture-input" || initialSource === "upload"
+      expectCloseAfterPickerRef.current = shouldCloseReceiptDialogAfterPickerDismissed(
+        initialSource,
+        cameraMode,
+      )
     }, 150)
     return () => {
       clearTimeout(t)
@@ -95,6 +100,14 @@ export function ScanReceiptDialog({
       return
     }
     cameraInputRef.current?.click()
+  }
+
+  function handleLiveCameraCancel(source: ReceiptDialogInitialSource | undefined) {
+    if (source === "camera") {
+      handleClose(false)
+      return
+    }
+    setLiveCameraOpen(false)
   }
 
   useEffect(() => {
@@ -241,7 +254,7 @@ export function ScanReceiptDialog({
               setLiveCameraOpen(false)
               void processFile(file)
             }}
-            onCancel={() => setLiveCameraOpen(false)}
+            onCancel={() => handleLiveCameraCancel(initialSource)}
           />
         ) : (
           <div className="flex flex-col gap-3 py-2">

@@ -11,6 +11,7 @@ export function supportsLiveCamera(): boolean {
 }
 
 export type ReceiptCameraMode = "capture-input" | "live" | "upload-only"
+export type ReceiptDialogInitialSource = "camera" | "upload"
 
 /**
  * How “Take Photo” should work on this device:
@@ -26,4 +27,11 @@ export function receiptCameraMode(): ReceiptCameraMode {
 
 export function canTakeReceiptPhoto(): boolean {
   return receiptCameraMode() !== "upload-only"
+}
+
+export function shouldCloseReceiptDialogAfterPickerDismissed(
+  initialSource: ReceiptDialogInitialSource,
+  cameraMode: ReceiptCameraMode,
+): boolean {
+  return initialSource === "upload" || cameraMode !== "live"
 }
