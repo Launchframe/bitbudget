@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it, vi, beforeEach } from "vitest"
 
+// outerRecurringFindFirst must be hoisted so it is available when vi.mock's
+// factory function runs (which is hoisted above all imports by Vitest).
+const outerRecurringFindFirst = vi.hoisted(() => vi.fn())
 const txRecurringFindFirst = vi.fn()
 const txRecurringUpdateMany = vi.fn()
 const txTransactionCreate = vi.fn()
@@ -9,6 +12,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     recurringTransaction: {
       findMany: vi.fn(),
+      findFirst: outerRecurringFindFirst,
     },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
@@ -77,6 +81,7 @@ describe("processRecurringTransactions", () => {
 
   beforeEach(() => {
     vi.mocked(prisma.recurringTransaction.findMany).mockReset()
+    outerRecurringFindFirst.mockReset()
     txRecurringFindFirst.mockReset()
     txRecurringUpdateMany.mockReset()
     txTransactionCreate.mockReset()
@@ -91,6 +96,9 @@ describe("processRecurringTransactions", () => {
       { ...baseRec, nextDueDate: nextDue },
     ] as never)
 
+    // Preview read (outside $transaction) returns the due date for getBtcPriceForDate
+    outerRecurringFindFirst.mockResolvedValue({ nextDueDate: nextDue } as never)
+    // Inside-transaction read returns full record
     txRecurringFindFirst
       .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
       .mockResolvedValue(null as never)
@@ -121,6 +129,10 @@ describe("processRecurringTransactions", () => {
       { ...baseRec, nextDueDate: nextDue },
     ] as never)
 
+    // Preview read runs once per attempt (2 attempts total in retry scenario)
+    outerRecurringFindFirst.mockResolvedValue({ nextDueDate: nextDue } as never)
+    // First attempt: record found in tx, then optimistic update fails (count 0)
+    // Second attempt (retry): record no longer due inside tx
     txRecurringFindFirst
       .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
       .mockResolvedValueOnce(null as never)
