@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -354,5 +355,56 @@ describe("linkNostrSignInMethod", () => {
       code: "NOSTR_ALREADY_LINKED",
       status: 409,
     } satisfies Partial<SignInMethodError>)
+  })
+})
+
+describe("parseNostrAuthEvent", () => {
+  const pubkey = "b".repeat(64)
+  const validEvent = (overrides: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: Math.floor(Date.now() / 1000),
+      pubkey,
+      tags: [
+        ["method", NOSTR_AUTH_EVENT_METHOD],
+      ],
+      ...overrides,
+    })
+
+  it("accepts a well-formed auth event", () => {
+    expect(() => parseNostrAuthEvent(validEvent(), pubkey)).not.toThrow()
+  })
+
+  it("rejects an event with the wrong kind (replay from another Nostr app)", () => {
+    expect(() => parseNostrAuthEvent(validEvent({ kind: 1, content: "hello" }), pubkey)).toThrow(
+      SignInMethodError,
+    )
+  })
+
+  it("rejects an event with wrong content", () => {
+    expect(() => parseNostrAuthEvent(validEvent({ content: "SomeOtherApp Login" }), pubkey)).toThrow(
+      SignInMethodError,
+    )
+  })
+
+  it("rejects a stale event (older than 5 minutes)", () => {
+    const stale = validEvent({ created_at: Math.floor(Date.now() / 1000) - 310 })
+    expect(() => parseNostrAuthEvent(stale, pubkey)).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event from the future", () => {
+    const future = validEvent({ created_at: Math.floor(Date.now() / 1000) + 120 })
+    expect(() => parseNostrAuthEvent(future, pubkey)).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event without the method tag", () => {
+    const noMethod = validEvent({ tags: [] })
+    expect(() => parseNostrAuthEvent(noMethod, pubkey)).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event for a different pubkey", () => {
+    const otherPubkey = "c".repeat(64)
+    expect(() => parseNostrAuthEvent(validEvent(), otherPubkey)).toThrow(SignInMethodError)
   })
 })
