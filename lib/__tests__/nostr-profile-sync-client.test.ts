@@ -13,7 +13,7 @@ const storageKey = `bitbudget-nostr-profile-sync:${pubkey.slice(0, 16)}`
 
 describe("shouldAttemptNostrProfileSync", () => {
   beforeEach(() => {
-    sessionStorage.clear()
+    localStorage.clear()
   })
 
   it("allows sync when no prior progress exists", () => {
@@ -21,7 +21,7 @@ describe("shouldAttemptNostrProfileSync", () => {
   })
 
   it("skips after a successful sync", () => {
-    sessionStorage.setItem(
+    localStorage.setItem(
       storageKey,
       JSON.stringify({ synced: true, failures: 0, lastFailureAt: null }),
     )
@@ -30,7 +30,7 @@ describe("shouldAttemptNostrProfileSync", () => {
 
   it("pauses after repeated failures until cooldown elapses", () => {
     const now = Date.now()
-    sessionStorage.setItem(
+    localStorage.setItem(
       storageKey,
       JSON.stringify({
         synced: false,
@@ -45,12 +45,12 @@ describe("shouldAttemptNostrProfileSync", () => {
 
 describe("resetNostrProfileSyncCooldown", () => {
   beforeEach(() => {
-    sessionStorage.clear()
+    localStorage.clear()
   })
 
   it("clears failure count after cooldown", () => {
     const now = Date.now()
-    sessionStorage.setItem(
+    localStorage.setItem(
       storageKey,
       JSON.stringify({
         synced: false,
@@ -65,7 +65,7 @@ describe("resetNostrProfileSyncCooldown", () => {
 
 describe("runNostrProfileBackgroundSync", () => {
   beforeEach(() => {
-    sessionStorage.clear()
+    localStorage.clear()
   })
 
   it("persists relay metadata and updates the session", async () => {
@@ -145,7 +145,7 @@ describe("runNostrProfileBackgroundSync", () => {
       }),
     ).resolves.toBe(false)
 
-    const stored = JSON.parse(sessionStorage.getItem(storageKey) ?? "{}") as {
+    const stored = JSON.parse(localStorage.getItem(storageKey) ?? "{}") as {
       failures?: number
       synced?: boolean
     }
@@ -154,7 +154,7 @@ describe("runNostrProfileBackgroundSync", () => {
   })
 
   it("returns false immediately when already synced (shouldAttemptNostrProfileSync is false)", async () => {
-    sessionStorage.setItem(
+    localStorage.setItem(
       storageKey,
       JSON.stringify({ synced: true, failures: 0, lastFailureAt: null }),
     )

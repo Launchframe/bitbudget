@@ -21,10 +21,10 @@ function syncStorageKey(pubkey: string): string {
 
 function readSyncProgress(pubkey: string): SyncProgress {
   try {
-    if (typeof sessionStorage === "undefined") {
+    if (typeof localStorage === "undefined") {
       return { failures: 0, lastFailureAt: null, synced: false }
     }
-    const raw = sessionStorage.getItem(syncStorageKey(pubkey))
+    const raw = localStorage.getItem(syncStorageKey(pubkey))
     if (!raw) return { failures: 0, lastFailureAt: null, synced: false }
     const parsed = JSON.parse(raw) as Partial<SyncProgress>
     return {
@@ -39,8 +39,8 @@ function readSyncProgress(pubkey: string): SyncProgress {
 
 function writeSyncProgress(pubkey: string, progress: SyncProgress): void {
   try {
-    if (typeof sessionStorage === "undefined") return
-    sessionStorage.setItem(syncStorageKey(pubkey), JSON.stringify(progress))
+    if (typeof localStorage === "undefined") return
+    localStorage.setItem(syncStorageKey(pubkey), JSON.stringify(progress))
   } catch {
     /* ignore quota / private mode */
   }

@@ -4,8 +4,6 @@ import { prisma } from "@/lib/db"
 import {
   computeNostrProfileUpdates,
   needsNostrProfileSync,
-  sanitizeNostrProfileImage,
-  sanitizeNostrProfileName,
 } from "@/lib/nostr-profile"
 
 const userSelect = {
@@ -78,8 +76,8 @@ export async function POST(req: Request) {
   }
 
   const updates = computeNostrProfileUpdates(user, {
-    name: sanitizeNostrProfileName(profileName),
-    image: sanitizeNostrProfileImage(profileImage),
+    name: profileName,
+    image: profileImage,
   })
 
   if (!updates) {
