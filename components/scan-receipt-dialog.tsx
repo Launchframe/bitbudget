@@ -232,7 +232,7 @@ export function ScanReceiptDialog({
                 <img src={preview} alt="Receipt" className="w-full h-full object-contain max-h-48" />
               </div>
             )}
-            <Loader2 className="h-8 w-8 text-[#F7931A] animate-spin" />
+            <Loader2 className="h-8 w-8 text-btc-orange animate-spin" />
             <p className="text-sm text-muted-foreground">Extracting receipt details...</p>
           </div>
         ) : liveCameraOpen ? (
@@ -255,8 +255,8 @@ export function ScanReceiptDialog({
                 onClick={() => handleTakePhotoClick(cameraMode)}
                 className="flex items-center gap-4 w-full py-4 px-4 bg-[#1A1A1A] rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
               >
-                <div className="p-2.5 rounded-lg bg-[#F7931A]/10">
-                  <Camera className="h-5 w-5 text-[#F7931A]" />
+                <div className="p-2.5 rounded-lg bg-btc-orange/10">
+                  <Camera className="h-5 w-5 text-btc-orange" />
                 </div>
                 <div className="flex flex-col text-left">
                   <span className="font-semibold text-foreground">Take Photo</span>

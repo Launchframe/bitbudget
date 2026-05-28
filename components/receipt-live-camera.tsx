@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Camera, Loader2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -12,18 +12,30 @@ interface ReceiptLiveCameraProps {
 export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const mountedRef = useRef(false)
+  const capturingRef = useRef(false)
   const [starting, setStarting] = useState(true)
   const [capturing, setCapturing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const stopActiveStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+  }, [])
+
   useEffect(() => {
     let cancelled = false
+    mountedRef.current = true
 
     async function startCamera() {
       setStarting(true)
       setError(null)
+      let stream: MediaStream | null = null
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        if (typeof navigator.mediaDevices?.getUserMedia !== "function") {
+          throw new Error("Camera access is not available in this browser.")
+        }
+        stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: "environment" } },
           audio: false,
         })
@@ -39,6 +51,8 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
         }
         setStarting(false)
       } catch {
+        stream?.getTracks().forEach((track) => track.stop())
+        if (streamRef.current === stream) streamRef.current = null
         if (!cancelled) {
           setError(
             "We couldn’t access your camera. Check browser permissions, or upload a photo instead.",
@@ -52,21 +66,24 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
 
     return () => {
       cancelled = true
-      streamRef.current?.getTracks().forEach((track) => track.stop())
-      streamRef.current = null
+      mountedRef.current = false
+      capturingRef.current = false
+      stopActiveStream()
     }
-  }, [])
+  }, [stopActiveStream])
 
   function handleCapture() {
     const video = videoRef.current
-    if (!video || video.videoWidth === 0 || capturing) return
+    if (!video || video.videoWidth === 0 || capturingRef.current) return
 
+    capturingRef.current = true
     setCapturing(true)
     const canvas = document.createElement("canvas")
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     const ctx = canvas.getContext("2d")
     if (!ctx) {
+      capturingRef.current = false
       setCapturing(false)
       return
     }
@@ -74,11 +91,13 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
 
     canvas.toBlob(
       (blob) => {
+        if (!mountedRef.current || !capturingRef.current) return
         if (!blob) {
+          capturingRef.current = false
           setCapturing(false)
           return
         }
-        streamRef.current?.getTracks().forEach((track) => track.stop())
+        stopActiveStream()
         onCapture(new File([blob], `receipt-${Date.now()}.jpg`, { type: "image/jpeg" }))
       },
       "image/jpeg",
@@ -88,7 +107,7 @@ export function ReceiptLiveCamera({ onCapture, onCancel }: ReceiptLiveCameraProp
 
   return (
     <div className="flex flex-col gap-4 py-2">
-      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-[#333] bg-[#1A1A1A]">
+      <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl border border-[#333] bg-[#1A1A1A]">
         <video
           ref={videoRef}
           playsInline
