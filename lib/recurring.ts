@@ -59,6 +59,15 @@ async function postOneDueOccurrence(
   endOfDay: Date,
 ): Promise<number> {
   try {
+    // Preview read + BTC price fetch happen BEFORE the transaction so the DB
+    // connection is not held open during an HTTP call.
+    const preview = await prisma.recurringTransaction.findFirst({
+      where: { id: recurringId, active: true, nextDueDate: { lte: endOfDay } },
+    })
+    if (!preview) return 0
+    const previewDateStr = preview.nextDueDate.toISOString().split("T")[0]
+    const previewBtcPrice = await getBtcPriceForDate(previewDateStr)
+
     return await prisma.$transaction(async (tx) => {
       const rec = await tx.recurringTransaction.findFirst({
         where: {
@@ -71,7 +80,7 @@ async function postOneDueOccurrence(
 
       const dueDate = rec.nextDueDate
       const dateStr = dueDate.toISOString().split("T")[0]
-      const btcPrice = await getBtcPriceForDate(dateStr)
+      const btcPrice = dateStr === previewDateStr ? previewBtcPrice : await getBtcPriceForDate(dateStr)
 
       await tx.transaction.create({
         data: {

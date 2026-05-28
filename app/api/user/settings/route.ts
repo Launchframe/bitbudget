@@ -424,6 +424,18 @@ export async function PUT(req: NextRequest) {
       data.lastPaydayAt = parsed === "invalid" ? undefined : parsed
       continue
     }
+    if (field === "monthlyIncome") {
+      const income = body.monthlyIncome
+      if (typeof income !== "number" || !Number.isFinite(income) || income < 0) {
+        return NextResponse.json({ error: "Invalid monthlyIncome" }, { status: 400 })
+      }
+      const validated = validateDecimal12_2(income, "monthlyIncome")
+      if (!validated.ok) {
+        return NextResponse.json({ error: validated.error }, { status: 400 })
+      }
+      data.monthlyIncome = new Prisma.Decimal(validated.value)
+      continue
+    }
     if (field === "estimatedAnnualIncome") {
       const income = body.estimatedAnnualIncome
       if (income === null || income === undefined) {

@@ -4,6 +4,7 @@ import Credentials from "next-auth/providers/credentials"
 import Google from "next-auth/providers/google"
 import GitHub from "next-auth/providers/github"
 import { prisma } from "@/lib/db"
+import { parseNostrAuthEvent } from "@/lib/sign-in-methods"
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -67,7 +68,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         try {
           const { verifyEvent } = await import("nostr-tools")
-          const event = JSON.parse(eventStr)
+          const event = parseNostrAuthEvent(eventStr, pubkey)
           const isValid = verifyEvent(event)
           if (!isValid) return null
           if (typeof event.pubkey !== "string" || event.pubkey.toLowerCase() !== pubkey) return null

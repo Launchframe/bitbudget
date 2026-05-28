@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -354,5 +355,53 @@ describe("linkNostrSignInMethod", () => {
       code: "NOSTR_ALREADY_LINKED",
       status: 409,
     } satisfies Partial<SignInMethodError>)
+  })
+})
+
+describe("parseNostrAuthEvent (auth bypass regression guard)", () => {
+  const pubkey = "b".repeat(64)
+  const validEvent = (overrides: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: Math.floor(Date.now() / 1000),
+      pubkey,
+      tags: [["method", NOSTR_AUTH_EVENT_METHOD]],
+      id: "event-id",
+      sig: "event-sig",
+      ...overrides,
+    })
+
+  it("accepts a well-formed auth event", () => {
+    expect(() => parseNostrAuthEvent(validEvent(), pubkey)).not.toThrow()
+  })
+
+  it("rejects an event with the wrong kind — prevents replay of arbitrary Nostr events", () => {
+    // A regular Nostr note (kind 1) signed by the user must NOT authenticate them.
+    expect(() => parseNostrAuthEvent(validEvent({ kind: 1, content: "hello world" }), pubkey)).toThrow(
+      SignInMethodError,
+    )
+  })
+
+  it("rejects an event with the wrong content", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent({ content: "some other content" }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects a stale event (replay attack)", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent({ created_at: Math.floor(Date.now() / 1000) - 3600 }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event signed by a different pubkey", () => {
+    expect(() =>
+      parseNostrAuthEvent(validEvent({ pubkey: "c".repeat(64) }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("rejects an event missing the method tag", () => {
+    expect(() => parseNostrAuthEvent(validEvent({ tags: [] }), pubkey)).toThrow(SignInMethodError)
   })
 })

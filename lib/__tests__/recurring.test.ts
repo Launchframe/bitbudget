@@ -1,14 +1,23 @@
 // @vitest-environment node
 import { describe, expect, it, vi, beforeEach } from "vitest"
 
-const txRecurringFindFirst = vi.fn()
-const txRecurringUpdateMany = vi.fn()
-const txTransactionCreate = vi.fn()
+const {
+  outerRecurringFindFirst,
+  txRecurringFindFirst,
+  txRecurringUpdateMany,
+  txTransactionCreate,
+} = vi.hoisted(() => ({
+  outerRecurringFindFirst: vi.fn(),
+  txRecurringFindFirst: vi.fn(),
+  txRecurringUpdateMany: vi.fn(),
+  txTransactionCreate: vi.fn(),
+}))
 
 vi.mock("@/lib/db", () => ({
   prisma: {
     recurringTransaction: {
       findMany: vi.fn(),
+      findFirst: outerRecurringFindFirst,
     },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
@@ -77,6 +86,7 @@ describe("processRecurringTransactions", () => {
 
   beforeEach(() => {
     vi.mocked(prisma.recurringTransaction.findMany).mockReset()
+    outerRecurringFindFirst.mockReset()
     txRecurringFindFirst.mockReset()
     txRecurringUpdateMany.mockReset()
     txTransactionCreate.mockReset()
@@ -91,6 +101,11 @@ describe("processRecurringTransactions", () => {
       { ...baseRec, nextDueDate: nextDue },
     ] as never)
 
+    // preview read (outer, before $transaction)
+    outerRecurringFindFirst
+      .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+    // in-transaction read
     txRecurringFindFirst
       .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
       .mockResolvedValue(null as never)
@@ -121,17 +136,65 @@ describe("processRecurringTransactions", () => {
       { ...baseRec, nextDueDate: nextDue },
     ] as never)
 
-    txRecurringFindFirst
+    // preview read (outer, before $transaction):
+    //   first attempt — returns rec (proceeds to $tx)
+    //   second attempt (retry) — returns null (short-circuits before $tx)
+    outerRecurringFindFirst
       .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
       .mockResolvedValueOnce(null as never)
+    // in-transaction read — only the first attempt enters $tx
+    txRecurringFindFirst.mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
     txRecurringUpdateMany.mockResolvedValueOnce({ count: 0 } as never)
 
     const asOf = new Date(Date.UTC(2026, 3, 15, 10, 0, 0))
     const created = await processRecurringTransactions(userId, asOf)
 
     expect(created).toBe(0)
-    expect(prisma.$transaction).toHaveBeenCalledTimes(2)
+    // The second retry's preview returns null → no $transaction on retry
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(txTransactionCreate).toHaveBeenCalledTimes(1)
     expect(txRecurringUpdateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it("fetches BTC price outside the $transaction (regression guard)", async () => {
+    const { getBtcPriceForDate } = await import("@/lib/btc-price")
+    const getBtcMock = vi.mocked(getBtcPriceForDate)
+    getBtcMock.mockReset()
+
+    const nextDue = new Date(Date.UTC(2026, 3, 10, 0, 0, 0))
+    vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([
+      { ...baseRec, nextDueDate: nextDue },
+    ] as never)
+
+    let btcFetchedBeforeTx = false
+    let txStarted = false
+
+    outerRecurringFindFirst
+      .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+
+    getBtcMock.mockImplementation(async () => {
+      btcFetchedBeforeTx = !txStarted
+      return null
+    })
+
+    vi.mocked(prisma.$transaction).mockImplementationOnce(async (fn: (tx: unknown) => Promise<unknown>) => {
+      txStarted = true
+      return fn({
+        recurringTransaction: {
+          findFirst: txRecurringFindFirst,
+          updateMany: txRecurringUpdateMany,
+        },
+        transaction: { create: txTransactionCreate },
+      })
+    })
+
+    txRecurringFindFirst
+      .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+
+    await processRecurringTransactions(userId, new Date(Date.UTC(2026, 3, 15, 10, 0, 0)))
+
+    expect(btcFetchedBeforeTx).toBe(true)
   })
 })
