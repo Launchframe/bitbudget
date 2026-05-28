@@ -11,7 +11,7 @@ import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft, HelpCircle, Chevro
 import {
   buildAuthEventTemplate,
   decodeNsec,
-  fetchNostrProfile,
+  fetchNostrProfileWithRetry,
   normalizeHexPubkey,
   NostrExtensionTimeoutError,
   NOSTR_EXTENSION_TIMEOUT_MS,
@@ -256,7 +256,7 @@ export default function AuthPage() {
       const signedPubkey = normalizeHexPubkey(
         String((signed as { pubkey?: string }).pubkey ?? pubkey),
       )
-      const profile = await fetchNostrProfile(signedPubkey)
+      const profile = await fetchNostrProfileWithRetry(signedPubkey)
 
       const result = await signIn("nostr", {
         pubkey: signedPubkey,
@@ -325,7 +325,7 @@ export default function AuthPage() {
     try {
       const { secretKey, pubkey } = decodeNsec(nsecValue)
       const signed = signAuthEvent(secretKey, window.location.origin)
-      const profile = await fetchNostrProfile(pubkey)
+      const profile = await fetchNostrProfileWithRetry(pubkey)
       const result = await signIn("nostr", {
         pubkey,
         event: JSON.stringify(signed),

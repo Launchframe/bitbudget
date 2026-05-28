@@ -3,6 +3,7 @@ import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { SessionProvider } from "@/components/session-provider"
 import { ReturningUserCookie } from "@/components/returning-user-cookie"
+import { NostrProfileSync } from "@/components/nostr-profile-sync"
 import { PlatformProvider } from "@/lib/platform-context"
 import "./globals.css"
 
@@ -38,6 +39,7 @@ export default function RootLayout({
       <body className={`${spaceGrotesk.className} ${ibmPlexMono.variable} antialiased`}>
         <SessionProvider>
           <ReturningUserCookie />
+          <NostrProfileSync />
           <PlatformProvider>{children}</PlatformProvider>
         </SessionProvider>
         <Analytics />

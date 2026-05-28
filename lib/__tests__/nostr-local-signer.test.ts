@@ -18,6 +18,7 @@ import {
   buildAuthEventTemplate,
   decodeNsec,
   fetchNostrProfile,
+  fetchNostrProfileWithRetry,
   normalizeHexPubkey,
   NostrExtensionTimeoutError,
   signAuthEvent,
@@ -201,6 +202,41 @@ describe("fetchNostrProfile", () => {
       await vi.advanceTimersByTimeAsync(50)
       await expect(profilePromise).resolves.toEqual({})
       expect(mockClose).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe("fetchNostrProfileWithRetry", () => {
+  const pk = "0".repeat(64)
+
+  it("returns immediately when the first attempt succeeds", async () => {
+    mockGet.mockResolvedValue({
+      content: JSON.stringify({ name: "Alice", picture: "https://example.com/p.png" }),
+    })
+    const profile = await fetchNostrProfileWithRetry(pk, { maxAttempts: 3, baseDelayMs: 1 })
+    expect(profile).toEqual({ name: "Alice", image: "https://example.com/p.png" })
+    expect(mockGet).toHaveBeenCalledTimes(1)
+  })
+
+  it("retries when early attempts return empty metadata", async () => {
+    vi.useFakeTimers()
+    try {
+      mockGet
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          content: JSON.stringify({ display_name: "Bob" }),
+        })
+
+      const profilePromise = fetchNostrProfileWithRetry(pk, {
+        maxAttempts: 3,
+        timeoutMs: 50,
+        baseDelayMs: 10,
+      })
+      await vi.advanceTimersByTimeAsync(10)
+      await expect(profilePromise).resolves.toEqual({ name: "Bob", image: undefined })
+      expect(mockGet).toHaveBeenCalledTimes(2)
     } finally {
       vi.useRealTimers()
     }

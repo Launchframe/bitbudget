@@ -251,3 +251,29 @@ export async function fetchNostrProfile(
     }
   }
 }
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Fetch kind-0 metadata with short backoff retries (login and link flows). */
+export async function fetchNostrProfileWithRetry(
+  pubkey: string,
+  options: {
+    maxAttempts?: number
+    timeoutMs?: number
+    baseDelayMs?: number
+  } = {},
+): Promise<NostrProfile> {
+  const { maxAttempts = 3, timeoutMs = 4000, baseDelayMs = 400 } = options
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const profile = await fetchNostrProfile(pubkey, timeoutMs)
+    if (profile.name || profile.image) return profile
+    if (attempt < maxAttempts) {
+      await sleep(baseDelayMs * attempt)
+    }
+  }
+
+  return {}
+}

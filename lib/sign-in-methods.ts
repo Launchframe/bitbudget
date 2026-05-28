@@ -5,12 +5,11 @@ import {
   NOSTR_AUTH_EVENT_KIND,
   NOSTR_AUTH_EVENT_METHOD,
 } from "@/lib/nostr-auth-event"
+import { sanitizeNostrProfileImage, sanitizeNostrProfileName } from "@/lib/nostr-profile"
 
 export type LinkProvider = "google" | "github"
 const NOSTR_AUTH_EVENT_MAX_AGE_SECONDS = 5 * 60
 const NOSTR_AUTH_EVENT_FUTURE_SKEW_SECONDS = 60
-const NOSTR_PROFILE_NAME_MAX_LENGTH = 80
-const NOSTR_PROFILE_IMAGE_MAX_LENGTH = 2048
 
 export interface SignInMethods {
   email: string | null
@@ -60,22 +59,6 @@ function isUniqueConstraintError(error: unknown, field: string) {
 
 function hasTag(event: { tags: string[][] }, name: string, value: string) {
   return event.tags.some(tag => tag[0] === name && tag[1] === value)
-}
-
-function sanitizeProfileName(profileName?: string) {
-  const name = profileName?.trim()
-  return name ? name.slice(0, NOSTR_PROFILE_NAME_MAX_LENGTH) : undefined
-}
-
-function sanitizeProfileImage(profileImage?: string) {
-  const image = profileImage?.trim()
-  if (!image || image.length > NOSTR_PROFILE_IMAGE_MAX_LENGTH) return undefined
-  try {
-    const url = new URL(image)
-    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined
-  } catch {
-    return undefined
-  }
 }
 
 function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigin?: string) {
@@ -259,8 +242,8 @@ export async function linkNostrSignInMethod({
   }
 
   const data: { nostrPubkey: string; name?: string; image?: string } = { nostrPubkey: trimmedPubkey }
-  const name = sanitizeProfileName(profileName)
-  const image = sanitizeProfileImage(profileImage)
+  const name = sanitizeNostrProfileName(profileName)
+  const image = sanitizeNostrProfileImage(profileImage)
   if (name) data.name = name
   if (image) data.image = image
 

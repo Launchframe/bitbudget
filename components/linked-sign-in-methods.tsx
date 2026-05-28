@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { signIn } from "next-auth/react"
 import { AlertCircle, CheckCircle2, Github, Loader2, Mail, Shield, Zap } from "lucide-react"
-import { buildAuthEventTemplate, fetchNostrProfile } from "@/lib/nostr-local-signer"
+import { buildAuthEventTemplate, fetchNostrProfileWithRetry } from "@/lib/nostr-local-signer"
 import type { LinkProvider, SignInMethods } from "@/lib/sign-in-methods"
 import { Input } from "@/components/ui/input"
 import {
@@ -147,7 +147,7 @@ export function LinkedSignInMethods() {
       const pubkey = await nostrExt.getPublicKey()
       const event = { ...buildAuthEventTemplate(window.location.origin), pubkey }
       const signed = await nostrExt.signEvent(event)
-      const profile = await fetchNostrProfile(pubkey)
+      const profile = await fetchNostrProfileWithRetry(pubkey)
       const res = await fetch("/api/user/sign-in-methods", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
