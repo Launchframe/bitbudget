@@ -669,7 +669,7 @@ export function NewTransactionDialog() {
   return (
     <Dialog open={transactionDialogOpen} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="flex max-h-[min(90dvh,900px)] min-h-0 flex-col gap-0 overflow-hidden border-[#1F1F1F] bg-[#0D0D0D] p-0 text-foreground sm:max-w-lg">
-        <DialogHeader className="shrink-0 px-6 pb-2 pr-14 pt-6">
+        <DialogHeader className="shrink-0 px-6 pb-2 pr-14 pt-6" data-walkthrough="new-transaction-dialog-header">
           <DialogTitle className="text-lg font-bold text-foreground">
             {successSnapshot
               ? "Saved!"

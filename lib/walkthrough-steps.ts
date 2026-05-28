@@ -1,8 +1,21 @@
 import type { PageId } from "@/lib/app-context"
+import type { TransactionPrefill } from "@/lib/app-context"
 
 export type WalkthroughTooltipPosition = "right" | "bottom"
 
 export type WalkthroughSettingsTab = "general" | "integrations"
+
+export type SpotlightAction = "open-new-transaction" | "open-input-mode-sheet"
+export type AwaitCloseTarget = "new-transaction-dialog" | "input-mode-sheet"
+
+export interface WalkthroughSpotlight {
+  /** Label shown near the spotlighted element */
+  prompt: string
+  /** Action the overlay takes when user clicks the spotlighted element */
+  action: SpotlightAction
+  /** Prefill to pass when action is open-new-transaction */
+  prefill?: TransactionPrefill
+}
 
 export interface WalkthroughStepDef {
   id: string
@@ -14,6 +27,22 @@ export interface WalkthroughStepDef {
   settingsTab?: WalkthroughSettingsTab
   /** Skip step when predicate returns false */
   when?: (ctx: WalkthroughContext) => boolean
+  /** Restrict step to a specific platform */
+  platform?: "mobile" | "desktop"
+  /**
+   * When set, clicking Next enters spotlight mode on this step's target
+   * (or a custom target). The user must tap the spotlighted element to advance.
+   */
+  spotlight?: WalkthroughSpotlight
+  /**
+   * When set, this step stays visible while the specified overlay is open
+   * and auto-advances when that overlay closes (no backdrop; high z-index).
+   */
+  awaitClose?: AwaitCloseTarget
+  /**
+   * When set, advancing from this step programmatically closes the specified overlay.
+   */
+  closeOnAdvance?: AwaitCloseTarget
 }
 
 export interface WalkthroughContext {
@@ -21,6 +50,13 @@ export interface WalkthroughContext {
   savingsEngaged: boolean
   hasPremiumFeatures: boolean
   pendingCount: number
+  isMobile: boolean
+}
+
+const MOCK_PREFILL: TransactionPrefill = {
+  payee: "Coffee Shop",
+  amount: "4.50",
+  type: "expense",
 }
 
 export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepDef[] {
@@ -31,7 +67,7 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       target: "dashboard-metrics",
       title: "Your month at a glance",
       description:
-        "Income, what’s left in your envelopes, and Savings show up here as you add activity.",
+        "Income, what's left in your envelopes, and Savings show up here as you add activity.",
       position: "bottom",
     },
     {
@@ -49,8 +85,9 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       page: "dashboard",
       target: "app-nav",
       title: "Move around the app",
-      description:
-        "Home, transactions, budget, and stats are in the nav. On your phone, use the bar at the bottom.",
+      description: ctx.isMobile
+        ? "Home, transactions, budget, and stats are in the bar at the bottom."
+        : "Dashboard, transactions, budget, and stats are in the nav on the left.",
       position: "bottom",
     },
     {
@@ -75,9 +112,25 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       page: "transactions",
       target: "new-transaction",
       title: "Add a transaction",
-      description:
-        "Tap the orange + on the bottom bar on your phone, or New Transaction in the sidebar on desktop.",
+      description: ctx.isMobile
+        ? "Tap the orange button at the bottom to record a purchase or income. Let's try it."
+        : "Click New Transaction in the sidebar to record a purchase or income. Let's try it.",
       position: "bottom",
+      spotlight: {
+        prompt: ctx.isMobile ? "Tap to try it" : "Click to try it",
+        action: "open-new-transaction",
+        prefill: MOCK_PREFILL,
+      },
+    },
+    {
+      id: "new-transaction-dialog",
+      page: "transactions",
+      target: "new-transaction-dialog-header",
+      title: "Anatomy of a transaction",
+      description:
+        "Give it a payee, amount, and pick an envelope. You can tag it or make it recurring. Explore freely — the tour will wait.",
+      position: "bottom",
+      awaitClose: "new-transaction-dialog",
     },
     {
       id: "scan-receipt",
@@ -86,6 +139,33 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
       title: "Scan a receipt",
       description: "Use a photo or PDF — we suggest fields and you confirm before saving.",
       position: "right",
+      platform: "desktop",
+    },
+    {
+      id: "transaction-mode-intro",
+      page: "transactions",
+      target: "transaction-mode-btn",
+      title: "Capture modes",
+      description:
+        "That button changes what the center button does — manual entry, scan receipts, or voice. Tap it to see the options.",
+      position: "bottom",
+      platform: "mobile",
+      spotlight: {
+        prompt: "Tap to see options",
+        action: "open-input-mode-sheet",
+      },
+    },
+    {
+      id: "capture-modes",
+      page: "transactions",
+      target: "transaction-mode-btn",
+      title: "Pick your default capture mode",
+      description:
+        "Choose what comes up when you tap Add a transaction. Great for working through a pile of receipts.",
+      position: "bottom",
+      platform: "mobile",
+      awaitClose: "input-mode-sheet",
+      closeOnAdvance: "input-mode-sheet",
     },
     {
       id: "savings-hero",
@@ -167,5 +247,10 @@ export function buildWalkthroughSteps(ctx: WalkthroughContext): WalkthroughStepD
     })
   }
 
-  return steps.filter((s) => (s.when ? s.when(ctx) : true))
+  return steps.filter((s) => {
+    if (s.when && !s.when(ctx)) return false
+    if (s.platform === "mobile" && !ctx.isMobile) return false
+    if (s.platform === "desktop" && ctx.isMobile) return false
+    return true
+  })
 }

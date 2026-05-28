@@ -47,6 +47,7 @@ export function Header() {
             onClick={() => setInputModeSheetOpen(true)}
             className="h-10 w-10 rounded-full flex items-center justify-center bg-[#1A1A1A] border border-[#333] hover:bg-[#222] transition-colors md:hidden"
             aria-label="Input mode"
+            data-walkthrough="transaction-mode-btn"
           >
             <ScanLine className="h-4 w-4 text-[#F7931A]" />
           </button>

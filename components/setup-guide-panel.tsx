@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react"
 import { useApp } from "@/lib/app-context"
 import { SAVINGS_EXPERIENCE_DISMISSED, SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 import { ACHIEVEMENT_LABELS } from "@/lib/savings-ui-metrics"
+import { SETUP_GUIDE_SNOOZE_MS } from "@/lib/setup-guide-status"
 import type { SetupGuideTaskId, SetupGuideTaskStatus } from "@/lib/setup-guide-status"
 import { cn } from "@/lib/utils"
 
@@ -240,6 +241,21 @@ export function SetupGuidePanel({
   const progressAccent = savingsEngaged ? SAVINGS_GOLD_ACCENT : "#F7931A"
   const compactDashboard = variant === "dashboard" && !allComplete
   const [showAllTasks, setShowAllTasks] = useState(false)
+  const [snoozeConfirmed, setSnoozeConfirmed] = useState(false)
+
+  const snoozeLabel = (() => {
+    const ms = SETUP_GUIDE_SNOOZE_MS
+    const hours = Math.round(ms / (60 * 60 * 1000))
+    if (hours < 24) return `${hours} hour${hours !== 1 ? "s" : ""}`
+    const days = Math.round(hours / 24)
+    return `${days} day${days !== 1 ? "s" : ""}`
+  })()
+
+  function handleSnoozeClick() {
+    setSnoozeConfirmed(true)
+    onSnooze?.()
+    setTimeout(() => setSnoozeConfirmed(false), 4000)
+  }
 
   const incompleteRows = useMemo(() => rows.filter((r) => !r.complete), [rows])
   const nextRow = incompleteRows[0]
@@ -275,20 +291,32 @@ export function SetupGuidePanel({
           </p>
         </div>
         {variant === "dashboard" && !allComplete && (
-          <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:justify-end shrink-0">
-            {onSnooze && (
-              <button type="button" onClick={onSnooze} className={dashboardSecondaryActionClass}>
-                Remind me later
-              </button>
-            )}
-            {onDismissFromHome && (
-              <button
-                type="button"
-                onClick={onDismissFromHome}
-                className={dashboardSecondaryActionClass}
-              >
-                Hide from Home
-              </button>
+          <div className="flex flex-col items-end gap-1.5 w-full sm:w-auto shrink-0">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              {onSnooze && (
+                <button
+                  type="button"
+                  onClick={handleSnoozeClick}
+                  className={dashboardSecondaryActionClass}
+                  disabled={snoozeConfirmed}
+                >
+                  Remind me later
+                </button>
+              )}
+              {onDismissFromHome && (
+                <button
+                  type="button"
+                  onClick={onDismissFromHome}
+                  className={dashboardSecondaryActionClass}
+                >
+                  Hide from Home
+                </button>
+              )}
+            </div>
+            {snoozeConfirmed && (
+              <p className="text-[11px] text-muted-foreground text-right animate-in fade-in duration-200">
+                We&apos;ll remind you in {snoozeLabel}.
+              </p>
             )}
           </div>
         )}
