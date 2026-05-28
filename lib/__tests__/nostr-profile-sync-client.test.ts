@@ -152,4 +152,81 @@ describe("runNostrProfileBackgroundSync", () => {
     expect(stored.synced).toBe(false)
     expect(stored.failures).toBe(1)
   })
+
+  it("returns false immediately when already synced (shouldAttemptNostrProfileSync is false)", async () => {
+    sessionStorage.setItem(
+      storageKey,
+      JSON.stringify({ synced: true, failures: 0, lastFailureAt: null }),
+    )
+    const fetchProfile = vi.fn()
+
+    await expect(
+      runNostrProfileBackgroundSync(pubkey, vi.fn(), {
+        retryDelaysMs: [0],
+        fetchProfile,
+        postSync: vi.fn(),
+        sleepFn: async () => {},
+      }),
+    ).resolves.toBe(false)
+
+    expect(fetchProfile).not.toHaveBeenCalled()
+  })
+
+  it("marks as synced when server responds needsSync===false (no update needed)", async () => {
+    const fetchProfile = vi.fn().mockResolvedValue({
+      name: "Carol",
+      image: "https://cdn.test/c.png",
+    })
+    const postSync = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        updated: false,
+        needsSync: false,
+        name: "Carol",
+        image: "https://cdn.test/c.png",
+      }),
+    })
+    const updateSession = vi.fn()
+
+    await expect(
+      runNostrProfileBackgroundSync(pubkey, updateSession, {
+        retryDelaysMs: [0],
+        fetchProfile,
+        postSync,
+        sleepFn: async () => {},
+      }),
+    ).resolves.toBe(true)
+
+    // Server said no update needed — client must still mark as synced
+    expect(shouldAttemptNostrProfileSync(pubkey)).toBe(false)
+    // Session must NOT be updated when server didn't apply changes
+    expect(updateSession).not.toHaveBeenCalled()
+  })
+
+  it("continues retrying when POST returns non-ok", async () => {
+    const fetchProfile = vi
+      .fn()
+      .mockResolvedValueOnce({ name: "Dave" })
+      .mockResolvedValueOnce({ name: "Dave" })
+    const postSync = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, json: async () => ({}) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ updated: true, needsSync: false, name: "Dave", image: null }),
+      })
+    const updateSession = vi.fn().mockResolvedValue(null)
+
+    await expect(
+      runNostrProfileBackgroundSync(pubkey, updateSession, {
+        retryDelaysMs: [0, 0],
+        fetchProfile,
+        postSync,
+        sleepFn: async () => {},
+      }),
+    ).resolves.toBe(true)
+
+    expect(postSync).toHaveBeenCalledTimes(2)
+    expect(updateSession).toHaveBeenCalledWith({ name: "Dave", image: undefined })
+  })
 })

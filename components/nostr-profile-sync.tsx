@@ -16,6 +16,9 @@ export function NostrProfileSync() {
     }
     if (syncStartedRef.current) return
 
+    // Set synchronously so a concurrent effect invocation (Strict Mode double-fire
+    // or unstable `update` reference) sees the guard before the first fetch returns.
+    syncStartedRef.current = true
     let cancelled = false
 
     void (async () => {
@@ -28,7 +31,6 @@ export function NostrProfileSync() {
         }
         if (!data.needsSync || !data.nostrPubkey?.trim() || cancelled) return
 
-        syncStartedRef.current = true
         await runNostrProfileBackgroundSync(data.nostrPubkey, update)
       } catch {
         /* non-fatal — user can keep using the app */
