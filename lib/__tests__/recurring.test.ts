@@ -1,14 +1,26 @@
 // @vitest-environment node
 import { describe, expect, it, vi, beforeEach } from "vitest"
 
-const txRecurringFindFirst = vi.fn()
-const txRecurringUpdateMany = vi.fn()
-const txTransactionCreate = vi.fn()
+// vi.hoisted ensures these are available when vi.mock factories run (which are hoisted above imports).
+// Preview-read mock: called OUTSIDE the $transaction (BTC price fetch needs the date first)
+// Transaction-scoped mocks: called INSIDE the $transaction callback
+const {
+  outerRecurringFindFirst,
+  txRecurringFindFirst,
+  txRecurringUpdateMany,
+  txTransactionCreate,
+} = vi.hoisted(() => ({
+  outerRecurringFindFirst: vi.fn(),
+  txRecurringFindFirst: vi.fn(),
+  txRecurringUpdateMany: vi.fn(),
+  txTransactionCreate: vi.fn(),
+}))
 
 vi.mock("@/lib/db", () => ({
   prisma: {
     recurringTransaction: {
       findMany: vi.fn(),
+      findFirst: outerRecurringFindFirst,
     },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({
@@ -77,6 +89,7 @@ describe("processRecurringTransactions", () => {
 
   beforeEach(() => {
     vi.mocked(prisma.recurringTransaction.findMany).mockReset()
+    outerRecurringFindFirst.mockReset()
     txRecurringFindFirst.mockReset()
     txRecurringUpdateMany.mockReset()
     txTransactionCreate.mockReset()
@@ -91,6 +104,13 @@ describe("processRecurringTransactions", () => {
       { ...baseRec, nextDueDate: nextDue },
     ] as never)
 
+    // Preview read (outside $transaction) returns the due date on the first call,
+    // then null so the per-rule catchup loop terminates.
+    outerRecurringFindFirst
+      .mockResolvedValueOnce({ nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+
+    // Transaction-scoped read: used inside $transaction for the optimistic-lock check.
     txRecurringFindFirst
       .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)
       .mockResolvedValue(null as never)
@@ -108,6 +128,27 @@ describe("processRecurringTransactions", () => {
     expect(updated.getTime()).toBe(advanceDate(nextDue, "weekly").getTime())
   })
 
+  it("fetches BTC price for the due date (outside transaction) and passes it to the created transaction", async () => {
+    const { getBtcPriceForDate, usdToSats } = await import("@/lib/btc-price")
+    const nextDue = new Date(Date.UTC(2026, 3, 10, 0, 0, 0))
+    vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([
+      { ...baseRec, nextDueDate: nextDue },
+    ] as never)
+    outerRecurringFindFirst.mockResolvedValueOnce({ nextDueDate: nextDue } as never).mockResolvedValue(null as never)
+    txRecurringFindFirst.mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never).mockResolvedValue(null as never)
+    vi.mocked(getBtcPriceForDate).mockResolvedValue(50000 as never)
+    vi.mocked(usdToSats).mockReturnValue(2000)
+
+    await processRecurringTransactions(userId, new Date(Date.UTC(2026, 3, 15)))
+
+    // BTC price must be fetched for the correct due-date string.
+    expect(getBtcPriceForDate).toHaveBeenCalledWith("2026-04-10")
+    // Sats amount from the price lookup must reach the created transaction row.
+    expect(txTransactionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ satsAmount: 2000 }) }),
+    )
+  })
+
   it("returns 0 when nothing is due", async () => {
     vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([])
     const created = await processRecurringTransactions(userId, new Date(Date.UTC(2026, 3, 15)))
@@ -120,6 +161,13 @@ describe("processRecurringTransactions", () => {
     vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([
       { ...baseRec, nextDueDate: nextDue },
     ] as never)
+
+    // Both the initial attempt and the retry enter their own $transaction,
+    // so the preview read is hit twice — once per postOneDueOccurrence call.
+    outerRecurringFindFirst
+      .mockResolvedValueOnce({ nextDueDate: nextDue } as never)  // first attempt preview
+      .mockResolvedValueOnce({ nextDueDate: nextDue } as never)  // retry preview
+      .mockResolvedValue(null as never)
 
     txRecurringFindFirst
       .mockResolvedValueOnce({ ...baseRec, nextDueDate: nextDue } as never)

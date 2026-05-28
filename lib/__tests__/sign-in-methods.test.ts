@@ -26,6 +26,7 @@ import {
   getSignInMethods,
   linkEmailSignInMethod,
   linkNostrSignInMethod,
+  parseNostrAuthEvent,
   SignInMethodError,
 } from "@/lib/sign-in-methods"
 import {
@@ -354,5 +355,58 @@ describe("linkNostrSignInMethod", () => {
       code: "NOSTR_ALREADY_LINKED",
       status: 409,
     } satisfies Partial<SignInMethodError>)
+  })
+})
+
+describe("parseNostrAuthEvent (exported — used by lib/auth.ts Nostr authorize callback)", () => {
+  const pubkey = "b".repeat(64)
+  const now = Math.floor(Date.now() / 1000)
+
+  const makeEvent = (overrides: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      kind: NOSTR_AUTH_EVENT_KIND,
+      content: NOSTR_AUTH_EVENT_CONTENT,
+      created_at: now,
+      pubkey,
+      tags: [["method", NOSTR_AUTH_EVENT_METHOD]],
+      id: "eid",
+      sig: "esig",
+      ...overrides,
+    })
+
+  it("returns a parsed event object for a valid auth event", () => {
+    const result = parseNostrAuthEvent(makeEvent(), pubkey)
+    expect(result.kind).toBe(NOSTR_AUTH_EVENT_KIND)
+    expect(result.pubkey).toBe(pubkey)
+  })
+
+  it("throws for a non-auth Nostr event (wrong kind — the auth bypass scenario)", () => {
+    // An attacker submits a kind-1 note signed with their keypair.
+    // Without this check, verifyEvent alone would accept it and log them in.
+    expect(() =>
+      parseNostrAuthEvent(makeEvent({ kind: 1, content: "Hello" }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("throws for a stale event (replay attack)", () => {
+    expect(() =>
+      parseNostrAuthEvent(makeEvent({ created_at: now - 3600 }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("throws when pubkey in event does not match the claimed pubkey", () => {
+    expect(() =>
+      parseNostrAuthEvent(makeEvent({ pubkey: "c".repeat(64) }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("throws when the method tag is absent", () => {
+    expect(() =>
+      parseNostrAuthEvent(makeEvent({ tags: [] }), pubkey),
+    ).toThrow(SignInMethodError)
+  })
+
+  it("throws for malformed JSON", () => {
+    expect(() => parseNostrAuthEvent("not-json", pubkey)).toThrow(SignInMethodError)
   })
 })
