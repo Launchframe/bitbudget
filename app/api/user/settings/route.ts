@@ -348,6 +348,16 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  if (body.monthlyIncome !== undefined) {
+    if (typeof body.monthlyIncome !== "number" || !Number.isFinite(body.monthlyIncome)) {
+      return NextResponse.json({ error: "monthlyIncome must be a finite number" }, { status: 400 })
+    }
+    const validated = validateDecimal12_2(body.monthlyIncome, "monthlyIncome")
+    if (!validated.ok) {
+      return NextResponse.json({ error: validated.error }, { status: 400 })
+    }
+  }
+
   if (body.estimatedAnnualIncome !== undefined && body.estimatedAnnualIncome !== null) {
     if (typeof body.estimatedAnnualIncome !== "number" || !Number.isFinite(body.estimatedAnnualIncome)) {
       return NextResponse.json({ error: "estimatedAnnualIncome must be a finite number or null" }, { status: 400 })
