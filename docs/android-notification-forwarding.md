@@ -44,7 +44,7 @@ Response:
 
 ```json
 {
-  "notificationIngestToken": "64-char-hex",
+  "notificationIngestToken": "32-char-hex",
   "webhookUrl": "https://bitbudget.io/api/webhooks/notification-ingest"
 }
 ```

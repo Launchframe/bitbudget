@@ -31,8 +31,11 @@ import { ingestNotificationAlert } from "@/lib/notification-ingest"
 import { requirePremiumOrTrial } from "@/lib/subscription"
 
 describe("ingestNotificationAlert", () => {
+  const openAiKey = "test-openai-key"
+
   beforeEach(() => {
     vi.clearAllMocks()
+    process.env.OPENAI_API_KEY = openAiKey
     vi.mocked(requirePremiumOrTrial).mockResolvedValue(true)
     vi.mocked(prisma.pendingTransaction.findFirst).mockResolvedValue(null)
   })
@@ -52,6 +55,22 @@ describe("ingestNotificationAlert", () => {
     const out = await ingestNotificationAlert("u1", {})
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.status).toBe(400)
+  })
+
+  it("returns 503 when OPENAI_API_KEY is unset", async () => {
+    const prev = process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_API_KEY
+    try {
+      const out = await ingestNotificationAlert("u1", { text: "Debit $5" })
+      expect(out).toEqual({
+        ok: false,
+        status: 503,
+        error: "Service unavailable",
+        message: "Alert parsing is not configured on this server.",
+      })
+    } finally {
+      if (prev !== undefined) process.env.OPENAI_API_KEY = prev
+    }
   })
 
   it("deduplicates on idempotencyKey", async () => {

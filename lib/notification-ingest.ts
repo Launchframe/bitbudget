@@ -67,6 +67,15 @@ export async function ingestNotificationAlert(
     }
   }
 
+  if (!process.env.OPENAI_API_KEY?.trim()) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Service unavailable",
+      message: "Alert parsing is not configured on this server.",
+    }
+  }
+
   let parsed
   try {
     parsed = await parseBankAlertText(alertText)
