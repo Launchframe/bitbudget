@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { Transaction } from "@/lib/data"
 import {
+  SWEEP_BATCH_DELETE_CONFIRM_MESSAGE,
   canDeleteTransactionFromList,
   incomeBatchDeleteConfirmMessage,
   incomeBatchHasFundingLegs,
@@ -8,6 +9,8 @@ import {
   shouldCascadeDeleteSweepBatch,
   shouldCascadeDeleteTransactionBatch,
   shouldConfirmIncomeBatchDelete,
+  shouldConfirmSweepBatchDelete,
+  sweepBatchHasPairedLeg,
 } from "../transaction-batch-delete"
 
 function txn(partial: Partial<Transaction>): Transaction {
@@ -107,8 +110,41 @@ describe("transaction-batch-delete", () => {
     ).toBe(true)
     expect(
       shouldCascadeDeleteTransactionBatch(
+        txn({
+          type: "credit",
+          source: "envelope_sweep",
+          payee: "Swept from Groceries",
+        }),
+      ),
+    ).toBe(true)
+    expect(
+      shouldCascadeDeleteTransactionBatch(
         txn({ type: "expense", source: "manual", fundingBatchId: null }),
       ),
     ).toBe(false)
+  })
+
+  it("sweepBatchHasPairedLeg and shouldConfirmSweepBatchDelete", () => {
+    const batchId = "sweep-batch-1"
+    const expense = txn({
+      id: "out",
+      type: "expense",
+      source: "envelope_sweep",
+      fundingBatchId: batchId,
+    })
+    const credit = txn({
+      id: "in",
+      type: "credit",
+      source: "envelope_sweep",
+      fundingBatchId: batchId,
+      envelopeId: "sav",
+    })
+    const rows = [expense, credit]
+    expect(sweepBatchHasPairedLeg(batchId, "out", rows)).toBe(true)
+    expect(sweepBatchHasPairedLeg(batchId, "out", [expense])).toBe(false)
+    expect(shouldConfirmSweepBatchDelete(expense, rows)).toBe(true)
+    expect(shouldConfirmSweepBatchDelete(credit, rows)).toBe(true)
+    expect(shouldConfirmSweepBatchDelete(expense, [expense])).toBe(false)
+    expect(SWEEP_BATCH_DELETE_CONFIRM_MESSAGE).toMatch(/envelope and Savings/)
   })
 })

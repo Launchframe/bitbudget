@@ -14,13 +14,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
+  SWEEP_BATCH_DELETE_CONFIRM_MESSAGE,
   incomeBatchDeleteConfirmMessage,
   shouldConfirmIncomeBatchDelete,
+  shouldConfirmSweepBatchDelete,
 } from "@/lib/transaction-batch-delete"
 
 type PendingDelete = {
   txn: Transaction
   afterDelete?: () => void
+  kind: "income" | "sweep"
 }
 
 /** Prompt before deleting income headers that still have envelope funding legs. */
@@ -31,7 +34,11 @@ export function useTransactionDeleteConfirm() {
   const requestDelete = useCallback(
     (txn: Transaction, afterDelete?: () => void) => {
       if (shouldConfirmIncomeBatchDelete(txn, state.transactions)) {
-        setPending({ txn, afterDelete })
+        setPending({ txn, afterDelete, kind: "income" })
+        return
+      }
+      if (shouldConfirmSweepBatchDelete(txn, state.transactions)) {
+        setPending({ txn, afterDelete, kind: "sweep" })
         return
       }
       void deleteTransaction(txn.id)
@@ -55,9 +62,15 @@ export function useTransactionDeleteConfirm() {
     <AlertDialog open={pending != null} onOpenChange={(open) => !open && handleCancel()}>
       <AlertDialogContent className="bg-[#0D0D0D] border-[#1F1F1F]">
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete income?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {pending?.kind === "sweep" ? "Delete sweep?" : "Delete income?"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            {pending ? incomeBatchDeleteConfirmMessage(pending.txn.source) : ""}
+            {pending
+              ? pending.kind === "sweep"
+                ? SWEEP_BATCH_DELETE_CONFIRM_MESSAGE
+                : incomeBatchDeleteConfirmMessage(pending.txn.source)
+              : ""}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

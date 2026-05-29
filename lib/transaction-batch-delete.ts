@@ -66,3 +66,30 @@ export function incomeBatchDeleteConfirmMessage(source: Transaction["source"]): 
   }
   return "Deleting this income will also remove its envelope funding entries. This keeps your chart and envelope balances in sync."
 }
+
+export function sweepBatchHasPairedLeg(
+  fundingBatchId: string | null | undefined,
+  txnId: string,
+  transactions: readonly Transaction[],
+): boolean {
+  if (!fundingBatchId) return false
+  return transactions.some(
+    (t) =>
+      t.fundingBatchId === fundingBatchId &&
+      t.id !== txnId &&
+      t.source === TX_SOURCE_ENVELOPE_SWEEP,
+  )
+}
+
+export function shouldConfirmSweepBatchDelete(
+  txn: Transaction,
+  transactions: readonly Transaction[],
+): boolean {
+  return (
+    shouldCascadeDeleteSweepBatch(txn) &&
+    sweepBatchHasPairedLeg(txn.fundingBatchId, txn.id, transactions)
+  )
+}
+
+export const SWEEP_BATCH_DELETE_CONFIRM_MESSAGE =
+  "Deleting this will also remove the matching envelope and Savings entries from this sweep. This keeps your balances in sync."
