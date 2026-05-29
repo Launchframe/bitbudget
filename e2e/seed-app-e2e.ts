@@ -9,12 +9,13 @@ import {
   E2E_APP_TAG,
   E2E_APP_USER_EMAIL,
   E2E_PREMIUM_USER_EMAIL,
+  E2E_TRIAL_USER_EMAIL,
 } from "./fixtures/app-e2e-constants"
 
 export async function resetAppE2eUsers(): Promise<void> {
   await prisma.user.deleteMany({
     where: {
-      email: { in: [E2E_APP_USER_EMAIL, E2E_PREMIUM_USER_EMAIL] },
+      email: { in: [E2E_APP_USER_EMAIL, E2E_PREMIUM_USER_EMAIL, E2E_TRIAL_USER_EMAIL] },
     },
   })
 }
@@ -142,8 +143,38 @@ export async function seedPremiumE2eUser(): Promise<{ userId: string }> {
   return { userId: user.id }
 }
 
+/** Free tier + active trial — same API gates as receipt scan (requirePremiumOrTrial). */
+export async function seedTrialE2eUser(): Promise<{ userId: string }> {
+  const user = await prisma.user.create({
+    data: {
+      email: E2E_TRIAL_USER_EMAIL,
+      name: "E2E Trial User",
+      onboardingComplete: true,
+      walkthroughCompleted: true,
+      monthlyIncome: 4000,
+      subscriptionTier: "free",
+      premiumTrialUntil: new Date(Date.now() + 30 * 86400000),
+      opportunityCostEnabled: false,
+      encryptedPrivacyKey: E2E_TEST_ENCRYPTED_PRIVACY_KEY_JSON,
+      privacyKeySalt: E2E_TEST_PRIVACY_KEY_SALT_HEX,
+    },
+  })
+
+  await prisma.envelope.create({
+    data: {
+      userId: user.id,
+      name: "E2E Trial Spend",
+      monthlyAllotment: 300,
+      color: "#22C55E",
+    },
+  })
+
+  return { userId: user.id }
+}
+
 export async function seedAppE2e(): Promise<void> {
   await resetAppE2eUsers()
   await seedAppE2eUser()
   await seedPremiumE2eUser()
+  await seedTrialE2eUser()
 }
