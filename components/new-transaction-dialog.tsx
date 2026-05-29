@@ -226,6 +226,8 @@ export function NewTransactionDialog() {
     draftHydratedRef.current = true
     const draft = loadDraft(DRAFT_KEY, isNewTransactionDraft)
     if (!draft) return
+    // Prevent the prefill-payee effect (which runs later) from wiping the restored payee
+    emptyPayeePrefillResetDoneRef.current = true
     setType(draft.type)
     setPayee(draft.payee)
     setAmount(draft.amount)
