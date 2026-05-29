@@ -12,7 +12,13 @@ import type {
   RecurringTransaction,
   CommunicationPreferenceKey,
 } from "@/lib/data"
-import { compareTransactionsDesc, generateId, getDefaultState } from "@/lib/data"
+import {
+  applyServerTransactionAfterOptimisticCreate,
+  compareTransactionsDesc,
+  generateId,
+  getDefaultState,
+  transactionsAfterFullServerSync,
+} from "@/lib/data"
 import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import { shouldCascadeDeleteFundingBatch } from "@/lib/transaction-batch-delete"
@@ -781,7 +787,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await removeMissing(userId, allIds)
         setState(prev => ({
           ...prev,
-          transactions: prev.transactions.filter(t => allIds.has(t.id)),
+          transactions: transactionsAfterFullServerSync(prev.transactions, allIds),
         }))
 
         const mr = maxUpdatedAtFromApiRows(rowsRecent)
@@ -1010,10 +1016,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const nextSync = mergeLastSyncIso(prevSync, cached.updatedAt)
           if (nextSync) await setLastSyncIso(uid, nextSync)
         }
-        setState(prev => ({
+        const clientTxn = cachedToClientTransaction(cached)
+        setState((prev) => ({
           ...prev,
-          transactions: prev.transactions.map(t =>
-            t.id === optimisticId ? cachedToClientTransaction(cached) : t,
+          transactions: applyServerTransactionAfterOptimisticCreate(
+            prev.transactions,
+            optimisticId,
+            clientTxn,
           ),
         }))
         return true

@@ -309,6 +309,42 @@ export function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
+/** True for temporary client ids from {@link generateId} (not server cuid). */
+export function isClientOptimisticId(id: string): boolean {
+  return /^\d+-[a-z0-9]+$/.test(id)
+}
+
+/** After a full server txn sync, keep in-flight optimistic rows not yet on the server. */
+export function transactionsAfterFullServerSync<T extends { id: string }>(
+  transactions: T[],
+  serverIds: ReadonlySet<string>,
+): T[] {
+  return transactions.filter((t) => serverIds.has(t.id) || isClientOptimisticId(t.id))
+}
+
+/**
+ * Apply a successful create: replace the optimistic row, or append if sync already
+ * dropped it. Removes duplicate server-id rows when refresh merged the txn first.
+ */
+export function applyServerTransactionAfterOptimisticCreate<T extends { id: string }>(
+  transactions: readonly T[],
+  optimisticId: string,
+  serverRow: T,
+): T[] {
+  const idx = transactions.findIndex((t) => t.id === optimisticId)
+  if (idx >= 0) {
+    const next = transactions.filter(
+      (t) => t.id !== optimisticId && t.id !== serverRow.id,
+    )
+    const insertAt = Math.min(idx, next.length)
+    return [...next.slice(0, insertAt), serverRow, ...next.slice(insertAt)]
+  }
+  if (transactions.some((t) => t.id === serverRow.id)) {
+    return [...transactions]
+  }
+  return [serverRow, ...transactions]
+}
+
 export function getMonthKey(date: string): string {
   return transactionCalendarDay(date).slice(0, 7)
 }
