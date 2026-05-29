@@ -93,8 +93,18 @@ lib/                     Shared logic — types, crypto, contexts, helpers
 prisma/                  Schema, migrations, seeds
 public/                  Static assets (icons, onboarding screenshots)
 styles/                  Tailwind globals
-docs/                    Operator and integrator guides (see Outbound messaging below)
+docs/                    Operator and integrator guides (see Outbound messaging and BTCPay below)
 ```
+
+### Self-hosted infrastructure (BTCPay Server / StartOS)
+
+Premium payments are processed by a self-hosted **BTCPay Server** running on **StartOS 0.4.0**. The server is exposed to clearnet via **StartTunnel** (Service Interfaces → Add Public Domain) — no VPS or manual nginx/socat proxy needed on 0.4.0.
+
+**Operator guide:** [docs/startos-v04.md](docs/startos-v04.md) — StartOS 0.4.0 upgrade procedure, StartTunnel clearnet setup, BTCPay store/API/webhook configuration, local dev mock mode, and env var reference.
+
+**Env vars:** `BTCPAY_BASE_URL` (StartTunnel clearnet URL), `BTCPAY_API_KEY`, `BTCPAY_STORE_ID`, `BTCPAY_WEBHOOK_SECRET`, optional `BTCPAY_TEST_MODE`. See `.env.example`.
+
+**Agents:** When helping with BTCPay integration or StartOS infrastructure questions, read [docs/startos-v04.md](docs/startos-v04.md) first. The BTCPay Greenfield API (`lib/btcpay.ts`) uses `BTCPAY_BASE_URL`; the app is Tor-agnostic. Do not add Tor SOCKS5 proxy logic — StartTunnel handles the clearnet bridge at the infrastructure level.
 
 ### Outbound messaging (email & Nostr)
 
