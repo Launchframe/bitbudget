@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db"
 import type { Transaction } from "@/lib/data"
-import { shouldCascadeDeleteFundingBatch } from "@/lib/transaction-batch-delete"
+import { shouldCascadeDeleteTransactionBatch } from "@/lib/transaction-batch-delete"
 
 /** Delete one transaction; income headers cascade to their full funding batch. */
 export async function deleteTransactionForUser(
@@ -15,7 +15,7 @@ export async function deleteTransactionForUser(
 
   let idsToDelete = [txn.id]
   if (
-    shouldCascadeDeleteFundingBatch(
+    shouldCascadeDeleteTransactionBatch(
       txn as Pick<Transaction, "type" | "source" | "fundingBatchId">,
     ) &&
     txn.fundingBatchId

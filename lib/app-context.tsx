@@ -21,7 +21,7 @@ import {
 } from "@/lib/data"
 import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
-import { shouldCascadeDeleteFundingBatch } from "@/lib/transaction-batch-delete"
+import { shouldCascadeDeleteTransactionBatch } from "@/lib/transaction-batch-delete"
 import {
   COMMUNICATION_PREFERENCE_COLUMNS,
   normalizeCommunicationPreferences,
@@ -1092,7 +1092,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState(prev => {
       const txn = prev.transactions.find(t => t.id === id)
       const idsToRemove = new Set([id])
-      if (txn && shouldCascadeDeleteFundingBatch(txn) && txn.fundingBatchId) {
+      if (txn && shouldCascadeDeleteTransactionBatch(txn) && txn.fundingBatchId) {
         for (const t of prev.transactions) {
           if (t.fundingBatchId === txn.fundingBatchId) idsToRemove.add(t.id)
         }

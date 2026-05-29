@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest"
 import type { Transaction } from "@/lib/data"
 import {
+  SWEEP_BATCH_DELETE_CONFIRM_MESSAGE,
   canDeleteTransactionFromList,
   incomeBatchDeleteConfirmMessage,
   incomeBatchHasFundingLegs,
   shouldCascadeDeleteFundingBatch,
+  shouldCascadeDeleteSweepBatch,
+  shouldCascadeDeleteTransactionBatch,
   shouldConfirmIncomeBatchDelete,
+  shouldConfirmSweepBatchDelete,
+  sweepBatchHasPairedLeg,
 } from "../transaction-batch-delete"
 
 function txn(partial: Partial<Transaction>): Transaction {
@@ -68,5 +73,78 @@ describe("transaction-batch-delete", () => {
     expect(canDeleteTransactionFromList({ source: "manual" })).toBe(true)
     expect(canDeleteTransactionFromList({ source: "envelope_funding_in" })).toBe(false)
     expect(canDeleteTransactionFromList({ source: "envelope_funding_out" })).toBe(false)
+  })
+
+  it("shouldCascadeDeleteSweepBatch for either sweep leg", () => {
+    const batchId = "sweep-batch-1"
+    expect(
+      shouldCascadeDeleteSweepBatch({
+        source: "envelope_sweep",
+        fundingBatchId: batchId,
+      }),
+    ).toBe(true)
+    expect(
+      shouldCascadeDeleteSweepBatch({
+        source: "envelope_sweep",
+        fundingBatchId: null,
+      }),
+    ).toBe(false)
+    expect(
+      shouldCascadeDeleteSweepBatch({
+        source: "manual",
+        fundingBatchId: batchId,
+      }),
+    ).toBe(false)
+  })
+
+  it("shouldCascadeDeleteTransactionBatch includes income headers and sweep legs", () => {
+    expect(shouldCascadeDeleteTransactionBatch(txn({}))).toBe(true)
+    expect(
+      shouldCascadeDeleteTransactionBatch(
+        txn({
+          type: "expense",
+          source: "envelope_sweep",
+          payee: "Swept to Savings",
+        }),
+      ),
+    ).toBe(true)
+    expect(
+      shouldCascadeDeleteTransactionBatch(
+        txn({
+          type: "credit",
+          source: "envelope_sweep",
+          payee: "Swept from Groceries",
+        }),
+      ),
+    ).toBe(true)
+    expect(
+      shouldCascadeDeleteTransactionBatch(
+        txn({ type: "expense", source: "manual", fundingBatchId: null }),
+      ),
+    ).toBe(false)
+  })
+
+  it("sweepBatchHasPairedLeg and shouldConfirmSweepBatchDelete", () => {
+    const batchId = "sweep-batch-1"
+    const expense = txn({
+      id: "out",
+      type: "expense",
+      source: "envelope_sweep",
+      fundingBatchId: batchId,
+    })
+    const credit = txn({
+      id: "in",
+      type: "credit",
+      source: "envelope_sweep",
+      fundingBatchId: batchId,
+      envelopeId: "sav",
+    })
+    const rows = [expense, credit]
+    expect(sweepBatchHasPairedLeg(batchId, "out", rows)).toBe(true)
+    expect(sweepBatchHasPairedLeg(batchId, "out", [expense])).toBe(false)
+    expect(shouldConfirmSweepBatchDelete(expense, rows)).toBe(true)
+    expect(shouldConfirmSweepBatchDelete(credit, rows)).toBe(true)
+    expect(shouldConfirmSweepBatchDelete(expense, [expense])).toBe(false)
+    expect(SWEEP_BATCH_DELETE_CONFIRM_MESSAGE).toMatch(/envelope and Savings/)
   })
 })
