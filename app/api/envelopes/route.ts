@@ -234,6 +234,19 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  if (monthlyAllotment !== undefined) {
+    if (
+      typeof monthlyAllotment !== "number" ||
+      !Number.isFinite(monthlyAllotment) ||
+      monthlyAllotment < 0
+    ) {
+      return NextResponse.json(
+        { error: "monthlyAllotment must be a non-negative number" },
+        { status: 400 },
+      )
+    }
+  }
+
   if (sweepPolicy !== undefined) {
     if (typeof sweepPolicy !== "string" || !ALLOWED_SWEEP_POLICIES.has(sweepPolicy)) {
       return NextResponse.json({ error: "Invalid sweepPolicy" }, { status: 400 })
@@ -262,7 +275,7 @@ export async function PUT(req: NextRequest) {
       where: { id: envelopeId },
       data: {
         ...(existing.systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS && name !== undefined ? { name: name.trim() } : {}),
-        ...(monthlyAllotment !== undefined ? { monthlyAllotment } : {}),
+        ...(monthlyAllotment !== undefined ? { monthlyAllotment: Math.max(0, Math.round(monthlyAllotment * 100) / 100) } : {}),
         ...(color !== undefined ? { color } : {}),
         ...(icon !== undefined ? { icon } : {}),
         ...(archived !== undefined ? { archived } : {}),
