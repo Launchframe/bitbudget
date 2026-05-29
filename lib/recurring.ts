@@ -59,6 +59,16 @@ async function postOneDueOccurrence(
   endOfDay: Date,
 ): Promise<number> {
   try {
+    // Preview read outside the transaction so getBtcPriceForDate (which may
+    // make an outbound HTTP call) does not hold a DB connection open.
+    const preview = await prisma.recurringTransaction.findFirst({
+      where: { id: recurringId, active: true, nextDueDate: { lte: endOfDay } },
+      select: { nextDueDate: true },
+    })
+    if (!preview) return 0
+    const previewDateStr = preview.nextDueDate.toISOString().split("T")[0]
+    const btcPrice = await getBtcPriceForDate(previewDateStr)
+
     return await prisma.$transaction(async (tx) => {
       const rec = await tx.recurringTransaction.findFirst({
         where: {
@@ -71,7 +81,9 @@ async function postOneDueOccurrence(
 
       const dueDate = rec.nextDueDate
       const dateStr = dueDate.toISOString().split("T")[0]
-      const btcPrice = await getBtcPriceForDate(dateStr)
+      // If the due date shifted between the preview read and the transaction
+      // (extremely rare race), re-fetch the price for the correct date.
+      const effectiveBtcPrice = dateStr === previewDateStr ? btcPrice : await getBtcPriceForDate(dateStr)
 
       await tx.transaction.create({
         data: {
@@ -84,7 +96,7 @@ async function postOneDueOccurrence(
           tags: rec.tags,
           notes: rec.notes,
           recurringId: rec.id,
-          satsAmount: btcPrice ? usdToSats(rec.amount, btcPrice) : null,
+          satsAmount: effectiveBtcPrice ? usdToSats(rec.amount, effectiveBtcPrice) : null,
         },
       })
 

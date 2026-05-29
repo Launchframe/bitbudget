@@ -61,7 +61,7 @@ function hasTag(event: { tags: string[][] }, name: string, value: string) {
   return event.tags.some(tag => tag[0] === name && tag[1] === value)
 }
 
-function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigin?: string) {
+export function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigin?: string) {
   let parsed: unknown
   try {
     parsed = JSON.parse(event)
