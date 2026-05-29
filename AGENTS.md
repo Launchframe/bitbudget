@@ -203,6 +203,23 @@ Both DB URLs are required for `migrate deploy`. If `DATABASE_URL_UNPOOLED` is mi
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
 - `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **should** be called within `BtcPriceProvider`. If it runs outside the provider (e.g. vanilla mode or a missing wrapper), it returns **`NOOP_PRICES`** (zeros / no-op helpers) and logs a **dev-time warning** — it does not throw. Still wrap components that need real BTC data in `BtcPriceProvider` when `opportunityCostEnabled` is on.
 
+### Smart defaults must never overwrite explicit user choices
+
+Any feature that infers or suggests a value — envelope auto-assignment from payee history, payee alias inference, smart duplicate detection, AI/LLM categorization — **must not overwrite a value the user has already set**. User intent is sacrosanct.
+
+**The rule:** track which values the user has explicitly touched (e.g. a `manuallySetRows: Set<number>` exclusion set, an `overrides` map, or a boolean "touched" flag per field) and gate every automated update behind it. If a field is in the user-touched set, no background inference may alter it.
+
+**Propagation:** smart defaults that apply to multiple rows (e.g. "all rows with the same payee inherit the same envelope") must still respect the exclusion set for each individual row. Changing one row should propagate to all sibling rows that have NOT been manually set; it must never overwrite a row the user individually changed.
+
+**UI hint:** when a value was set by inference (not the user), show a subtle source label (e.g. "From Whole Foods Market history") so the user understands where it came from and can override it. Once the user changes the value, treat it as manually set — clear the hint and add it to the exclusion set.
+
+**Implementation pattern:**
+- Keep a `manuallySetRows` (or `touched`) set/map in component state.
+- When a smart default fires, check `!touched.has(id)` before applying.
+- When a user event fires (onChange, onClick accept), add the id to `touched` before writing the value.
+- Never reset `touched` due to background re-computation (e.g. re-loading envelope suggestions).
+- When the draft is hydrated from sessionStorage, restore `touched` alongside the values.
+
 ### Input persistence for multi-field flows
 
 Any multi-step or multi-field input flow (onboarding, income import, transaction batch entry, future wizards) **must** cache in-progress state so accidentally closing the dialog or refreshing the page does not destroy the user's work.
@@ -470,6 +487,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **Conflating notification email with sign-in email** — notification addresses use `UserNotificationEmail` and `/api/user/notification-email`; sign-in linking uses `/api/user/sign-in-methods` and `User.email`. Nostr-only users linking mail for **notifications** does not require the sign-in privacy dialog.
 - **`BITBUDGET_NOSTR_NSEC` exposure** — server-only env; never `NEXT_PUBLIC_` or client bundles. Rotate if leaked.
 - **Missing `min-w-0` in flex/grid layouts** — a child row (tabs, toolbars, input+button pairs) expands the page horizontally on phones. Add `min-w-0 w-full max-w-full` down the layout chain, or stack on mobile. **`overflow-x-auto` without a bounded parent does not fix this.**
+- **Smart defaults silently overwriting user choices** — envelope suggestions, payee inference, and similar features must never update a value the user has already set. Always maintain a `manuallySetRows` / `touched` exclusion set and gate all automated writes behind it. See **Smart defaults must never overwrite explicit user choices** under Code Conventions.
 - **Desktop-first breakpoints** — building a wide horizontal layout by default and only wrapping at `lg`/`md` often breaks between 320–640px. Default to mobile layout; enhance upward with `sm:` / `md:` / `lg:`.
 - **Fixed padding and min-widths on cards** — uniform `p-6` plus wide inner flex rows can clip buttons and text on 390px-wide screens. Use responsive padding and `flex-col sm:flex-row` for compound controls.
 - **Multi-field flow without draft persistence** — any non-trivial input flow must follow the **Input persistence for multi-field flows** convention. Closing a dialog must not silently destroy in-progress work; provide **Clear All** with confirmation.
