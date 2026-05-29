@@ -82,4 +82,20 @@ describe("findWalkthroughTarget", () => {
     const el = findWalkthroughTarget("new-transaction")
     expect(el?.id).toBe("fab")
   })
+
+  it("prefers the mobile header input mode button over in-page duplicates", () => {
+    document.body.innerHTML = `
+      <main>
+        <button data-walkthrough="transaction-mode-btn" id="page-btn"></button>
+      </main>
+      <header>
+        <button data-walkthrough="transaction-mode-btn" id="header-btn"></button>
+      </header>
+    `
+    mockRect(document.getElementById("page-btn")!, 120, 40)
+    mockRect(document.getElementById("header-btn")!, 40, 40)
+
+    const el = findWalkthroughTarget("transaction-mode-btn")
+    expect(el?.id).toBe("header-btn")
+  })
 })

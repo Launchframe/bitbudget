@@ -261,6 +261,7 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 - **Savings gold accent:** `SAVINGS_GOLD_ACCENT` (`#D4AF37` in `lib/constants.ts`) — use sparingly for Savings hero card border, pinned Savings filter pill, savings-mode chart lines, and Savings dashboard tile highlights. Distinct from Bitcoin orange.
 - Success/credit color: `#22C55E`. Blue accent: `#3B82F6`.
 - BTC numeric values use `font-ibm-plex-mono` class for monospace rendering.
+- **Use `Switch` for boolean settings**, not `<input type="checkbox">`. Native checkboxes are off-brand; the shadcn `Switch` component (`components/ui/switch.tsx`) fits the dark-theme design language.
 - **Mobile-first responsive design is required**, not optional. Default styles target narrow viewports; use Tailwind breakpoints (`sm:`, `md:`, `lg:`) to enhance layout on larger screens. Most signed-in users reach the app on phones — a page that only looks correct on desktop is a bug.
 
 ### Responsive UI (mobile-first)

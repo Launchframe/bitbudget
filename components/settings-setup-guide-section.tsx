@@ -8,6 +8,7 @@ import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { setupGuideProgress, type SetupGuideTaskId } from "@/lib/setup-guide-status"
 import { focusSettingsSection } from "@/lib/setup-guide-client"
 import { useSetupGuideStatus } from "@/lib/use-setup-guide-status"
+import { Switch } from "@/components/ui/switch"
 
 export function SettingsSetupGuideSection() {
   const {
@@ -77,21 +78,21 @@ export function SettingsSetupGuideSection() {
         <h3 className="text-lg font-semibold text-foreground">Setup guide</h3>
       </div>
 
-      <label className="flex items-start gap-3 mb-4 cursor-pointer min-w-0">
-        <input
-          type="checkbox"
-          checked={state.setupGuideShowOnDashboard}
-          onChange={(e) => void handleToggleShowOnHome(e.target.checked)}
-          className="mt-1 h-4 w-4 rounded border-[#333] accent-[#F7931A]"
-        />
-        <span className="min-w-0">
+      <div className="flex items-start justify-between gap-3 mb-4 min-w-0">
+        <div className="min-w-0">
           <span className="text-sm font-medium text-foreground block">Show setup guide on Home</span>
           <span className="text-xs text-muted-foreground">
             Track essentials on your dashboard. You can hide it from Home anytime — it stays here in
             Settings.
           </span>
-        </span>
-      </label>
+        </div>
+        <Switch
+          checked={state.setupGuideShowOnDashboard}
+          onCheckedChange={(checked) => void handleToggleShowOnHome(checked)}
+          aria-label="Show setup guide on Home"
+          className="shrink-0 mt-0.5"
+        />
+      </div>
 
       {state.setupGuideDismissed && (
         <p className="text-xs text-muted-foreground mb-4">

@@ -1,5 +1,10 @@
-/** Targets on shell chrome (nav, FAB) — not in-page duplicates inside `<main>`. */
-const SHELL_WALKTHROUGH_TARGETS = new Set(["app-nav", "new-transaction", "scan-receipt"])
+/** Targets on shell chrome (nav, FAB, header buttons) — not in-page duplicates inside `<main>`. */
+const SHELL_WALKTHROUGH_TARGETS = new Set([
+  "app-nav",
+  "new-transaction",
+  "scan-receipt",
+  "transaction-mode-btn",
+])
 
 function isVisibleWalkthroughAnchor(el: Element): boolean {
   const rect = el.getBoundingClientRect()
