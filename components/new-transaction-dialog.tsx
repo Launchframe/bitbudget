@@ -302,6 +302,7 @@ export function NewTransactionDialog() {
   }, [transactionDialogOpen])
 
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
   const suggestionsRef = useRef<HTMLDivElement>(null)
   const payeeInputRef = useRef<HTMLInputElement>(null)
 
@@ -564,7 +565,26 @@ export function NewTransactionDialog() {
       setEnvelopeId(suggestedEnvelopeId)
     }
     setShowSuggestions(false)
+    setActiveSuggestionIndex(-1)
   }, [activeEnvelopes])
+
+  function handlePayeeKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!showSuggestions || payeeSuggestions.length === 0) return
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setActiveSuggestionIndex((i) => Math.min(i + 1, payeeSuggestions.length - 1))
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setActiveSuggestionIndex((i) => Math.max(i - 1, -1))
+    } else if ((e.key === "Enter" || e.key === " ") && activeSuggestionIndex >= 0) {
+      e.preventDefault()
+      const s = payeeSuggestions[activeSuggestionIndex]
+      selectPayeeSuggestion(s.name, s.envelopeId)
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false)
+      setActiveSuggestionIndex(-1)
+    }
+  }
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -914,15 +934,26 @@ export function NewTransactionDialog() {
                 <Input
                   ref={payeeInputRef}
                   id="payee"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={showSuggestions && payeeSuggestions.length > 0}
+                  aria-controls="payee-listbox"
+                  aria-activedescendant={
+                    activeSuggestionIndex >= 0
+                      ? `payee-option-${activeSuggestionIndex}`
+                      : undefined
+                  }
                   value={payee}
                   onChange={(e) => {
                     setPayee(e.target.value)
                     setPayeeMatchHint(null)
                     setAliasSaveMessage(null)
+                    setActiveSuggestionIndex(-1)
                     if (validationErrors.payee) setValidationErrors(prev => { const next = { ...prev }; delete next.payee; return next })
                     setShowSuggestions(true)
                   }}
                   onFocus={() => { if (payee.trim()) setShowSuggestions(true) }}
+                  onKeyDown={handlePayeeKeyDown}
                   placeholder={type === "expense" ? "Who did you pay?" : "Who paid you?"}
                   className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
                   autoComplete="off"
@@ -931,16 +962,27 @@ export function NewTransactionDialog() {
                 {showSuggestions && payeeSuggestions.length > 0 && (
                   <div
                     ref={suggestionsRef}
+                    id="payee-listbox"
+                    role="listbox"
+                    aria-label="Payee suggestions"
                     className="absolute top-full left-0 right-0 z-50 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg shadow-xl overflow-hidden max-h-52 overflow-y-auto"
                   >
-                    {payeeSuggestions.map((s) => {
+                    {payeeSuggestions.map((s, idx) => {
                       const env = state.envelopes.find(e => e.id === s.envelopeId)
+                      const isActive = activeSuggestionIndex === idx
                       return (
                         <button
                           key={s.name}
+                          id={`payee-option-${idx}`}
                           type="button"
+                          role="option"
+                          aria-selected={isActive}
                           onClick={() => selectPayeeSuggestion(s.name, s.envelopeId)}
-                          className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[#252525] transition-colors"
+                          onMouseEnter={() => setActiveSuggestionIndex(idx)}
+                          onMouseLeave={() => setActiveSuggestionIndex(-1)}
+                          className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors ${
+                            isActive ? "bg-[#2A2A2A]" : "hover:bg-[#252525]"
+                          }`}
                         >
                           <span className="text-sm text-foreground truncate">{s.name}</span>
                           {env && (
