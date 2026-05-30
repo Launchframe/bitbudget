@@ -117,6 +117,9 @@ export default function PrivacyPolicyPage() {
             <p>
               We do not sell your personal information or budgeting data. We do not use ad-tech or cross-site
               tracking. Vercel Analytics is used only for basic aggregate usage and performance telemetry.
+              When errors occur, we may send scrubbed error metadata (route, error type, stack trace) to Sentry
+              so we can fix production issues. We do not send budgeting transaction details, payee names, notes,
+              or encryption keys to Sentry.
             </p>
           </PolicySection>
 

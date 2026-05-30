@@ -436,6 +436,19 @@ When designing new endpoints, **never** allow replacing `encryptedPrivacyKey` wi
 
 Deleting an envelope **archives** it (`archived: true`). Archived envelopes and their transactions are filtered out of active views via `activeEnvelopes` and `activeTransactions` in `AppContext`. Users can view, restore, or permanently delete archived envelopes from the Envelopes page.
 
+## Observability and alerting
+
+Production ops visibility uses **Sentry** (stack traces), **`GET /api/health`** (uptime monitors), and **`lib/alert.ts`** (Discord, Telegram, email to DB admins). See [docs/ops/triage.md](docs/ops/triage.md) and the **triage** Cursor skill (`.cursor/skills/triage/SKILL.md`).
+
+**Privacy guardrails (non-negotiable for ops telemetry):**
+
+- Never log or alert on decrypted payee/notes, encryption keys, PINs, `encryptedPrivacyKey`, or raw request bodies.
+- Sentry `beforeSend` and `scrubAlertText` in `lib/sentry-scrub.ts` redact emails, npubs/nsecs, tokens, and sensitive header names.
+- Health checks and ops events must not include user identifiers beyond hashed/internal IDs when absolutely necessary.
+- `E2E_TEST=true` skips outbound Discord/Telegram/email alerts but still persists `OpsEvent` rows for CI.
+
+**When investigating production issues:** use `pnpm ops:health`, `pnpm ops:errors`, and `pnpm ops:crons` (see runbook). Admin ops dashboard: `/admin/ops`.
+
 ## Commit and PR Workflow
 
 - **Commit often.** Each logical unit of work (a bug fix, a feature slice, a refactor) gets its own commit. Don't batch unrelated changes.

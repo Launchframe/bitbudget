@@ -33,19 +33,26 @@ import { AchievementCelebrationHost } from "@/components/achievement-celebration
 function OnboardingGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [checking, setChecking] = useState(true)
+  const [gateError, setGateError] = useState<string | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
+    let cancelled = false
+
     async function check() {
+      setChecking(true)
+      setGateError(null)
       try {
         const res = await fetch("/api/user/settings")
+        if (cancelled) return
         if (res.status === 401 || res.status === 403) {
           signOut({ callbackUrl: "/auth" })
           return
         }
         if (!res.ok) {
-          // Session may be valid while settings fails (e.g. schema/client mismatch).
-          // Sign out to avoid / ↔ /auth redirect loop with middleware.
-          signOut({ callbackUrl: "/auth?error=Configuration" })
+          setGateError(
+            "We could not load your account settings. This is usually a temporary server issue — not a sign-in problem.",
+          )
           return
         }
         const data = await res.json()
@@ -61,13 +68,36 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
           return
         }
       } catch {
-        signOut({ callbackUrl: "/auth?error=Configuration" })
+        if (!cancelled) {
+          setGateError("Could not reach the server. Check your connection and try again.")
+        }
         return
       }
-      setChecking(false)
+      if (!cancelled) setChecking(false)
     }
-    check()
-  }, [router])
+
+    void check()
+    return () => {
+      cancelled = true
+    }
+  }, [router, retryCount])
+
+  if (gateError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6 text-center">
+        <p className="max-w-md text-sm text-red-300" role="alert">
+          {gateError}
+        </p>
+        <button
+          type="button"
+          onClick={() => setRetryCount(c => c + 1)}
+          className="rounded-xl bg-[#F7931A] px-6 py-3 text-sm font-semibold text-[#0D0D0D] hover:bg-[#F7931A]/90"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
 
   if (checking) {
     return (
