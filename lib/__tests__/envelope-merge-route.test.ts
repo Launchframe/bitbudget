@@ -21,28 +21,34 @@ describe("POST /api/envelopes/merge", () => {
   const sourceId = "env_source"
   const targetId = "env_target"
 
+  function envelopeIdFromFindFirstArgs(args: unknown) {
+    const where = (args as { where?: { id?: string } } | undefined)?.where
+    return where?.id
+  }
+
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(auth).mockResolvedValue({ user: { id: userId } } as never)
-    vi.mocked(prisma.envelope.findFirst).mockImplementation(({ where }: { where: { id: string } }) => {
-      if (where.id === sourceId) {
-        return Promise.resolve({
+    vi.mocked(prisma.envelope.findFirst).mockImplementation((async (args: unknown) => {
+      const id = envelopeIdFromFindFirstArgs(args)
+      if (id === sourceId) {
+        return {
           id: sourceId,
           userId,
           archived: false,
           systemRole: null,
-        } as never)
+        }
       }
-      if (where.id === targetId) {
-        return Promise.resolve({
+      if (id === targetId) {
+        return {
           id: targetId,
           userId,
           archived: false,
           systemRole: null,
-        } as never)
+        }
       }
-      return Promise.resolve(null)
-    })
+      return null
+    }) as never)
   })
 
   function mergeRequest() {
@@ -53,22 +59,23 @@ describe("POST /api/envelopes/merge", () => {
   }
 
   it("rejects merging from an archived envelope", async () => {
-    vi.mocked(prisma.envelope.findFirst).mockImplementation(({ where }: { where: { id: string } }) => {
-      if (where.id === sourceId) {
-        return Promise.resolve({
+    vi.mocked(prisma.envelope.findFirst).mockImplementation((async (args: unknown) => {
+      const id = envelopeIdFromFindFirstArgs(args)
+      if (id === sourceId) {
+        return {
           id: sourceId,
           userId,
           archived: true,
           systemRole: null,
-        } as never)
+        }
       }
-      return Promise.resolve({
+      return {
         id: targetId,
         userId,
         archived: false,
         systemRole: null,
-      } as never)
-    })
+      }
+    }) as never)
 
     const response = await POST(mergeRequest() as never)
 
@@ -81,22 +88,23 @@ describe("POST /api/envelopes/merge", () => {
   })
 
   it("rejects merging into an archived envelope", async () => {
-    vi.mocked(prisma.envelope.findFirst).mockImplementation(({ where }: { where: { id: string } }) => {
-      if (where.id === sourceId) {
-        return Promise.resolve({
+    vi.mocked(prisma.envelope.findFirst).mockImplementation((async (args: unknown) => {
+      const id = envelopeIdFromFindFirstArgs(args)
+      if (id === sourceId) {
+        return {
           id: sourceId,
           userId,
           archived: false,
           systemRole: null,
-        } as never)
+        }
       }
-      return Promise.resolve({
+      return {
         id: targetId,
         userId,
         archived: true,
         systemRole: null,
-      } as never)
-    })
+      }
+    }) as never)
 
     const response = await POST(mergeRequest() as never)
 
