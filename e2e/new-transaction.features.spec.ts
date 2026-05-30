@@ -31,9 +31,16 @@ async function navigateToTransactions(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { name: "All Transactions" })).toBeVisible({ timeout: 30_000 })
 }
 
+/** Envelope `Select` — not the payee field (`#payee` is also role=combobox). */
 async function chooseEnvelope(dialog: Locator): Promise<void> {
-  await dialog.getByRole("combobox").click()
+  await dialog.getByRole("combobox").filter({ hasText: /Select an envelope/i }).click()
   await dialog.page().getByRole("option", { name: E2E_APP_ENVELOPE_A }).click()
+}
+
+async function chooseRecurringCadence(dialog: Locator, label: string): Promise<void> {
+  const panel = dialog.getByRole("heading", { name: "Recurring Settings" }).locator("..")
+  await panel.getByRole("combobox").click()
+  await dialog.page().getByRole("option", { name: label, exact: true }).click()
 }
 
 async function openDialogSection(dialog: Locator, buttonName: RegExp, headingName: string): Promise<void> {
@@ -84,8 +91,7 @@ test.describe("New transaction features", () => {
     await chooseEnvelope(dialog)
     await openDialogSection(dialog, /Recurring/, "Recurring Settings")
     await dialog.getByRole("switch").click()
-    await dialog.getByRole("combobox").click()
-    await page.getByRole("option", { name: "Weekly", exact: true }).click()
+    await chooseRecurringCadence(dialog, "Weekly")
     await dialog.getByRole("button", { name: "Done" }).click()
     await page.getByRole("button", { name: "Add Recurring Expense" }).click()
     await finishSuccess(page)
