@@ -12,6 +12,7 @@ export type TransactionSource =
   | "voice"
   | "receipt_scan"
   | "sms"
+  | "notification_forward"
   | "email_forward"
   | "email_scan"
   | "plaid"

@@ -46,6 +46,7 @@ model User {
   role                      String?   @default("user")
   publicKey                 String?
   receiptInboxToken         String?   @unique
+  notificationIngestToken   String?   @unique // Android DIY webhook ingest (see docs/android-notification-forwarding.md)
   lastVisitedAt             DateTime?
   remindersEnabled          Boolean   @default(false)
   reminderTime              String?   @default("20:00")
