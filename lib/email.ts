@@ -199,6 +199,37 @@ export async function sendTrialExpiredEmail(to: string, options?: PreferenceEmai
   await sendHtmlMail(to, subject, html, options)
 }
 
+function appOriginForEmail(): string {
+  const base = process.env.NEXTAUTH_URL?.replace(/\/$/, "")
+  return base ?? "https://bitbudget.app"
+}
+
+export async function sendPremiumRenewalReminderEmail(
+  to: string,
+  args: {
+    subject: string
+    headline: string
+    body: string
+    ctaRenew: string
+    ctaRefer: string
+    showReferCta: boolean
+  },
+  options?: PreferenceEmailOptions,
+): Promise<void> {
+  const origin = appOriginForEmail()
+  const referBlock = args.showReferCta
+    ? `<p style="margin: 24px 0 0;"><a href="${origin}/#settings/general" style="color: #F7931A; font-weight: 600;">${escapeHtml(args.ctaRefer)}</a></p>`
+    : ""
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+      <h2 style="color: #F7931A;">${escapeHtml(args.headline)}</h2>
+      <p style="color: #ccc; font-size: 15px; line-height: 1.5;">${escapeHtml(args.body)}</p>
+      <p style="margin: 24px 0 0;"><a href="${origin}" style="display: inline-block; background: #F7931A; color: #0D0D0D; text-decoration: none; font-weight: 600; padding: 12px 20px; border-radius: 8px;">${escapeHtml(args.ctaRenew)}</a></p>
+      ${referBlock}
+    </div>`
+  await sendHtmlMail(to, args.subject, html, options)
+}
+
 export interface SurveyCompletedEmailPayload {
   userLabel: string
   triggerType: string

@@ -74,6 +74,31 @@ describe("resolveEffectiveTier", () => {
       ),
     ).toBe("free")
   })
+
+  it("extends paid membership through grace until 04:00 UTC day after expiry", () => {
+    expect(
+      resolveEffectiveTier(
+        {
+          subscriptionTier: "premium",
+          premiumGratisUntil: null,
+          premiumTrialUntil: null,
+          premiumMembershipUntil: t("2026-06-15T00:00:00.000Z"),
+        },
+        t("2026-06-16T03:59:59.000Z"),
+      ),
+    ).toBe("premium")
+    expect(
+      resolveEffectiveTier(
+        {
+          subscriptionTier: "premium",
+          premiumGratisUntil: null,
+          premiumTrialUntil: null,
+          premiumMembershipUntil: t("2026-06-15T00:00:00.000Z"),
+        },
+        t("2026-06-16T04:00:00.000Z"),
+      ),
+    ).toBe("free")
+  })
 })
 
 describe("PREMIUM_TRIAL_RECEIPT_SMS_MONTHLY_CAP", () => {

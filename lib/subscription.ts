@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
+import { isTimedPremiumAccessActive } from "@/lib/premium-expiry"
 
 /** Stored in DB (Stripe / billing). Trial is derived from `premiumTrialUntil`, not this field. */
 export type SubscriptionTier = "free" | "premium"
@@ -16,12 +17,23 @@ export function resolveEffectiveTier(
     subscriptionTier: string
     premiumGratisUntil: Date | null
     premiumTrialUntil: Date | null
+    premiumMembershipUntil?: Date | null
   },
   now: Date = new Date(),
 ): EffectiveSubscriptionTier {
-  if (row.subscriptionTier === "premium") return "premium"
-  if (row.premiumGratisUntil && row.premiumGratisUntil > now) return "premium"
-  if (row.premiumTrialUntil && row.premiumTrialUntil > now) return "premium-trial"
+  if (row.subscriptionTier === "premium") {
+    if (row.premiumMembershipUntil) {
+      if (isTimedPremiumAccessActive(row.premiumMembershipUntil, now)) return "premium"
+    } else {
+      return "premium"
+    }
+  }
+  if (row.premiumGratisUntil && isTimedPremiumAccessActive(row.premiumGratisUntil, now)) {
+    return "premium"
+  }
+  if (row.premiumTrialUntil && isTimedPremiumAccessActive(row.premiumTrialUntil, now)) {
+    return "premium-trial"
+  }
   return "free"
 }
 
@@ -32,6 +44,7 @@ export async function effectiveUserTier(userId: string): Promise<EffectiveSubscr
       subscriptionTier: true,
       premiumGratisUntil: true,
       premiumTrialUntil: true,
+      premiumMembershipUntil: true,
     },
   })
   if (!user) return "free"
