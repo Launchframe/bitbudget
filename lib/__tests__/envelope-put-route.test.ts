@@ -62,12 +62,19 @@ describe("PUT /api/envelopes monthlyAllotment validation", () => {
     expect(prisma.envelope.update).not.toHaveBeenCalled()
   })
 
-  it("rejects NaN and Infinity monthlyAllotment", async () => {
-    for (const bad of [NaN, Infinity, -Infinity]) {
-      const response = await PUT(putRequest({ monthlyAllotment: bad }) as never)
-      expect(response.status).toBe(400)
-      expect(prisma.envelope.update).not.toHaveBeenCalled()
+  it("rejects non-number monthlyAllotment", async () => {
+    const response = await PUT(putRequest({ monthlyAllotment: "not-a-number" }) as never)
+    expect(response.status).toBe(400)
+    expect(prisma.envelope.update).not.toHaveBeenCalled()
+  })
+
+  it("ignores null monthlyAllotment (omit field, do not clear allotment)", async () => {
+    const response = await PUT(putRequest({ monthlyAllotment: null }) as never)
+    expect(response.status).toBe(200)
+    const updateArg = vi.mocked(prisma.envelope.update).mock.calls[0]?.[0] as {
+      data: { monthlyAllotment?: number }
     }
+    expect(updateArg.data.monthlyAllotment).toBeUndefined()
   })
 
   it("accepts valid monthlyAllotment and rounds to two decimals", async () => {
