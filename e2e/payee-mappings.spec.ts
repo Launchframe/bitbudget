@@ -50,6 +50,12 @@ test.describe("Payee mappings", () => {
         : null
     expect(createdAliasId).toBeTruthy()
 
-    await expect(page.getByText(`From ${source} → ${canonical}`)).toBeVisible()
+    // UI renders source and destination in separate nodes (no "From" prefix); see Saved mappings list.
+    const savedRow = page
+      .getByRole("listitem")
+      .filter({ has: page.getByRole("button", { name: "Remove mapping" }) })
+      .filter({ hasText: source })
+    await expect(savedRow).toBeVisible()
+    await expect(savedRow).toContainText(canonical)
   })
 })
