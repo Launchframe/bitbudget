@@ -272,7 +272,11 @@ export default function AuthPage() {
       })
 
       if (result?.error) {
-        setError(`Nostr authentication failed: ${result.error}`)
+        setError(
+          result.error === "CredentialsSignin"
+            ? "We couldn\u2019t verify your Nostr sign-in. Click Continue with Nostr again, or use Sign in with nsec below."
+            : `Nostr authentication failed: ${result.error}`,
+        )
         return
       }
 

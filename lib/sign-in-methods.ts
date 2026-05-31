@@ -61,6 +61,18 @@ function hasTag(event: { tags: string[][] }, name: string, value: string) {
   return event.tags.some(tag => tag[0] === name && tag[1] === value)
 }
 
+/** NIP-07 extensions sometimes return `created_at` as a numeric string. */
+function normalizeAuthEventCreatedAt(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw > 1e12 ? Math.floor(raw / 1000) : Math.floor(raw)
+  }
+  if (typeof raw === "string" && /^\d+$/.test(raw.trim())) {
+    const n = Number(raw.trim())
+    return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n)
+  }
+  return null
+}
+
 export function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigin?: string) {
   let parsed: unknown
   try {
@@ -80,12 +92,13 @@ export function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigi
     pubkey?: unknown
     tags?: unknown
   }
+  const created_at = normalizeAuthEventCreatedAt(candidate.created_at)
   if (
     candidate.kind !== NOSTR_AUTH_EVENT_KIND ||
     candidate.content !== NOSTR_AUTH_EVENT_CONTENT ||
     typeof candidate.pubkey !== "string" ||
     candidate.pubkey.toLowerCase() !== pubkey ||
-    typeof candidate.created_at !== "number" ||
+    created_at === null ||
     !Array.isArray(candidate.tags)
   ) {
     throw new SignInMethodError("INVALID_NOSTR_EVENT", "Invalid signed Nostr event")
@@ -98,7 +111,7 @@ export function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigi
 
   const authEvent = {
     ...candidate,
-    created_at: candidate.created_at,
+    created_at,
     tags: tags as string[][],
   }
   const now = Math.floor(Date.now() / 1000)
