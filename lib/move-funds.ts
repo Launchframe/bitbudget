@@ -10,7 +10,6 @@ import {
   TX_SOURCE_ENVELOPE_TRANSFER_IN,
   TX_SOURCE_ENVELOPE_TRANSFER_OUT,
 } from "@/lib/constants"
-import { TX_SOURCE_FUNDING_OUT } from "@/lib/constants"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
 import {
   envelopeBalancesAllTimeBatch,
@@ -119,6 +118,18 @@ export async function createMoveFundsBatch(
     if (mode === "balanced") {
       const positives = resolved.filter((e) => e.deltaUsd > 0)
       const negatives = resolved.filter((e) => e.deltaUsd < 0)
+      if (negatives.length > 0) {
+        const balances = await envelopeBalancesAllTimeBatch(
+          userId,
+          negatives.map((e) => e.envelopeId),
+          tx,
+        )
+        for (const row of negatives) {
+          const balance = balances.get(row.envelopeId) ?? 0
+          if (Math.abs(row.deltaUsd) > balance + 0.015) return 0
+        }
+      }
+
       let posIdx = 0
       let negIdx = 0
 
@@ -182,7 +193,7 @@ export async function createMoveFundsBatch(
           amount: row.deltaUsd,
           type: "expense",
           payeeCipher: encTransfer,
-          source: TX_SOURCE_FUNDING_OUT,
+          source: TX_SOURCE_ENVELOPE_TRANSFER_OUT,
           fundingBatchId: batch.id,
           btcPrice,
         })
