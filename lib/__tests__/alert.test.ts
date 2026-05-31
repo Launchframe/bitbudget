@@ -17,11 +17,11 @@ vi.mock("@/lib/db", () => ({
   },
 }))
 
-vi.mock("@/lib/email", () => ({
-  sendOpsAlertEmail: vi.fn().mockResolvedValue(true),
-}))
+const sendOpsAlertEmail = vi.fn().mockResolvedValue(true)
 
-const { sendOpsAlertEmail } = vi.mocked(await import("@/lib/email"))
+vi.mock("@/lib/email", () => ({
+  sendOpsAlertEmail,
+}))
 
 describe("sendAlert", () => {
   beforeEach(() => {
