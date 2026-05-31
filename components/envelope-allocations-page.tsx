@@ -40,10 +40,10 @@ function snapSliderDisplayValue(value: number, max: number, step: number): numbe
 }
 
 export function EnvelopeAllocationsPage() {
-  const { state, navigateTo, editEnvelope, setMonthlyIncome } = useApp()
+  const { state, discretionaryEnvelopes, navigateTo, editEnvelope, setMonthlyIncome } = useApp()
   const activeEnvelopes = useMemo(
-    () => state.envelopes.filter(e => !e.archived && !e.deletedAt),
-    [state.envelopes]
+    () => discretionaryEnvelopes,
+    [discretionaryEnvelopes]
   )
   const { getDraft, setDraft } = useDraftAllotments()
   const [activeSliderEnvId, setActiveSliderEnvId] = useState<string | null>(null)
