@@ -5,7 +5,7 @@ import {
   type ManualDeficitCoverEntry,
 } from "@/lib/envelope-sweep"
 
-function parseEntries(body: unknown): ManualDeficitCoverEntry[] | null {
+export function parseEntries(body: unknown): ManualDeficitCoverEntry[] | null {
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null
   const { entries } = body as { entries?: unknown }
   if (!Array.isArray(entries)) return null

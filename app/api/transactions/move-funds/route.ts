@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { createMoveFundsBatch, type MoveFundsEntry, type MoveFundsMode } from "@/lib/move-funds"
 
-function parseBody(body: unknown): { entries: MoveFundsEntry[]; mode: MoveFundsMode } | null {
+export function parseBody(body: unknown): { entries: MoveFundsEntry[]; mode: MoveFundsMode } | null {
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null
   const { entries, mode } = body as { entries?: unknown; mode?: unknown }
   if (mode !== "balanced" && mode !== "independent") return null

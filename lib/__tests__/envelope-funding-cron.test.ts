@@ -72,4 +72,54 @@ describe("envelope-funding-cron", () => {
     expect(processMonthlyBudgetAllocations).not.toHaveBeenCalled()
     expect(result.paycheckCreditsCreated).toBe(1)
   })
+
+  it("runs both sweep+alloc AND paycheck when payday falls on the 1st", async () => {
+    // bimonthly user with 1st as a payday
+    const firstAndPayday = new Date(Date.UTC(2026, 5, 1, 12, 0, 0))
+    expect(isBudgetAllocationDay(firstAndPayday)).toBe(true)
+
+    const result = await processFundingCronUser(
+      {
+        id: "u2",
+        payCadence: "bimonthly",
+        payDays: [1, 15],
+        payDayOfWeek: null,
+        lastPaydayAt: null,
+      },
+      firstAndPayday,
+      true,
+    )
+
+    expect(sweepDiscretionaryEnvelopesForUser).toHaveBeenCalledWith("u2", firstAndPayday)
+    expect(processMonthlyBudgetAllocations).toHaveBeenCalledWith("u2", firstAndPayday)
+    expect(creditPaycheckToSavings).toHaveBeenCalledWith("u2", firstAndPayday)
+    expect(result.sweepTransactionsCreated).toBe(2)
+    expect(result.allocationLegsCreated).toBe(4)
+    expect(result.paycheckCreditsCreated).toBe(1)
+    // fundTransactionsCreated is deprecated sum of paycheck + alloc
+    expect(result.fundTransactionsCreated).toBe(5)
+  })
+
+  it("runs nothing when neither payday nor 1st", async () => {
+    const midMonth = new Date(Date.UTC(2026, 4, 16, 12, 0, 0))
+
+    const result = await processFundingCronUser(
+      {
+        id: "u1",
+        payCadence: "monthly",
+        payDays: [15],
+        payDayOfWeek: null,
+        lastPaydayAt: null,
+      },
+      midMonth,
+      false,
+    )
+
+    expect(sweepDiscretionaryEnvelopesForUser).not.toHaveBeenCalled()
+    expect(processMonthlyBudgetAllocations).not.toHaveBeenCalled()
+    expect(creditPaycheckToSavings).not.toHaveBeenCalled()
+    expect(result.sweepTransactionsCreated).toBe(0)
+    expect(result.paycheckCreditsCreated).toBe(0)
+    expect(result.allocationLegsCreated).toBe(0)
+  })
 })

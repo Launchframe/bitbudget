@@ -84,19 +84,6 @@ export function filterImportDatesThroughToday(
   return dates.filter((d) => d <= today)
 }
 
-/** Envelope funding on import applies to the current month only (not future slices of a year row). */
-export function shouldFundEnvelopeSliceOnImport(
-  periodKey: string,
-  dateIso: string,
-  now = new Date(),
-): boolean {
-  if (!isPeriodCurrent(periodKey, now)) return false
-  const parsed = parseIncomePeriodKey(periodKey)
-  if (!parsed) return false
-  if (parsed.kind === "month") return true
-  return dateIso.startsWith(currentMonthKeyUtc(now))
-}
-
 /** True when the period is the current month/year or later (envelope funding applies). */
 export function isPeriodCurrentOrFuture(periodKey: string, now = new Date()): boolean {
   const parsed = parseIncomePeriodKey(periodKey)
