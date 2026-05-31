@@ -17,6 +17,7 @@ import {
   CheckCheck,
   Copy,
   Sparkles,
+  FileUp,
 } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import type { TransactionSource } from "@/lib/data"
@@ -44,6 +45,7 @@ const sourceIcons: Record<TransactionSource, React.ElementType> = {
   envelope_funding_in: ArrowDownToLine,
   income_import: TrendingUp,
   envelope_sweep: Sparkles,
+  csv_import: FileUp,
 }
 
 const sourceLabels: Record<TransactionSource, string> = {
@@ -61,6 +63,7 @@ const sourceLabels: Record<TransactionSource, string> = {
   envelope_funding_in: "Funding (envelope)",
   income_import: "Past income",
   envelope_sweep: "Envelope sweep",
+  csv_import: "CSV import",
 }
 
 export function ReviewInbox() {

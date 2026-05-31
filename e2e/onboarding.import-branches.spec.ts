@@ -1,4 +1,5 @@
 import "./load-env"
+import path from "path"
 import { test, expect } from "@playwright/test"
 import { deleteE2eUserByEmail } from "./helpers/e2e-user"
 import { onboardingTestEmail } from "./fixtures/onboarding-e2e-constants"
@@ -48,6 +49,43 @@ test.describe("Onboarding CSV import branches", () => {
     await finishOnboardingToDashboard(page, origin)
     await page.goto(`${origin}/#/transactions`)
     await expect(page.getByText("Grocery Store").first()).toBeVisible({ timeout: 90_000 })
+  })
+
+  test("re-importing the same CSV creates no duplicate rows", async ({ page, baseURL }, testInfo) => {
+    const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
+    const email = emailFromAnnotations(testInfo)
+    await startOnboardingUser(page, origin, email)
+    await runOnboardingThroughSavingsGamePlan(page, { mode: "regular", paycheck: "3000" })
+    await attachCsvOnImportStep(page, "onboarding-import.csv")
+    await submitImportAndContinue(page)
+    await confirmCsvImportInDialog(page)
+    await finishImportDialogToComplete(page, false)
+    await finishOnboardingToDashboard(page, origin)
+
+    await page.goto(`${origin}/#/transactions`)
+    await expect(page.getByText("Grocery Store").first()).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByText("Grocery Store")).toHaveCount(1)
+
+    // Re-import the exact same file from the app shell. The dedupe key + client dedup
+    // must prevent any new rows from being created.
+    const fixturePath = path.join(__dirname, "fixtures", "onboarding-import.csv")
+    await page.locator("#csv-import-input").setInputFiles(fixturePath)
+
+    const dialog = page.getByRole("dialog")
+    await expect(dialog.getByRole("heading", { name: "Import Transactions" })).toBeVisible({ timeout: 30_000 })
+    const previewImportBtn = dialog.getByRole("button", { name: /Import \d+ Transaction/ })
+    await expect(previewImportBtn).toBeVisible({ timeout: 30_000 })
+    await previewImportBtn.click()
+
+    await expect(
+      dialog.getByText("It looks like you've already imported all these transactions."),
+    ).toBeVisible({ timeout: 30_000 })
+
+    // Close and confirm the count is still exactly one.
+    await page.keyboard.press("Escape")
+    await page.goto(`${origin}/#/transactions`)
+    await expect(page.getByText("Grocery Store").first()).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByText("Grocery Store")).toHaveCount(1)
   })
 
   test("CSV with new envelope offers Back to envelopes → budget step", async ({ page, baseURL }, testInfo) => {

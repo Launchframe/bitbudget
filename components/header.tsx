@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function Header() {
-  const { navigateTo, refreshData, encryptForStorage, logout, subscriptionTier, state, setInputModeSheetOpen } = useApp()
+  const { navigateTo, refreshData, encryptForStorage, makeImportDedupeKeyComputer, logout, subscriptionTier, state, setInputModeSheetOpen } = useApp()
   const { data: session } = useSession()
   const userImage = session?.user?.image
   const userName = session?.user?.name
@@ -125,6 +125,7 @@ export function Header() {
         onRequestAllocations={() => navigateTo("envelopes", undefined, { openAllocations: true })}
         onTryAnotherFile={() => setImportFile(null)}
         encryptFn={encryptForStorage}
+        makeDedupeKeyComputer={makeImportDedupeKeyComputer}
       />
     </>
   )

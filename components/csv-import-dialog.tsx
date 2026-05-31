@@ -33,8 +33,12 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { parseCSVFile } from "@/lib/csv"
 import type { CsvParseResult, ParsedTransaction } from "@/lib/csv"
 import type { Transaction } from "@/lib/data"
-import { resolveEncryptFnForImport } from "@/lib/resolve-import-encrypt-fn"
+import { resolveImportCrypto } from "@/lib/resolve-import-encrypt-fn"
 import { transactionCollisionKey } from "@/lib/transaction-dedup"
+import { makeDedupeKeyComputer, type DedupeKeyComputer } from "@/lib/import-dedupe-key"
+
+/** Rows per import request. Keeps each POST well under the serverless function timeout. */
+const IMPORT_CHUNK_SIZE = 250
 
 interface SampleTxn {
   date: string
@@ -93,6 +97,7 @@ export function CSVImportDialog({
   onLoadingChange,
   onImportError,
   encryptFn: encryptFnProp,
+  makeDedupeKeyComputer: makeDedupeKeyComputerProp,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -104,6 +109,7 @@ export function CSVImportDialog({
   onImportResult?: (result: {
     imported: number
     skipped: number
+    duplicates: number
     newEnvelopes: string[]
   }) => void
   onDone?: () => void
@@ -115,6 +121,11 @@ export function CSVImportDialog({
   /** Called when import fails so parent can show failure message. */
   onImportError?: (message: string) => void
   encryptFn?: EncryptFn
+  /**
+   * Builds a per-import HMAC dedupe-key computer (signed-in path). When omitted, the
+   * dialog derives one from the resolved import crypto seed. Returns null if locked.
+   */
+  makeDedupeKeyComputer?: () => DedupeKeyComputer | null
 }) {
   const [step, setStep] = useState<Step>("preview")
   const [dedupMode, setDedupMode] = useState<DedupMode | null>(null)
@@ -128,7 +139,8 @@ export function CSVImportDialog({
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<{ imported: number; skipped: number; newEnvelopes: string[] } | null>(null)
+  const [result, setResult] = useState<{ imported: number; skipped: number; duplicates: number; newEnvelopes: string[] } | null>(null)
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null)
   const [requestingAllocations, setRequestingAllocations] = useState(false)
   const [expandedDupIndex, setExpandedDupIndex] = useState<number | null>(null)
 
@@ -162,6 +174,7 @@ export function CSVImportDialog({
       setDiscardDupIndices(new Set())
       setExpandedDupIndex(null)
       setResult(null)
+      setImportProgress(null)
       setParseResult(null)
       setCsvEnvelopes([])
       try {
@@ -272,13 +285,23 @@ export function CSVImportDialog({
     setStep("importing")
     onLoadingChange?.(true)
     setError(null)
+    setImportProgress(null)
     try {
-      const encrypt = encryptFnProp ?? (await resolveEncryptFnForImport())
-      if (!encrypt) {
-        throw new Error(
-          "Encryption key not available. If you use a Nostr extension, approve the decrypt prompt (NIP-04). " +
-            "If you unlock with a PIN (web2-style / nsec fallback), open the main app and unlock with your PIN or passphrase, then try again.",
-        )
+      let encrypt: EncryptFn
+      let dedupeComputer: DedupeKeyComputer | null
+      if (encryptFnProp) {
+        encrypt = encryptFnProp
+        dedupeComputer = makeDedupeKeyComputerProp?.() ?? null
+      } else {
+        const crypto = await resolveImportCrypto()
+        if (!crypto) {
+          throw new Error(
+            "Encryption key not available. If you use a Nostr extension, approve the decrypt prompt (NIP-04). " +
+              "If you unlock with a PIN (web2-style / nsec fallback), open the main app and unlock with your PIN or passphrase, then try again.",
+          )
+        }
+        encrypt = crypto.encrypt
+        dedupeComputer = makeDedupeKeyComputer(crypto.seedHex)
       }
 
       const skipEnv = skippedNames()
@@ -290,6 +313,7 @@ export function CSVImportDialog({
         type: string
         envelopeName: string
         notes: string | null
+        dedupeKey?: string
       }[] = []
 
       for (let i = 0; i < parseResult.transactions.length; i++) {
@@ -299,6 +323,13 @@ export function CSVImportDialog({
 
         const encPayee = await encrypt(txn.payee)
         const encNotes = txn.notes ? await encrypt(txn.notes) : null
+        // Dedupe key is derived from PLAINTEXT business fields (the server can't read payee).
+        const dedupeKey = dedupeComputer?.({
+          date: txn.date,
+          payee: txn.payee,
+          amount: txn.amount,
+          type: txn.type,
+        })
 
         encryptedTxns.push({
           date: txn.date,
@@ -307,6 +338,7 @@ export function CSVImportDialog({
           type: txn.type,
           envelopeName: txn.envelopeName,
           notes: encNotes,
+          ...(dedupeKey ? { dedupeKey } : {}),
         })
       }
 
@@ -319,34 +351,54 @@ export function CSVImportDialog({
         return
       }
 
-      const res = await fetch("/api/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transactions: encryptedTxns,
-          envelopeMapping: mapping,
-        }),
-      })
+      // Chunk the upload so each request finishes well within the function timeout.
+      // Chunks run sequentially: envelopes created by an earlier chunk are visible to
+      // later chunks, and the HMAC dedupe key makes a retry of any chunk idempotent.
+      let imported = 0
+      let skipped = 0
+      let duplicates = 0
+      const newEnvelopes = new Set<string>()
+      setImportProgress({ done: 0, total: encryptedTxns.length })
 
-      if (!res.ok) {
-        let data: { error?: string }
+      for (let start = 0; start < encryptedTxns.length; start += IMPORT_CHUNK_SIZE) {
+        const chunk = encryptedTxns.slice(start, start + IMPORT_CHUNK_SIZE)
+        const res = await fetch("/api/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            transactions: chunk,
+            envelopeMapping: mapping,
+          }),
+        })
+
+        if (!res.ok) {
+          let data: { error?: string }
+          try {
+            data = await res.json()
+          } catch {
+            throw new Error("Import failed")
+          }
+          throw new Error(data.error || "Import failed")
+        }
+
+        let data: { imported?: number; skipped?: number; duplicates?: number; newEnvelopes?: string[] }
         try {
           data = await res.json()
         } catch {
           throw new Error("Import failed")
         }
-        throw new Error(data.error || "Import failed")
+        imported += data.imported ?? 0
+        skipped += data.skipped ?? 0
+        duplicates += data.duplicates ?? 0
+        for (const name of data.newEnvelopes ?? []) newEnvelopes.add(name)
+        setImportProgress({ done: Math.min(start + chunk.length, encryptedTxns.length), total: encryptedTxns.length })
       }
-      let data: { imported?: number; skipped?: number; newEnvelopes?: string[] }
-      try {
-        data = await res.json()
-      } catch {
-        throw new Error("Import failed")
-      }
+
       const summary = {
-        imported: data.imported ?? 0,
-        skipped: data.skipped ?? 0,
-        newEnvelopes: data.newEnvelopes ?? [],
+        imported,
+        skipped,
+        duplicates,
+        newEnvelopes: Array.from(newEnvelopes),
       }
       setResult(summary)
       onImportResultProp?.(summary)
@@ -494,7 +546,15 @@ export function CSVImportDialog({
                 {result.newEnvelopes.length > 0 && (
                   <> including {result.newEnvelopes.length} new envelope{result.newEnvelopes.length === 1 ? "" : "s"}</>
                 )}
-                . {result.skipped > 0 ? result.skipped : "No"} transactions were skipped.
+                .{" "}
+                {result.duplicates > 0 && (
+                  <>{result.duplicates} duplicate{result.duplicates === 1 ? "" : "s"} skipped. </>
+                )}
+                {result.skipped > 0
+                  ? `${result.skipped} skipped by envelope settings.`
+                  : result.duplicates > 0
+                    ? ""
+                    : "No transactions were skipped."}
               </>
             )}
           </DialogDescription>
@@ -711,7 +771,9 @@ export function CSVImportDialog({
           {step === "importing" && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Encrypting your transactions...
+              {importProgress
+                ? `Importing ${importProgress.done.toLocaleString()} of ${importProgress.total.toLocaleString()}...`
+                : "Encrypting your transactions..."}
             </div>
           )}
           {step === "done" && result && result.newEnvelopes.length > 0 && (

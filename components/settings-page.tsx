@@ -11,6 +11,7 @@ import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-exp
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
+import { DuplicateCleanupCard } from "@/components/duplicate-cleanup-card"
 import {
   Upload,
   Shield,
@@ -94,6 +95,7 @@ export function SettingsPage() {
     refreshData,
     clearLocalTransactionCache,
     encryptForStorage,
+    makeImportDedupeKeyComputer,
     logout,
     subscriptionTier,
     effectiveTier,
@@ -161,7 +163,7 @@ export function SettingsPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
   const [importResult, setImportResult] = useState<
-    | { success: true; imported: number; skipped: number }
+    | { success: true; imported: number; skipped: number; duplicates: number }
     | { success: false; error: string }
     | null
   >(null)
@@ -795,6 +797,7 @@ export function SettingsPage() {
               <CheckCircle2 className="h-4 w-4 shrink-0" />
               <span>
                 {importResult.imported} transaction{importResult.imported !== 1 ? "s" : ""} imported
+                {importResult.duplicates > 0 ? `, ${importResult.duplicates} duplicate${importResult.duplicates !== 1 ? "s" : ""} skipped` : ""}
                 {importResult.skipped > 0 ? `, ${importResult.skipped} skipped` : ""}.
               </span>
             </div>
@@ -953,6 +956,9 @@ export function SettingsPage() {
         </button>
       </div>
 
+      {/* Duplicate cleanup */}
+      <DuplicateCleanupCard />
+
       {/* Danger Zone */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl border border-red-500/20">
         <div className="flex items-center gap-3 mb-4">
@@ -1080,7 +1086,12 @@ export function SettingsPage() {
         dedupExistingTransactions={state.transactions}
         onImportComplete={refreshData}
         onImportResult={(result) =>
-          setImportResult({ success: true, imported: result.imported, skipped: result.skipped })
+          setImportResult({
+            success: true,
+            imported: result.imported,
+            skipped: result.skipped,
+            duplicates: result.duplicates,
+          })
         }
         onDone={() => {}}
         onRequestAllocations={() => {
@@ -1095,6 +1106,7 @@ export function SettingsPage() {
         onLoadingChange={setImportLoading}
         onImportError={handleImportError}
         encryptFn={encryptForStorage}
+        makeDedupeKeyComputer={makeImportDedupeKeyComputer}
       />
     </div>
   )
