@@ -1267,13 +1267,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
 
     try {
-      await fetch("/api/envelopes", {
+      const res = await fetch("/api/envelopes", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, deletedAt: null }),
       })
+      if (!res.ok) {
+        await refreshData()
+      }
     } catch {
-      refreshData()
+      await refreshData()
     }
   }, [refreshData])
 

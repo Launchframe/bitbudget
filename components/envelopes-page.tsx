@@ -77,7 +77,7 @@ export function EnvelopesPage() {
   const deleteToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const envelopeDeleteStats = useCallback((envId: string) => {
-    const txns = state.transactions.filter(t => t.envelopeId === envId)
+    const txns = state.transactions.filter(t => t.envelopeId === envId && !t.excludeFromMainHistory)
     const recurring = recurringTransactions.filter(r => r.envelopeId === envId)
     return {
       transactionCount: txns.length,

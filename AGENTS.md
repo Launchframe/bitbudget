@@ -487,9 +487,20 @@ If keys are **lost** or **mismatched** (undecryptable blob), the generic onboard
 
 When designing new endpoints, **never** allow replacing `encryptedPrivacyKey` without explicit recovery semantics and user understanding of data loss or migration.
 
-## Envelope Archiving
+## Envelope Archiving and Deletion
 
-Deleting an envelope **archives** it (`archived: true`). Archived envelopes and their transactions are filtered out of active views via `activeEnvelopes` and `activeTransactions` in `AppContext`. Users can view, restore, or permanently delete archived envelopes from the Envelopes page.
+These are two distinct operations with different ledger semantics:
+
+- **Archive** (`archived: true`) — hides the envelope from the active budget grid (`activeEnvelopes` excludes it) but **keeps its transactions in the ledger**. Archived-envelope transactions remain in `activeTransactions` and therefore count toward Monthly Spend, charts, and analytics. Users can restore or permanently delete archived envelopes from the Envelopes page.
+- **Soft-delete** (`deletedAt: DateTime`) — initiated by "Delete" from the archived section. Sets a server-side timestamp and **excludes the envelope's transactions from `activeTransactions`** (and therefore from all spend analytics and charts). The envelope is hidden from all active views and shows in a "Recently deleted" section for up to 30 days (`ENVELOPE_DELETE_GRACE_DAYS`). Restoring clears `deletedAt` and returns the envelope and its transactions to the ledger. A daily purge cron (`/api/cron/envelope-purge`) hard-deletes envelopes whose `deletedAt` is older than the grace window.
+- **Hard-delete** (cron purge only, or `DELETE ?all=true` for full data reset) — permanently removes the envelope and cascades to transactions, recurring rules, and payee mappings. `TransactionShortcut` and `PendingTransaction.suggestedEnvelopeId` are cleaned up explicitly (no cascade).
+
+**Key invariants:**
+- `activeEnvelopes` = envelopes where `!archived && !deletedAt`
+- `activeTransactions` = transactions whose envelope does not have `deletedAt` set
+- The system Savings envelope cannot be archived, soft-deleted, or hard-deleted via user-facing routes.
+- `DELETE /api/envelopes?id=` performs a soft-delete (sets server-timestamped `deletedAt`); `PUT /api/envelopes` with `deletedAt: null` restores; non-null `deletedAt` values are rejected (clients cannot back-date deletes).
+- Restoring an envelope whose `deletedAt` is older than `envelopeDeletePurgeCutoff()` returns HTTP 410.
 
 ## Observability and alerting
 
