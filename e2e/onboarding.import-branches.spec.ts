@@ -63,8 +63,9 @@ test.describe("Onboarding CSV import branches", () => {
     await finishOnboardingToDashboard(page, origin)
 
     await page.goto(`${origin}/#/transactions`)
-    await expect(page.getByText("Grocery Store").first()).toBeVisible({ timeout: 90_000 })
-    await expect(page.getByText("Grocery Store")).toHaveCount(1)
+    const groceryRows = page.locator("main tbody tr").filter({ hasText: "Grocery Store" })
+    await expect(groceryRows.first()).toBeVisible({ timeout: 90_000 })
+    await expect(groceryRows).toHaveCount(1)
 
     // Re-import the exact same file from the app shell. The dedupe key + client dedup
     // must prevent any new rows from being created.
@@ -84,8 +85,8 @@ test.describe("Onboarding CSV import branches", () => {
     // Close and confirm the count is still exactly one.
     await page.keyboard.press("Escape")
     await page.goto(`${origin}/#/transactions`)
-    await expect(page.getByText("Grocery Store").first()).toBeVisible({ timeout: 90_000 })
-    await expect(page.getByText("Grocery Store")).toHaveCount(1)
+    await expect(groceryRows.first()).toBeVisible({ timeout: 90_000 })
+    await expect(groceryRows).toHaveCount(1)
   })
 
   test("CSV with new envelope offers Back to envelopes → budget step", async ({ page, baseURL }, testInfo) => {

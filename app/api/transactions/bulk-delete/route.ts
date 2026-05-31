@@ -59,37 +59,22 @@ export async function POST(req: NextRequest) {
     where: { id: { in: uniqueIds }, userId: session.user.id },
     select: { id: true, type: true, source: true, fundingBatchId: true },
   })
-  const foundIds = new Set(rows.map((r) => r.id))
+  const rowById = new Map(rows.map((r) => [r.id, r]))
 
   const rejectedIds: string[] = []
   for (const id of uniqueIds) {
-    if (!foundIds.has(id)) {
+    const row = rowById.get(id)
+    if (!row) {
       // Missing or belongs to a different user — treat as ineligible.
       rejectedIds.push(id)
       continue
     }
-    const row = rows.find((r) => r.id === id)! as BulkDeleteEligibilityRow
-    // #region agent log
-    fetch("http://127.0.0.1:7592/ingest/258423e2-0af9-4cd3-ab6c-55bd906b1f21", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "ae824c" },
-      body: JSON.stringify({
-        sessionId: "ae824c",
-        runId: "post-fix",
-        hypothesisId: "H1",
-        location: "bulk-delete/route.ts:eligibility",
-        message: "bulk-delete eligibility check",
-        data: {
-          id,
-          source: row.source,
-          canDelete: canDeleteTransactionFromList(row),
-          needsCascade: shouldCascadeDeleteTransactionBatch(row),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-    // #endregion
-    if (!canDeleteTransactionFromList(row) || shouldCascadeDeleteTransactionBatch(row)) {
+    const eligibility = {
+      type: row.type,
+      source: row.source,
+      fundingBatchId: row.fundingBatchId,
+    } as BulkDeleteEligibilityRow
+    if (!canDeleteTransactionFromList(eligibility) || shouldCascadeDeleteTransactionBatch(eligibility)) {
       // Funding leg, income header, or sweep row — must not be standalone-deleted.
       rejectedIds.push(id)
     }
