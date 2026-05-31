@@ -67,23 +67,21 @@ test.describe("Onboarding CSV import branches", () => {
     await expect(groceryRows.first()).toBeVisible({ timeout: 90_000 })
     await expect(groceryRows).toHaveCount(1)
 
-    // Re-import the exact same file from the app shell. The dedupe key + client dedup
-    // must prevent any new rows from being created.
+    // Re-import the exact same file from the app shell. Client dedup runs during preview
+    // load and skips straight to the allDupes step — no preview Import button.
     const fixturePath = path.join(__dirname, "fixtures", "onboarding-import.csv")
     await page.locator("#csv-import-input").setInputFiles(fixturePath)
 
     const dialog = page.getByRole("dialog")
-    await expect(dialog.getByRole("heading", { name: "Import Transactions" })).toBeVisible({ timeout: 30_000 })
-    const previewImportBtn = dialog.getByRole("button", { name: /Import \d+ Transaction/ })
-    await expect(previewImportBtn).toBeVisible({ timeout: 30_000 })
-    await previewImportBtn.click()
-
+    await expect(dialog.getByRole("heading", { name: "Already imported" })).toBeVisible({
+      timeout: 30_000,
+    })
     await expect(
       dialog.getByText("It looks like you've already imported all these transactions."),
     ).toBeVisible({ timeout: 30_000 })
 
     // Close and confirm the count is still exactly one.
-    await page.keyboard.press("Escape")
+    await dialog.getByRole("button", { name: "OK" }).click()
     await page.goto(`${origin}/#/transactions`)
     await expect(groceryRows.first()).toBeVisible({ timeout: 90_000 })
     await expect(groceryRows).toHaveCount(1)
