@@ -40,6 +40,14 @@ function normalizeSeedHex(seedHex: string): string {
   if (hex.length === 0 || hex.length % 2 !== 0 || !/^[0-9a-f]+$/.test(hex)) {
     throw new Error("Invalid privacy-key seed for dedupe key derivation")
   }
+  // Minimum 16 bytes (32 hex chars) for a safe HMAC key. A shorter key (e.g. 1 byte = 256
+  // possible HMACs) is trivially brute-forceable. The legitimate client always supplies a
+  // 32-byte NaCl seed (64 hex chars); this guard is pure defence-in-depth.
+  if (hex.length < 32) {
+    throw new Error(
+      "Privacy-key seed too short for safe HMAC derivation (minimum 16 bytes / 32 hex chars)",
+    )
+  }
   return hex
 }
 

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import {
+  canDeleteTransactionFromList,
+  shouldCascadeDeleteTransactionBatch,
+} from "@/lib/transaction-batch-delete"
 
 /** Cap how many ids one request may delete to bound the query. */
 const MAX_BULK_DELETE = 2000
@@ -8,9 +12,14 @@ const MAX_BULK_DELETE = 2000
 /**
  * Bulk-delete transactions by id (used by the duplicate cleanup tool).
  *
- * Scoped strictly to the caller's own rows. The cleanup UI excludes funding-batch
- * legs, so this performs a plain `deleteMany` on the provided ids without batch
- * cascade — callers that need cascade semantics use single DELETE instead.
+ * Scoped strictly to the caller's own rows. Before deleting, the route pre-fetches
+ * every requested row and rejects any that are:
+ *  - not found (or belong to a different user)
+ *  - funding allocation legs (must be managed via their income header)
+ *  - income headers or sweep rows that require cascade semantics
+ *
+ * The duplicate cleanup UI already excludes these rows, so a rejection here
+ * signals an unexpected or adversarial caller.
  */
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -40,6 +49,39 @@ export async function POST(req: NextRequest) {
   }
 
   const uniqueIds = Array.from(new Set(ids as string[]))
+
+  // Pre-fetch all rows owned by this user so we can validate eligibility before
+  // touching the database. A single findMany is cheaper than N individual fetches.
+  const rows = await prisma.transaction.findMany({
+    where: { id: { in: uniqueIds }, userId: session.user.id },
+    select: { id: true, type: true, source: true, fundingBatchId: true },
+  })
+  const foundIds = new Set(rows.map((r) => r.id))
+
+  const rejectedIds: string[] = []
+  for (const id of uniqueIds) {
+    if (!foundIds.has(id)) {
+      // Missing or belongs to a different user — treat as ineligible.
+      rejectedIds.push(id)
+      continue
+    }
+    const row = rows.find((r) => r.id === id)!
+    if (!canDeleteTransactionFromList(row) || shouldCascadeDeleteTransactionBatch(row)) {
+      // Funding leg, income header, or sweep row — must not be standalone-deleted.
+      rejectedIds.push(id)
+    }
+  }
+
+  if (rejectedIds.length > 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Some ids cannot be bulk-deleted (not found, not owned, or part of a managed funding/sweep batch)",
+        rejectedIds,
+      },
+      { status: 400 },
+    )
+  }
 
   const { count } = await prisma.transaction.deleteMany({
     where: { userId: session.user.id, id: { in: uniqueIds } },

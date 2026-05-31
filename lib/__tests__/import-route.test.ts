@@ -52,12 +52,16 @@ describe("POST /api/import", () => {
   it("bulk-inserts with skipDuplicates, csv_import source, and pass-through dedupeKey", async () => {
     vi.mocked(prisma.transaction.createMany).mockResolvedValue({ count: 2 } as never)
 
+    const k1 = "a".repeat(32)
+    const k2 = "b".repeat(32)
+    const k3 = "c".repeat(32)
+
     const res = await POST(
       postRequest({
         transactions: [
-          { date: "2026-01-01", payee: "enc1", amount: 5, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: "key1" },
-          { date: "2026-01-01", payee: "enc2", amount: 9, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: "key2" },
-          { date: "2026-01-02", payee: "enc3", amount: 3, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: "key3" },
+          { date: "2026-01-01", payee: "enc1", amount: 5, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: k1 },
+          { date: "2026-01-01", payee: "enc2", amount: 9, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: k2 },
+          { date: "2026-01-02", payee: "enc3", amount: 3, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: k3 },
         ],
         envelopeMapping: { Groceries: "env_groceries" },
       }),
@@ -73,18 +77,22 @@ describe("POST /api/import", () => {
     const call = createManyArg()
     expect(call.skipDuplicates).toBe(true)
     expect(call.data).toHaveLength(3)
-    expect(call.data[0]).toMatchObject({ source: "csv_import", dedupeKey: "key1", envelopeId: "env_groceries" })
+    expect(call.data[0]).toMatchObject({ source: "csv_import", dedupeKey: k1, envelopeId: "env_groceries" })
   })
 
   it("memoizes BTC price lookups per distinct date", async () => {
     vi.mocked(prisma.transaction.createMany).mockResolvedValue({ count: 3 } as never)
 
+    const d1k1 = "1".repeat(32)
+    const d1k2 = "2".repeat(32)
+    const d2k1 = "3".repeat(32)
+
     await POST(
       postRequest({
         transactions: [
-          { date: "2026-01-01", payee: "a", amount: 1, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: "k1" },
-          { date: "2026-01-01", payee: "b", amount: 2, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: "k2" },
-          { date: "2026-01-02", payee: "c", amount: 3, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: "k3" },
+          { date: "2026-01-01", payee: "a", amount: 1, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: d1k1 },
+          { date: "2026-01-01", payee: "b", amount: 2, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: d1k2 },
+          { date: "2026-01-02", payee: "c", amount: 3, type: "expense", envelopeName: "Groceries", notes: null, dedupeKey: d2k1 },
         ],
         envelopeMapping: { Groceries: "env_groceries" },
       }),
@@ -120,5 +128,27 @@ describe("POST /api/import", () => {
     vi.mocked(auth).mockResolvedValue(null as never)
     const res = await POST(postRequest({ transactions: [], envelopeMapping: {} }))
     expect(res.status).toBe(401)
+  })
+
+  it("returns 400 when a dedupeKey is not 32 lowercase hex chars", async () => {
+    const res = await POST(
+      postRequest({
+        transactions: [
+          {
+            date: "2026-01-01",
+            payee: "enc1",
+            amount: 5,
+            type: "expense",
+            envelopeName: "Groceries",
+            notes: null,
+            dedupeKey: "UPPERCASE_NOT_HEX",
+          },
+        ],
+        envelopeMapping: { Groceries: "env_groceries" },
+      }),
+    )
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as { error: string }
+    expect(json.error).toMatch(/dedupeKey/)
   })
 })

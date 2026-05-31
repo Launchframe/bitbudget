@@ -77,4 +77,15 @@ describe("makeDedupeKeyComputer", () => {
     expect(() => makeDedupeKeyComputer("not-hex")).toThrow()
     expect(() => makeDedupeKeyComputer("abc")).toThrow()
   })
+
+  it("rejects a seed that is valid hex but too short (< 16 bytes)", () => {
+    // 1-byte seed: 256 possible HMAC keys — trivially brute-forceable.
+    expect(() => makeDedupeKeyComputer("ab")).toThrow(/too short/)
+    // 15-byte seed: still below the 16-byte minimum.
+    expect(() => makeDedupeKeyComputer("aa".repeat(15))).toThrow(/too short/)
+  })
+
+  it("accepts a seed at exactly the 16-byte minimum (32 hex chars)", () => {
+    expect(() => makeDedupeKeyComputer("bb".repeat(16))).not.toThrow()
+  })
 })
