@@ -1152,7 +1152,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       if (!res.ok) {
         await refreshData()
-        return 0
+        let message = "Bulk delete failed"
+        try {
+          const body = (await res.json()) as { error?: string }
+          if (body.error) message = body.error
+        } catch {
+          /* ignore */
+        }
+        throw new Error(message)
       }
       const body = (await res.json().catch(() => ({}))) as { deleted?: number }
       if (currentUserIdRef.current) {

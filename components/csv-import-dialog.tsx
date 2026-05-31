@@ -286,6 +286,8 @@ export function CSVImportDialog({
     onLoadingChange?.(true)
     setError(null)
     setImportProgress(null)
+    let chunkProgressDone = 0
+    let totalToImport = 0
     try {
       let encrypt: EncryptFn
       let dedupeComputer: DedupeKeyComputer | null
@@ -358,7 +360,9 @@ export function CSVImportDialog({
       let skipped = 0
       let duplicates = 0
       const newEnvelopes = new Set<string>()
-      setImportProgress({ done: 0, total: encryptedTxns.length })
+      totalToImport = encryptedTxns.length
+      chunkProgressDone = 0
+      setImportProgress({ done: 0, total: totalToImport })
 
       for (let start = 0; start < encryptedTxns.length; start += IMPORT_CHUNK_SIZE) {
         const chunk = encryptedTxns.slice(start, start + IMPORT_CHUNK_SIZE)
@@ -391,7 +395,8 @@ export function CSVImportDialog({
         skipped += data.skipped ?? 0
         duplicates += data.duplicates ?? 0
         for (const name of data.newEnvelopes ?? []) newEnvelopes.add(name)
-        setImportProgress({ done: Math.min(start + chunk.length, encryptedTxns.length), total: encryptedTxns.length })
+        chunkProgressDone = Math.min(start + chunk.length, totalToImport)
+        setImportProgress({ done: chunkProgressDone, total: totalToImport })
       }
 
       const summary = {
@@ -406,7 +411,10 @@ export function CSVImportDialog({
       onLoadingChange?.(false)
       if (onImportComplete) await onImportComplete()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Import failed"
+      let msg = err instanceof Error ? err.message : "Import failed"
+      if (chunkProgressDone > 0 && totalToImport > 0) {
+        msg += ` ${chunkProgressDone.toLocaleString()} of ${totalToImport.toLocaleString()} rows were saved before the error. You can import the same file again — duplicates will be skipped automatically.`
+      }
       setError(msg)
       onImportError?.(msg)
       onLoadingChange?.(false)

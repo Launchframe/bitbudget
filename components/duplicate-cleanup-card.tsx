@@ -35,6 +35,7 @@ export function DuplicateCleanupCard() {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [lastDeleted, setLastDeleted] = useState<number | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const clusters = useMemo(
     () => (scanned ? findDuplicateClusters(activeTransactions) : []),
@@ -46,6 +47,7 @@ export function DuplicateCleanupCard() {
     const found = findDuplicateClusters(activeTransactions)
     setSelected(defaultDeleteSelection(found))
     setLastDeleted(null)
+    setDeleteError(null)
     setScanned(true)
   }
 
@@ -61,6 +63,7 @@ export function DuplicateCleanupCard() {
   const handleConfirmDelete = async () => {
     setConfirmOpen(false)
     setDeleting(true)
+    setDeleteError(null)
     try {
       const ids = Array.from(selected)
       const count = await bulkDeleteTransactions(ids)
@@ -68,6 +71,9 @@ export function DuplicateCleanupCard() {
       setSelected(new Set())
       // Re-scan against the updated list on next render via state.transactions change.
       setScanned(true)
+    } catch (err) {
+      setLastDeleted(null)
+      setDeleteError(err instanceof Error ? err.message : "Delete failed. Try again.")
     } finally {
       setDeleting(false)
     }
@@ -106,6 +112,12 @@ export function DuplicateCleanupCard() {
       {scanned && lastDeleted != null && (
         <p className="mt-4 text-sm text-[#22C55E]">
           Removed {lastDeleted} duplicate{lastDeleted === 1 ? "" : "s"}.
+        </p>
+      )}
+
+      {deleteError && (
+        <p className="mt-4 text-sm text-red-400" role="alert">
+          {deleteError}
         </p>
       )}
 
