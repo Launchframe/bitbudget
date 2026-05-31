@@ -13,7 +13,7 @@ import {
   isCashOutflowExpense,
 } from "@/lib/cash-flow-series"
 import { buildCumulativeSpendingSeries } from "@/lib/cumulative-spending-series"
-import { isUserFacingExpense } from "@/lib/transaction-visibility"
+import { isAnalyticsExpense } from "@/lib/transaction-visibility"
 import {
   DASHBOARD_CHART_RANGE_OVERRIDE_KEY,
   getDashboardChartMode,
@@ -168,7 +168,7 @@ export function OpportunityCostChart() {
   }, [selectRange])
 
   const hasAnyExpenses = useMemo(
-    () => activeTransactions.some(isUserFacingExpense),
+    () => activeTransactions.some(isAnalyticsExpense),
     [activeTransactions],
   )
 

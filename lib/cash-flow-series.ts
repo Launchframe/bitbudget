@@ -50,7 +50,7 @@ export function isCashInflowCredit(txn: Pick<Transaction, "type" | "source" | "e
   return CASH_INFLOW_SOURCES.has(src)
 }
 
-export function isCashOutflowExpense(txn: Pick<Transaction, "type" | "excludeFromMainHistory" | "source">): boolean {
+export function isCashOutflowExpense(txn: Pick<Transaction, "type" | "excludeFromMainHistory" | "source" | "tags">): boolean {
   return isUserFacingExpense(txn)
 }
 

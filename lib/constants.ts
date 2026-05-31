@@ -61,6 +61,9 @@ export const TX_SOURCE_DEFICIT_COVER = "deficit_cover"
 export const TX_SOURCE_ENVELOPE_TRANSFER_IN = "envelope_transfer_in"
 export const TX_SOURCE_ENVELOPE_TRANSFER_OUT = "envelope_transfer_out"
 
+/** Reserved tag name for private transactions — excluded from analytics, exports, and OC charts. */
+export const PRIVATE_TAG_NAME = "private"
+
 export const ENVELOPE_FUNDING_BATCH_KIND_FUND = "fund"
 export const ENVELOPE_FUNDING_BATCH_KIND_SWEEP = "sweep"
 export const ENVELOPE_FUNDING_BATCH_KIND_REBALANCE = "rebalance"
@@ -78,4 +81,9 @@ export function isReservedSavingsEnvelopeName(name: string): boolean {
 /** Budget envelopes receive allotment slices; system Savings holds unallocated income. */
 export function isBudgetEnvelope(systemRole: string | null | undefined): boolean {
   return systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS
+}
+
+/** Returns true when a transaction is tagged as private and should be excluded from analytics/exports. */
+export function isPrivateTransaction(tags: string[]): boolean {
+  return tags.some((t) => t.toLowerCase() === PRIVATE_TAG_NAME)
 }
