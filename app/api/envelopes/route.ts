@@ -31,11 +31,11 @@ export async function GET(req: NextRequest) {
       include: {
         _count: {
           select: {
-            transactions: true,
             recurringTransactions: true,
           },
         },
         transactions: {
+          where: { excludeFromMainHistory: false },
           select: { amount: true },
         },
       },
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
         sweepCapMultiplier:
           e.sweepCapMultiplier != null ? Number(e.sweepCapMultiplier) : null,
         createdAt: e.createdAt.toISOString().slice(0, 10),
-        transactionCount: e._count.transactions,
+        transactionCount: e.transactions.length,
         recurringCount: e._count.recurringTransactions,
         transactionTotalAmount: e.transactions.reduce(
           (sum, t) => sum + Math.abs(Number(t.amount)),

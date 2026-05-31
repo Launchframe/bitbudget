@@ -69,6 +69,7 @@ import {
   setMemo,
   startDateForRecentWindow,
 } from "@/lib/txn-cache"
+import { filterTransactionsForActiveLedger } from "@/lib/envelope-ledger-visibility"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { transactionSyncUserMessage } from "@/lib/transaction-sync-user-message"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
@@ -1725,14 +1726,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [activeEnvelopes],
   )
 
-  const deletedEnvelopeIds = useMemo(
-    () => new Set(state.envelopes.filter(e => e.deletedAt).map(e => e.id)),
-    [state.envelopes]
-  )
-
   const activeTransactions = useMemo(
-    () => state.transactions.filter(t => !deletedEnvelopeIds.has(t.envelopeId)),
-    [state.transactions, deletedEnvelopeIds]
+    () => filterTransactionsForActiveLedger(state.transactions, state.envelopes),
+    [state.transactions, state.envelopes]
   )
 
   const loading = txnLoadPhase === "init"

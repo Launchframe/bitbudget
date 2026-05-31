@@ -14,3 +14,15 @@ export function withoutSystemSavingsEnvelope<T extends { name: string; systemRol
 ): T[] {
   return envelopes.filter(isOnboardingDraftBudgetEnvelope)
 }
+
+/** Server row eligible for onboarding draft merge — not Savings, archived, or soft-deleted. */
+export function isOnboardingVisibleServerEnvelope(env: {
+  name: string
+  systemRole?: string | null
+  archived?: boolean
+  deletedAt?: string | null
+}): boolean {
+  if (env.archived) return false
+  if (env.deletedAt != null && env.deletedAt !== "") return false
+  return isOnboardingDraftBudgetEnvelope(env)
+}

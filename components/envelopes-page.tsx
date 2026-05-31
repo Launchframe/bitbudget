@@ -37,6 +37,7 @@ import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { IrregularIncomeDialog } from "@/components/irregular-income-dialog"
 import { SavingsHeroCard } from "@/components/savings-hero-card"
 import { canRestoreSoftDeletedEnvelope, daysUntilEnvelopePurge } from "@/lib/envelope-delete"
+import { envelopeDeleteUsageStats } from "@/lib/envelope-ledger-visibility"
 import { ENVELOPE_DELETE_GRACE_DAYS } from "@/lib/constants"
 
 export function EnvelopesPage() {
@@ -76,15 +77,11 @@ export function EnvelopesPage() {
   const archiveToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const deleteToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const envelopeDeleteStats = useCallback((envId: string) => {
-    const txns = state.transactions.filter(t => t.envelopeId === envId && !t.excludeFromMainHistory)
-    const recurring = recurringTransactions.filter(r => r.envelopeId === envId)
-    return {
-      transactionCount: txns.length,
-      transactionTotal: txns.reduce((sum, t) => sum + Math.abs(t.amount), 0),
-      recurringCount: recurring.length,
-    }
-  }, [state.transactions, recurringTransactions])
+  const envelopeDeleteStats = useCallback(
+    (envId: string) =>
+      envelopeDeleteUsageStats(state.transactions, recurringTransactions, envId),
+    [state.transactions, recurringTransactions],
+  )
 
   function handleArchive(envId: string) {
     const env = state.envelopes.find(e => e.id === envId)
