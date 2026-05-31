@@ -242,4 +242,62 @@ describe("POST /api/import", () => {
     const call = createManyArg()
     expect(call.data[0].dedupeKey).toBeNull()
   })
+
+  it("rejects malformed dedupeKey before creating envelopes", async () => {
+    const res = await POST(
+      postRequest({
+        transactions: [
+          {
+            date: "2026-01-01",
+            payee: "enc1",
+            amount: 5,
+            type: "expense",
+            envelopeName: "Brand New",
+            notes: null,
+            dedupeKey: "d".repeat(32),
+          },
+          {
+            date: "2026-01-02",
+            payee: "enc2",
+            amount: 9,
+            type: "expense",
+            envelopeName: "Brand New",
+            notes: null,
+            dedupeKey: "bad-key",
+          },
+        ],
+        envelopeMapping: { "Brand New": "__new__" },
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    expect(vi.mocked(prisma.envelope.findMany)).not.toHaveBeenCalled()
+    expect(vi.mocked(prisma.envelope.create)).not.toHaveBeenCalled()
+    expect(vi.mocked(prisma.transaction.createMany)).not.toHaveBeenCalled()
+  })
+
+  it("treats empty-string dedupeKey as absent (stored as null, not rejected)", async () => {
+    vi.mocked(prisma.transaction.createMany).mockResolvedValue({ count: 1 } as never)
+
+    const res = await POST(
+      postRequest({
+        transactions: [
+          {
+            date: "2026-01-01",
+            payee: "enc1",
+            amount: 5,
+            type: "expense",
+            envelopeName: "Groceries",
+            notes: null,
+            dedupeKey: "",
+          },
+        ],
+        envelopeMapping: { Groceries: "env_groceries" },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const call = createManyArg()
+    expect(call.data[0].dedupeKey).toBeNull()
+  })
 })

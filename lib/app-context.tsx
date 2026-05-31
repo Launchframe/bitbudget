@@ -38,6 +38,7 @@ import {
 } from "@/lib/crypto"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
 import { makeDedupeKeyComputer, type DedupeKeyComputer } from "@/lib/import-dedupe-key"
+import { requestBulkDeleteTransactions } from "@/lib/bulk-delete-client"
 import {
   clearPrivacyKeyCache,
   getValidCachedPrivacyKeyHex,
@@ -1172,23 +1173,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }))
 
     try {
-      const res = await fetch("/api/transactions/bulk-delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: Array.from(idSet) }),
-      })
-      if (!res.ok) {
-        await refreshData()
-        let message = "Bulk delete failed"
-        try {
-          const body = (await res.json()) as { error?: string }
-          if (body.error) message = body.error
-        } catch {
-          /* ignore */
-        }
-        throw new Error(message)
-      }
-      const body = (await res.json().catch(() => ({}))) as { deleted?: number }
+      const deleted = await requestBulkDeleteTransactions(Array.from(idSet))
       if (currentUserIdRef.current) {
         await Promise.all(
           Array.from(idSet).map((id) =>
@@ -1196,10 +1181,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ),
         )
       }
-      return body.deleted ?? 0
-    } catch {
+      return deleted
+    } catch (err) {
       await refreshData()
-      return 0
+      throw err instanceof Error ? err : new Error("Bulk delete failed")
     }
   }, [refreshData])
 
