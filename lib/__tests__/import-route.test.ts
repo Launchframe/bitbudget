@@ -298,6 +298,7 @@ describe("POST /api/import", () => {
 
     expect(res.status).toBe(200)
     const call = createManyArg()
+    // Empty string is normalized to null — the row is inserted without idempotency key.
     expect(call.data[0].dedupeKey).toBeNull()
   })
 })

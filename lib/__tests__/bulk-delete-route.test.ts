@@ -161,4 +161,21 @@ describe("POST /api/transactions/bulk-delete", () => {
     }
     expect(findCall.where.id.in).toHaveLength(1)
   })
+
+  it("allows csv_import rows to be bulk-deleted (not a funding leg or cascade target)", async () => {
+    const csvRow = {
+      id: "tx1",
+      type: "expense" as const,
+      source: "csv_import",
+      fundingBatchId: null,
+    }
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([csvRow] as never)
+    vi.mocked(prisma.transaction.deleteMany).mockResolvedValue({ count: 1 } as never)
+
+    const res = await POST(postRequest({ ids: ["tx1"] }))
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as { deleted: number }
+    expect(json.deleted).toBe(1)
+    expect(vi.mocked(prisma.transaction.deleteMany)).toHaveBeenCalled()
+  })
 })
