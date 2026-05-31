@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import type { Transaction } from "@/lib/data"
 import {
   canDeleteTransactionFromList,
   shouldCascadeDeleteTransactionBatch,
 } from "@/lib/transaction-batch-delete"
+
+type BulkDeleteEligibilityRow = Pick<Transaction, "type" | "source" | "fundingBatchId">
 
 /** Cap how many ids one request may delete to bound the query. */
 const MAX_BULK_DELETE = 2000
@@ -65,7 +68,27 @@ export async function POST(req: NextRequest) {
       rejectedIds.push(id)
       continue
     }
-    const row = rows.find((r) => r.id === id)!
+    const row = rows.find((r) => r.id === id)! as BulkDeleteEligibilityRow
+    // #region agent log
+    fetch("http://127.0.0.1:7592/ingest/258423e2-0af9-4cd3-ab6c-55bd906b1f21", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "ae824c" },
+      body: JSON.stringify({
+        sessionId: "ae824c",
+        runId: "post-fix",
+        hypothesisId: "H1",
+        location: "bulk-delete/route.ts:eligibility",
+        message: "bulk-delete eligibility check",
+        data: {
+          id,
+          source: row.source,
+          canDelete: canDeleteTransactionFromList(row),
+          needsCascade: shouldCascadeDeleteTransactionBatch(row),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {})
+    // #endregion
     if (!canDeleteTransactionFromList(row) || shouldCascadeDeleteTransactionBatch(row)) {
       // Funding leg, income header, or sweep row — must not be standalone-deleted.
       rejectedIds.push(id)
