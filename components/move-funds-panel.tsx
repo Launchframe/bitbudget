@@ -32,8 +32,8 @@ export function MoveFundsPanel({
 }) {
   const { discretionaryEnvelopes, activeEnvelopes, activeTransactions } = useApp()
   const monthKey = getCurrentMonthKey()
-  const savingsEnv = findSavingsEnvelope(activeEnvelopes) ?? null
-  const savingsBal = savingsBalance(activeTransactions, savingsEnv?.id)
+  const savingsEnv = findSavingsEnvelope(activeEnvelopes)
+  const savingsBal = savingsBalance(activeTransactions, savingsEnv)
 
   const [behavior, setBehavior] = useState<DistributionBehavior>("set_to_budget")
   const [fundOverage, setFundOverage] = useState(false)
