@@ -42,7 +42,7 @@ describe("buildSweepPolicyHint", () => {
       capMultiplier: 1.5,
       example,
     })
-    expect(hint.description).toMatch(/no more than your allocated amount/i)
+    expect(hint.description).toMatch(/1st of each month/i)
     expect(hint.example).toContain("Groceries")
     expect(hint.example).toMatch(/nothing sweeps/i)
   })

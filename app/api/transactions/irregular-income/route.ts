@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { createIrregularIncomeBatch } from "@/lib/envelope-funding"
+import {
+  createIrregularIncomeBatch,
+  type IrregularDistributionMode,
+} from "@/lib/envelope-funding"
+import type { DistributionBehavior } from "@/lib/move-funds-math"
 import { parseTransactionQueryCalendarDate } from "@/lib/transaction-query-dates"
+
+const DISTRIBUTION_BEHAVIORS: DistributionBehavior[] = [
+  "set_to_budget",
+  "add_budget",
+  "custom",
+]
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -19,7 +29,16 @@ export async function POST(req: NextRequest) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json({ error: "Expected JSON object" }, { status: 400 })
   }
-  const { amount, date, payee, notes } = body as Record<string, unknown>
+  const {
+    amount,
+    date,
+    payee,
+    notes,
+    distributionMode,
+    distributionBehavior,
+    fundOverageFromSavings,
+    envelopeAllocations,
+  } = body as Record<string, unknown>
 
   if (typeof date !== "string") {
     return NextResponse.json({ error: "Invalid date (YYYY-MM-DD)" }, { status: 400 })
@@ -46,6 +65,61 @@ export async function POST(req: NextRequest) {
         : null
   if (notes !== undefined && notes !== null && typeof notes !== "string") {
     return NextResponse.json({ error: "Invalid notes" }, { status: 400 })
+  }
+
+  let mode: IrregularDistributionMode = "savings"
+  if (distributionMode !== undefined && distributionMode !== null) {
+    if (
+      distributionMode !== "savings" &&
+      distributionMode !== "envelopes" &&
+      distributionMode !== "legacy_auto"
+    ) {
+      return NextResponse.json({ error: "Invalid distributionMode" }, { status: 400 })
+    }
+    mode = distributionMode
+  }
+
+  let behavior: DistributionBehavior | undefined
+  if (distributionBehavior !== undefined && distributionBehavior !== null) {
+    if (
+      typeof distributionBehavior !== "string" ||
+      !DISTRIBUTION_BEHAVIORS.includes(distributionBehavior as DistributionBehavior)
+    ) {
+      return NextResponse.json({ error: "Invalid distributionBehavior" }, { status: 400 })
+    }
+    behavior = distributionBehavior as DistributionBehavior
+  }
+
+  const fundOverage =
+    fundOverageFromSavings === true || fundOverageFromSavings === "true"
+
+  let allocations: { envelopeId: string; amountUsd: number }[] | undefined
+  if (envelopeAllocations !== undefined && envelopeAllocations !== null) {
+    if (!Array.isArray(envelopeAllocations)) {
+      return NextResponse.json({ error: "Invalid envelopeAllocations" }, { status: 400 })
+    }
+    allocations = []
+    for (const row of envelopeAllocations) {
+      if (typeof row !== "object" || row === null || Array.isArray(row)) {
+        return NextResponse.json({ error: "Invalid envelopeAllocations" }, { status: 400 })
+      }
+      const { envelopeId, amountUsd } = row as Record<string, unknown>
+      if (typeof envelopeId !== "string" || envelopeId.trim().length === 0) {
+        return NextResponse.json({ error: "Invalid envelopeAllocations" }, { status: 400 })
+      }
+      const amt = typeof amountUsd === "number" ? amountUsd : Number(amountUsd)
+      if (!Number.isFinite(amt) || amt <= 0) {
+        return NextResponse.json({ error: "Invalid envelopeAllocations" }, { status: 400 })
+      }
+      allocations.push({ envelopeId: envelopeId.trim(), amountUsd: amt })
+    }
+  }
+
+  if (mode === "envelopes" && !allocations?.length && !behavior) {
+    return NextResponse.json(
+      { error: "Choose how to fill envelopes or put the money in Savings." },
+      { status: 400 },
+    )
   }
 
   const user = await prisma.user.findUnique({
@@ -84,6 +158,10 @@ export async function POST(req: NextRequest) {
     userIncome: {
       monthlyIncome: user.monthlyIncome,
     },
+    distributionMode: mode,
+    distributionBehavior: behavior,
+    fundOverageFromSavings: fundOverage,
+    envelopeAllocations: allocations,
   })
 
   if (createdCount <= 0) {

@@ -25,11 +25,11 @@ export type SweepPolicyHint = {
 
 export const SWEEP_POLICY_DESCRIPTIONS: Record<SweepPolicy, string> = {
   [SWEEP_POLICY_RESET]:
-    "Start each cycle with no more than your allocated amount. Only surplus above that allotment sweeps to Savings. If the envelope is below its allocation but still has money left, nothing sweeps.",
+    "On the 1st of each month, envelopes refill toward your budget. Only surplus above your monthly allotment sweeps to Savings before that refill.",
   [SWEEP_POLICY_CARRY_FORWARD]:
-    "On each payday, leftover money stays in the envelope. Nothing moves to Savings until you spend it or sweep manually.",
+    "On the 1st of each month, leftover money stays in the envelope. Nothing moves to Savings until you spend it or sweep manually.",
   [SWEEP_POLICY_CAPPED]:
-    "On each payday, you keep up to a cap in each envelope. Only surplus above that cap sweeps to Savings.",
+    "On the 1st of each month, you keep up to a cap in each envelope. Only surplus above that cap sweeps to Savings.",
 }
 
 /** Pick an envelope with positive remaining (all-time) balance, else the largest monthly allotment. */
@@ -96,11 +96,11 @@ function exampleForAllotmentCap(
       capMultiplier: policy === SWEEP_POLICY_RESET ? 1 : capMultiplier,
     })
     const actualKeep = Math.round((env.balance - actualSweep) * 100) / 100
-    return `${env.name} has ${formatUsd(env.balance)} left with ${capLabel}. On payday, ${formatUsd(actualSweep)} sweeps to Savings and ${formatUsd(actualKeep)} stays in ${env.name}.`
+    return `${env.name} has ${formatUsd(env.balance)} left with ${capLabel}. On the 1st, ${formatUsd(actualSweep)} sweeps to Savings and ${formatUsd(actualKeep)} stays in ${env.name}.`
   }
 
   if (env.balance > 0) {
-    return `${env.name} has ${formatUsd(env.balance)} left — under ${capLabel}. On payday, nothing sweeps. After your next refill, you start the cycle at that balance plus your new allocation.`
+    return `${env.name} has ${formatUsd(env.balance)} left — under ${capLabel}. On the 1st, nothing sweeps before your monthly refill.`
   }
 
   return `${env.name} has no leftover this month. With ${capLabel}, up to ${formatUsd(cap)} can roll over; surplus above that sweeps to Savings — e.g. ${formatUsd(sampleBalance)} left would sweep ${formatUsd(sampleSweep)} and leave ${formatUsd(sampleKeep)}.`
@@ -108,9 +108,9 @@ function exampleForAllotmentCap(
 
 function exampleForCarryForward(env: SweepExampleEnvelope): string | null {
   if (env.balance <= 0) {
-    return `${env.name} has no leftover this month. When it does at payday, that balance stays put for next period — nothing moves to Savings.`
+    return `${env.name} has no leftover this month. When it does on the 1st, that balance stays put for next period — nothing moves to Savings.`
   }
-  return `${env.name} has ${formatUsd(env.balance)} left this month. On payday, nothing moves — you keep ${formatUsd(env.balance)} to spend next period.`
+  return `${env.name} has ${formatUsd(env.balance)} left this month. On the 1st, nothing moves — you keep ${formatUsd(env.balance)} to spend next period.`
 }
 
 export function buildSweepPolicyHint(params: {

@@ -54,7 +54,7 @@ import {
 } from "lucide-react"
 
 const SWEEP_POLICY_LABELS: Record<SweepPolicy, string> = {
-  [SWEEP_POLICY_RESET]: "Reset each payday",
+  [SWEEP_POLICY_RESET]: "Reset each month (1st)",
   [SWEEP_POLICY_CARRY_FORWARD]: "Carry forward",
   [SWEEP_POLICY_CAPPED]: "Cap surplus",
 }
@@ -561,7 +561,7 @@ export function SettingsSavingsCard() {
             <div>
               <h4 className="text-sm font-medium text-foreground">Sweep policy</h4>
               <p className="text-xs text-muted-foreground mt-1">
-                On each payday, leftover envelope balances can move into Savings. Set a default for new envelopes;
+                On the 1st of each month, leftover envelope balances can move into Savings before envelopes refill. Set a default for new envelopes;
                 override individual envelopes below.
               </p>
             </div>

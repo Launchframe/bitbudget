@@ -1,24 +1,12 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
-import {
-  ENVELOPE_FUNDING_BATCH_KIND_FUND,
-  isBudgetEnvelope,
-  LEDGER_ALLOCATION_PAYEE_LABEL,
-  SYSTEM_ENVELOPE_ROLE_SAVINGS,
-  TX_SOURCE_INCOME_IMPORT,
-} from "@/lib/constants"
+import { ENVELOPE_FUNDING_BATCH_KIND_FUND, TX_SOURCE_INCOME_IMPORT } from "@/lib/constants"
 import {
   ensureSystemSavingsEnvelope,
-  TX_SOURCE_FUNDING_IN,
-  TX_SOURCE_FUNDING_OUT,
   TX_SOURCE_IRREGULAR_INCOME,
   TX_SOURCE_PAYCHECK,
 } from "@/lib/envelope-funding"
-import {
-  computeIrregularIncomeSplits,
-  sumAllocatedIrregularCents,
-} from "@/lib/irregular-income-split"
 import { encryptFieldForUser } from "@/lib/server-encrypt"
 import { todayUtcIso } from "@/lib/transaction-visibility"
 
@@ -361,46 +349,7 @@ export function sumPriorIncomeImportForPeriod(
     .reduce((sum, t) => sum + t.amount, 0)
 }
 
-function cents(usd: number): number {
-  return Math.round(usd * 100)
-}
-
 const EMPTY_TAGS = "[]"
-
-async function createFundingLeg(
-  tx: Prisma.TransactionClient,
-  params: {
-    userId: string
-    envelopeId: string
-    date: Date
-    amount: number
-    type: "expense" | "credit"
-    payeeCipher: string | null
-    source: string
-    excludeFromMainHistory: boolean
-    fundingBatchId: string
-    btcPrice: number | null
-  },
-): Promise<void> {
-  const { amount } = params
-  if (!Number.isFinite(amount) || amount <= 0) return
-  const satsAmount = params.btcPrice != null ? usdToSats(amount, params.btcPrice) : null
-  await tx.transaction.create({
-    data: {
-      userId: params.userId,
-      envelopeId: params.envelopeId,
-      date: params.date,
-      payee: params.payeeCipher ?? "",
-      amount,
-      type: params.type,
-      tags: EMPTY_TAGS,
-      source: params.source,
-      satsAmount,
-      excludeFromMainHistory: params.excludeFromMainHistory,
-      fundingBatchId: params.fundingBatchId,
-    },
-  })
-}
 
 export interface ProcessIncomeImportInput {
   userId: string
@@ -464,26 +413,6 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
   const savings = await ensureSystemSavingsEnvelope(input.userId)
   const payDay = resolveImportPayDay(input.payDays)
 
-  const envelopeRows = await prisma.envelope.findMany({
-    where: {
-      userId: input.userId,
-      archived: false,
-      OR: [{ systemRole: null }, { systemRole: { not: SYSTEM_ENVELOPE_ROLE_SAVINGS } }],
-    },
-    select: { id: true, monthlyAllotment: true, systemRole: true },
-  })
-  const envelopes = envelopeRows.filter((e) => isBudgetEnvelope(e.systemRole))
-
-  let sumAllot = 0
-  for (const e of envelopes) {
-    const a = e.monthlyAllotment
-    if (Number.isFinite(a) && a > 0) sumAllot += a
-  }
-
-  const encAllocOut = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
-  const encAllocIn = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
-  if (!encAllocOut || !encAllocIn) return 0
-
   let totalCreated = 0
   const btcPrices = await prefetchBtcPricesForImportEntries(entries, payDay)
 
@@ -533,52 +462,6 @@ export async function processIncomeImport(input: ProcessIncomeImportInput): Prom
           },
         })
         totalCreated++
-
-        if (!shouldFundEnvelopeSliceOnImport(entry.periodKey, dateIso, now)) continue
-        if (sumAllot > mi + 0.015) continue
-
-        const split = computeIrregularIncomeSplits({
-          grossUsd: sliceAmount,
-          monthlyIncome: mi,
-          envelopes,
-          excludeEnvelopeIds: new Set([savings.id]),
-        })
-        if (split.invalid) continue
-
-        const allocated = sumAllocatedIrregularCents(split)
-        if (sumAllot > 0 && allocated <= 0) continue
-        if (allocated > cents(sliceAmount) + 1) continue
-
-        for (const [envId, allocCents] of split.envelopeIdToCents) {
-          const amt = allocCents / 100
-          if (amt <= 0) continue
-
-          await createFundingLeg(tx, {
-            userId: input.userId,
-            envelopeId: savings.id,
-            date: fundingDate,
-            amount: amt,
-            type: "expense",
-            payeeCipher: encAllocOut,
-            source: TX_SOURCE_FUNDING_OUT,
-            excludeFromMainHistory: true,
-            fundingBatchId: batch.id,
-            btcPrice,
-          })
-          await createFundingLeg(tx, {
-            userId: input.userId,
-            envelopeId: envId,
-            date: fundingDate,
-            amount: amt,
-            type: "credit",
-            payeeCipher: encAllocIn,
-            source: TX_SOURCE_FUNDING_IN,
-            excludeFromMainHistory: true,
-            fundingBatchId: batch.id,
-            btcPrice,
-          })
-          totalCreated += 2
-        }
       }
     }
   })

@@ -93,6 +93,7 @@ model User {
   notificationEmails         UserNotificationEmail[]
   notificationIngestDedupes  NotificationIngestDedupe[]
   envelopeFundingBatches     EnvelopeFundingBatch[]
+  recurringFundingRules      RecurringFundingRule[]
   savingsGoals               SavingsGoal[]
   achievements               UserAchievement[]
   pendingStatementBatches    PendingStatementBatch[]
@@ -311,7 +312,7 @@ model EnvelopeFundingBatch {
   id        String   @id @default(cuid())
   userId    String
   periodKey String
-  kind      String   @default("fund") // fund | sweep | rebalance | statement_import
+  kind      String   @default("fund") // fund | sweep | rebalance | statement_import | move_funds | deficit_cover
   config    Json?    // creation-time config; for statement_import: { institutionName, dateFrom, dateTo, format, transactionCount }
   createdAt DateTime @default(now())
 
@@ -320,6 +321,22 @@ model EnvelopeFundingBatch {
 
   @@unique([userId, periodKey, kind])
   @@index([userId])
+}
+
+model RecurringFundingRule {
+  id                 String    @id @default(cuid())
+  userId             String
+  kind               String // income_distribution | move_funds
+  frequency          String
+  distributionConfig Json
+  nextRunAt          DateTime
+  lastRunAt          DateTime?
+  enabled            Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, nextRunAt])
 }
 
 model SavingsGoal {

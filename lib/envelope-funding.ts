@@ -9,13 +9,23 @@ import {
   isBudgetEnvelope,
 } from "@/lib/constants"
 import {
-  allotmentSliceForFundingRun,
-  fundingPeriodKeyForDate,
+  allocationBatchPeriodKey,
+  allocationTopUpAmount,
+  isBudgetAllocationDay,
+  paycheckBatchPeriodKey,
+} from "@/lib/budget-period"
+import {
   grossIncomeForFundingRun,
   grossIncomeForPaydayUser,
-  allotmentSliceForPaydayUser,
   paydayDomListInUtcMonth,
 } from "@/lib/envelope-funding-period"
+import {
+  envelopeBalancesForMonthBatch,
+  monthKeyFromDate,
+  savingsEnvelopeBalanceAllTime,
+} from "@/lib/envelope-balance-server"
+import type { DistributionBehavior } from "@/lib/move-funds-math"
+import { computeDistribution, validateExplicitAllocations } from "@/lib/move-funds-math"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 import {
   fundingPeriodKeyForPayday,
@@ -40,22 +50,13 @@ export const TX_SOURCE_FUNDING_IN = "envelope_funding_in"
 
 const EMPTY_TAGS = "[]"
 
-function fundingPeriodKeyForUser(
+function paycheckPeriodKeysForUser(
   user: PaydayUserFields,
   runDateUtc: Date,
-  dailyAllowed: boolean,
-): string | null {
-  if (isDailyCadenceBlocked(user.payCadence, dailyAllowed)) return null
-
-  if (usesPaydayCadence(user)) {
-    if (!isPaydayForUser(user, runDateUtc)) return null
-    return fundingPeriodKeyForPayday(user, runDateUtc)
-  }
-  return fundingPeriodKeyForDate({
-    payCadence: user.payCadence,
-    runDateUtc,
-    dailyCadenceAllowed: dailyAllowed,
-  })
+): string[] {
+  const payKey = paycheckBatchPeriodKey(runDateUtc)
+  const legacyKey = fundingPeriodKeyForPayday(user, runDateUtc)
+  return legacyKey === payKey ? [payKey] : [payKey, legacyKey]
 }
 
 /**
@@ -114,10 +115,9 @@ async function createFundingLeg(
 }
 
 /**
- * Cron-funded paycheck-style batch for one user.
- * Returns number of transactions created (0 if skipped).
+ * PayPeriod: credit paycheck slice to Savings only (no allocation legs).
  */
-export async function processEnvelopeFundingForUser(userId: string, runDateUtc?: Date): Promise<number> {
+export async function creditPaycheckToSavings(userId: string, runDateUtc?: Date): Promise<number> {
   const now = runDateUtc ?? new Date()
   const dailyAllowed = isDailyPayCadenceAllowed()
 
@@ -142,8 +142,11 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
     lastPaydayAt: user.lastPaydayAt,
   }
 
-  const periodKey = fundingPeriodKeyForUser(paydayUser, now, dailyAllowed)
-  if (!periodKey) return 0
+  if (isDailyCadenceBlocked(user.payCadence, dailyAllowed)) return 0
+  if (!isPaydayForUser(paydayUser, now)) return 0
+
+  const periodKeys = paycheckPeriodKeysForUser(paydayUser, now)
+  const periodKey = periodKeys[0]!
 
   const savings = await savingsEnvelopeForUserDb(prisma, userId)
   if (!savings) return 0
@@ -164,50 +167,120 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
     : grossIncomeForFundingRun(user.monthlyIncome, user.payCadence, now, dailyAllowed)
   if (!Number.isFinite(gross) || gross <= 0) return 0
 
+  const dateStr = now.toISOString().split("T")[0]!
+  const btcPrice = await getBtcPriceForDate(dateStr)
+  const encIncome = encryptFieldForUser(LEDGER_INCOME_PAYEE_LABEL, user.publicKey)
+  if (!encIncome) return 0
+
+  const fundingDate = new Date(`${dateStr}T12:00:00.000Z`)
+
+  return prisma.$transaction(async (tx) => {
+    for (const key of periodKeys) {
+      const dup = await tx.envelopeFundingBatch.findUnique({
+        where: {
+          userId_periodKey_kind: {
+            userId,
+            periodKey: key,
+            kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+          },
+        },
+      })
+      if (dup) return 0
+    }
+
+    let batch
+    try {
+      batch = await tx.envelopeFundingBatch.create({
+        data: { userId, periodKey, kind: ENVELOPE_FUNDING_BATCH_KIND_FUND },
+      })
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        return 0
+      }
+      throw e
+    }
+
+    await tx.transaction.create({
+      data: {
+        userId,
+        envelopeId: savings.id,
+        date: fundingDate,
+        payee: encIncome,
+        amount: gross,
+        type: "credit",
+        tags: EMPTY_TAGS,
+        notes: null,
+        source: TX_SOURCE_PAYCHECK,
+        satsAmount: btcPrice ? usdToSats(gross, btcPrice) : null,
+        excludeFromMainHistory: false,
+        fundingBatchId: batch.id,
+      },
+    })
+
+    return 1
+  })
+}
+
+/**
+ * BudgetPeriod: gap-only top-up from Savings to discretionary envelopes (UTC 1st).
+ */
+export async function processMonthlyBudgetAllocations(
+  userId: string,
+  runDateUtc?: Date,
+): Promise<number> {
+  const now = runDateUtc ?? new Date()
+  if (!isBudgetAllocationDay(now)) return 0
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { publicKey: true },
+  })
+  if (!user?.publicKey?.trim()) return 0
+
+  const savings = await savingsEnvelopeForUserDb(prisma, userId)
+  if (!savings) return 0
+
   const envelopeRows = await prisma.envelope.findMany({
     where: budgetEnvelopeWhere(userId),
     select: { id: true, monthlyAllotment: true, systemRole: true },
   })
   const envelopes = envelopeRows.filter((e) => isBudgetEnvelope(e.systemRole))
+  if (envelopes.length === 0) return 0
 
-  type SliceRow = { id: string; slice: number }
-  const slices: SliceRow[] = []
-  let sumSlices = 0
+  const monthKey = monthKeyFromDate(now)
+  const monthBalances = await envelopeBalancesForMonthBatch(
+    userId,
+    envelopes.map((e) => e.id),
+    monthKey,
+  )
+
+  type TopUpRow = { id: string; topUp: number }
+  const topUps: TopUpRow[] = []
+  let sumTopUp = 0
   for (const e of envelopes) {
-    const slice = usesPaydayCadence(paydayUser)
-      ? allotmentSliceForPaydayUser(
-          e.monthlyAllotment,
-          paydayUser,
-          now,
-          dailyAllowed,
-          paydaysInMonth,
-        )
-      : allotmentSliceForFundingRun(
-          e.monthlyAllotment,
-          user.payCadence,
-          now,
-          dailyAllowed,
-        )
-    if (slice > 0) {
-      slices.push({ id: e.id, slice })
-      sumSlices += slice
+    const balance = monthBalances.get(e.id) ?? 0
+    const topUp = allocationTopUpAmount({
+      monthlyAllotment: e.monthlyAllotment,
+      currentMonthBalance: balance,
+    })
+    if (topUp > 0) {
+      topUps.push({ id: e.id, topUp })
+      sumTopUp += topUp
     }
   }
+  if (sumTopUp <= 0) return 0
 
-  if (sumSlices > gross + 0.015) {
-    return 0
-  }
+  const savingsBalance = await savingsEnvelopeBalanceAllTime(userId, savings.id)
+  if (sumTopUp > savingsBalance + 0.015) return 0
 
   const dateStr = now.toISOString().split("T")[0]!
   const btcPrice = await getBtcPriceForDate(dateStr)
-
-  const encIncome = encryptFieldForUser(LEDGER_INCOME_PAYEE_LABEL, user.publicKey)
   const encAllocOut = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, user.publicKey)
   const encAllocIn = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, user.publicKey)
-
-  if (!encIncome || !encAllocOut || !encAllocIn) return 0
+  if (!encAllocOut || !encAllocIn) return 0
 
   const fundingDate = new Date(`${dateStr}T12:00:00.000Z`)
+  const periodKey = allocationBatchPeriodKey(now)
 
   return prisma.$transaction(async (tx) => {
     const dup = await tx.envelopeFundingBatch.findUnique({
@@ -234,31 +307,12 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
     }
 
     let created = 0
-
-    await tx.transaction.create({
-      data: {
-        userId,
-        envelopeId: savings.id,
-        date: fundingDate,
-        payee: encIncome,
-        amount: gross,
-        type: "credit",
-        tags: EMPTY_TAGS,
-        notes: null,
-        source: TX_SOURCE_PAYCHECK,
-        satsAmount: btcPrice ? usdToSats(gross, btcPrice) : null,
-        excludeFromMainHistory: false,
-        fundingBatchId: batch.id,
-      },
-    })
-    created++
-
-    for (const row of slices) {
+    for (const row of topUps) {
       await createFundingLeg(tx, {
         userId,
         envelopeId: savings.id,
         date: fundingDate,
-        amount: row.slice,
+        amount: row.topUp,
         type: "expense",
         payeeCipher: encAllocOut,
         source: TX_SOURCE_FUNDING_OUT,
@@ -270,7 +324,7 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
         userId,
         envelopeId: row.id,
         date: fundingDate,
-        amount: row.slice,
+        amount: row.topUp,
         type: "credit",
         payeeCipher: encAllocIn,
         source: TX_SOURCE_FUNDING_IN,
@@ -283,6 +337,11 @@ export async function processEnvelopeFundingForUser(userId: string, runDateUtc?:
 
     return created
   })
+}
+
+/** @deprecated Use creditPaycheckToSavings for paydays only. */
+export async function processEnvelopeFundingForUser(userId: string, runDateUtc?: Date): Promise<number> {
+  return creditPaycheckToSavings(userId, runDateUtc)
 }
 
 /** Process ledger funding for every user with encryption keys configured. */
@@ -301,6 +360,13 @@ export async function processAllEnvelopeFunding(asOf?: Date): Promise<number> {
   return total
 }
 
+export type IrregularDistributionMode = "savings" | "envelopes" | "legacy_auto"
+
+export interface IrregularEnvelopeAllocation {
+  envelopeId: string
+  amountUsd: number
+}
+
 export interface IrregularIncomeInput {
   userId: string
   publicKey: string | null
@@ -312,9 +378,101 @@ export interface IrregularIncomeInput {
   notesPlain?: string | null
   /** When set, skips reloading `User.monthlyIncome` from the database. */
   userIncome?: { monthlyIncome: number }
+  distributionMode?: IrregularDistributionMode
+  distributionBehavior?: DistributionBehavior
+  fundOverageFromSavings?: boolean
+  envelopeAllocations?: IrregularEnvelopeAllocation[]
 }
 
-/** Manual irregular income: one visible Savings credit + hidden allocation legs. */
+async function resolveIrregularEnvelopeAmounts(
+  input: IrregularIncomeInput,
+  savingsId: string,
+  gross: number,
+  mi: number,
+): Promise<Map<string, number> | null> {
+  const mode = input.distributionMode ?? "savings"
+
+  if (mode === "savings") {
+    return new Map()
+  }
+
+  const envelopeRows = await prisma.envelope.findMany({
+    where: budgetEnvelopeWhere(input.userId),
+    select: { id: true, monthlyAllotment: true, systemRole: true },
+  })
+  const envelopes = envelopeRows.filter((e) => isBudgetEnvelope(e.systemRole))
+
+  if (mode === "legacy_auto") {
+    let sumAllot = 0
+    for (const e of envelopes) {
+      const a = e.monthlyAllotment
+      if (Number.isFinite(a) && a > 0) sumAllot += a
+    }
+    if (sumAllot > mi + 0.015) return null
+
+    const split = computeIrregularIncomeSplits({
+      grossUsd: gross,
+      monthlyIncome: mi,
+      envelopes,
+      excludeEnvelopeIds: new Set([savingsId]),
+    })
+    if (split.invalid) return null
+    const grossCents = cents(gross)
+    const allocated = sumAllocatedIrregularCents(split)
+    if (allocated > grossCents + 1) return null
+    if (sumAllot > 0 && allocated <= 0) return null
+
+    const out = new Map<string, number>()
+    for (const [envId, allocCents] of split.envelopeIdToCents) {
+      const amt = allocCents / 100
+      if (amt > 0) out.set(envId, amt)
+    }
+    return out
+  }
+
+  if (input.envelopeAllocations && input.envelopeAllocations.length > 0) {
+    if (!validateExplicitAllocations(gross, input.envelopeAllocations)) return null
+    const out = new Map<string, number>()
+    const allowed = new Set(envelopes.map((e) => e.id))
+    for (const row of input.envelopeAllocations) {
+      if (!allowed.has(row.envelopeId)) return null
+      if (row.amountUsd > 0) out.set(row.envelopeId, row.amountUsd)
+    }
+    return out
+  }
+
+  const behavior = input.distributionBehavior
+  if (!behavior) return null
+
+  const monthKey = input.dateIso.slice(0, 7)
+  const monthBalances = await envelopeBalancesForMonthBatch(
+    input.userId,
+    envelopes.map((e) => e.id),
+    monthKey,
+  )
+  const savingsBalance = await savingsEnvelopeBalanceAllTime(input.userId, savingsId)
+
+  const dist = computeDistribution({
+    behavior,
+    envelopes: envelopes.map((e) => ({
+      id: e.id,
+      monthlyAllotment: e.monthlyAllotment,
+      currentMonthBalance: monthBalances.get(e.id) ?? 0,
+    })),
+    grossUsd: gross,
+    savingsBalance,
+    fundOverageFromSavings: input.fundOverageFromSavings === true,
+  })
+  if (dist.invalid) return null
+
+  const out = new Map<string, number>()
+  for (const line of dist.lines) {
+    if (line.deltaUsd > 0) out.set(line.envelopeId, line.deltaUsd)
+  }
+  return out
+}
+
+/** Manual irregular income: Savings credit; optional user-chosen envelope legs. */
 export async function createIrregularIncomeBatch(input: IrregularIncomeInput): Promise<number> {
   const pk = input.publicKey?.trim()
   if (!pk) return 0
@@ -335,31 +493,17 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
 
   const savings = await ensureSystemSavingsEnvelope(input.userId)
 
-  const envelopeRows = await prisma.envelope.findMany({
-    where: budgetEnvelopeWhere(input.userId),
-    select: { id: true, monthlyAllotment: true, systemRole: true },
-  })
-  const envelopes = envelopeRows.filter((e) => isBudgetEnvelope(e.systemRole))
+  const envelopeAmounts = await resolveIrregularEnvelopeAmounts(
+    input,
+    savings.id,
+    gross,
+    mi,
+  )
+  if (envelopeAmounts === null) return 0
 
-  let sumAllot = 0
-  for (const e of envelopes) {
-    const a = e.monthlyAllotment
-    if (Number.isFinite(a) && a > 0) sumAllot += a
-  }
-  if (sumAllot > mi + 0.015) return 0
-
-  const split = computeIrregularIncomeSplits({
-    grossUsd: gross,
-    monthlyIncome: mi,
-    envelopes,
-    excludeEnvelopeIds: new Set([savings.id]),
-  })
-  if (split.invalid) return 0
-
-  const grossCents = cents(gross)
-  const allocated = sumAllocatedIrregularCents(split)
-  if (allocated > grossCents + 1) return 0
-  if (sumAllot > 0 && allocated <= 0) return 0
+  let allocatedSum = 0
+  for (const amt of envelopeAmounts.values()) allocatedSum += amt
+  if (allocatedSum > gross + 0.015) return 0
 
   const dateStr = input.dateIso
   const btcPrice = await getBtcPriceForDate(dateStr)
@@ -371,9 +515,14 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
   const encNotes =
     input.notesPlain?.trim() ? encryptFieldForUser(input.notesPlain.trim(), pk) : null
 
-  const encAllocOut = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
-  const encAllocIn = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
-  if (!encAllocOut || !encAllocIn) return 0
+  const needsLegs = envelopeAmounts.size > 0
+  let encAllocOut: string | null = null
+  let encAllocIn: string | null = null
+  if (needsLegs) {
+    encAllocOut = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
+    encAllocIn = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
+    if (!encAllocOut || !encAllocIn) return 0
+  }
 
   const periodKey = `irr-${randomUUID()}`
   let created = 0
@@ -405,8 +554,7 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
     })
     created++
 
-    for (const [envId, allocCents] of split.envelopeIdToCents) {
-      const amt = allocCents / 100
+    for (const [envId, amt] of envelopeAmounts) {
       if (amt <= 0) continue
 
       await createFundingLeg(tx, {

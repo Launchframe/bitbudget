@@ -45,6 +45,26 @@ Use two scopes consistently:
 
 **Do not** use month-scoped balance for remaining labels — it ignores prior-month carryover and diverges from sweep/funding behavior.
 
+### Ledger periods (agent vocabulary)
+
+Two automatic rhythms — **do not** use these terms in user-facing UI:
+
+| Period | When (UTC) | What moves | Helpers / idempotency |
+|--------|------------|------------|------------------------|
+| **PayPeriod** | User paydays (`isPaydayForUser`) | Paycheck slice → **Savings only** (no allocation legs) | `creditPaycheckToSavings` in `lib/envelope-funding.ts`; batch keys `pay-YYYY-MM-DD` (legacy `fund-YYYY-MM-DD` guarded) |
+| **BudgetPeriod** | Calendar **day 1** | Auto sweep (policy) then **gap-only** top-up Savings → envelopes | `sweepDiscretionaryEnvelopesForUser` + `processMonthlyBudgetAllocations`; keys `sweep-YYYY-MM`, `alloc-YYYY-MM` via `lib/budget-period.ts` |
+
+**User-facing copy:** paydays grow Savings; spending envelopes refill on the **1st**. Progress bars use **calendar-month** balance ÷ `monthlyAllotment` (`lib/envelope-card-metrics.ts`).
+
+**Manual flows (separate from cron):**
+
+- **Extra income** — default Savings (`distributionMode: "savings"`); optional envelope legs via `lib/move-funds-math.ts` + irregular-income API.
+- **Move funds** — `POST /api/transactions/move-funds`; sources `envelope_transfer_in` / `out` or Savings legs (`move_funds` batch kind).
+- **Deficit cover** — manual only, month balance → **$0** (`deficitCoverAmount`, `TX_SOURCE_DEFICIT_COVER`); not a full refill.
+- **Income import** — Savings credits only; no immediate envelope legs (wait for next BudgetPeriod cron).
+
+**Cron:** `lib/envelope-funding-cron.ts` — on 1st: sweep → alloc; on paydays: paycheck only. Goal maintenance stays on UTC 1st (`lib/funding-cron-schedule.ts`).
+
 ### Transaction visibility, analytics, and lifecycle
 
 Not every `Transaction` row belongs in every feed. Ledger funding creates **batches**: an income header (`income_import`, `irregular_income`, etc.) plus hidden allocation legs (`envelope_funding_out` / `envelope_funding_in`). Getting visibility wrong leaks allocation legs into spend charts or leaves orphan legs after delete.

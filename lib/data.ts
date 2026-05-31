@@ -23,7 +23,10 @@ export type TransactionSource =
   | "income_import"
   | "envelope_sweep"
   | "csv_import"
-  | "statement_import" 
+  | "statement_import"
+  | "deficit_cover"
+  | "envelope_transfer_in"
+  | "envelope_transfer_out"
 
 export interface Transaction {
   id: string

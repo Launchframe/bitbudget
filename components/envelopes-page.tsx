@@ -2,7 +2,14 @@
 
 import { useState, useMemo, useRef, useCallback } from "react"
 import { useApp } from "@/lib/app-context"
-import { envelopeGenesisFloor, getEnvelopeBalanceAllTime, formatUsd } from "@/lib/data"
+import {
+  envelopeGenesisFloor,
+  getEnvelopeBalanceAllTime,
+  getEnvelopeBalance,
+  getCurrentMonthKey,
+  formatUsd,
+} from "@/lib/data"
+import { deficitCoverAmount } from "@/lib/budget-period"
 import { envelopeBudgetProgressPct, envelopeHealthColor } from "@/lib/envelope-card-metrics"
 import { Progress } from "@/components/ui/progress"
 import { Pencil, Trash2, Plus, SlidersHorizontal, Merge, X, Archive, RotateCcw, ChevronDown } from "lucide-react"
@@ -39,6 +46,9 @@ import { SavingsHeroCard } from "@/components/savings-hero-card"
 import { canRestoreSoftDeletedEnvelope, daysUntilEnvelopePurge } from "@/lib/envelope-delete"
 import { envelopeDeleteUsageStats } from "@/lib/envelope-ledger-visibility"
 import { ENVELOPE_DELETE_GRACE_DAYS } from "@/lib/constants"
+import { AdjustEnvelopesDialog } from "@/components/adjust-envelopes-dialog"
+import { MoveFundsDialog } from "@/components/move-funds-dialog"
+import { EnvelopeDeficitCoverDialog } from "@/components/envelope-deficit-cover-dialog"
 
 export function EnvelopesPage() {
   const {
@@ -82,6 +92,11 @@ export function EnvelopesPage() {
       envelopeDeleteUsageStats(state.transactions, recurringTransactions, envId),
     [state.transactions, recurringTransactions],
   )
+  const [adjustOpen, setAdjustOpen] = useState(false)
+  const [moveFundsOpen, setMoveFundsOpen] = useState(false)
+  const [moveFundsSource, setMoveFundsSource] = useState<"pool" | "savings">("pool")
+  const [deficitCoverEnv, setDeficitCoverEnv] = useState<{ id: string; name: string } | null>(null)
+  const monthKey = getCurrentMonthKey()
 
   function handleArchive(envId: string) {
     const env = state.envelopes.find(e => e.id === envId)
@@ -304,10 +319,11 @@ export function EnvelopesPage() {
             {activeEnvelopes.length > 0 && (
               <button
                 type="button"
-                onClick={() => navigateTo("envelope-allocations")}
+                onClick={() => setAdjustOpen(true)}
                 data-walkthrough="allocations-entry"
                 className="p-2.5 rounded-xl bg-[#1A1A1A] border border-[#333] text-muted-foreground hover:text-foreground hover:border-[#555] transition-colors"
-                title="Adjust allocations"
+                title="Adjust envelopes"
+                aria-label="Adjust envelopes"
               >
                 <SlidersHorizontal className="h-4 w-4" />
               </button>
@@ -320,6 +336,38 @@ export function EnvelopesPage() {
         <SavingsHeroCard />
       </div>
 
+      <p className="text-xs text-muted-foreground px-1">
+        Spending envelopes refill on the 1st of each month. Paydays add to Savings.
+      </p>
+
+      <AdjustEnvelopesDialog
+        open={adjustOpen}
+        onOpenChange={setAdjustOpen}
+        onMoveFunds={() => {
+          setMoveFundsSource("pool")
+          setMoveFundsOpen(true)
+        }}
+        onFundFromSavings={() => {
+          setMoveFundsSource("savings")
+          setMoveFundsOpen(true)
+        }}
+      />
+      <MoveFundsDialog
+        open={moveFundsOpen}
+        onOpenChange={setMoveFundsOpen}
+        source={moveFundsSource}
+      />
+      {deficitCoverEnv ? (
+        <EnvelopeDeficitCoverDialog
+          open
+          onOpenChange={(o) => {
+            if (!o) setDeficitCoverEnv(null)
+          }}
+          envelopeId={deficitCoverEnv.id}
+          envelopeName={deficitCoverEnv.name}
+        />
+      ) : null}
+
       {/* Envelope cards grid */}
       <div
         data-walkthrough="envelope-grid"
@@ -331,6 +379,8 @@ export function EnvelopesPage() {
             env.id,
             env.createdAt ? envelopeGenesisFloor(env.createdAt) : undefined,
           )
+          const monthBalance = getEnvelopeBalance(state.transactions, env.id, monthKey)
+          const coverAmt = deficitCoverAmount(monthBalance)
           const progressPct = envelopeBudgetProgressPct(balance, env.monthlyAllotment)
           const healthColor = envelopeHealthColor(progressPct)
           return (
@@ -364,6 +414,18 @@ export function EnvelopesPage() {
                       {formatUsd(balance)} left
                     </span>
                   </div>
+                  {coverAmt > 0 ? (
+                    <button
+                      type="button"
+                      className="text-xs text-amber-400/90 hover:underline text-left"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDeficitCoverEnv({ id: env.id, name: env.name })
+                      }}
+                    >
+                      Cover {formatUsd(coverAmt)} from Savings
+                    </button>
+                  ) : null}
                   <Progress
                       value={Math.min(100, progressPct)}
                       markerPct={monthMarkerPct}

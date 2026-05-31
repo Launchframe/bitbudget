@@ -2030,7 +2030,7 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your income</h2>
-                  <p className="text-sm text-muted-foreground">Tell us how money arrives so your budget refills on your actual paydays</p>
+                  <p className="text-sm text-muted-foreground">Tell us how money arrives — paydays grow Savings; envelopes refill on the 1st of each month</p>
                 </div>
               </div>
 
@@ -3231,7 +3231,7 @@ export default function OnboardingPage() {
                 className="border border-[#252525] bg-[#1A1A1A]/60"
               >
                 <p className="text-xs text-muted-foreground text-center leading-relaxed">
-                  We&apos;ll sweep leftover envelope balances to Savings on each payday — you can change this in Settings anytime.
+                  We&apos;ll sweep leftover envelope balances to Savings on the 1st of each month — you can change this in Settings anytime.
                 </p>
               </OnboardingDismissibleHint>
 
