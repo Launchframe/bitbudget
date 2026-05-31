@@ -8,6 +8,7 @@ import {
 } from "@/lib/communication-preferences"
 import { compareTransactionsDesc, formatUsd, formatUsdPrecise } from "@/lib/data"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
+import { getRedactedPayee } from "@/lib/rule-engine-client"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
@@ -38,10 +39,10 @@ import {
   PiggyBank,
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
-import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
+import { RulesSettings } from "@/components/rules-settings"
 import { RecurringRulesSettings } from "@/components/recurring-rules-settings"
 import { CommunicationChannelsCard } from "@/components/communication-channels-card"
-import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
+import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-rule-dismissals"
 import { PlaidConnectionsSection } from "@/components/plaid-connections-section"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { SettingsReferralsCard } from "@/components/settings-referrals-card"
@@ -73,6 +74,7 @@ const SETTINGS_TAB_FROM_SLUG: Record<string, SettingsTab> = {
   payees: "payees",
   "payee-mappings": "payees",
   "budgeting-rules": "payees",
+  "payee-rules": "payees",
   data: "data",
   "data-security": "data",
 }
@@ -106,6 +108,7 @@ export function SettingsPage() {
     navigateTo,
     memoTransactionCount,
     historyReady,
+    accountRules,
   } = useApp()
 
   const dataTxnCount = historyReady
@@ -127,7 +130,7 @@ export function SettingsPage() {
   useEffect(() => {
     try {
       const t = sessionStorage.getItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
-      if (t === "payees") {
+      if (t === "payees" || t === "payee-rules") {
         selectSettingsTab("payees", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       } else if (t === "integrations") {
@@ -202,7 +205,7 @@ export function SettingsPage() {
       return {
         type: t.type,
         date: t.date,
-        payee: t.payee,
+        payee: getRedactedPayee(t.payee, accountRules),
         amountFormatted: formatUsdPrecise(amount),
         notes: t.notes ?? "",
         envelopeName: envelopeMapForExport[t.envelopeId]?.name ?? "",
@@ -217,7 +220,7 @@ export function SettingsPage() {
     a.download = filename
     a.click()
     setTimeout(() => URL.revokeObjectURL(url), 100)
-  }, [activeTransactions, envelopeMapForExport])
+  }, [activeTransactions, envelopeMapForExport, accountRules])
 
   useEffect(() => {
     if (!hasPremiumFeatures) {
@@ -1068,10 +1071,7 @@ export function SettingsPage() {
           {settingsTab === "tags" && tagsSection}
           {settingsTab === "payees" && (
             <div className="flex flex-col gap-8 min-w-0">
-              <section className="flex flex-col gap-3">
-                <h3 className="text-lg font-semibold text-foreground">Payee name aliases</h3>
-                <PayeeMappingsSettings />
-              </section>
+              <RulesSettings />
               <section className="flex flex-col gap-3">
                 <h3 className="text-lg font-semibold text-foreground">Recurring rules</h3>
                 <RecurringRulesSettings />
