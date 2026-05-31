@@ -592,3 +592,12 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - The `pnpm install` postinstall hook runs `prisma generate` automatically, so no separate generate step is needed after install.
 - `pnpm.onlyBuiltDependencies` in `package.json` handles native dependency build approvals non-interactively — do not run `pnpm approve-builds`.
 - The Next.js dev server hot-reloads code changes but does **not** pick up new `.env.local` values without a restart.
+
+## Learned Workspace Facts
+
+- Remaining (all-time) discretionary and Savings balances apply a **genesis floor**: only transactions with `date >= envelopeGenesisFloor(envelope.createdAt)` count. `envelopeGenesisFloor` in `lib/data.ts` is one UTC calendar day before `createdAt` (timezone cushion). Pre-genesis rows stay in transaction lists but must not drive new envelopes negative after historical CSV or income imports.
+- Client remaining UI passes `envelopeGenesisFloor(createdAt)` into `getEnvelopeBalanceAllTime` (see `lib/savings-ui-metrics.ts`, envelope pages, sweep dialog). Server sweep/funding uses the same rule in `lib/envelope-balance-server.ts` (`envelopeBalancesBeforeBatch`, `savingsEnvelopeBalanceAllTime`, `savingsEnvelopeBalanceBefore`, month-end batch helpers).
+- Envelope API responses include `createdAt` as `YYYY-MM-DD` so clients can compute the genesis floor.
+- CSV import idempotency: the client derives a per-row `dedupeKey` via HMAC in `lib/import-dedupe-key.ts` using the privacy-key seed hex (server never sees the seed); large imports POST in chunks; the server skips rows with an existing key.
+- `@noble/hashes` v2 subpath imports must use explicit `.js` suffixes (e.g. `@noble/hashes/hmac.js`).
+- Ledger `TX_SOURCE_*` constants belong in `lib/constants.ts`, not `envelope-funding.ts`, to avoid circular imports with `envelope-balance-server.ts`.
