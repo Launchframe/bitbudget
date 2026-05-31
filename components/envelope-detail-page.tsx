@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { compareTransactionsDesc, getEnvelopeBalanceAllTime, formatUsd, type Transaction } from "@/lib/data"
+import { compareTransactionsDesc, envelopeGenesisFloor, getEnvelopeBalanceAllTime, formatUsd, type Transaction } from "@/lib/data"
 import { envelopeBudgetProgressPct, envelopeHealthColor } from "@/lib/envelope-card-metrics"
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import {
@@ -120,7 +120,11 @@ export function EnvelopeDetailPage() {
     )
   }
 
-  const balance = getEnvelopeBalanceAllTime(state.transactions, envelope.id)
+  const balance = getEnvelopeBalanceAllTime(
+    state.transactions,
+    envelope.id,
+    envelope.createdAt ? envelopeGenesisFloor(envelope.createdAt) : undefined,
+  )
   const isSavingsHub = envelope.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS
   const progressPct = !isSavingsHub
     ? envelopeBudgetProgressPct(balance, envelope.monthlyAllotment)

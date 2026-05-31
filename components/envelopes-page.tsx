@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef } from "react"
 import { useApp } from "@/lib/app-context"
-import { getEnvelopeBalanceAllTime, formatUsd } from "@/lib/data"
+import { envelopeGenesisFloor, getEnvelopeBalanceAllTime, formatUsd } from "@/lib/data"
 import { envelopeBudgetProgressPct, envelopeHealthColor } from "@/lib/envelope-card-metrics"
 import { Progress } from "@/components/ui/progress"
 import { Pencil, Trash2, Plus, SlidersHorizontal, Merge, X, Archive, RotateCcw, ChevronDown } from "lucide-react"
@@ -252,7 +252,11 @@ export function EnvelopesPage() {
         className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
       >
         {activeEnvelopes.map((env) => {
-          const balance = getEnvelopeBalanceAllTime(state.transactions, env.id)
+          const balance = getEnvelopeBalanceAllTime(
+            state.transactions,
+            env.id,
+            env.createdAt ? envelopeGenesisFloor(env.createdAt) : undefined,
+          )
           const progressPct = envelopeBudgetProgressPct(balance, env.monthlyAllotment)
           const healthColor = envelopeHealthColor(progressPct)
           return (

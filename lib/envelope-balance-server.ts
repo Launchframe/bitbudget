@@ -57,7 +57,7 @@ export async function savingsEnvelopeBalanceBefore(
   })
 }
 
-type BalanceQueryClient = Pick<typeof prisma, "transaction">
+type BalanceQueryClient = Pick<typeof prisma, "transaction" | "envelope">
 
 /** All-time net balances for many envelopes (credits minus expenses). */
 export async function envelopeBalancesAllTimeBatch(
@@ -68,7 +68,16 @@ export async function envelopeBalancesAllTimeBatch(
   return envelopeBalancesBeforeBatch(userId, envelopeIds, undefined, client)
 }
 
-/** Envelope balances before a UTC instant (half-open: date < beforeExclusive). Omit for all-time. */
+/**
+ * Envelope balances before a UTC instant (half-open: date < beforeExclusive). Omit for all-time.
+ *
+ * Applies genesis filtering: each envelope's balance only counts transactions dated on or
+ * after one calendar day before the envelope's createdAt (UTC).  This prevents historical
+ * CSV imports from driving newly-created envelopes deeply negative.
+ *
+ * The one-day safety margin ensures same-day transactions are always included for users
+ * in western timezones whose local date may be behind UTC at time of envelope creation.
+ */
 export async function envelopeBalancesBeforeBatch(
   userId: string,
   envelopeIds: readonly string[],
@@ -79,21 +88,35 @@ export async function envelopeBalancesBeforeBatch(
   if (envelopeIds.length === 0) return result
   for (const id of envelopeIds) result.set(id, 0)
 
-  const rows = await client.transaction.groupBy({
-    by: ["envelopeId", "type"],
+  // Load genesis dates (one day before createdAt to handle timezone edge cases).
+  const envelopeRows = await client.envelope.findMany({
+    where: { id: { in: [...envelopeIds] }, userId },
+    select: { id: true, createdAt: true },
+  })
+  const genesisMap = new Map<string, string>()
+  for (const e of envelopeRows) {
+    const d = new Date(e.createdAt)
+    d.setUTCDate(d.getUTCDate() - 1)
+    genesisMap.set(e.id, d.toISOString().slice(0, 10))
+  }
+
+  const txns = await client.transaction.findMany({
     where: {
       userId,
       envelopeId: { in: [...envelopeIds] },
       ...(beforeExclusive ? { date: { lt: beforeExclusive } } : {}),
     },
-    _sum: { amount: true },
+    select: { envelopeId: true, type: true, amount: true, date: true },
   })
-  for (const row of rows) {
-    const cur = result.get(row.envelopeId) ?? 0
-    const sum = row._sum.amount != null ? Number(row._sum.amount) : 0
-    const delta = row.type === "credit" ? sum : -sum
-    result.set(row.envelopeId, cur + delta)
+
+  for (const txn of txns) {
+    const genesis = genesisMap.get(txn.envelopeId!)
+    if (genesis && txn.date.toISOString().slice(0, 10) < genesis) continue
+    const cur = result.get(txn.envelopeId!) ?? 0
+    const delta = txn.type === "credit" ? Number(txn.amount) : -Number(txn.amount)
+    result.set(txn.envelopeId!, cur + delta)
   }
+
   for (const [id, value] of result) {
     result.set(id, Math.round(value * 100) / 100)
   }

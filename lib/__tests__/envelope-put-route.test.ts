@@ -42,6 +42,7 @@ describe("PUT /api/envelopes monthlyAllotment validation", () => {
       archived: false,
       sweepPolicy: "reset",
       sweepCapMultiplier: null,
+      createdAt: new Date("2026-05-31T00:00:00Z"),
     } as never)
   })
 

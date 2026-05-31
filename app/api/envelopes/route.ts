@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
         sweepPolicy: e.sweepPolicy ?? SWEEP_POLICY_RESET,
         sweepCapMultiplier:
           e.sweepCapMultiplier != null ? Number(e.sweepCapMultiplier) : null,
+        createdAt: e.createdAt.toISOString().slice(0, 10),
         transactionCount: e._count.transactions,
         recurringCount: e._count.recurringTransactions,
       })),
@@ -72,6 +73,7 @@ export async function GET(req: NextRequest) {
       sweepPolicy: e.sweepPolicy ?? SWEEP_POLICY_RESET,
       sweepCapMultiplier:
         e.sweepCapMultiplier != null ? Number(e.sweepCapMultiplier) : null,
+      createdAt: e.createdAt.toISOString().slice(0, 10),
     })),
   )
 }
@@ -165,6 +167,7 @@ export async function POST(req: NextRequest) {
     sweepPolicy: envelope.sweepPolicy ?? SWEEP_POLICY_RESET,
     sweepCapMultiplier:
       envelope.sweepCapMultiplier != null ? Number(envelope.sweepCapMultiplier) : null,
+    createdAt: envelope.createdAt.toISOString().slice(0, 10),
   }, { status: 201 })
 }
 
@@ -314,6 +317,7 @@ export async function PUT(req: NextRequest) {
     sweepPolicy: updated.sweepPolicy ?? SWEEP_POLICY_RESET,
     sweepCapMultiplier:
       updated.sweepCapMultiplier != null ? Number(updated.sweepCapMultiplier) : null,
+    createdAt: updated.createdAt.toISOString().slice(0, 10),
   })
 }
 

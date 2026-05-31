@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import { getEnvelopeBalanceAllTime, formatUsd } from "@/lib/data"
+import { envelopeGenesisFloor, getEnvelopeBalanceAllTime, formatUsd } from "@/lib/data"
 import {
   Dialog,
   DialogContent,
@@ -141,7 +141,11 @@ export function EnvelopeSweepDialog({ open, onOpenChange, onSuccess }: EnvelopeS
       const asOf = new Date()
       return discretionaryEnvelopes
         .map((env) => {
-          const balance = getEnvelopeBalanceAllTime(state.transactions, env.id)
+          const balance = getEnvelopeBalanceAllTime(
+            state.transactions,
+            env.id,
+            env.createdAt ? envelopeGenesisFloor(env.createdAt) : undefined,
+          )
           const maxAmount = Math.max(0, balance)
           const policy = resolveEffectiveSweepPolicy(env.sweepPolicy, defaults.sweepDefaultPolicy)
           const capMultiplier = resolveSweepCapMultiplier(

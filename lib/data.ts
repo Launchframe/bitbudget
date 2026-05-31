@@ -73,6 +73,8 @@ export interface Envelope {
   systemRole?: string | null
   sweepPolicy?: string
   sweepCapMultiplier?: number | null
+  /** ISO date (YYYY-MM-DD) when the envelope was created — used as the balance genesis floor. */
+  createdAt?: string
 }
 
 export interface Tag {
@@ -355,15 +357,33 @@ export function getCurrentMonthKey(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
 }
 
+/**
+ * Genesis floor for an envelope balance: one calendar day before the UTC creation date.
+ *
+ * Subtracting one day handles western-hemisphere users who create envelopes in the
+ * evening — their local date is one day behind UTC, so a UTC date of "2026-06-01"
+ * resolves to a floor of "2026-05-31", ensuring same-day transactions are always
+ * included regardless of timezone.  The one-day margin means at most one extra
+ * pre-genesis day could count, which is inconsequential compared to years of
+ * historical CSV data being excluded.
+ */
+export function envelopeGenesisFloor(createdAtIso: string): string {
+  const d = new Date(createdAtIso)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
 export function getTransactionsForEnvelope(
   transactions: readonly Transaction[],
   envelopeId: string,
   monthKey?: string,
+  genesisDateIso?: string,
 ): Transaction[] {
   return transactions.filter(
     t =>
       t.envelopeId === envelopeId &&
-      (monthKey ? getMonthKey(t.date) === monthKey : true),
+      (monthKey ? getMonthKey(t.date) === monthKey : true) &&
+      (genesisDateIso ? t.date >= genesisDateIso : true),
   )
 }
 
@@ -371,19 +391,26 @@ export function getEnvelopeBalance(
   transactions: readonly Transaction[],
   envelopeId: string,
   monthKey: string,
+  genesisDateIso?: string,
 ): number {
-  const monthTxns = getTransactionsForEnvelope(transactions, envelopeId, monthKey)
+  const monthTxns = getTransactionsForEnvelope(transactions, envelopeId, monthKey, genesisDateIso)
   const expenses = monthTxns.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0)
   const credits = monthTxns.filter(t => t.type === "credit").reduce((sum, t) => sum + t.amount, 0)
   return credits - expenses
 }
 
-/** All-time envelope balance (Savings hub total; not month-scoped). */
+/**
+ * All-time envelope balance (Savings hub total; not month-scoped).
+ * Pass `genesisDateIso` (from `envelopeGenesisFloor(envelope.createdAt)`) to
+ * exclude transactions that pre-date envelope creation — prevents historical CSV
+ * imports from driving new envelopes deeply negative.
+ */
 export function getEnvelopeBalanceAllTime(
   transactions: readonly Transaction[],
   envelopeId: string,
+  genesisDateIso?: string,
 ): number {
-  const txns = getTransactionsForEnvelope(transactions, envelopeId)
+  const txns = getTransactionsForEnvelope(transactions, envelopeId, undefined, genesisDateIso)
   const expenses = txns.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0)
   const credits = txns.filter(t => t.type === "credit").reduce((sum, t) => sum + t.amount, 0)
   return credits - expenses
