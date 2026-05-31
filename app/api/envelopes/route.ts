@@ -185,9 +185,20 @@ export async function PUT(req: NextRequest) {
   let archived
   let sweepPolicy
   let sweepCapMultiplier
+  let createdAt
 
   try {
-    ;({ id, name, monthlyAllotment, color, icon, archived, sweepPolicy, sweepCapMultiplier } = await req.json())
+    ;({
+      id,
+      name,
+      monthlyAllotment,
+      color,
+      icon,
+      archived,
+      sweepPolicy,
+      sweepCapMultiplier,
+      createdAt,
+    } = await req.json())
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
@@ -196,6 +207,10 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Envelope ID must be a non-empty string" }, { status: 400 })
   }
   const envelopeId = id.trim()
+
+  if (createdAt !== undefined) {
+    return NextResponse.json({ error: "Envelope creation date cannot be changed" }, { status: 400 })
+  }
 
   const existing = await prisma.envelope.findFirst({
     where: { id: envelopeId, userId: session.user.id },

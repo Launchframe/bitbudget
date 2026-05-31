@@ -139,17 +139,24 @@ describe("getEnvelopeBalanceAllTime — genesis filtering", () => {
 
 vi.mock("@/lib/db", () => ({
   prisma: {
-    envelope: { findMany: vi.fn() },
-    transaction: { findMany: vi.fn() },
+    envelope: { findFirst: vi.fn(), findMany: vi.fn() },
+    transaction: { aggregate: vi.fn(), findMany: vi.fn() },
   },
 }))
 
 import { prisma } from "@/lib/db"
-import { envelopeBalancesBeforeBatch, envelopeBalancesAllTimeBatch } from "../envelope-balance-server"
+import {
+  envelopeBalancesBeforeBatch,
+  envelopeBalancesAllTimeBatch,
+  savingsEnvelopeBalanceAllTime,
+  savingsEnvelopeBalanceBefore,
+} from "../envelope-balance-server"
 
 describe("envelopeBalancesBeforeBatch — genesis filtering", () => {
   beforeEach(() => {
+    vi.mocked(prisma.envelope.findFirst).mockReset()
     vi.mocked(prisma.envelope.findMany).mockReset()
+    vi.mocked(prisma.transaction.aggregate).mockReset()
     vi.mocked(prisma.transaction.findMany).mockReset()
   })
 
@@ -206,5 +213,42 @@ describe("envelopeBalancesBeforeBatch — genesis filtering", () => {
 
     const result = await envelopeBalancesAllTimeBatch("u1", ["e1"])
     expect(result.get("e1")).toBe(200)
+  })
+
+  it("applies genesis filtering to single-envelope Savings all-time balances", async () => {
+    vi.mocked(prisma.envelope.findFirst).mockResolvedValue({
+      createdAt: new Date("2026-06-01T00:00:00Z"),
+    } as never)
+    vi.mocked(prisma.transaction.aggregate)
+      .mockResolvedValueOnce({ _sum: { amount: 250 } } as never)
+      .mockResolvedValueOnce({ _sum: { amount: 50 } } as never)
+
+    await expect(savingsEnvelopeBalanceAllTime("u1", "savings")).resolves.toBe(200)
+    expect(prisma.transaction.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: { gte: new Date("2026-05-31T00:00:00.000Z") },
+        }),
+      }),
+    )
+  })
+
+  it("applies genesis and before-exclusive filtering to single-envelope Savings snapshots", async () => {
+    vi.mocked(prisma.envelope.findFirst).mockResolvedValue({
+      createdAt: new Date("2026-06-01T00:00:00Z"),
+    } as never)
+    vi.mocked(prisma.transaction.aggregate)
+      .mockResolvedValueOnce({ _sum: { amount: 250 } } as never)
+      .mockResolvedValueOnce({ _sum: { amount: 0 } } as never)
+
+    const before = new Date("2026-06-01T00:00:00Z")
+    await expect(savingsEnvelopeBalanceBefore("u1", "savings", before)).resolves.toBe(250)
+    expect(prisma.transaction.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: { gte: new Date("2026-05-31T00:00:00.000Z"), lt: before },
+        }),
+      }),
+    )
   })
 })

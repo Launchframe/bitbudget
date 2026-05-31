@@ -69,6 +69,16 @@ describe("PUT /api/envelopes monthlyAllotment validation", () => {
     expect(prisma.envelope.update).not.toHaveBeenCalled()
   })
 
+  it("rejects attempts to change createdAt genesis metadata", async () => {
+    const response = await PUT(putRequest({ createdAt: "2020-01-01" }) as never)
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "Envelope creation date cannot be changed",
+    })
+    expect(prisma.envelope.findFirst).not.toHaveBeenCalled()
+    expect(prisma.envelope.update).not.toHaveBeenCalled()
+  })
+
   it("ignores null monthlyAllotment (omit field, do not clear allotment)", async () => {
     const response = await PUT(putRequest({ monthlyAllotment: null }) as never)
     expect(response.status).toBe(200)

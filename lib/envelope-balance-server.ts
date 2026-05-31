@@ -18,6 +18,16 @@ const SAVINGS_INFLOW_SOURCES = [
   TX_SOURCE_ENVELOPE_SWEEP,
 ] as const
 
+function envelopeGenesisFloorFromCreatedAt(createdAt: Date): string {
+  const d = new Date(createdAt)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+function envelopeGenesisStartFromCreatedAt(createdAt: Date): Date {
+  return new Date(`${envelopeGenesisFloorFromCreatedAt(createdAt)}T00:00:00.000Z`)
+}
+
 async function envelopeBalanceFromAggregates(
   where: Prisma.TransactionWhereInput,
 ): Promise<number> {
@@ -36,12 +46,37 @@ async function envelopeBalanceFromAggregates(
   return Math.round((creditSum - expenseSum) * 100) / 100
 }
 
+async function savingsEnvelopeDateFilter(
+  userId: string,
+  envelopeId: string,
+  beforeExclusive?: Date,
+): Promise<Prisma.DateTimeFilter | undefined> {
+  const envelope = await prisma.envelope.findFirst({
+    where: { id: envelopeId, userId },
+    select: { createdAt: true },
+  })
+  const createdAt = envelope?.createdAt
+  if (!(createdAt instanceof Date)) {
+    return beforeExclusive ? { lt: beforeExclusive } : undefined
+  }
+
+  return {
+    gte: envelopeGenesisStartFromCreatedAt(createdAt),
+    ...(beforeExclusive ? { lt: beforeExclusive } : {}),
+  }
+}
+
 /** Sum credits minus expenses for all transactions on an envelope (Savings hub balance). */
 export async function savingsEnvelopeBalanceAllTime(
   userId: string,
   envelopeId: string,
 ): Promise<number> {
-  return envelopeBalanceFromAggregates({ userId, envelopeId })
+  const date = await savingsEnvelopeDateFilter(userId, envelopeId)
+  return envelopeBalanceFromAggregates({
+    userId,
+    envelopeId,
+    ...(date ? { date } : {}),
+  })
 }
 
 /** Envelope balance before a UTC instant (half-open: date < beforeExclusive). */
@@ -50,10 +85,11 @@ export async function savingsEnvelopeBalanceBefore(
   envelopeId: string,
   beforeExclusive: Date,
 ): Promise<number> {
+  const date = await savingsEnvelopeDateFilter(userId, envelopeId, beforeExclusive)
   return envelopeBalanceFromAggregates({
     userId,
     envelopeId,
-    date: { lt: beforeExclusive },
+    ...(date ? { date } : {}),
   })
 }
 
@@ -95,9 +131,7 @@ export async function envelopeBalancesBeforeBatch(
   })
   const genesisMap = new Map<string, string>()
   for (const e of envelopeRows) {
-    const d = new Date(e.createdAt)
-    d.setUTCDate(d.getUTCDate() - 1)
-    genesisMap.set(e.id, d.toISOString().slice(0, 10))
+    genesisMap.set(e.id, envelopeGenesisFloorFromCreatedAt(e.createdAt))
   }
 
   const txns = await client.transaction.findMany({
@@ -143,6 +177,15 @@ export async function envelopeBalancesBeforeMonthEndsBatch(
   }
   if (endByMonth.size === 0) return result
 
+  const envelopeRows = await prisma.envelope.findMany({
+    where: { id: { in: [...envelopeIds] }, userId },
+    select: { id: true, createdAt: true },
+  })
+  const genesisMap = new Map<string, string>()
+  for (const e of envelopeRows) {
+    genesisMap.set(e.id, envelopeGenesisFloorFromCreatedAt(e.createdAt))
+  }
+
   let maxEndMs = 0
   for (const end of endByMonth.values()) {
     maxEndMs = Math.max(maxEndMs, end.getTime())
@@ -167,8 +210,11 @@ export async function envelopeBalancesBeforeMonthEndsBatch(
   for (const [monthKey, end] of sortedMonths) {
     while (rowIdx < rows.length && rows[rowIdx]!.date < end) {
       const row = rows[rowIdx]!
-      const delta = row.type === "credit" ? Number(row.amount) : -Number(row.amount)
-      running.set(row.envelopeId, (running.get(row.envelopeId) ?? 0) + delta)
+      const genesis = genesisMap.get(row.envelopeId)
+      if (!genesis || row.date.toISOString().slice(0, 10) >= genesis) {
+        const delta = row.type === "credit" ? Number(row.amount) : -Number(row.amount)
+        running.set(row.envelopeId, (running.get(row.envelopeId) ?? 0) + delta)
+      }
       rowIdx++
     }
     const snap = new Map<string, number>()
