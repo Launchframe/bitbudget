@@ -517,17 +517,31 @@ Production ops visibility uses **Sentry** (stack traces), **`GET /api/health`** 
 
 ## Commit and PR Workflow
 
+### Branches and commits
+
 - **Commit often.** Each logical unit of work (a bug fix, a feature slice, a refactor) gets its own commit. Don't batch unrelated changes.
 - **Commit messages** should be concise and describe the "what" and "why": `fix(receipts): validate file type from magic bytes, not Content-Type` or `feat: add vanilla "Your Expenses" chart for non-OC users`.
-- **When the maintainer says a code change "looks good" or otherwise approves the work, push the committed changes to the upstream branch.**
+- **Agents: commit only when the maintainer asks.** Do not create commits proactively; if intent is unclear, ask first.
 - **Do not continue work directly on non-feature branches.** If the current branch is not a feature branch (for example `main`, a release branch, or another shared integration branch), create a feature branch from the tip of `main` before committing/pushing.
+- **Large features:** slice into stacked, reviewable PRs per the [feature-slice skill](.cursor/skills/feature-slice/SKILL.md); keep each commit scoped to one layer or one slice.
+
+### Push and pull requests
+
+- **When the maintainer says a code change "looks good" or otherwise approves the work, push the committed changes to the upstream branch.**
 - **After pushing a feature branch, ensure a PR exists.** If there is no open PR for the branch, open one against `main`.
 - **Keep PR descriptions current.** If newly pushed changes are not described in the PR body, update the PR description to explain what changed and how it fits the broader purpose of the branch.
-- **Run `pnpm lint`, `pnpm test`, and `pnpm test:e2e` before pushing** (e2e needs Postgres + env; CI runs all three).
-- **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don’t rely on manual checks alone for production-critical behavior.
 - **PR descriptions** should have a Summary (bullet points of what changed) and a Test Plan (checkboxes).
 - **Never force-push to main.**
-- **Schema during development:** optional **`pnpm db:push`** only for early WIP on schema-modeled columns before a migration exists; once migrations are committed (especially raw SQL / partial indexes), use **`pnpm exec prisma migrate deploy`** locally (see **Database → Local schema sync**). Ask the maintainer whether to **`pnpm db:migrate`** now or defer until PR finalization.
+
+### Before you push
+
+- **Run `pnpm lint`, `pnpm test`, and `pnpm test:e2e`** (e2e needs Postgres + env; CI runs all three).
+- **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don't rely on manual checks alone for production-critical behavior.
+- **Never commit secrets or user data** — no `.env` / `.env.local`, nsec, privacy keys, service tokens, decrypted exports, or personal transaction CSVs.
+
+### Schema and migrations
+
+- **Schema during development:** optional **`pnpm db:push`** only for early WIP on schema-modeled columns before a migration exists; once migrations are committed (especially raw SQL / partial indexes), use **`pnpm exec prisma migrate deploy`** locally (see **Database → Local schema sync**). Ask the maintainer whether to **`pnpm db:migrate`** now or defer until PR finalization.>>>>>>> db744ce (agents: PR etiquette)
 - **Before merge:** consolidate branch migrations into clean idempotent file(s) and reconcile the maintainer's local `_prisma_migrations` without a full DB reset (see **Database → PR finalization**).
 - **Database migrations** on the merged branch must be committed alongside the schema change and the code that uses the new field.
 
@@ -538,7 +552,7 @@ When a Cursor plan is **fully implemented** (all todos done, verification passed
 1. **Rename the plan file** by inserting `_done` before the `.plan.md` extension — e.g. `fix_review-inbox_build_607a6e40.plan.md` → `fix_review-inbox_build_607a6e40_done.plan.md`.
 2. Do this **at the end of the session** that completes the plan, before moving on to unrelated work.
 3. **Do not edit the plan body** to mark completion; the `_done` suffix is the source of truth for backlog tracking.
-4. Plans live under `.cursor/plans/` (or the workspace `.cursor/plans/` path Cursor uses for that project). Leave unimplemented plans unchanged so the maintainer can tell at a glance which backlog items remain.
+4. Plans live under **`~/.cursor/plans/`** (Cursor’s user-level plan directory — canonical home for BitBudget). Do **not** write plans under the repo’s `.cursor/plans/` unless the user explicitly asks for a workspace copy. Leave unimplemented plans unchanged so the maintainer can tell at a glance which backlog items remain.
 
 ### Addressing open PR review comments
 
