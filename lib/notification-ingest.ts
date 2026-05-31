@@ -1,4 +1,3 @@
-import { prisma } from "@/lib/db"
 import { composeBankAlertText, parseBankAlertText } from "@/lib/bank-alert-parser"
 import {
   claimNotificationIngestIdempotency,
@@ -11,6 +10,9 @@ import { matchEnvelope } from "@/lib/envelope-matcher"
 import { assertPremiumTrialInboxAllowed, requirePremiumOrTrial } from "@/lib/subscription"
 
 export const NOTIFICATION_FORWARD_SOURCE = "notification_forward"
+
+/** Max characters accepted in composed alert text (before OpenAI). */
+export const NOTIFICATION_ALERT_TEXT_MAX_LEN = 8_000
 
 export interface NotificationIngestPayload {
   text?: string | null
@@ -51,6 +53,14 @@ export async function ingestNotificationAlert(
       status: 400,
       error: "Missing required fields",
       message: "Provide text or both title and body",
+    }
+  }
+  if (alertText.length > NOTIFICATION_ALERT_TEXT_MAX_LEN) {
+    return {
+      ok: false,
+      status: 413,
+      error: "Payload too large",
+      message: `Alert text must be at most ${NOTIFICATION_ALERT_TEXT_MAX_LEN} characters`,
     }
   }
 

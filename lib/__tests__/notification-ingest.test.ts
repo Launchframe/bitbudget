@@ -73,6 +73,12 @@ describe("ingestNotificationAlert", () => {
     if (!out.ok) expect(out.status).toBe(400)
   })
 
+  it("rejects oversized alert text", async () => {
+    const out = await ingestNotificationAlert("u1", { text: "x".repeat(9000) })
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.status).toBe(413)
+  })
+
   it("returns 503 when OPENAI_API_KEY is unset", async () => {
     const prev = process.env.OPENAI_API_KEY
     delete process.env.OPENAI_API_KEY

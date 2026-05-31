@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { parseBankAlertText } from "@/lib/bank-alert-parser"
 
 describe("parseBankAlertText rate limits", () => {
   afterEach(() => {
