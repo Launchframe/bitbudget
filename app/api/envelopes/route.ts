@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { isReservedSavingsEnvelopeName, SYSTEM_ENVELOPE_ROLE_SAVINGS, SWEEP_POLICY_CAPPED, SWEEP_POLICY_CARRY_FORWARD, SWEEP_POLICY_RESET } from "@/lib/constants"
 import { validateDecimal4_2Positive } from "@/lib/decimal-validation"
+import { envelopeDeletePurgeCutoff } from "@/lib/envelope-delete"
 
 const ALLOWED_SWEEP_POLICIES = new Set([
   SWEEP_POLICY_RESET,
@@ -273,15 +274,16 @@ export async function PUT(req: NextRequest) {
   if (deletedAt !== undefined) {
     if (deletedAt === null) {
       normalizedDeletedAt = null
-    } else if (typeof deletedAt === "string" && deletedAt.trim()) {
-      const parsed = new Date(deletedAt)
-      if (Number.isNaN(parsed.getTime())) {
-        return NextResponse.json({ error: "deletedAt must be a valid ISO timestamp or null" }, { status: 400 })
-      }
-      normalizedDeletedAt = parsed
     } else {
-      return NextResponse.json({ error: "deletedAt must be null or an ISO timestamp string" }, { status: 400 })
+      return NextResponse.json({ error: "deletedAt can only be cleared with null" }, { status: 400 })
     }
+  }
+  if (
+    normalizedDeletedAt === null &&
+    existing.deletedAt &&
+    existing.deletedAt < envelopeDeletePurgeCutoff()
+  ) {
+    return NextResponse.json({ error: "This envelope can no longer be restored." }, { status: 410 })
   }
 
   let normalizedAllotment: number | undefined
