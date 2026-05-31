@@ -76,6 +76,8 @@ export interface Envelope {
   sweepCapMultiplier?: number | null
   /** ISO date (YYYY-MM-DD) when the envelope was created — used as the balance genesis floor. */
   createdAt?: string
+  /** ISO timestamp when soft-deleted; transactions are excluded from the ledger until restore or purge. */
+  deletedAt?: string | null
 }
 
 export interface Tag {

@@ -28,6 +28,9 @@ export const SWEEP_POLICY_CAPPED = "capped"
 export const SAVINGS_EXPERIENCE_ENGAGED = "engaged"
 export const SAVINGS_EXPERIENCE_DISMISSED = "dismissed"
 
+/** Soft-deleted envelopes can be restored within this window before purge. */
+export const ENVELOPE_DELETE_GRACE_DAYS = 30
+
 /** Rolling fallback row in SavingsGoal when no per-month override exists. */
 export const SAVINGS_GOAL_DEFAULT_PERIOD = "default"
 

@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
   if (withUsage) {
     const envelopes = await prisma.envelope.findMany({
-      where: { userId: session.user.id },
+      where: { userId: session.user.id, deletedAt: null },
       orderBy: { createdAt: "asc" },
       include: {
         _count: {
@@ -33,6 +33,9 @@ export async function GET(req: NextRequest) {
             transactions: true,
             recurringTransactions: true,
           },
+        },
+        transactions: {
+          select: { amount: true },
         },
       },
     })
@@ -52,6 +55,10 @@ export async function GET(req: NextRequest) {
         createdAt: e.createdAt.toISOString().slice(0, 10),
         transactionCount: e._count.transactions,
         recurringCount: e._count.recurringTransactions,
+        transactionTotalAmount: e.transactions.reduce(
+          (sum, t) => sum + Math.abs(Number(t.amount)),
+          0,
+        ),
       })),
     )
   }
@@ -69,6 +76,7 @@ export async function GET(req: NextRequest) {
       color: e.color,
       icon: e.icon,
       archived: e.archived,
+      deletedAt: e.deletedAt?.toISOString() ?? null,
       systemRole: e.systemRole ?? null,
       sweepPolicy: e.sweepPolicy ?? SWEEP_POLICY_RESET,
       sweepCapMultiplier:
@@ -163,6 +171,7 @@ export async function POST(req: NextRequest) {
     color: envelope.color,
     icon: envelope.icon,
     archived: envelope.archived,
+    deletedAt: envelope.deletedAt?.toISOString() ?? null,
     systemRole: envelope.systemRole ?? null,
     sweepPolicy: envelope.sweepPolicy ?? SWEEP_POLICY_RESET,
     sweepCapMultiplier:
@@ -183,6 +192,7 @@ export async function PUT(req: NextRequest) {
   let color
   let icon
   let archived
+  let deletedAt
   let sweepPolicy
   let sweepCapMultiplier
   let createdAt
@@ -195,6 +205,7 @@ export async function PUT(req: NextRequest) {
       color,
       icon,
       archived,
+      deletedAt,
       sweepPolicy,
       sweepCapMultiplier,
       createdAt,
@@ -244,11 +255,32 @@ export async function PUT(req: NextRequest) {
         { status: 403 },
       )
     }
+    if (deletedAt !== undefined && deletedAt !== null) {
+      return NextResponse.json(
+        { error: "The system Savings envelope cannot be deleted." },
+        { status: 403 },
+      )
+    }
     if (monthlyAllotment !== undefined) {
       return NextResponse.json(
         { error: "The system Savings envelope allotment cannot be changed." },
         { status: 403 },
       )
+    }
+  }
+
+  let normalizedDeletedAt: Date | null | undefined
+  if (deletedAt !== undefined) {
+    if (deletedAt === null) {
+      normalizedDeletedAt = null
+    } else if (typeof deletedAt === "string" && deletedAt.trim()) {
+      const parsed = new Date(deletedAt)
+      if (Number.isNaN(parsed.getTime())) {
+        return NextResponse.json({ error: "deletedAt must be a valid ISO timestamp or null" }, { status: 400 })
+      }
+      normalizedDeletedAt = parsed
+    } else {
+      return NextResponse.json({ error: "deletedAt must be null or an ISO timestamp string" }, { status: 400 })
     }
   }
 
@@ -302,6 +334,7 @@ export async function PUT(req: NextRequest) {
         ...(color !== undefined ? { color } : {}),
         ...(icon !== undefined ? { icon } : {}),
         ...(archived !== undefined ? { archived } : {}),
+        ...(normalizedDeletedAt !== undefined ? { deletedAt: normalizedDeletedAt } : {}),
         ...(sweepPolicy !== undefined ? { sweepPolicy } : {}),
         ...(normalizedSweepCap !== undefined
           ? {
@@ -328,6 +361,7 @@ export async function PUT(req: NextRequest) {
     color: updated.color,
     icon: updated.icon,
     archived: updated.archived,
+    deletedAt: updated.deletedAt?.toISOString() ?? null,
     systemRole: updated.systemRole ?? null,
     sweepPolicy: updated.sweepPolicy ?? SWEEP_POLICY_RESET,
     sweepCapMultiplier:
@@ -379,19 +413,12 @@ export async function DELETE(req: NextRequest) {
     )
   }
 
-  const userId = session.user.id
+  const now = new Date()
 
-  await prisma.$transaction(async tx => {
-    await tx.pendingTransaction.updateMany({
-      where: { userId, suggestedEnvelopeId: id },
-      data: { suggestedEnvelopeId: null },
-    })
-    await tx.transactionShortcut.deleteMany({
-      where: { userId, envelopeId: id },
-    })
-    // Transactions cascade-delete with the envelope (Prisma schema); explicit deleteMany is redundant.
-    await tx.envelope.delete({ where: { id } })
+  await prisma.envelope.update({
+    where: { id },
+    data: { deletedAt: now },
   })
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, deletedAt: now.toISOString() })
 }

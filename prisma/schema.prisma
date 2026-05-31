@@ -214,6 +214,8 @@ model Envelope {
   color              String   @default("#F7931A")
   icon               String?
   archived           Boolean  @default(false)
+  /// When set, envelope is hidden and transactions leave the active ledger until restored or purged.
+  deletedAt          DateTime?
   /// null | savings — system-managed Savings envelope
   systemRole         String?
   sweepPolicy        String   @default("reset") // reset | carry_forward | capped
