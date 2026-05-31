@@ -1,7 +1,7 @@
 import { SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import type { Envelope, PendingTransaction, Transaction } from "@/lib/data"
 import { getCurrentMonthKey } from "@/lib/data"
-import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
+import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-rule-dismissals"
 
 /**
  * Stable signature for setup-status refetch when transaction fields that affect

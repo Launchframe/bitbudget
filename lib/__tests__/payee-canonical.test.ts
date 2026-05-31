@@ -4,13 +4,13 @@ import {
   collapsePayeeSoftKey,
   filterClusterIgnoredVariants,
   findSimilarPayeeClusters,
-  getPayeeMappingReviewClusters,
-  isClusterResolvedByAliases,
-  matchLongestAlias,
+  getPayeeRuleReviewClusters,
+  isClusterResolvedByRules,
+  matchLongestRule,
   mergePayeeCandidates,
   normalizePayeeKey,
   resolveCanonicalPayee,
-  type PayeeAliasRule,
+  type PayeeNameRule,
   type PayeeCandidate,
 } from "@/lib/payee-canonical"
 
@@ -37,49 +37,49 @@ describe("collapsePayeeSoftKey", () => {
   })
 })
 
-describe("matchLongestAlias", () => {
-  const aliases: PayeeAliasRule[] = [
+describe("matchLongestRule", () => {
+  const rules: PayeeNameRule[] = [
     { sourceNormalized: "wm", canonicalPayee: "Bad" },
     { sourceNormalized: "wm supercenter", canonicalPayee: "Walmart" },
   ]
 
-  it("returns longest matching alias prefix", () => {
-    const hit = matchLongestAlias("WM SUPERCENTER 1234", aliases)
+  it("returns longest matching rule prefix", () => {
+    const hit = matchLongestRule("WM SUPERCENTER 1234", rules)
     expect(hit?.canonicalPayee).toBe("Walmart")
   })
 
   it("matches exact normalized source", () => {
-    const hit = matchLongestAlias("WM SUPERCENTER", [
+    const hit = matchLongestRule("WM SUPERCENTER", [
       { sourceNormalized: "wm supercenter", canonicalPayee: "Walmart" },
     ])
     expect(hit?.canonicalPayee).toBe("Walmart")
   })
 
   // Pass 2: soft-equal fallback — the core fix for the normalization bug
-  it("soft-equal pass: fires wal-mart alias for Walmart input", () => {
-    // An existing alias keyed as "wal-mart" should also fire when receipt says "Walmart"
-    const hit = matchLongestAlias("Walmart", [
+  it("soft-equal pass: fires wal-mart rule for Walmart input", () => {
+    // An existing rule keyed as "wal-mart" should also fire when receipt says "Walmart"
+    const hit = matchLongestRule("Walmart", [
       { sourceNormalized: "wal-mart", canonicalPayee: "Walmart" },
     ])
     expect(hit?.canonicalPayee).toBe("Walmart")
   })
 
   it("exact pass wins over soft pass when exact key matches", () => {
-    const exact: PayeeAliasRule = { sourceNormalized: "wal-mart", canonicalPayee: "Walmart" }
-    const hit = matchLongestAlias("Wal-Mart", [exact])
+    const exact: PayeeNameRule = { sourceNormalized: "wal-mart", canonicalPayee: "Walmart" }
+    const hit = matchLongestRule("Wal-Mart", [exact])
     expect(hit?.canonicalPayee).toBe("Walmart")
   })
 
   it("soft-equal pass returns null when no soft match exists", () => {
-    const hit = matchLongestAlias("Starbucks", [
+    const hit = matchLongestRule("Starbucks", [
       { sourceNormalized: "wal-mart", canonicalPayee: "Walmart" },
     ])
     expect(hit).toBeNull()
   })
 
-  it("soft-equal picks longest matching alias when multiple soft-match", () => {
+  it("soft-equal picks longest matching rule when multiple soft-match", () => {
     // "wal mart stores" (longer) should beat "wal mart" when input collapses to "walmart..."
-    const hit = matchLongestAlias("WAL MART STORES", [
+    const hit = matchLongestRule("WAL MART STORES", [
       { sourceNormalized: "wal mart", canonicalPayee: "Short" },
       { sourceNormalized: "wal mart stores", canonicalPayee: "Long" },
     ])
@@ -119,22 +119,22 @@ describe("resolveCanonicalPayee", () => {
     })
   })
 
-  it("prefers user alias for Last War Survival", () => {
-    const aliases: PayeeAliasRule[] = [
+  it("prefers user rule for Last War Survival", () => {
+    const rules: PayeeNameRule[] = [
       { sourceNormalized: "last war survival", canonicalPayee: "Last War" },
     ]
-    const r = resolveCanonicalPayee("Last War Survival", candidates, aliases)
+    const r = resolveCanonicalPayee("Last War Survival", candidates, rules)
     expect(r).toMatchObject({
       canonicalPayee: "Last War",
       reason: "alias",
     })
   })
 
-  it("prefers user alias over history for WM SUPERCENTER", () => {
-    const aliases: PayeeAliasRule[] = [
+  it("prefers user rule over history for WM SUPERCENTER", () => {
+    const rules: PayeeNameRule[] = [
       { sourceNormalized: "wm supercenter", canonicalPayee: "Walmart" },
     ]
-    const r = resolveCanonicalPayee("WM SUPERCENTER", [{ displayName: "Other", count: 1 }], aliases)
+    const r = resolveCanonicalPayee("WM SUPERCENTER", [{ displayName: "Other", count: 1 }], rules)
     expect(r).toMatchObject({
       canonicalPayee: "Walmart",
       reason: "alias",
@@ -159,19 +159,19 @@ describe("resolveCanonicalPayee", () => {
     expect(r).toBeNull()
   })
 
-  it("returns null when alias canonical is identical trimmed string to extract", () => {
-    const aliases: PayeeAliasRule[] = [
+  it("returns null when rule canonical is identical trimmed string to extract", () => {
+    const rules: PayeeNameRule[] = [
       { sourceNormalized: "wm supercenter", canonicalPayee: "WM SUPERCENTER" },
     ]
-    const r = resolveCanonicalPayee("WM SUPERCENTER", [], aliases)
+    const r = resolveCanonicalPayee("WM SUPERCENTER", [], rules)
     expect(r).toBeNull()
   })
 
-  it("applies alias for preferred casing when normalized extract matches source", () => {
-    const aliases: PayeeAliasRule[] = [
+  it("applies rule for preferred casing when normalized extract matches source", () => {
+    const rules: PayeeNameRule[] = [
       { sourceNormalized: "walmart", canonicalPayee: "Walmart" },
     ]
-    const r = resolveCanonicalPayee("WALMART", [], aliases)
+    const r = resolveCanonicalPayee("WALMART", [], rules)
     expect(r).toMatchObject({
       canonicalPayee: "Walmart",
       reason: "alias",
@@ -206,25 +206,25 @@ describe("findSimilarPayeeClusters", () => {
   })
 })
 
-describe("isClusterResolvedByAliases", () => {
+describe("isClusterResolvedByRules", () => {
   it("returns true when non-canonical variants map to canonical", () => {
     const clusters = findSimilarPayeeClusters([
       { displayName: "Walmart", count: 20 },
       { displayName: "Wal-Mart", count: 3 },
     ])
     const c = clusters[0]!
-    const aliases: PayeeAliasRule[] = [
+    const rules: PayeeNameRule[] = [
       { sourceNormalized: normalizePayeeKey("Wal-Mart"), canonicalPayee: "Walmart" },
     ]
-    expect(isClusterResolvedByAliases(c, aliases)).toBe(true)
+    expect(isClusterResolvedByRules(c, rules)).toBe(true)
   })
 
-  it("returns false without aliases", () => {
+  it("returns false without rules", () => {
     const clusters = findSimilarPayeeClusters([
       { displayName: "Walmart", count: 20 },
       { displayName: "Wal-Mart", count: 3 },
     ])
-    expect(isClusterResolvedByAliases(clusters[0]!, [])).toBe(false)
+    expect(isClusterResolvedByRules(clusters[0]!, [])).toBe(false)
   })
 })
 
@@ -240,18 +240,18 @@ describe("filterClusterIgnoredVariants", () => {
   })
 })
 
-describe("getPayeeMappingReviewClusters", () => {
+describe("getPayeeRuleReviewClusters", () => {
   it("drops resolved and fully ignored clusters", () => {
     const clusters = findSimilarPayeeClusters([
       { displayName: "Walmart", count: 20 },
       { displayName: "Wal-Mart", count: 3 },
     ])
-    const aliases: PayeeAliasRule[] = [
+    const rules: PayeeNameRule[] = [
       { sourceNormalized: normalizePayeeKey("Wal-Mart"), canonicalPayee: "Walmart" },
     ]
-    expect(getPayeeMappingReviewClusters(clusters, aliases, new Set())).toHaveLength(0)
+    expect(getPayeeRuleReviewClusters(clusters, rules, new Set())).toHaveLength(0)
 
-    const pending = getPayeeMappingReviewClusters(clusters, [], new Set())
+    const pending = getPayeeRuleReviewClusters(clusters, [], new Set())
     expect(pending).toHaveLength(1)
   })
 })

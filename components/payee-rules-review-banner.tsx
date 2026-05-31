@@ -5,24 +5,24 @@ import { useApp } from "@/lib/app-context"
 import {
   buildPayeeDisplayRowsFromTransactions,
   findSimilarPayeeClusters,
-  getPayeeMappingReviewClusters,
+  getPayeeRuleReviewClusters,
   normalizePayeeKey,
-  type PayeeAliasRule,
+  type PayeeNameRule,
   type PayeeNameCluster,
 } from "@/lib/payee-canonical"
 import {
-  addIgnoredPayeeMappingSuggestions,
-  loadIgnoredPayeeMappingSuggestions,
-  requestSettingsPayeeMappingsTab,
-} from "@/lib/payee-mapping-dismissals"
+  addDismissedPayeeRules,
+  loadDismissedPayeeRules,
+  requestSettingsRulesTab,
+} from "@/lib/payee-rule-dismissals"
 import { Label } from "@/components/ui/label"
 import { ChevronDown, ChevronUp, Link2, Loader2 } from "lucide-react"
 
 type AliasRow = { id: string; sourceNormalized: string; canonicalPayee: string }
 
-export function PayeeMappingReviewBanner() {
+export function PayeeRulesReviewBanner() {
   const { activeTransactions, currentUserId, navigateTo } = useApp()
-  const [aliases, setAliases] = useState<PayeeAliasRule[]>([])
+  const [aliases, setAliases] = useState<PayeeNameRule[]>([])
   const [aliasesLoading, setAliasesLoading] = useState(true)
   const [ignored, setIgnored] = useState<Set<string>>(() => new Set())
   const [expanded, setExpanded] = useState(true)
@@ -31,7 +31,7 @@ export function PayeeMappingReviewBanner() {
 
   const loadAliases = useCallback(() => {
     setAliasesLoading(true)
-    fetch("/api/payee-aliases")
+    fetch("/api/payee-rules")
       .then((r) => (r.ok ? r.json() : []))
       .then((rows: AliasRow[]) => {
         const list = Array.isArray(rows) ? rows : []
@@ -51,7 +51,7 @@ export function PayeeMappingReviewBanner() {
   }, [loadAliases])
 
   useEffect(() => {
-    setIgnored(loadIgnoredPayeeMappingSuggestions(currentUserId))
+    setIgnored(loadDismissedPayeeRules(currentUserId))
   }, [currentUserId])
 
   const payeeRows = useMemo(
@@ -62,14 +62,14 @@ export function PayeeMappingReviewBanner() {
   const allClusters = useMemo(() => findSimilarPayeeClusters(payeeRows), [payeeRows])
 
   const pendingClusters = useMemo(
-    () => getPayeeMappingReviewClusters(allClusters, aliases, ignored),
+    () => getPayeeRuleReviewClusters(allClusters, aliases, ignored),
     [allClusters, aliases, ignored],
   )
 
   function persistIgnore(keys: string[]) {
     if (!currentUserId || keys.length === 0) return
-    addIgnoredPayeeMappingSuggestions(currentUserId, keys)
-    setIgnored(loadIgnoredPayeeMappingSuggestions(currentUserId))
+    addDismissedPayeeRules(currentUserId, keys)
+    setIgnored(loadDismissedPayeeRules(currentUserId))
   }
 
   async function applyClusterMappings(cluster: PayeeNameCluster, canonicalDisplay: string) {
@@ -79,7 +79,7 @@ export function PayeeMappingReviewBanner() {
     try {
       for (const v of cluster.variants) {
         if (normalizePayeeKey(v.displayName) === normalizePayeeKey(canonicalDisplay)) continue
-        const res = await fetch("/api/payee-aliases", {
+        const res = await fetch("/api/payee-rules", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -106,7 +106,7 @@ export function PayeeMappingReviewBanner() {
     <div
       className="rounded-2xl border border-[#F7931A]/35 bg-[#0D0D0D] p-4 md:p-5"
       role="region"
-      aria-label="Payee mapping suggestions"
+      aria-label="Payee rule suggestions"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
@@ -114,7 +114,7 @@ export function PayeeMappingReviewBanner() {
             <Link2 className="h-4 w-4" aria-hidden />
           </div>
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-foreground">Payee mappings to review</h3>
+            <h3 className="text-sm font-semibold text-foreground">Payee rules to review</h3>
             <p className="mt-1 text-sm text-muted-foreground">
               {pendingClusters.length === 1
                 ? "One group of similar spellings could use a single destination payee for imports."
@@ -127,12 +127,12 @@ export function PayeeMappingReviewBanner() {
           <button
             type="button"
             onClick={() => {
-              requestSettingsPayeeMappingsTab()
+              requestSettingsRulesTab()
               navigateTo("settings")
             }}
             className="rounded-lg border border-[#333] bg-[#1A1A1A] px-3 py-2 text-xs font-medium text-foreground hover:bg-[#252525]"
           >
-            Payee mappings in Settings
+            Payee rules in Settings
           </button>
           <button
             type="button"

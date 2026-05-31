@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react"
 import { Building2, X } from "lucide-react"
 import { useApp } from "@/lib/app-context"
-import { requestSettingsIntegrationsTab } from "@/lib/payee-mapping-dismissals"
+import { requestSettingsIntegrationsTab } from "@/lib/payee-rule-dismissals"
 import {
   isReferralPlaidReminderSnoozed,
   snoozeReferralPlaidReminder,

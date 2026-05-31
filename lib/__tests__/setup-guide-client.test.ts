@@ -6,7 +6,7 @@ import {
   focusSettingsSection,
   receiptInboxPendingSetupSignature,
 } from "@/lib/setup-guide-client"
-import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
+import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-rule-dismissals"
 import type { Envelope, PendingTransaction, Transaction } from "@/lib/data"
 
 describe("setup-guide-client", () => {
