@@ -531,6 +531,15 @@ Production ops visibility uses **Sentry** (stack traces), **`GET /api/health`** 
 - **Before merge:** consolidate branch migrations into clean idempotent file(s) and reconcile the maintainer's local `_prisma_migrations` without a full DB reset (see **Database → PR finalization**).
 - **Database migrations** on the merged branch must be committed alongside the schema change and the code that uses the new field.
 
+### Cursor plan bookkeeping
+
+When a Cursor plan is **fully implemented** (all todos done, verification passed):
+
+1. **Rename the plan file** by inserting `_done` before the `.plan.md` extension — e.g. `fix_review-inbox_build_607a6e40.plan.md` → `fix_review-inbox_build_607a6e40_done.plan.md`.
+2. Do this **at the end of the session** that completes the plan, before moving on to unrelated work.
+3. **Do not edit the plan body** to mark completion; the `_done` suffix is the source of truth for backlog tracking.
+4. Plans live under `.cursor/plans/` (or the workspace `.cursor/plans/` path Cursor uses for that project). Leave unimplemented plans unchanged so the maintainer can tell at a glance which backlog items remain.
+
 ### Addressing open PR review comments
 
 When a maintainer asks the agent to address open comments on a PR:
