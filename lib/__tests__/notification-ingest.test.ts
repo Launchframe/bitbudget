@@ -74,7 +74,7 @@ describe("ingestNotificationAlert", () => {
   })
 
   it("deduplicates on idempotencyKey", async () => {
-    vi.mocked(prisma.pendingTransaction.findFirst).mockResolvedValue({ id: "existing" })
+    vi.mocked(prisma.pendingTransaction.findFirst).mockResolvedValue({ id: "existing" } as never)
     const out = await ingestNotificationAlert("u1", {
       text: "Debit $5",
       idempotencyKey: "k1",

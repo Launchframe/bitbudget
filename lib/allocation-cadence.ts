@@ -44,3 +44,48 @@ export function monthlyFromDigitOnlyInput(
   const monthly = Math.round(toMonthly(cadenceAmount, cadence))
   return Math.min(sliderMax, Math.max(0, monthly))
 }
+
+/** Round to nearest cent (USD). */
+export function roundMoneyCents(amount: number): number {
+  if (!Number.isFinite(amount)) return 0
+  return Math.round(amount * 100) / 100
+}
+
+/** Display string for an allotment text field (empty when zero). */
+export function formatAllotmentInputDisplay(amount: number): string {
+  if (!Number.isFinite(amount) || amount <= 0) return ""
+  const rounded = roundMoneyCents(amount)
+  return rounded % 1 === 0 ? String(rounded) : rounded.toFixed(2)
+}
+
+/**
+ * Parse in-progress money input while typing. Returns null when the field is empty
+ * or only a decimal point — do not snap or overwrite the draft string in that case.
+ */
+export function parsePartialMoneyInput(rawInput: string): number | null {
+  const trimmed = rawInput.trim()
+  if (trimmed === "" || trimmed === ".") return null
+
+  const cleaned = trimmed.replace(/[^0-9.]/g, "")
+  if (cleaned === "" || cleaned === ".") return null
+
+  const dotIdx = cleaned.indexOf(".")
+  if (dotIdx !== -1 && cleaned.indexOf(".", dotIdx + 1) !== -1) return null
+
+  const parts = cleaned.split(".")
+  if (parts.length > 2) return null
+  const frac = parts[1] ?? ""
+  if (frac.length > 2) return null
+
+  const n = parseFloat(cleaned)
+  if (!Number.isFinite(n) || n < 0) return null
+  return n
+}
+
+/** Commit a money text field to a monthly allotment clamped to `[0, max]` (penny precision). */
+export function monthlyFromMoneyInput(rawInput: string, max: number): number {
+  const parsed = parsePartialMoneyInput(rawInput)
+  if (parsed === null) return 0
+  const capped = Math.min(max, Math.max(0, roundMoneyCents(parsed)))
+  return capped
+}

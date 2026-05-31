@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useRef } from "react"
+import { useState, useMemo, useRef, useCallback } from "react"
 import { useApp } from "@/lib/app-context"
 import { envelopeGenesisFloor, getEnvelopeBalanceAllTime, formatUsd } from "@/lib/data"
 import { envelopeBudgetProgressPct, envelopeHealthColor } from "@/lib/envelope-card-metrics"
@@ -12,6 +12,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { EnvelopeAppearancePicker, PRESET_COLORS } from "@/components/envelope-appearance-picker"
@@ -25,9 +36,25 @@ import {
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { IrregularIncomeDialog } from "@/components/irregular-income-dialog"
 import { SavingsHeroCard } from "@/components/savings-hero-card"
+import { canRestoreSoftDeletedEnvelope, daysUntilEnvelopePurge } from "@/lib/envelope-delete"
+import { envelopeDeleteUsageStats } from "@/lib/envelope-ledger-visibility"
+import { ENVELOPE_DELETE_GRACE_DAYS } from "@/lib/constants"
 
 export function EnvelopesPage() {
-  const { state, discretionaryEnvelopes, navigateTo, addEnvelope, editEnvelope, archiveEnvelope, restoreEnvelope, deleteEnvelope, mergeEnvelope, setMonthlyIncome } = useApp()
+  const {
+    state,
+    discretionaryEnvelopes,
+    recurringTransactions,
+    navigateTo,
+    addEnvelope,
+    editEnvelope,
+    archiveEnvelope,
+    restoreEnvelope,
+    restoreDeletedEnvelope,
+    deleteEnvelope,
+    mergeEnvelope,
+    setMonthlyIncome,
+  } = useApp()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -42,8 +69,19 @@ export function EnvelopesPage() {
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
   const [mergeSourceId, setMergeSourceId] = useState<string | null>(null)
   const [archivedExpanded, setArchivedExpanded] = useState(false)
+  const [deletedExpanded, setDeletedExpanded] = useState(false)
   const [archiveToast, setArchiveToast] = useState<{ id: string; name: string } | null>(null)
+  const [deleteToast, setDeleteToast] = useState<{ id: string; name: string } | null>(null)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const archiveToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const deleteToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const envelopeDeleteStats = useCallback(
+    (envId: string) =>
+      envelopeDeleteUsageStats(state.transactions, recurringTransactions, envId),
+    [state.transactions, recurringTransactions],
+  )
 
   function handleArchive(envId: string) {
     const env = state.envelopes.find(e => e.id === envId)
@@ -61,12 +99,39 @@ export function EnvelopesPage() {
     if (archiveToastTimer.current) clearTimeout(archiveToastTimer.current)
   }
 
-  function handlePermanentDelete(envId: string) {
+  function requestPermanentDelete(envId: string) {
     if (archiveToast?.id === envId) {
       setArchiveToast(null)
       if (archiveToastTimer.current) clearTimeout(archiveToastTimer.current)
     }
-    deleteEnvelope(envId)
+    setPendingDeleteId(envId)
+  }
+
+  async function confirmPermanentDelete() {
+    if (!pendingDeleteId) return
+    const env = state.envelopes.find(e => e.id === pendingDeleteId)
+    if (!env) {
+      setPendingDeleteId(null)
+      return
+    }
+
+    setDeletingId(pendingDeleteId)
+    try {
+      await deleteEnvelope(pendingDeleteId)
+      setPendingDeleteId(null)
+      if (deleteToastTimer.current) clearTimeout(deleteToastTimer.current)
+      setDeleteToast({ id: env.id, name: env.name })
+      deleteToastTimer.current = setTimeout(() => setDeleteToast(null), 8000)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  function handleUndoDelete() {
+    if (!deleteToast) return
+    restoreDeletedEnvelope(deleteToast.id)
+    setDeleteToast(null)
+    if (deleteToastTimer.current) clearTimeout(deleteToastTimer.current)
   }
 
   const activeEnvelopes = useMemo(
@@ -74,9 +139,18 @@ export function EnvelopesPage() {
     [discretionaryEnvelopes]
   )
   const archivedEnvelopes = useMemo(
-    () => state.envelopes.filter(e => e.archived),
+    () => state.envelopes.filter(e => e.archived && !e.deletedAt),
     [state.envelopes]
   )
+  const recentlyDeletedEnvelopes = useMemo(
+    () => state.envelopes.filter(e => e.deletedAt && canRestoreSoftDeletedEnvelope(e)),
+    [state.envelopes]
+  )
+
+  const pendingDeleteEnv = pendingDeleteId
+    ? state.envelopes.find(e => e.id === pendingDeleteId)
+    : undefined
+  const pendingDeleteStats = pendingDeleteId ? envelopeDeleteStats(pendingDeleteId) : null
 
   // Marker position: 100% on day 1 (full month ahead), 0% on last day.
   // formula: (1 − (dayOfMonth − 1) / (daysInMonth − 1)) × 100
@@ -564,11 +638,72 @@ export function EnvelopesPage() {
                       </button>
                       <div className="w-px h-5 bg-[#1A1A1A]" />
                       <button
-                        onClick={() => handlePermanentDelete(env.id)}
+                        onClick={() => requestPermanentDelete(env.id)}
                         className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-[#EF4444] hover:bg-[#1A1A1A] transition-colors"
                         aria-label={`Permanently delete ${env.name}`}
                       >
                         <Trash2 className="h-3 w-3" /> Delete Forever
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Recently deleted envelopes */}
+      {recentlyDeletedEnvelopes.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => setDeletedExpanded(prev => !prev)}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors self-start"
+          >
+            <Trash2 className="h-4 w-4" />
+            Recently deleted ({recentlyDeletedEnvelopes.length})
+            <ChevronDown className={`h-4 w-4 transition-transform ${deletedExpanded ? "rotate-180" : ""}`} />
+          </button>
+
+          {deletedExpanded && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {recentlyDeletedEnvelopes.map((env) => {
+                const daysLeft = daysUntilEnvelopePurge(env)
+                const stats = envelopeDeleteStats(env.id)
+                return (
+                  <div
+                    key={env.id}
+                    className="flex flex-col bg-[#0D0D0D] rounded-2xl overflow-hidden opacity-70 hover:opacity-90 transition-opacity border border-[#1F1F1F]"
+                  >
+                    <div className="flex items-center gap-3 p-5">
+                      <div
+                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: `${env.color}22` }}
+                      >
+                        <EnvelopeIconDisplay
+                          icon={env.icon}
+                          fallbackName={env.name}
+                          className="h-4 w-4 text-[10px]"
+                          style={{ color: env.color }}
+                        />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold text-foreground truncate">{env.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {stats.transactionCount} transaction{stats.transactionCount !== 1 ? "s" : ""}
+                          {daysLeft != null ? ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} to restore` : ""}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center border-t border-[#1A1A1A]">
+                      <button
+                        onClick={() => restoreDeletedEnvelope(env.id)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-muted-foreground hover:text-[#22C55E] hover:bg-[#1A1A1A] transition-colors"
+                        aria-label={`Restore deleted ${env.name}`}
+                      >
+                        <RotateCcw className="h-3 w-3" /> Restore
                       </button>
                     </div>
                   </div>
@@ -604,6 +739,103 @@ export function EnvelopesPage() {
           </button>
         </div>
       )}
+
+      {/* Delete undo toast */}
+      {deleteToast && (
+        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 bg-[#1A1A1A] border border-[#333] rounded-xl shadow-xl animate-in slide-in-from-bottom-4 fade-in duration-200 max-w-[min(96vw,28rem)]">
+          <Trash2 className="h-4 w-4 text-[#EF4444] shrink-0" />
+          <span className="text-sm text-foreground min-w-0">
+            <span className="font-medium">{deleteToast.name}</span> deleted — undo within {ENVELOPE_DELETE_GRACE_DAYS} days
+          </span>
+          <button
+            type="button"
+            data-testid="delete-undo"
+            onClick={handleUndoDelete}
+            className="text-sm font-semibold text-[#F7931A] hover:text-[#F7931A]/80 transition-colors ml-2 shrink-0"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={() => setDeleteToast(null)}
+            className="text-muted-foreground hover:text-foreground transition-colors ml-1 shrink-0"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      <AlertDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={open => {
+          if (open) return
+          if (deletingId !== null) return
+          setPendingDeleteId(null)
+        }}
+      >
+        <AlertDialogContent className="border-[#333] bg-[#0D0D0D] sm:rounded-2xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {pendingDeleteEnv ? `"${pendingDeleteEnv.name}"` : "envelope"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="text-muted-foreground text-sm space-y-2">
+                {!pendingDeleteEnv ? (
+                  <p>This envelope is no longer in your list.</p>
+                ) : !pendingDeleteStats ? (
+                  <p>Checking linked activity…</p>
+                ) : pendingDeleteStats.transactionCount === 0 && pendingDeleteStats.recurringCount === 0 ? (
+                  <p>
+                    <span className="font-medium text-foreground">{pendingDeleteEnv.name}</span> will be removed from
+                    your budget. You can undo for {ENVELOPE_DELETE_GRACE_DAYS} days.
+                  </p>
+                ) : (
+                  <p>
+                    This will remove{" "}
+                    <span className="font-medium text-foreground">{pendingDeleteEnv.name}</span> and delete{" "}
+                    {[
+                      pendingDeleteStats.transactionCount > 0
+                        ? `${pendingDeleteStats.transactionCount} transaction${pendingDeleteStats.transactionCount === 1 ? "" : "s"} totaling ${formatUsd(pendingDeleteStats.transactionTotal)}`
+                        : null,
+                      pendingDeleteStats.recurringCount > 0
+                        ? `${pendingDeleteStats.recurringCount} recurring rule${pendingDeleteStats.recurringCount === 1 ? "" : "s"}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" and ")}{" "}
+                    from your budget. You can undo for {ENVELOPE_DELETE_GRACE_DAYS} days.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={deletingId !== null}
+              className="border-[#333] bg-[#1A1A1A] hover:bg-[#252525]"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deletingId !== null || !pendingDeleteEnv}
+              onClick={() => { void confirmPermanentDelete() }}
+              className="gap-2"
+            >
+              {deletingId !== null ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  Deleting…
+                </>
+              ) : (
+                "Delete envelope"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

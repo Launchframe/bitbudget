@@ -86,16 +86,19 @@ import {
 } from "@/lib/onboarding-allocate-budget"
 import {
   isOnboardingDraftBudgetEnvelope,
+  isOnboardingVisibleServerEnvelope,
   withoutSystemSavingsEnvelope,
 } from "@/lib/onboarding-draft-envelopes"
 import {
   PAYDAY_LAST_OF_MONTH,
 } from "@/lib/payday-cadence"
 import {
+  ENVELOPE_DELETE_GRACE_DAYS,
   SAVINGS_EXPERIENCE_DISMISSED,
   SAVINGS_GOLD_ACCENT,
   SWEEP_POLICY_CARRY_FORWARD,
 } from "@/lib/constants"
+import { formatUsd } from "@/lib/data"
 import { SAVINGS_GOAL_DEFAULT_PERIOD } from "@/lib/savings-goal"
 import {
   cadenceDisplayInteger,
@@ -398,7 +401,7 @@ export default function OnboardingPage() {
   const [envelopeStepError, setEnvelopeStepError] = useState<string | null>(null)
   /** Server-side tx / recurring counts per envelope id — used for delete confirmation copy. */
   const [envelopeUsageById, setEnvelopeUsageById] = useState<
-    Record<string, { transactionCount: number; recurringCount: number }>
+    Record<string, { transactionCount: number; transactionTotalAmount: number; recurringCount: number }>
   >({})
   /** True while GET /api/envelopes?usage=1 is in flight — avoids treating unknown usage as zero. */
   const [envelopeUsageLoading, setEnvelopeUsageLoading] = useState(false)
@@ -437,13 +440,16 @@ export default function OnboardingPage() {
       const rows = await res.json() as Array<{
         id: string
         transactionCount?: number
+        transactionTotalAmount?: number
         recurringCount?: number
       }>
-      const next: Record<string, { transactionCount: number; recurringCount: number }> = {}
+      const next: Record<string, { transactionCount: number; transactionTotalAmount: number; recurringCount: number }> = {}
       for (const r of rows) {
         if (!r.id) continue
         next[r.id] = {
           transactionCount: typeof r.transactionCount === "number" ? r.transactionCount : 0,
+          transactionTotalAmount:
+            typeof r.transactionTotalAmount === "number" ? r.transactionTotalAmount : 0,
           recurringCount: typeof r.recurringCount === "number" ? r.recurringCount : 0,
         }
       }
@@ -1067,6 +1073,7 @@ export default function OnboardingPage() {
       icon: string | null
       monthlyAllotment: number
       archived: boolean
+      deletedAt?: string | null
       systemRole: string | null
     }>
     try {
@@ -1079,12 +1086,13 @@ export default function OnboardingPage() {
         icon: string | null
         monthlyAllotment: number
         archived: boolean
+        deletedAt?: string | null
         systemRole: string | null
       }>
     } catch {
       return false
     }
-    const active = all.filter(e => !e.archived && isOnboardingDraftBudgetEnvelope(e))
+    const active = all.filter(isOnboardingVisibleServerEnvelope)
 
     setEnvelopes(prev => {
       const seenIds = new Set<string>()
@@ -1137,9 +1145,16 @@ export default function OnboardingPage() {
       if (listForSync.some(e => !e.id)) {
         const res = await fetch("/api/envelopes")
         if (res.ok) {
-          const server = await res.json() as Array<{ id: string; name: string }>
+          const server = await res.json() as Array<{
+            id: string
+            name: string
+            archived?: boolean
+            deletedAt?: string | null
+            systemRole?: string | null
+          }>
           const byName = new Map<string, string>()
           for (const s of server) {
+            if (!isOnboardingVisibleServerEnvelope(s)) continue
             const key = s.name.toLocaleLowerCase()
             if (!byName.has(key)) byName.set(key, s.id)
           }
@@ -1425,6 +1440,7 @@ export default function OnboardingPage() {
     !envelopeUsageLoading &&
     Object.prototype.hasOwnProperty.call(envelopeUsageById, pendingDeleteEnvId)
   const pendingDeleteTxs = pendingDeleteUsageReady ? (pendingDeleteUsage?.transactionCount ?? 0) : 0
+  const pendingDeleteTxTotal = pendingDeleteUsageReady ? (pendingDeleteUsage?.transactionTotalAmount ?? 0) : 0
   const pendingDeleteRec = pendingDeleteUsageReady ? (pendingDeleteUsage?.recurringCount ?? 0) : 0
 
   /**
@@ -3416,9 +3432,9 @@ export default function OnboardingPage() {
                 ) : !pendingDeleteUsageReady ? (
                   <div className="space-y-3">
                     <p>
-                      We couldn&apos;t load usage for this envelope yet. Removing it may permanently delete
-                      associated transactions and recurring rules. Try loading usage again, or cancel and
-                      continue once your connection is stable.
+                      We couldn&apos;t load usage for this envelope yet. Removing it may delete
+                      associated transactions and recurring rules from your budget. Try loading usage
+                      again, or cancel and continue once your connection is stable.
                     </p>
                     <Button
                       type="button"
@@ -3435,14 +3451,18 @@ export default function OnboardingPage() {
                   </div>
                 ) : pendingDeleteTxs === 0 && pendingDeleteRec === 0 ? (
                   <p>
-                    This envelope will be removed from your list. You can add it again before you continue.
+                    This envelope will be removed from your list. You can add it again before you
+                    continue, or restore it from Envelopes for {ENVELOPE_DELETE_GRACE_DAYS} days after
+                    setup.
                   </p>
                 ) : (
                   <p>
-                    This will permanently delete{" "}
+                    This will remove{" "}
+                    <span className="font-medium text-foreground">{pendingDeleteEnv.name}</span> and
+                    delete{" "}
                     {[
                       pendingDeleteTxs > 0
-                        ? `${pendingDeleteTxs} transaction${pendingDeleteTxs === 1 ? "" : "s"}`
+                        ? `${pendingDeleteTxs} transaction${pendingDeleteTxs === 1 ? "" : "s"} totaling ${formatUsd(pendingDeleteTxTotal)}`
                         : null,
                       pendingDeleteRec > 0
                         ? `${pendingDeleteRec} recurring rule${pendingDeleteRec === 1 ? "" : "s"}`
@@ -3450,7 +3470,8 @@ export default function OnboardingPage() {
                     ]
                       .filter(Boolean)
                       .join(" and ")}{" "}
-                    in this envelope. This cannot be undone.
+                    from your budget. You can restore it from Envelopes for {ENVELOPE_DELETE_GRACE_DAYS}{" "}
+                    days after you finish setup.
                   </p>
                 )}
               </div>

@@ -65,11 +65,11 @@ import {
   processApiTransactions,
   putMany,
   removeMissing,
-  removeCachedForEnvelope,
   setLastSyncIso,
   setMemo,
   startDateForRecentWindow,
 } from "@/lib/txn-cache"
+import { filterTransactionsForActiveLedger } from "@/lib/envelope-ledger-visibility"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { transactionSyncUserMessage } from "@/lib/transaction-sync-user-message"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
@@ -220,7 +220,8 @@ interface AppContextValue {
   editEnvelope: (id: string, updates: Partial<Omit<Envelope, "id">>) => void
   archiveEnvelope: (id: string) => void
   restoreEnvelope: (id: string) => void
-  deleteEnvelope: (id: string) => void
+  restoreDeletedEnvelope: (id: string) => void
+  deleteEnvelope: (id: string) => Promise<void>
   mergeEnvelope: (sourceId: string, targetId: string) => Promise<void>
 
   setMonthlyIncome: (income: number) => void
@@ -1260,21 +1261,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const restoreDeletedEnvelope = useCallback(async (id: string) => {
+    setState(prev => ({
+      ...prev,
+      envelopes: prev.envelopes.map(e => e.id === id ? { ...e, deletedAt: null } : e),
+    }))
+
+    try {
+      const res = await fetch("/api/envelopes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, deletedAt: null }),
+      })
+      if (!res.ok) {
+        await refreshData()
+      }
+    } catch {
+      await refreshData()
+    }
+  }, [refreshData])
+
   const deleteEnvelope = useCallback(async (id: string) => {
     const env = envelopesRef.current.find(e => e.id === id)
     if (env?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) return
 
+    const deletedAt = new Date().toISOString()
     setState(prev => ({
       ...prev,
-      envelopes: prev.envelopes.filter(e => e.id !== id),
-      transactions: prev.transactions.filter(t => t.envelopeId !== id),
+      envelopes: prev.envelopes.map(e => (e.id === id ? { ...e, deletedAt } : e)),
     }))
 
     try {
       const res = await fetch(`/api/envelopes?id=${id}`, { method: "DELETE" })
-      if (res.ok && currentUserIdRef.current) {
-        await removeCachedForEnvelope(currentUserIdRef.current, id)
-      } else if (!res.ok) {
+      if (!res.ok) {
         await refreshData()
       }
     } catch {
@@ -1698,7 +1717,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const activeEnvelopes = useMemo(
-    () => state.envelopes.filter(e => !e.archived),
+    () => state.envelopes.filter(e => !e.archived && !e.deletedAt),
     [state.envelopes]
   )
 
@@ -1707,14 +1726,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [activeEnvelopes],
   )
 
-  const archivedEnvelopeIds = useMemo(
-    () => new Set(state.envelopes.filter(e => e.archived).map(e => e.id)),
-    [state.envelopes]
-  )
-
   const activeTransactions = useMemo(
-    () => state.transactions.filter(t => !archivedEnvelopeIds.has(t.envelopeId)),
-    [state.transactions, archivedEnvelopeIds]
+    () => filterTransactionsForActiveLedger(state.transactions, state.envelopes),
+    [state.transactions, state.envelopes]
   )
 
   const loading = txnLoadPhase === "init"
@@ -1758,6 +1772,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         editEnvelope,
         archiveEnvelope,
         restoreEnvelope,
+        restoreDeletedEnvelope,
         deleteEnvelope,
         mergeEnvelope,
         setMonthlyIncome,

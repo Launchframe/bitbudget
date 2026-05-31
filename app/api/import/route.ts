@@ -20,6 +20,8 @@ interface ImportedTransaction {
 
 const SKIP = "__skip__"
 const CSV_PREFIX = "__csv__:"
+/** Exact pattern produced by `makeDedupeKeyComputer`: 128-bit lowercase hex. */
+const DEDUPE_KEY_RE = /^[0-9a-f]{32}$/
 
 // Each request is a chunk from the client; cap duration generously as a safety net.
 export const maxDuration = 60
@@ -39,6 +41,20 @@ export async function POST(req: NextRequest) {
 
   if (!transactions || !Array.isArray(transactions) || transactions.length === 0) {
     return NextResponse.json({ error: "No transactions provided" }, { status: 400 })
+  }
+
+  // Validate every optional dedupeKey before any DB write. Envelope creation happens
+  // below, so malformed chunks must fail without leaving empty CSV envelopes behind.
+  for (const txn of transactions) {
+    const rawKey = typeof txn.dedupeKey === "string" && txn.dedupeKey.length > 0
+      ? txn.dedupeKey
+      : null
+    if (rawKey !== null && !DEDUPE_KEY_RE.test(rawKey)) {
+      return NextResponse.json(
+        { error: "Invalid dedupeKey: must be exactly 32 lowercase hex characters" },
+        { status: 400 },
+      )
+    }
   }
 
   const userId = session.user.id
@@ -119,25 +135,14 @@ export async function POST(req: NextRequest) {
     dedupeKey: string | null
   }[] = []
 
-  /** Exact pattern produced by `makeDedupeKeyComputer`: 128-bit lowercase hex. */
-  const DEDUPE_KEY_RE = /^[0-9a-f]{32}$/
-
   for (const txn of transactions) {
     const lowerName = txn.envelopeName.toLowerCase()
 
     if (resolvedMapping[lowerName] === SKIP) { skipped++; continue }
 
-    // Validate the optional dedupeKey before any DB write so a malformed value never
-    // lands on the partial unique index or corrupts the idempotency contract.
     const rawKey = typeof txn.dedupeKey === "string" && txn.dedupeKey.length > 0
       ? txn.dedupeKey
       : null
-    if (rawKey !== null && !DEDUPE_KEY_RE.test(rawKey)) {
-      return NextResponse.json(
-        { error: `Invalid dedupeKey: must be exactly 32 lowercase hex characters` },
-        { status: 400 },
-      )
-    }
 
     let envelopeId = resolvedMapping[lowerName] ?? envelopeByName[lowerName]
     if (!envelopeId) {
