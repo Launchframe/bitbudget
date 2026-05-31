@@ -1,11 +1,11 @@
 import type { Transaction } from "@/lib/data"
-import { TX_SOURCE_INCOME_IMPORT } from "@/lib/constants"
-import { isUserFacingExpense, todayUtcIso, txnIsoDate } from "@/lib/transaction-visibility"
 import {
   TX_SOURCE_FUNDING_IN,
   TX_SOURCE_FUNDING_OUT,
+  TX_SOURCE_INCOME_IMPORT,
   TX_SOURCE_IRREGULAR_INCOME,
-} from "@/lib/envelope-funding"
+} from "@/lib/constants"
+import { isUserFacingExpense, todayUtcIso, txnIsoDate } from "@/lib/transaction-visibility"
 
 const SATS_PER_BTC = 100_000_000
 

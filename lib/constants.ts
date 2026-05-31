@@ -43,6 +43,10 @@ export const PREMIUM_PRICE_ANNUAL_USD = 50
 export const PREMIUM_ANNUAL_SAVINGS_MONTHS = 2
 
 export const TX_SOURCE_INCOME_IMPORT = "income_import"
+export const TX_SOURCE_PAYCHECK = "paycheck"
+export const TX_SOURCE_IRREGULAR_INCOME = "irregular_income"
+export const TX_SOURCE_FUNDING_OUT = "envelope_funding_out"
+export const TX_SOURCE_FUNDING_IN = "envelope_funding_in"
 export const TX_SOURCE_ENVELOPE_SWEEP = "envelope_sweep"
 export const TX_SOURCE_DEFICIT_COVER = "deficit_cover"
 export const TX_SOURCE_ENVELOPE_TRANSFER_IN = "envelope_transfer_in"

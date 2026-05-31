@@ -10,7 +10,8 @@ import {
   TX_SOURCE_ENVELOPE_TRANSFER_IN,
   TX_SOURCE_ENVELOPE_TRANSFER_OUT,
 } from "@/lib/constants"
-import { ensureSystemSavingsEnvelope, TX_SOURCE_FUNDING_OUT } from "@/lib/envelope-funding"
+import { TX_SOURCE_FUNDING_OUT } from "@/lib/constants"
+import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
 import {
   envelopeBalancesAllTimeBatch,
   savingsEnvelopeBalanceAllTime,

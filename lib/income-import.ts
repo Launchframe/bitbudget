@@ -1,12 +1,13 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
-import { ENVELOPE_FUNDING_BATCH_KIND_FUND, TX_SOURCE_INCOME_IMPORT } from "@/lib/constants"
 import {
-  ensureSystemSavingsEnvelope,
+  ENVELOPE_FUNDING_BATCH_KIND_FUND,
+  TX_SOURCE_INCOME_IMPORT,
   TX_SOURCE_IRREGULAR_INCOME,
   TX_SOURCE_PAYCHECK,
-} from "@/lib/envelope-funding"
+} from "@/lib/constants"
+import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
 import { encryptFieldForUser } from "@/lib/server-encrypt"
 import { todayUtcIso } from "@/lib/transaction-visibility"
 

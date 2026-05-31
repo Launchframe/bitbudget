@@ -11,8 +11,8 @@ import {
   monthKeyFromDate,
   savingsEnvelopeBalanceAllTime,
 } from "@/lib/envelope-balance-server"
+import { TX_SOURCE_IRREGULAR_INCOME } from "@/lib/constants"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
-import { TX_SOURCE_IRREGULAR_INCOME } from "@/lib/envelope-funding"
 import { currentGoalStreakFromClosed } from "@/lib/savings-goal-streak"
 
 export const ACHIEVEMENT_CODES = [

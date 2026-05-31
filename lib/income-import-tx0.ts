@@ -1,5 +1,5 @@
 import { TX_SOURCE_INCOME_IMPORT } from "@/lib/constants"
-import { TX_SOURCE_FUNDING_IN, TX_SOURCE_FUNDING_OUT } from "@/lib/envelope-funding"
+import { TX_SOURCE_FUNDING_IN, TX_SOURCE_FUNDING_OUT } from "@/lib/constants"
 
 export type PeriodKey = string
 

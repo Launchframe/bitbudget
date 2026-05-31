@@ -6,6 +6,10 @@ import {
   LEDGER_ALLOCATION_PAYEE_LABEL,
   LEDGER_INCOME_PAYEE_LABEL,
   SYSTEM_ENVELOPE_ROLE_SAVINGS,
+  TX_SOURCE_FUNDING_IN,
+  TX_SOURCE_FUNDING_OUT,
+  TX_SOURCE_IRREGULAR_INCOME,
+  TX_SOURCE_PAYCHECK,
   isBudgetEnvelope,
 } from "@/lib/constants"
 import {
@@ -43,10 +47,13 @@ import { ensureSystemSavingsEnvelope, savingsEnvelopeForUserDb } from "@/lib/ens
 
 export { ensureSystemSavingsEnvelope } from "@/lib/ensure-system-savings-envelope"
 
-export const TX_SOURCE_PAYCHECK = "paycheck"
-export const TX_SOURCE_IRREGULAR_INCOME = "irregular_income"
-export const TX_SOURCE_FUNDING_OUT = "envelope_funding_out"
-export const TX_SOURCE_FUNDING_IN = "envelope_funding_in"
+// Re-export for callers that still import sources from this module.
+export {
+  TX_SOURCE_FUNDING_IN,
+  TX_SOURCE_FUNDING_OUT,
+  TX_SOURCE_IRREGULAR_INCOME,
+  TX_SOURCE_PAYCHECK,
+} from "@/lib/constants"
 
 const EMPTY_TAGS = "[]"
 

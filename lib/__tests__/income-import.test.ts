@@ -33,10 +33,6 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/envelope-funding", () => ({
   ensureSystemSavingsEnvelope: vi.fn(),
-  TX_SOURCE_FUNDING_IN: "envelope_funding_in",
-  TX_SOURCE_FUNDING_OUT: "envelope_funding_out",
-  TX_SOURCE_IRREGULAR_INCOME: "irregular_income",
-  TX_SOURCE_PAYCHECK: "paycheck",
 }))
 
 vi.mock("@/lib/server-encrypt", () => ({
