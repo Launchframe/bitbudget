@@ -82,7 +82,7 @@ pnpm setup:dev
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3001](http://localhost:3001) (`pnpm dev` uses port 3001 on this branch).
 
 `setup:dev` will:
 

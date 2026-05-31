@@ -115,7 +115,7 @@ if [[ "$USE_DOCKER" == true ]]; then
 Local dev environment is ready (Docker Postgres).
 
 Next steps:
-  pnpm dev          # http://localhost:3000
+  pnpm dev          # http://localhost:3001
   pnpm db:studio
   pnpm docker:down  # stop Postgres when done
 
@@ -133,7 +133,7 @@ if [[ -n "$PSQL_BIN" ]]; then
 Local dev environment is ready (native Postgres).
 
 Next steps:
-  pnpm dev          # http://localhost:3000
+  pnpm dev          # http://localhost:3001
   pnpm db:studio
 
 If Postgres.app is installed, keep it running from the menu bar.
