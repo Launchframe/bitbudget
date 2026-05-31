@@ -35,6 +35,18 @@ describe("requestBulkDeleteTransactions", () => {
     await expect(requestBulkDeleteTransactions(["tx1"], fetcher)).resolves.toBe(0)
   })
 
+  it("defaults to 0 for a negative deleted count (server never returns negative, but guard it)", async () => {
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ deleted: -1 }))
+
+    await expect(requestBulkDeleteTransactions(["tx1"], fetcher)).resolves.toBe(0)
+  })
+
+  it("floors a non-integer deleted count", async () => {
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ deleted: 2.9 }))
+
+    await expect(requestBulkDeleteTransactions(["tx1"], fetcher)).resolves.toBe(2)
+  })
+
   it("throws the API error message for failed responses", async () => {
     const fetcher = vi.fn().mockResolvedValue(
       jsonResponse({ error: "Some ids cannot be bulk-deleted" }, { status: 400 }),

@@ -31,5 +31,6 @@ export async function requestBulkDeleteTransactions(
   }
 
   const body = (await res.json().catch(() => ({}))) as { deleted?: unknown }
-  return typeof body.deleted === "number" && Number.isFinite(body.deleted) ? body.deleted : 0
+  const n = body.deleted
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
 }
