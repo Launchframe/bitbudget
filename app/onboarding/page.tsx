@@ -2594,6 +2594,35 @@ export default function OnboardingPage() {
                     </p>
                   </OnboardingDismissibleHint>
 
+                  {!unboundedAlloc && allocateMonthlyBudget > 0 && (
+                    <div className="rounded-xl border border-[#252525] bg-[#1A1A1A] px-4 py-3 flex flex-col gap-2">
+                      <div className="flex items-baseline justify-between gap-4">
+                        <span className="text-xs text-muted-foreground">Your income</span>
+                        <span className="text-sm font-semibold text-foreground tabular-nums">
+                          ${Math.round(allocateMonthlyBudget).toLocaleString()}<span className="text-xs font-normal text-muted-foreground">/mo</span>
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-4">
+                        <span className="text-xs text-muted-foreground">Your estimated expenses</span>
+                        <span className="text-sm text-muted-foreground tabular-nums">
+                          − ${Math.round(totalAllocated).toLocaleString()}<span className="text-xs">/mo</span>
+                        </span>
+                      </div>
+                      <div
+                        className="border-t pt-2 mt-0.5 flex items-center justify-between gap-3"
+                        style={{ borderColor: `${SAVINGS_GOLD_ACCENT}44` }}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <PiggyBank className="h-4 w-4" style={{ color: SAVINGS_GOLD_ACCENT }} />
+                          <span className="text-sm font-semibold" style={{ color: SAVINGS_GOLD_ACCENT }}>Savings</span>
+                        </div>
+                        <span className="text-lg font-bold tabular-nums" style={{ color: SAVINGS_GOLD_ACCENT }}>
+                          ${Math.round(savings).toLocaleString()}<span className="text-sm font-normal text-muted-foreground">/mo</span>
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="rounded-xl border border-[#252525] bg-[#1A1A1A] p-5 flex flex-col gap-4">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="text-sm text-muted-foreground">Target</span>
@@ -3041,14 +3070,13 @@ export default function OnboardingPage() {
                           if (Math.abs(dx) <= Math.abs(dy) || Math.abs(dx) <= 8) return
 
                           pending.committed = true
-                          beginAllocSliderGesture(idx, pending.init, pending.gestureMax)
+                          const currentNativeRaw = parseInt(e.currentTarget.value, 10)
+                          const currentInit = Number.isFinite(currentNativeRaw)
+                            ? Math.min(pending.gestureMax, Math.max(0, currentNativeRaw))
+                            : pending.init
+                          beginAllocSliderGesture(idx, currentInit, pending.gestureMax)
                           allocSliderGestureKindRef.current = "coarse"
                           allocSliderPointerRef.current = { pointerId: e.pointerId, idx }
-                          try {
-                            e.currentTarget.setPointerCapture(e.pointerId)
-                          } catch {
-                            /* noop */
-                          }
                         }}
                         onPointerUp={e => {
                           const pending = allocSliderPendingPointerRef.current
