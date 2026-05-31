@@ -93,66 +93,98 @@ export async function findUsersForExpiryReminderWindow(
   daysBeforeExpiry: number,
   now: Date = new Date(),
 ): Promise<Array<{ id: string; expiry: Date }>> {
-  const field = timedPremiumExpiryField(source)
   const today = startOfUtcDay(now)
   const targetDay = addUtcDays(today, daysBeforeExpiry)
   const window = utcDayWindowForCalendarDate(targetDay)
+  const dateFilter = { gte: window.gte, lt: window.lt }
 
-  const where: Record<string, unknown> = {
-    [field]: { gte: window.gte, lt: window.lt },
+  switch (source) {
+    case "trial": {
+      const rows = await prisma.user.findMany({
+        where: { premiumTrialUntil: dateFilter },
+        select: { id: true, premiumTrialUntil: true },
+      })
+      return rows.flatMap((row) =>
+        row.premiumTrialUntil ? [{ id: row.id, expiry: row.premiumTrialUntil }] : [],
+      )
+    }
+    case "gratis": {
+      const rows = await prisma.user.findMany({
+        where: {
+          subscriptionTier: { not: "premium" },
+          premiumGratisUntil: dateFilter,
+        },
+        select: { id: true, premiumGratisUntil: true },
+      })
+      return rows.flatMap((row) =>
+        row.premiumGratisUntil ? [{ id: row.id, expiry: row.premiumGratisUntil }] : [],
+      )
+    }
+    case "membership": {
+      const rows = await prisma.user.findMany({
+        where: {
+          subscriptionTier: "premium",
+          premiumMembershipUntil: dateFilter,
+        },
+        select: { id: true, premiumMembershipUntil: true },
+      })
+      return rows.flatMap((row) =>
+        row.premiumMembershipUntil ? [{ id: row.id, expiry: row.premiumMembershipUntil }] : [],
+      )
+    }
   }
-  if (source === "membership") {
-    where.subscriptionTier = "premium"
-  }
-  if (source === "gratis") {
-    where.subscriptionTier = { not: "premium" }
-  }
-
-  const rows = await prisma.user.findMany({
-    where,
-    select: { id: true, [field]: true },
-  })
-
-  return rows
-    .map((row) => {
-      const expiry = row[field as keyof typeof row] as Date | null
-      if (!expiry) return null
-      return { id: row.id, expiry }
-    })
-    .filter((x): x is { id: string; expiry: Date } => x != null)
 }
 
 export async function findUsersForExpiredNotification(
   source: PremiumExpirySource,
   now: Date = new Date(),
 ): Promise<Array<{ id: string; expiry: Date }>> {
-  const field = timedPremiumExpiryField(source)
   const today = startOfUtcDay(now)
   const yesterday = addUtcDays(today, -1)
   const window = utcDayWindowForCalendarDate(yesterday)
+  const dateFilter = { gte: window.gte, lt: window.lt }
 
-  const where: Record<string, unknown> = {
-    [field]: { gte: window.gte, lt: window.lt },
+  switch (source) {
+    case "trial": {
+      const rows = await prisma.user.findMany({
+        where: { premiumTrialUntil: dateFilter },
+        select: { id: true, premiumTrialUntil: true },
+      })
+      return rows.flatMap((row) =>
+        row.premiumTrialUntil && isExpiredNotificationDay(row.premiumTrialUntil, now)
+          ? [{ id: row.id, expiry: row.premiumTrialUntil }]
+          : [],
+      )
+    }
+    case "gratis": {
+      const rows = await prisma.user.findMany({
+        where: {
+          subscriptionTier: { not: "premium" },
+          premiumGratisUntil: dateFilter,
+        },
+        select: { id: true, premiumGratisUntil: true },
+      })
+      return rows.flatMap((row) =>
+        row.premiumGratisUntil && isExpiredNotificationDay(row.premiumGratisUntil, now)
+          ? [{ id: row.id, expiry: row.premiumGratisUntil }]
+          : [],
+      )
+    }
+    case "membership": {
+      const rows = await prisma.user.findMany({
+        where: {
+          subscriptionTier: "premium",
+          premiumMembershipUntil: dateFilter,
+        },
+        select: { id: true, premiumMembershipUntil: true },
+      })
+      return rows.flatMap((row) =>
+        row.premiumMembershipUntil && isExpiredNotificationDay(row.premiumMembershipUntil, now)
+          ? [{ id: row.id, expiry: row.premiumMembershipUntil }]
+          : [],
+      )
+    }
   }
-  if (source === "membership") {
-    where.subscriptionTier = "premium"
-  }
-  if (source === "gratis") {
-    where.subscriptionTier = { not: "premium" }
-  }
-
-  const rows = await prisma.user.findMany({
-    where,
-    select: { id: true, [field]: true },
-  })
-
-  return rows
-    .map((row) => {
-      const expiry = row[field as keyof typeof row] as Date | null
-      if (!expiry || !isExpiredNotificationDay(expiry, now)) return null
-      return { id: row.id, expiry }
-    })
-    .filter((x): x is { id: string; expiry: Date } => x != null)
 }
 
 export async function clearExpiredTimedPremiumField(
