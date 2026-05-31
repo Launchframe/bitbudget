@@ -125,6 +125,15 @@ If `BITBUDGET_NOSTR_NSEC` is unset, `sendNostrDm` logs a warning and returns `fa
 
 ### 1. Database and auth
 
+See [local-development.md](./local-development.md). Short version:
+
+```bash
+pnpm setup:dev   # Postgres.app or Docker + .env.local + migrate
+pnpm dev
+```
+
+Or manually (native Postgres):
+
 ```bash
 pnpm install
 # .env.local: DATABASE_URL, DATABASE_URL_UNPOOLED, AUTH_SECRET (≥32 chars)

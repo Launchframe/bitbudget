@@ -104,7 +104,7 @@ Product notifications (referrals, premium trial/gratis reminders, notification-e
 
 **Env vars (see also `.env.example`):** `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `NEXTAUTH_URL` (unsubscribe + auth URLs), `BITBUDGET_NOSTR_NSEC`, optional `BITBUDGET_NOSTR_RELAYS`, `CRON_SECRET` for `/api/cron/referral-expiry`. Without Gmail vars, `lib/email.ts` logs to the console (subject/recipient for HTML mail; 6-digit code only for OTP/verify — not full bodies). Without `BITBUDGET_NOSTR_NSEC`, DMs are skipped with a warning.
 
-**Local dev quick start:** Postgres + `AUTH_SECRET` in `.env.local` → `pnpm prisma migrate deploy` → `pnpm dev`. Add Gmail and/or Nostr vars only when testing real delivery. Never set `E2E_TEST` in `.env.local` for manual messaging tests (Playwright sets it automatically).
+**Local dev quick start:** `pnpm setup:dev` → `pnpm dev` (see [docs/local-development.md](docs/local-development.md)). **Native Postgres** (Postgres.app) is recommended on older Macs without Docker Desktop; **Docker Compose** (`pnpm docker:up`) is optional on macOS 14+. Minimum env: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET` in `.env.local`. Add Gmail and/or Nostr vars only when testing real delivery. Never set `E2E_TEST` in `.env.local` for manual messaging tests (Playwright sets it automatically).
 
 **Preview vs production:** Use separate databases, Gmail senders, and Nostr service `nsec` values per environment; set `NEXTAUTH_URL` to each deploy’s canonical HTTPS origin so unsubscribe links work. Full checklist in the doc above.
 
@@ -202,7 +202,7 @@ Run this **before** `pnpm dev`, manual DB work, or `pnpm test:e2e` if migrations
 
 Both DB URLs are required for `migrate deploy`. If `DATABASE_URL_UNPOOLED` is missing, Prisma fails with **P1012** before connecting.
 
-**Typical cloud workflow:** `pnpm install` (update script) → `pnpm exec prisma migrate deploy` (when DB needed) → `pnpm dev` or targeted tests.
+**Typical cloud workflow:** `pnpm install` (update script) → native Postgres or `pnpm docker:up` → `pnpm exec prisma migrate deploy` (when DB needed) → `pnpm dev` or targeted tests.
 
 ## Code Conventions
 
@@ -538,7 +538,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 
 | Service | How to run | Notes |
 |---------|-----------|-------|
-| PostgreSQL | `sudo pg_ctlcluster 16 main start` | Required. Must be running before dev server or tests. |
+| PostgreSQL | Native (Postgres.app) or `pnpm docker:up` on macOS 14+; `sudo pg_ctlcluster 16 main start` on Linux | Required before dev server or tests. See [docs/local-development.md](docs/local-development.md). |
 | Next.js dev server | `pnpm dev` | Runs on port 3000. |
 | Unit tests | `pnpm test` | Vitest; no DB required. |
 | Lint | `pnpm lint` | ESLint with `--max-warnings 0`. |
@@ -546,7 +546,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 
 ### Environment setup
 
-- **PostgreSQL** is required but not Docker-based. Install via `apt-get install postgresql postgresql-client` and start with `sudo pg_ctlcluster 16 main start` (no systemd in Cloud VMs).
+- **PostgreSQL** is required. On Mac, use **Postgres.app** (native) or **`pnpm docker:up`** when Docker Desktop is available (macOS 14+). On Linux VMs without Docker, install via `apt-get install postgresql postgresql-client` and start with `sudo pg_ctlcluster 16 main start`.
 - **Prisma CLI** reads `.env` (not `.env.local`). Create a symlink once so CLI commands pick up `.env.local`: `ln -sf .env.local .env` (skip if `.env` already exists and points at the right file).
 - **`.env.local`** must contain at minimum: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`. For E2E testing, also add `E2E_TEST="true"` and `E2E_EMAIL_CODE="424242"`.
 - After `pnpm install`, run `prisma migrate deploy` (not `prisma migrate dev`, which prompts interactively) to apply pending migrations non-interactively.
