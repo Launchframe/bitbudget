@@ -18,6 +18,16 @@ const SAVINGS_INFLOW_SOURCES = [
   TX_SOURCE_ENVELOPE_SWEEP,
 ] as const
 
+function envelopeGenesisFloorFromCreatedAt(createdAt: Date): string {
+  const d = new Date(createdAt)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+function envelopeGenesisStartFromCreatedAt(createdAt: Date): Date {
+  return new Date(`${envelopeGenesisFloorFromCreatedAt(createdAt)}T00:00:00.000Z`)
+}
+
 async function envelopeBalanceFromAggregates(
   where: Prisma.TransactionWhereInput,
 ): Promise<number> {
@@ -36,12 +46,37 @@ async function envelopeBalanceFromAggregates(
   return Math.round((creditSum - expenseSum) * 100) / 100
 }
 
+async function savingsEnvelopeDateFilter(
+  userId: string,
+  envelopeId: string,
+  beforeExclusive?: Date,
+): Promise<Prisma.DateTimeFilter | undefined> {
+  const envelope = await prisma.envelope.findFirst({
+    where: { id: envelopeId, userId },
+    select: { createdAt: true },
+  })
+  const createdAt = envelope?.createdAt
+  if (!(createdAt instanceof Date)) {
+    return beforeExclusive ? { lt: beforeExclusive } : undefined
+  }
+
+  return {
+    gte: envelopeGenesisStartFromCreatedAt(createdAt),
+    ...(beforeExclusive ? { lt: beforeExclusive } : {}),
+  }
+}
+
 /** Sum credits minus expenses for all transactions on an envelope (Savings hub balance). */
 export async function savingsEnvelopeBalanceAllTime(
   userId: string,
   envelopeId: string,
 ): Promise<number> {
-  return envelopeBalanceFromAggregates({ userId, envelopeId })
+  const date = await savingsEnvelopeDateFilter(userId, envelopeId)
+  return envelopeBalanceFromAggregates({
+    userId,
+    envelopeId,
+    ...(date ? { date } : {}),
+  })
 }
 
 /** Envelope balance before a UTC instant (half-open: date < beforeExclusive). */
@@ -50,14 +85,15 @@ export async function savingsEnvelopeBalanceBefore(
   envelopeId: string,
   beforeExclusive: Date,
 ): Promise<number> {
+  const date = await savingsEnvelopeDateFilter(userId, envelopeId, beforeExclusive)
   return envelopeBalanceFromAggregates({
     userId,
     envelopeId,
-    date: { lt: beforeExclusive },
+    ...(date ? { date } : {}),
   })
 }
 
-type BalanceQueryClient = Pick<typeof prisma, "transaction">
+type BalanceQueryClient = Pick<typeof prisma, "transaction" | "envelope">
 
 /** All-time net balances for many envelopes (credits minus expenses). */
 export async function envelopeBalancesAllTimeBatch(
@@ -68,7 +104,16 @@ export async function envelopeBalancesAllTimeBatch(
   return envelopeBalancesBeforeBatch(userId, envelopeIds, undefined, client)
 }
 
-/** Envelope balances before a UTC instant (half-open: date < beforeExclusive). Omit for all-time. */
+/**
+ * Envelope balances before a UTC instant (half-open: date < beforeExclusive). Omit for all-time.
+ *
+ * Applies genesis filtering: each envelope's balance only counts transactions dated on or
+ * after one calendar day before the envelope's createdAt (UTC).  This prevents historical
+ * CSV imports from driving newly-created envelopes deeply negative.
+ *
+ * The one-day safety margin ensures same-day transactions are always included for users
+ * in western timezones whose local date may be behind UTC at time of envelope creation.
+ */
 export async function envelopeBalancesBeforeBatch(
   userId: string,
   envelopeIds: readonly string[],
@@ -79,21 +124,33 @@ export async function envelopeBalancesBeforeBatch(
   if (envelopeIds.length === 0) return result
   for (const id of envelopeIds) result.set(id, 0)
 
-  const rows = await client.transaction.groupBy({
-    by: ["envelopeId", "type"],
+  // Load genesis dates (one day before createdAt to handle timezone edge cases).
+  const envelopeRows = await client.envelope.findMany({
+    where: { id: { in: [...envelopeIds] }, userId },
+    select: { id: true, createdAt: true },
+  })
+  const genesisMap = new Map<string, string>()
+  for (const e of envelopeRows) {
+    genesisMap.set(e.id, envelopeGenesisFloorFromCreatedAt(e.createdAt))
+  }
+
+  const txns = await client.transaction.findMany({
     where: {
       userId,
       envelopeId: { in: [...envelopeIds] },
       ...(beforeExclusive ? { date: { lt: beforeExclusive } } : {}),
     },
-    _sum: { amount: true },
+    select: { envelopeId: true, type: true, amount: true, date: true },
   })
-  for (const row of rows) {
-    const cur = result.get(row.envelopeId) ?? 0
-    const sum = row._sum.amount != null ? Number(row._sum.amount) : 0
-    const delta = row.type === "credit" ? sum : -sum
-    result.set(row.envelopeId, cur + delta)
+
+  for (const txn of txns) {
+    const genesis = genesisMap.get(txn.envelopeId!)
+    if (genesis && txn.date.toISOString().slice(0, 10) < genesis) continue
+    const cur = result.get(txn.envelopeId!) ?? 0
+    const delta = txn.type === "credit" ? Number(txn.amount) : -Number(txn.amount)
+    result.set(txn.envelopeId!, cur + delta)
   }
+
   for (const [id, value] of result) {
     result.set(id, Math.round(value * 100) / 100)
   }
@@ -120,6 +177,15 @@ export async function envelopeBalancesBeforeMonthEndsBatch(
   }
   if (endByMonth.size === 0) return result
 
+  const envelopeRows = await prisma.envelope.findMany({
+    where: { id: { in: [...envelopeIds] }, userId },
+    select: { id: true, createdAt: true },
+  })
+  const genesisMap = new Map<string, string>()
+  for (const e of envelopeRows) {
+    genesisMap.set(e.id, envelopeGenesisFloorFromCreatedAt(e.createdAt))
+  }
+
   let maxEndMs = 0
   for (const end of endByMonth.values()) {
     maxEndMs = Math.max(maxEndMs, end.getTime())
@@ -144,8 +210,11 @@ export async function envelopeBalancesBeforeMonthEndsBatch(
   for (const [monthKey, end] of sortedMonths) {
     while (rowIdx < rows.length && rows[rowIdx]!.date < end) {
       const row = rows[rowIdx]!
-      const delta = row.type === "credit" ? Number(row.amount) : -Number(row.amount)
-      running.set(row.envelopeId, (running.get(row.envelopeId) ?? 0) + delta)
+      const genesis = genesisMap.get(row.envelopeId)
+      if (!genesis || row.date.toISOString().slice(0, 10) >= genesis) {
+        const delta = row.type === "credit" ? Number(row.amount) : -Number(row.amount)
+        running.set(row.envelopeId, (running.get(row.envelopeId) ?? 0) + delta)
+      }
       rowIdx++
     }
     const snap = new Map<string, number>()

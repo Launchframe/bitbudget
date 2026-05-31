@@ -42,6 +42,7 @@ describe("PUT /api/envelopes monthlyAllotment validation", () => {
       archived: false,
       sweepPolicy: "reset",
       sweepCapMultiplier: null,
+      createdAt: new Date("2026-05-31T00:00:00Z"),
     } as never)
   })
 
@@ -65,6 +66,16 @@ describe("PUT /api/envelopes monthlyAllotment validation", () => {
   it("rejects non-number monthlyAllotment", async () => {
     const response = await PUT(putRequest({ monthlyAllotment: "not-a-number" }) as never)
     expect(response.status).toBe(400)
+    expect(prisma.envelope.update).not.toHaveBeenCalled()
+  })
+
+  it("rejects attempts to change createdAt genesis metadata", async () => {
+    const response = await PUT(putRequest({ createdAt: "2020-01-01" }) as never)
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "Envelope creation date cannot be changed",
+    })
+    expect(prisma.envelope.findFirst).not.toHaveBeenCalled()
     expect(prisma.envelope.update).not.toHaveBeenCalled()
   })
 

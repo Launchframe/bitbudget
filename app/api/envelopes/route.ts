@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
         sweepPolicy: e.sweepPolicy ?? SWEEP_POLICY_RESET,
         sweepCapMultiplier:
           e.sweepCapMultiplier != null ? Number(e.sweepCapMultiplier) : null,
+        createdAt: e.createdAt.toISOString().slice(0, 10),
         transactionCount: e._count.transactions,
         recurringCount: e._count.recurringTransactions,
       })),
@@ -72,6 +73,7 @@ export async function GET(req: NextRequest) {
       sweepPolicy: e.sweepPolicy ?? SWEEP_POLICY_RESET,
       sweepCapMultiplier:
         e.sweepCapMultiplier != null ? Number(e.sweepCapMultiplier) : null,
+      createdAt: e.createdAt.toISOString().slice(0, 10),
     })),
   )
 }
@@ -165,6 +167,7 @@ export async function POST(req: NextRequest) {
     sweepPolicy: envelope.sweepPolicy ?? SWEEP_POLICY_RESET,
     sweepCapMultiplier:
       envelope.sweepCapMultiplier != null ? Number(envelope.sweepCapMultiplier) : null,
+    createdAt: envelope.createdAt.toISOString().slice(0, 10),
   }, { status: 201 })
 }
 
@@ -182,9 +185,20 @@ export async function PUT(req: NextRequest) {
   let archived
   let sweepPolicy
   let sweepCapMultiplier
+  let createdAt
 
   try {
-    ;({ id, name, monthlyAllotment, color, icon, archived, sweepPolicy, sweepCapMultiplier } = await req.json())
+    ;({
+      id,
+      name,
+      monthlyAllotment,
+      color,
+      icon,
+      archived,
+      sweepPolicy,
+      sweepCapMultiplier,
+      createdAt,
+    } = await req.json())
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
@@ -193,6 +207,10 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Envelope ID must be a non-empty string" }, { status: 400 })
   }
   const envelopeId = id.trim()
+
+  if (createdAt !== undefined) {
+    return NextResponse.json({ error: "Envelope creation date cannot be changed" }, { status: 400 })
+  }
 
   const existing = await prisma.envelope.findFirst({
     where: { id: envelopeId, userId: session.user.id },
@@ -314,6 +332,7 @@ export async function PUT(req: NextRequest) {
     sweepPolicy: updated.sweepPolicy ?? SWEEP_POLICY_RESET,
     sweepCapMultiplier:
       updated.sweepCapMultiplier != null ? Number(updated.sweepCapMultiplier) : null,
+    createdAt: updated.createdAt.toISOString().slice(0, 10),
   })
 }
 

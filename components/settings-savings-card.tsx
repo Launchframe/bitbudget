@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import { formatUsd, getCurrentMonthKey, getEnvelopeBalanceAllTime } from "@/lib/data"
+import { formatUsd, getCurrentMonthKey, envelopeGenesisFloor, getEnvelopeBalanceAllTime } from "@/lib/data"
 import {
   SAVINGS_EXPERIENCE_DISMISSED,
   SAVINGS_EXPERIENCE_ENGAGED,
@@ -201,13 +201,17 @@ export function SettingsSavingsCard() {
     [goalRows],
   )
 
-  const sweepExampleEnvelope = useMemo(
-    () =>
-      pickSweepExampleEnvelope(discretionaryEnvelopes, (id) =>
-        getEnvelopeBalanceAllTime(activeTransactions, id),
-      ),
-    [discretionaryEnvelopes, activeTransactions],
-  )
+  const sweepExampleEnvelope = useMemo(() => {
+    const envMap = new Map(discretionaryEnvelopes.map((e) => [e.id, e]))
+    return pickSweepExampleEnvelope(discretionaryEnvelopes, (id) => {
+      const env = envMap.get(id)
+      return getEnvelopeBalanceAllTime(
+        activeTransactions,
+        id,
+        env?.createdAt ? envelopeGenesisFloor(env.createdAt) : undefined,
+      )
+    })
+  }, [discretionaryEnvelopes, activeTransactions])
 
   const sweepPolicyHint = useMemo(
     () =>

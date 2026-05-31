@@ -1,12 +1,18 @@
+import type { NextRequest } from "next/server"
 import { NextResponse } from "next/server"
 import * as Sentry from "@sentry/nextjs"
 import { prisma } from "@/lib/db"
 import { sendAlert } from "@/lib/alert"
+import { cronAuthFailureResponse } from "@/lib/cron-auth"
 import { scrubAlertText } from "@/lib/sentry-scrub"
 
 export interface CronResult {
   processed?: number
   [key: string]: unknown
+}
+
+export function verifyCronSecret(req: NextRequest): NextResponse | null {
+  return cronAuthFailureResponse(req.headers.get("authorization"))
 }
 
 /** Uniform cron wrapper: persist run, capture failures, alert ops. */
