@@ -251,4 +251,47 @@ describe("envelopeBalancesBeforeBatch — genesis filtering", () => {
       }),
     )
   })
+
+  it("applies genesis + beforeExclusive intersection for the batch path", async () => {
+    // Envelope created 2026-06-01 → genesis floor "2026-05-31"
+    // beforeExclusive = 2026-06-15 → only [2026-05-31, 2026-06-15) counts
+    vi.mocked(prisma.envelope.findMany).mockResolvedValue([
+      { id: "e1", createdAt: new Date("2026-06-01T00:00:00Z") },
+    ] as never)
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([
+      // Pre-genesis: excluded
+      { envelopeId: "e1", type: "expense", amount: 999, date: new Date("2026-05-30T00:00:00Z") },
+      // In window: included
+      { envelopeId: "e1", type: "credit", amount: 500, date: new Date("2026-06-01T00:00:00Z") },
+      { envelopeId: "e1", type: "expense", amount: 100, date: new Date("2026-06-10T00:00:00Z") },
+      // Past beforeExclusive: NOT returned by the DB query (filtered by Prisma where clause)
+    ] as never)
+
+    const beforeExclusive = new Date("2026-06-15T00:00:00Z")
+    const result = await envelopeBalancesBeforeBatch("u1", ["e1"], beforeExclusive)
+    // 500 - 100 = 400 (the 999 pre-genesis expense is excluded)
+    expect(result.get("e1")).toBe(400)
+    // Confirm the DB query included the beforeExclusive date filter
+    expect(vi.mocked(prisma.transaction.findMany)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: { lt: beforeExclusive },
+        }),
+      }),
+    )
+  })
+
+  it("includes all transactions when no genesis entry exists for an envelope", async () => {
+    // If envelope.findMany returns nothing for e1 (e.g. race-condition delete after balance call),
+    // genesis filter should not apply — all transactions count.
+    vi.mocked(prisma.envelope.findMany).mockResolvedValue([] as never)
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([
+      { envelopeId: "e1", type: "credit", amount: 800, date: new Date("2020-01-01T00:00:00Z") },
+      { envelopeId: "e1", type: "expense", amount: 300, date: new Date("2022-06-15T00:00:00Z") },
+    ] as never)
+
+    const result = await envelopeBalancesBeforeBatch("u1", ["e1"])
+    // No genesis → no filtering → 800 - 300 = 500
+    expect(result.get("e1")).toBe(500)
+  })
 })
