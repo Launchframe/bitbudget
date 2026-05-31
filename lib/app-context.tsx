@@ -35,6 +35,7 @@ import {
   uint8ToHex,
 } from "@/lib/crypto"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
+import { makeDedupeKeyComputer, type DedupeKeyComputer } from "@/lib/import-dedupe-key"
 import {
   clearPrivacyKeyCache,
   getValidCachedPrivacyKeyHex,
@@ -212,6 +213,8 @@ interface AppContextValue {
   addTransaction: (txn: Omit<Transaction, "id">) => Promise<boolean>
   editTransaction: (id: string, updates: Partial<Omit<Transaction, "id">>) => void
   deleteTransaction: (id: string) => void
+  /** Delete many transactions by id (duplicate cleanup). Returns count deleted. */
+  bulkDeleteTransactions: (ids: string[]) => Promise<number>
 
   addEnvelope: (envelope: Omit<Envelope, "id">) => void
   editEnvelope: (id: string, updates: Partial<Omit<Envelope, "id">>) => void
@@ -237,6 +240,11 @@ interface AppContextValue {
   refreshData: () => Promise<void>
   clearLocalTransactionCache: () => Promise<void>
   encryptForStorage: (plaintext: string) => Promise<string>
+  /**
+   * Build a per-import HMAC dedupe-key computer from the cached privacy-key seed,
+   * or null if the session is locked. Create one per import and reuse across chunks.
+   */
+  makeImportDedupeKeyComputer: () => DedupeKeyComputer | null
   logout: () => void
   isAdmin: boolean
   /** Stored billing tier (Stripe). */
@@ -1126,6 +1134,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const bulkDeleteTransactions = useCallback(async (ids: string[]): Promise<number> => {
+    const idSet = new Set(ids)
+    if (idSet.size === 0) return 0
+
+    // Optimistic removal.
+    setState(prev => ({
+      ...prev,
+      transactions: prev.transactions.filter(t => !idSet.has(t.id)),
+    }))
+
+    try {
+      const res = await fetch("/api/transactions/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(idSet) }),
+      })
+      if (!res.ok) {
+        await refreshData()
+        let message = "Bulk delete failed"
+        try {
+          const body = (await res.json()) as { error?: string }
+          if (body.error) message = body.error
+        } catch {
+          /* ignore */
+        }
+        throw new Error(message)
+      }
+      const body = (await res.json().catch(() => ({}))) as { deleted?: number }
+      if (currentUserIdRef.current) {
+        await Promise.all(
+          Array.from(idSet).map((id) =>
+            deleteCachedTransaction(currentUserIdRef.current!, id),
+          ),
+        )
+      }
+      return body.deleted ?? 0
+    } catch {
+      await refreshData()
+      return 0
+    }
+  }, [refreshData])
+
   const addEnvelope = useCallback(async (envelope: Omit<Envelope, "id">) => {
     const optimisticId = generateId()
     setState(prev => ({
@@ -1451,6 +1501,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return encryptFieldAsymmetric(plaintext, publicKeyRef.current)
   }, [])
 
+  const makeImportDedupeKeyComputer = useCallback((): DedupeKeyComputer | null => {
+    const key = privacyKeyRef.current
+    if (!key) return null
+    try {
+      return makeDedupeKeyComputer(uint8ToHex(key))
+    } catch {
+      return null
+    }
+  }, [])
+
   const clearLocalTransactionCache = useCallback(async () => {
     const uid = currentUserIdRef.current
     if (!uid) return
@@ -1693,6 +1753,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addTransaction,
         editTransaction,
         deleteTransaction,
+        bulkDeleteTransactions,
         addEnvelope,
         editEnvelope,
         archiveEnvelope,
@@ -1712,6 +1773,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         refreshData,
         clearLocalTransactionCache,
         encryptForStorage,
+        makeImportDedupeKeyComputer,
         logout,
         isAdmin: userRole === "admin",
         subscriptionTier,

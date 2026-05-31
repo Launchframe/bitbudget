@@ -73,6 +73,18 @@ Not every `Transaction` row belongs in every feed. Ledger funding creates **batc
 5. If delete semantics apply, extend **`shouldCascadeDeleteFundingBatch`** / server delete and the confirm dialog copy.
 6. Run dashboard + Transactions manually after changes — funding legs are the most common source of chart spikes and orphan rows.
 
+**`csv_import` source:** CSV imports create plain user-facing rows (`source: "csv_import"`, `excludeFromMainHistory: false`, no `fundingBatchId`). They count in main history, envelope lists, spend analytics, and cash flow like any manual expense/credit.
+
+### CSV import: chunking + privacy-preserving idempotency
+
+Large imports (thousands of rows) used to time out the serverless function and leave partial, then duplicated, data on client retries. The hardened flow:
+
+- **Chunked upload.** `components/csv-import-dialog.tsx` encrypts every row, computes a dedupe key, then POSTs `/api/import` in sequential chunks (`IMPORT_CHUNK_SIZE`, ~250). Each chunk is small enough to finish well under the timeout; envelopes created by an earlier chunk are visible to later chunks. `/api/import` also sets `export const maxDuration = 60` as a safety net.
+- **HMAC dedupe key (`Transaction.dedupeKey`, nullable).** The client derives `HMAC-SHA256(privacyKeySeed, "bitbudget-dedupe-v1|" + transactionCollisionKey + "#" + occurrence)` (`lib/import-dedupe-key.ts`, truncated to 128 bits). The server **cannot** recompute it (the HMAC key is the client-only privacy-key seed), so it stays privacy-preserving while still being deterministic for the same row from the same client. An **occurrence counter** keeps genuinely-identical in-file repeats distinct while re-imports of the same file map to the same keys.
+- **Server idempotency.** A **partial unique index** `(userId, dedupeKey) WHERE dedupeKey IS NOT NULL` + `createMany({ skipDuplicates: true })` makes chunk retries and whole-file re-imports no-ops. The route returns `{ imported, skipped, duplicates }` (`duplicates = data.length − inserted`); null-key rows are never deduped. BTC prices are looked up once per distinct date. The index lives in committed migration SQL (`prisma/migrations/20260531130000_transaction_dedupe_key/`) — Prisma schema cannot express partial unique indexes, so **do not use `db push` to sync this table** (see **Database → Local schema sync**).
+- **Seed access.** `resolveImportCrypto()` (`lib/resolve-import-encrypt-fn.ts`) returns `{ encrypt, seedHex }` for the onboarding/standalone path; signed-in callers pass `AppContext.makeImportDedupeKeyComputer()` (built from the cached seed) to the dialog. Never send the seed or raw key to the server.
+- **Manual cleanup.** Existing duplicate messes are fixed in-app: Settings → Data & Security → **Find duplicate transactions** (`components/duplicate-cleanup-card.tsx`, clustering in `lib/duplicate-clusters.ts`) groups decrypted rows by `transactionCollisionKey`, keeps the earliest by default, and bulk-deletes the rest via `POST /api/transactions/bulk-delete` + `AppContext.bulkDeleteTransactions`. Locked rows and funding-batch rows are excluded so plain bulk delete never orphans paired ledger entries.
+
 ## Project Structure
 
 ```
@@ -349,31 +361,48 @@ Treat horizontal overflow, clipped controls, and fixed-width layouts on small sc
 
 ### Database
 
-- Prisma schema is the source of truth. **Merged** schema changes must ship with a committed migration; **in-progress** work uses `db push` first (see below).
+- Prisma schema is the source of truth for **columns and relations**. **Merged** schema changes must ship with a committed migration. Some constraints (partial unique indexes, guarded DDL) live only in migration SQL — see **Local schema sync** below.
 - Migrations must be **idempotent** (`ADD COLUMN IF NOT EXISTS`, etc.) to survive re-runs during deployment.
 - After changing `schema.prisma`, always run `pnpm prisma generate` before testing types.
 - Use `cuid()` for IDs. Dates are stored as `DateTime` and formatted as `YYYY-MM-DD` strings at the API boundary.
 - **System Savings envelope:** created idempotently via `ensureSystemSavingsEnvelope()` on first session (see `lib/auth.ts`). Prisma `Envelope.systemRole = 'savings'`; reserved name `"Savings"`. Protected from rename, archive, merge, and delete in envelope API routes. **`activeEnvelopes`** includes Savings; **`discretionaryEnvelopes`** (`AppContext`) excludes it — use `discretionaryEnvelopes` for budget grids, sweep targets, and allotment totals.
 - **`SavingsGoal`** rows keyed by `periodKey` (`'YYYY-MM'` or `'default'`). Per-period lifecycle (grace, upward-only edits, close snapshots) is enforced in `lib/savings-goal.ts` and the savings-goal API routes.
 
-#### Schema changes during development (`db push`)
+#### Local schema sync (`migrate deploy`, not `db push`)
+
+**Default for local dev, CI, staging, and production:** apply committed migrations with **`pnpm exec prisma migrate deploy`** (requires `DATABASE_URL` and `DATABASE_URL_UNPOOLED` in `.env` / `.env.local`).
+
+Use **`migrate deploy`** — not **`pnpm db:push`** — when:
+
+- Pulling `main` or any branch with new migration folders.
+- Starting the dev server, running e2e, or testing API routes against Postgres.
+- The feature adds **raw SQL** Prisma cannot model (e.g. partial unique index on `Transaction.dedupeKey` for CSV import idempotency). `db push` syncs from `schema.prisma` only and may **drop** indexes/constraints that exist in the DB but not in the schema file.
+
+**`db push` is only for rapid WIP iteration** on schema-only changes while a feature is still evolving and **before** a migration is committed — and only when you are not relying on migration-only DDL. Once a migration folder exists on the branch, switch to **`migrate deploy`**.
+
+#### Schema changes during development
 
 While a feature is still evolving, **do not** run `pnpm db:migrate` on every schema tweak. That creates migration files and checksum history that are painful to revise.
 
-**Default loop:**
+**Default loop (schema-only WIP, no committed migration yet):**
 
 1. Edit `prisma/schema.prisma`.
-2. Apply locally with **`pnpm db:push`** (updates the dev DB without migration files).
+2. Apply locally with **`pnpm db:push`** (optional shortcut — see **Local schema sync** for when to skip it).
 3. Run **`pnpm prisma generate`** and continue building/testing.
+
+**Once the shape is stable or includes raw SQL:**
+
+1. Add an idempotent migration folder (hand-written or `pnpm db:migrate --name <descriptive_name>` with SQL edited for idempotency).
+2. Apply with **`pnpm exec prisma migrate deploy`** locally and in CI — do not rely on `db push` afterward.
 
 **Before creating a migration file, ask the maintainer:**
 
-- **Create migration now** — schema shape is stable enough for CI, another developer, or a shared environment. Run `pnpm db:migrate --name <descriptive_name>`, then hand-edit the generated SQL for idempotency if needed.
-- **Wait until later** — still iterating; keep using `db push` only and defer migration files until PR finalization.
-
-**Never edit a migration after it has been applied** (local, CI, staging, or prod). Prisma stores a checksum in `_prisma_migrations`; changing the file causes “migration was modified after it was applied” errors. For fixes after apply, add a **new** migration instead.
+- **Create migration now** — schema shape is stable enough for CI, another developer, or a shared environment. Run `pnpm db:migrate --name <descriptive_name>`, then hand-edit the generated SQL for idempotency if needed (partial indexes, `IF NOT EXISTS`, etc.).
+- **Wait until later** — still iterating on columns Prisma models directly; keep using `db push` only until PR finalization, then consolidate into committed migrations and use **`migrate deploy`**.
 
 #### PR finalization: migrations (without resetting local dev data)
+
+**Never edit a migration after it has been applied** (local, CI, staging, or prod). Prisma stores a checksum in `_prisma_migrations`; changing the file causes “migration was modified after it was applied” errors. For fixes after apply, add a **new** migration instead.
 
 Before merge, the branch must have clean, reviewable migration(s) that match final `schema.prisma`. Consolidate WIP history **without** asking the developer to wipe their database:
 
@@ -386,10 +415,10 @@ Before merge, the branch must have clean, reviewable migration(s) that match fin
    - If their DB already has the columns (from `db push` and/or WIP migrations), the consolidated migration should be a **no-op** on apply.
    - Delete `_prisma_migrations` rows for removed WIP migration names.
    - Mark the consolidated migration applied: `pnpm exec prisma migrate resolve --applied <migration_folder_name>`, or update the checksum row if the migration was already applied manually (see **Common Pitfalls**).
-   - Verify with **`pnpm db:migrate`** — expect “Already in sync”, not a reset prompt.
-4. **PR checklist** — migration(s) committed with schema + code; PR description notes `pnpm prisma migrate deploy` for deploy targets.
+   - Verify with **`pnpm exec prisma migrate deploy`** — expect pending migrations to apply cleanly or “Already in sync”, not a reset prompt.
+4. **PR checklist** — migration(s) committed with schema + code; PR description notes **`pnpm exec prisma migrate deploy`** for deploy targets and local setup after merge.
 
-CI and fresh clones use `prisma migrate deploy`; idempotent consolidated migrations must apply cleanly from `main`'s baseline.
+CI, fresh clones, and **local dev after merge** use **`prisma migrate deploy`**; idempotent consolidated migrations must apply cleanly from `main`'s baseline.
 
 ## Feature Gating: Opportunity Cost
 
@@ -487,7 +516,7 @@ Production ops visibility uses **Sentry** (stack traces), **`GET /api/health`** 
 - **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don’t rely on manual checks alone for production-critical behavior.
 - **PR descriptions** should have a Summary (bullet points of what changed) and a Test Plan (checkboxes).
 - **Never force-push to main.**
-- **Schema during development:** use **`pnpm db:push`**; ask the maintainer whether to **`pnpm db:migrate`** now or defer until PR finalization (see **Database → Schema changes during development**).
+- **Schema during development:** optional **`pnpm db:push`** only for early WIP on schema-modeled columns before a migration exists; once migrations are committed (especially raw SQL / partial indexes), use **`pnpm exec prisma migrate deploy`** locally (see **Database → Local schema sync**). Ask the maintainer whether to **`pnpm db:migrate`** now or defer until PR finalization.
 - **Before merge:** consolidate branch migrations into clean idempotent file(s) and reconcile the maintainer's local `_prisma_migrations` without a full DB reset (see **Database → PR finalization**).
 - **Database migrations** on the merged branch must be committed alongside the schema change and the code that uses the new field.
 
@@ -514,8 +543,9 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **Counting funding legs as user spending** — `envelope_funding_out` rows are `type: "expense"` with `excludeFromMainHistory: true`. Never feed them into spend charts, Monthly Spend, or OC totals. Use `isUserFacingExpense()` / `buildCumulativeSpendingSeries()` and cap series at `todayUtcIso()`. Deleting an income header must cascade the whole `fundingBatchId` (see **Transaction visibility, analytics, and lifecycle**).
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
-- **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During dev, prefer **`db push`**; at PR time, consolidate into a new migration. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.
-- **`db:migrate` on every schema tweak** — creates migration churn and checksum traps. Use **`db push`** while iterating; create migration files when the maintainer agrees or at PR finalization.
+- **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During early dev, `db push` is optional for schema-only tweaks; after migrations land, use **`migrate deploy`**. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.
+- **`db push` after partial-index migrations** — `db push` syncs from `schema.prisma` only. It can **drop** migration-only objects (e.g. `Transaction_userId_dedupeKey_key` partial unique index on CSV import dedupe). Use **`pnpm exec prisma migrate deploy`** instead.
+- **`db:migrate` on every schema tweak** — creates migration churn and checksum traps. Use **`db push`** only for early schema-only iteration; create migration files when the maintainer agrees or at PR finalization, then **`migrate deploy`**.
 - **Stale encryption keys** — switching accounts or clearing data can leave cached keys in `sessionStorage`. The `EncryptionGate` and `PinUnlockDialog` handle re-prompting; don't bypass them.
 - **`POST /api/user/encryption` and existing keys** — see **Privacy key custody & safeguard**; 409 prevents overwrites. Onboarding must handle 409 in `handleSecuritySetup`. Nostr nsec storage: intent `bitbudget-nsec-onboarding-intent`; pending raw key is **in-memory only** until PIN encrypts to `bitbudget-nsec` (JSON iv+ciphertext in localStorage). Legacy `bitbudget-pending-nsec` session key is cleared on `clearPendingNsec`. Logout clears pending/intent and localStorage nsec keys.
 - **`colSpan` mismatch** — when conditionally rendering table columns (e.g. hiding BTC columns in vanilla mode), update the empty-state row's `colSpan` accordingly.
@@ -562,3 +592,12 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - The `pnpm install` postinstall hook runs `prisma generate` automatically, so no separate generate step is needed after install.
 - `pnpm.onlyBuiltDependencies` in `package.json` handles native dependency build approvals non-interactively — do not run `pnpm approve-builds`.
 - The Next.js dev server hot-reloads code changes but does **not** pick up new `.env.local` values without a restart.
+
+## Learned Workspace Facts
+
+- Remaining (all-time) discretionary and Savings balances apply a **genesis floor**: only transactions with `date >= envelopeGenesisFloor(envelope.createdAt)` count. `envelopeGenesisFloor` in `lib/data.ts` is one UTC calendar day before `createdAt` (timezone cushion). Pre-genesis rows stay in transaction lists but must not drive new envelopes negative after historical CSV or income imports.
+- Client remaining UI passes `envelopeGenesisFloor(createdAt)` into `getEnvelopeBalanceAllTime` (see `lib/savings-ui-metrics.ts`, envelope pages, sweep dialog). Server sweep/funding uses the same rule in `lib/envelope-balance-server.ts` (`envelopeBalancesBeforeBatch`, `savingsEnvelopeBalanceAllTime`, `savingsEnvelopeBalanceBefore`, month-end batch helpers).
+- Envelope API responses include `createdAt` as `YYYY-MM-DD` so clients can compute the genesis floor.
+- CSV import idempotency: the client derives a per-row `dedupeKey` via HMAC in `lib/import-dedupe-key.ts` using the privacy-key seed hex (server never sees the seed); large imports POST in chunks; the server skips rows with an existing key.
+- `@noble/hashes` v2 subpath imports must use explicit `.js` suffixes (e.g. `@noble/hashes/hmac.js`).
+- Ledger `TX_SOURCE_*` constants belong in `lib/constants.ts`, not `envelope-funding.ts`, to avoid circular imports with `envelope-balance-server.ts`.

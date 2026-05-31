@@ -22,6 +22,7 @@ export type TransactionSource =
   | "envelope_funding_in"
   | "income_import"
   | "envelope_sweep"
+  | "csv_import"
 
 export interface Transaction {
   id: string

@@ -376,6 +376,7 @@ export default function OnboardingPage() {
   const [importResult, setImportResult] = useState<{
     imported: number
     skipped: number
+    duplicates: number
     newEnvelopes: string[]
   } | null>(null)
 

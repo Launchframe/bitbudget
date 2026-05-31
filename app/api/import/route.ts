@@ -14,10 +14,15 @@ interface ImportedTransaction {
   type: string
   envelopeName: string
   notes: string | null
+  /** Client-computed HMAC fingerprint for idempotent imports (optional). */
+  dedupeKey?: string
 }
 
 const SKIP = "__skip__"
 const CSV_PREFIX = "__csv__:"
+
+// Each request is a chunk from the client; cap duration generously as a safety net.
+export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -89,13 +94,50 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  let created = 0
   let skipped = 0
+
+  // Memoize BTC price lookups by date so repeated dates don't re-query (3 reads each).
+  const priceByDate = new Map<string, number | null>()
+  const priceForDate = async (date: string): Promise<number | null> => {
+    if (priceByDate.has(date)) return priceByDate.get(date) ?? null
+    const price = await getBtcPriceForDate(date)
+    priceByDate.set(date, price)
+    return price
+  }
+
+  const data: {
+    userId: string
+    envelopeId: string
+    date: Date
+    payee: string
+    amount: number
+    type: string
+    notes: string | null
+    tags: string
+    satsAmount: number | null
+    source: string
+    dedupeKey: string | null
+  }[] = []
+
+  /** Exact pattern produced by `makeDedupeKeyComputer`: 128-bit lowercase hex. */
+  const DEDUPE_KEY_RE = /^[0-9a-f]{32}$/
 
   for (const txn of transactions) {
     const lowerName = txn.envelopeName.toLowerCase()
 
     if (resolvedMapping[lowerName] === SKIP) { skipped++; continue }
+
+    // Validate the optional dedupeKey before any DB write so a malformed value never
+    // lands on the partial unique index or corrupts the idempotency contract.
+    const rawKey = typeof txn.dedupeKey === "string" && txn.dedupeKey.length > 0
+      ? txn.dedupeKey
+      : null
+    if (rawKey !== null && !DEDUPE_KEY_RE.test(rawKey)) {
+      return NextResponse.json(
+        { error: `Invalid dedupeKey: must be exactly 32 lowercase hex characters` },
+        { status: 400 },
+      )
+    }
 
     let envelopeId = resolvedMapping[lowerName] ?? envelopeByName[lowerName]
     if (!envelopeId) {
@@ -114,27 +156,37 @@ export async function POST(req: NextRequest) {
       newEnvelopes.push(txn.envelopeName)
     }
 
-    const btcPrice = await getBtcPriceForDate(txn.date)
+    const btcPrice = await priceForDate(txn.date)
 
-    await prisma.transaction.create({
-      data: {
-        userId,
-        envelopeId,
-        date: new Date(txn.date),
-        payee: txn.payee,
-        amount: txn.amount,
-        type: txn.type,
-        notes: txn.notes,
-        tags: "[]",
-        satsAmount: btcPrice ? usdToSats(txn.amount, btcPrice) : null,
-      },
+    data.push({
+      userId,
+      envelopeId,
+      date: new Date(txn.date),
+      payee: txn.payee,
+      amount: txn.amount,
+      type: txn.type,
+      notes: txn.notes,
+      tags: "[]",
+      satsAmount: btcPrice ? usdToSats(txn.amount, btcPrice) : null,
+      source: "csv_import",
+      dedupeKey: rawKey,
     })
-    created++
   }
+
+  // Idempotent bulk insert: rows whose (userId, dedupeKey) already exists are skipped via the
+  // partial unique index. Rows with a null dedupeKey are never deduped (always inserted).
+  const { count: created } = await prisma.transaction.createMany({
+    data,
+    skipDuplicates: true,
+  })
+
+  // Only dedupeKey-bearing rows can be skipped as duplicates; null-key rows always insert.
+  const duplicates = data.length - created
 
   return NextResponse.json({
     imported: created,
     skipped,
+    duplicates,
     newEnvelopes,
     totalRows: transactions.length,
   })

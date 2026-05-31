@@ -246,6 +246,10 @@ model Transaction {
   satsAmount Int? // BTC equivalent in satoshis (1 BTC = 100,000,000 sats)
   source     String   @default("manual")
 
+  /// Client-computed HMAC fingerprint for idempotent CSV imports. Only set on imported rows.
+  /// The server cannot derive it (the HMAC key is the client-only privacy-key seed).
+  dedupeKey String?
+
   recurringId String?
 
   /// Hidden allocation legs excluded from global transaction history
@@ -266,6 +270,10 @@ model Transaction {
   @@index([recurringId])
   @@index([fundingBatchId])
 }
+
+// NOTE: A partial unique index on (userId, dedupeKey) WHERE dedupeKey IS NOT NULL
+// is created via raw SQL in the migration (Prisma does not support partial unique
+// indexes in the schema DSL). It powers createMany({ skipDuplicates: true }) for imports.
 
 model EnvelopeFundingBatch {
   id        String   @id @default(cuid())
