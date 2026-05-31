@@ -1,12 +1,16 @@
 import { prisma } from "@/lib/db"
 import { composeBankAlertText, parseBankAlertText } from "@/lib/bank-alert-parser"
+import {
+  claimNotificationIngestIdempotency,
+  normalizeIdempotencyKey,
+  notificationIngestAlreadySeen,
+  releaseNotificationIngestIdempotency,
+} from "@/lib/notification-ingest-idempotency"
 import { routeTransaction } from "@/lib/confidence-router"
 import { matchEnvelope } from "@/lib/envelope-matcher"
 import { assertPremiumTrialInboxAllowed, requirePremiumOrTrial } from "@/lib/subscription"
 
 export const NOTIFICATION_FORWARD_SOURCE = "notification_forward"
-
-const DEDUPE_HOURS = 24
 
 export interface NotificationIngestPayload {
   text?: string | null
@@ -50,24 +54,29 @@ export async function ingestNotificationAlert(
     }
   }
 
-  const idempotencyKey = payload.idempotencyKey?.trim()
-  if (idempotencyKey) {
-    const since = new Date(Date.now() - DEDUPE_HOURS * 60 * 60 * 1000)
-    const existing = await prisma.pendingTransaction.findFirst({
-      where: {
-        userId,
-        source: NOTIFICATION_FORWARD_SOURCE,
-        rawInput: { startsWith: `idempotency:${idempotencyKey}\n` },
-        createdAt: { gte: since },
-      },
-      select: { id: true },
-    })
-    if (existing) {
-      return { ok: true, deduplicated: true }
+  const idempotencyKey = normalizeIdempotencyKey(payload.idempotencyKey)
+  let idempotencyClaimed = false
+
+  const releaseClaim = async () => {
+    if (idempotencyClaimed && idempotencyKey) {
+      await releaseNotificationIngestIdempotency(userId, idempotencyKey)
+      idempotencyClaimed = false
     }
   }
 
+  if (idempotencyKey) {
+    if (await notificationIngestAlreadySeen(userId, idempotencyKey)) {
+      return { ok: true, deduplicated: true }
+    }
+    const claim = await claimNotificationIngestIdempotency(userId, idempotencyKey)
+    if (claim === "duplicate") {
+      return { ok: true, deduplicated: true }
+    }
+    idempotencyClaimed = true
+  }
+
   if (!process.env.OPENAI_API_KEY?.trim()) {
+    await releaseClaim()
     return {
       ok: false,
       status: 503,
@@ -80,6 +89,7 @@ export async function ingestNotificationAlert(
   try {
     parsed = await parseBankAlertText(alertText)
   } catch (err) {
+    await releaseClaim()
     const message = err instanceof Error ? err.message : String(err)
     if (message.includes("429") || message.includes("rate limit")) {
       return {
@@ -93,6 +103,7 @@ export async function ingestNotificationAlert(
   }
 
   if (!parsed) {
+    await releaseClaim()
     return {
       ok: false,
       status: 422,
@@ -103,6 +114,7 @@ export async function ingestNotificationAlert(
 
   const date = payload.postedAt ? new Date(payload.postedAt) : new Date(parsed.date)
   if (Number.isNaN(date.getTime())) {
+    await releaseClaim()
     return { ok: false, status: 400, error: "Invalid postedAt" }
   }
 
@@ -122,5 +134,6 @@ export async function ingestNotificationAlert(
     rawInput,
   })
 
+  idempotencyClaimed = false
   return { ok: true, route: result.route, id: result.id }
 }

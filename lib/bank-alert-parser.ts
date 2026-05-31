@@ -74,7 +74,10 @@ export async function parseBankAlertText(alertText: string): Promise<ParsedBankA
       amount: parsed.amount,
       date: parsed.date?.trim() || new Date().toISOString().slice(0, 10),
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && (err.message.includes("429") || err.message.includes("rate limit"))) {
+      throw err
+    }
     return null
   }
 }
