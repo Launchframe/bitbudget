@@ -96,6 +96,7 @@ export function VoiceDictationButton({ locked = false }: { locked?: boolean }) {
         type="button"
         disabled
         aria-disabled
+        aria-label="Voice Input"
         title={PREMIUM_UI_COPY.voiceEntry.hint}
         className="flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-4 py-2.5 rounded-xl text-sm transition-colors border bg-[#1A1A1A]/60 border-[#333] text-muted-foreground cursor-not-allowed opacity-80 w-full"
       >
