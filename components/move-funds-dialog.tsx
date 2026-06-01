@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import {
   formatUsd,
@@ -36,7 +36,8 @@ export function MoveFundsDialog({
 }) {
   const { discretionaryEnvelopes, activeTransactions, refreshData } = useApp()
   const monthKey = getCurrentMonthKey()
-  const [mode, setMode] = useState<MoveMode>("balanced")
+  const defaultMode: MoveMode = source === "savings" ? "independent" : "balanced"
+  const [mode, setMode] = useState<MoveMode>(defaultMode)
   const [multiplier, setMultiplier] = useState(1)
   const [deltas, setDeltas] = useState<Record<string, number>>({})
   const [fillOpen, setFillOpen] = useState(false)
@@ -114,10 +115,20 @@ export function MoveFundsDialog({
 
   const reset = () => {
     setDeltas({})
+    setMultiplier(1)
     setError(null)
     setSuccess(false)
     setMode(source === "savings" ? "independent" : "balanced")
   }
+
+  useEffect(() => {
+    if (open) {
+      setMode(source === "savings" ? "independent" : "balanced")
+      setDeltas({})
+      setError(null)
+      setSuccess(false)
+    }
+  }, [open, source])
 
   return (
     <>
@@ -208,17 +219,17 @@ export function MoveFundsDialog({
                       <Label className="text-xs">Change (+/−)</Label>
                       <input
                         type="range"
-                        min={0}
+                        min={-max}
                         max={max}
                         step={0.01}
-                        value={Math.max(0, delta)}
+                        value={delta}
                         onChange={(e) => {
                           const v = parseFloat(e.target.value)
                           setDeltas((prev) => ({ ...prev, [env.id]: v }))
                         }}
                         className="w-full"
                       />
-                      <span className="text-xs font-mono">{formatUsd(delta)}</span>
+                      <span className="text-xs font-mono">{formatUsd(delta, 2)}</span>
                     </div>
                   )
                 })}

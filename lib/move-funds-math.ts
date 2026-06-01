@@ -14,6 +14,11 @@ export interface DistributionLine {
   fromSavings: number
 }
 
+export type DistributionInvalidReason =
+  | "no_income"
+  | "insufficient_income"
+  | "insufficient_savings"
+
 export function deltaForBehavior(
   behavior: DistributionBehavior,
   monthlyAllotment: number,
@@ -46,13 +51,21 @@ export function computeDistribution(params: {
 }): {
   lines: DistributionLine[]
   invalid: boolean
+  invalidReason: DistributionInvalidReason | null
   totalNeed: number
   fromIncome: number
   fromSavings: number
 } {
   const gross = params.grossUsd
   if (!Number.isFinite(gross) || gross <= 0) {
-    return { lines: [], invalid: true, totalNeed: 0, fromIncome: 0, fromSavings: 0 }
+    return {
+      lines: [],
+      invalid: true,
+      invalidReason: "no_income",
+      totalNeed: 0,
+      fromIncome: 0,
+      fromSavings: 0,
+    }
   }
 
   const lines: DistributionLine[] = []
@@ -75,7 +88,14 @@ export function computeDistribution(params: {
 
   totalNeed = Math.round(totalNeed * 100) / 100
   if (totalNeed <= 0) {
-    return { lines: [], invalid: false, totalNeed: 0, fromIncome: 0, fromSavings: 0 }
+    return {
+      lines: [],
+      invalid: false,
+      invalidReason: null,
+      totalNeed: 0,
+      fromIncome: 0,
+      fromSavings: 0,
+    }
   }
 
   const fromIncome = Math.min(gross, totalNeed)
@@ -84,11 +104,25 @@ export function computeDistribution(params: {
 
   if (shortfall > 0) {
     if (!params.fundOverageFromSavings) {
-      return { lines, invalid: true, totalNeed, fromIncome, fromSavings: 0 }
+      return {
+        lines,
+        invalid: true,
+        invalidReason: "insufficient_income",
+        totalNeed,
+        fromIncome,
+        fromSavings: 0,
+      }
     }
     const savings = Number.isFinite(params.savingsBalance) ? params.savingsBalance : 0
     if (shortfall > savings + 0.015) {
-      return { lines, invalid: true, totalNeed, fromIncome, fromSavings: 0 }
+      return {
+        lines,
+        invalid: true,
+        invalidReason: "insufficient_savings",
+        totalNeed,
+        fromIncome,
+        fromSavings: 0,
+      }
     }
     fromSavings = shortfall
   }
@@ -111,7 +145,14 @@ export function computeDistribution(params: {
     }
   }
 
-  return { lines, invalid: false, totalNeed, fromIncome, fromSavings }
+  return {
+    lines,
+    invalid: false,
+    invalidReason: null,
+    totalNeed,
+    fromIncome,
+    fromSavings,
+  }
 }
 
 /** Sum explicit envelope allocation amounts; must not exceed gross. */

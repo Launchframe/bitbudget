@@ -12,8 +12,21 @@ import { FillEnvelopesDialog, behaviorLabel, type FillEnvelopePreviewRow } from 
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
-import type { DistributionBehavior } from "@/lib/move-funds-math"
+import type { DistributionBehavior, DistributionInvalidReason } from "@/lib/move-funds-math"
 import { computeDistribution } from "@/lib/move-funds-math"
+
+function distributionErrorMessage(reason: DistributionInvalidReason | null): string {
+  switch (reason) {
+    case "no_income":
+      return "Enter an income amount to distribute."
+    case "insufficient_income":
+      return "This fill needs more than the income amount. Turn on “Fund any overage from Savings” or choose a smaller option."
+    case "insufficient_savings":
+      return "Not enough in Savings to cover the rest of this distribution."
+    default:
+      return "This distribution cannot be funded with the current amounts."
+  }
+}
 
 export interface MoveFundsPanelConfig {
   distributionBehavior: DistributionBehavior
@@ -39,9 +52,7 @@ export function MoveFundsPanel({
   const [fundOverage, setFundOverage] = useState(false)
   const [fillOpen, setFillOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
-  const [scheduleFrequency, setScheduleFrequency] = useState("monthly")
-  const [scheduleSaving, setScheduleSaving] = useState(false)
-  const [scheduleMessage, setScheduleMessage] = useState<string | null>(null)
+  const [scheduleFrequency] = useState("monthly")
 
   const preview = useMemo(() => {
     const envelopes = discretionaryEnvelopes.map((e) => ({
@@ -107,26 +118,27 @@ export function MoveFundsPanel({
         totalValue={poolTotal > 0 ? poolTotal : 1}
       />
 
-      <fieldset className="flex flex-col gap-2">
-        <legend className="text-sm font-medium">How should envelopes be filled?</legend>
-        {(
-          [
-            ["set_to_budget", "Set to budget amount"],
-            ["add_budget", "Add full budget amount"],
-          ] as const
-        ).map(([value, label]) => (
-          <label key={value} className="flex items-center gap-2 text-sm cursor-pointer">
-            <input
-              type="radio"
-              name="distribution-behavior"
-              checked={behavior === value}
-              onChange={() => setBehavior(value)}
-              className="accent-[#F7931A]"
-            />
-            {label}
-          </label>
-        ))}
-      </fieldset>
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium">How should envelopes be filled?</span>
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ["set_to_budget", "Set to budget amount"],
+              ["add_budget", "Add full budget amount"],
+            ] as const
+          ).map(([value, label]) => (
+            <Button
+              key={value}
+              type="button"
+              size="sm"
+              variant={behavior === value ? "default" : "outline"}
+              onClick={() => setBehavior(value)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      </div>
 
       {sourceFunding === "income" ? (
         <div className="flex items-center justify-between gap-3">
@@ -143,7 +155,9 @@ export function MoveFundsPanel({
       ) : null}
 
       {preview.dist.invalid ? (
-        <p className="text-sm text-destructive">Not enough in Savings to cover this distribution.</p>
+        <p className="text-sm text-destructive" role="alert">
+          {distributionErrorMessage(preview.dist.invalidReason)}
+        </p>
       ) : null}
 
       {preview.rows.length > 0 ? (
@@ -176,12 +190,18 @@ export function MoveFundsPanel({
         </button>
         {scheduleOpen ? (
           <div className="mt-3 flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">
+              You can save a schedule for later under Settings → Budgeting rules. Automatic runs on
+              that schedule are not available yet — nothing will move funds until that ships.
+            </p>
             <label className="text-xs text-muted-foreground">
               Frequency
               <select
                 className="mt-1 w-full rounded-lg border border-[#333] bg-[#1A1A1A] px-2 py-2 text-sm"
                 value={scheduleFrequency}
                 onChange={(e) => setScheduleFrequency(e.target.value)}
+                disabled
+                aria-disabled
               >
                 <option value="weekly">Weekly</option>
                 <option value="bimonthly">Twice a month</option>
@@ -196,40 +216,11 @@ export function MoveFundsPanel({
               type="button"
               size="sm"
               variant="outline"
-              disabled={scheduleSaving}
-              onClick={async () => {
-                setScheduleSaving(true)
-                setScheduleMessage(null)
-                try {
-                  const res = await fetch("/api/recurring-rules", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      kind: sourceFunding === "income" ? "income_distribution" : "move_funds",
-                      frequency: scheduleFrequency,
-                      distributionConfig: {
-                        distributionBehavior: behavior,
-                        fundOverageFromSavings: fundOverage,
-                      },
-                    }),
-                  })
-                  if (!res.ok) {
-                    setScheduleMessage("Could not save schedule.")
-                    return
-                  }
-                  setScheduleMessage("Saved. Manage under Settings → Budgeting rules.")
-                } catch {
-                  setScheduleMessage("Network error.")
-                } finally {
-                  setScheduleSaving(false)
-                }
-              }}
+              disabled
+              title="Automatic schedule runs are not available yet"
             >
-              {scheduleSaving ? "Saving…" : "Save schedule"}
+              Save schedule (coming soon)
             </Button>
-            {scheduleMessage ? (
-              <p className="text-xs text-muted-foreground">{scheduleMessage}</p>
-            ) : null}
           </div>
         ) : null}
       </div>

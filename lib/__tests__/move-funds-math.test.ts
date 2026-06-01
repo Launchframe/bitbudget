@@ -51,6 +51,7 @@ describe("move-funds-math", () => {
       fundOverageFromSavings: false,
     })
     expect(result.invalid).toBe(true)
+    expect(result.invalidReason).toBe("insufficient_income")
   })
 
   it("computeDistribution invalid when shortfall exceeds savings", () => {
@@ -62,6 +63,7 @@ describe("move-funds-math", () => {
       fundOverageFromSavings: true,
     })
     expect(result.invalid).toBe(true)
+    expect(result.invalidReason).toBe("insufficient_savings")
   })
 
   it("computeDistribution returns empty lines when no envelope needs top-up", () => {
@@ -86,6 +88,7 @@ describe("move-funds-math", () => {
       fundOverageFromSavings: true,
     })
     expect(result.invalid).toBe(true)
+    expect(result.invalidReason).toBe("no_income")
   })
 
   it("computeDistribution uses customByEnvelopeId for custom behavior", () => {

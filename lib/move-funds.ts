@@ -59,6 +59,48 @@ async function createMoveLeg(
   })
 }
 
+async function validateMoveFundsBalances(
+  userId: string,
+  savingsEnvelopeId: string,
+  resolved: readonly { envelopeId: string; deltaUsd: number }[],
+  mode: MoveFundsMode,
+): Promise<boolean> {
+  if (mode === "balanced") {
+    const negatives = resolved.filter((e) => e.deltaUsd < 0)
+    if (negatives.length === 0) return true
+    const balances = await envelopeBalancesAllTimeBatch(
+      userId,
+      negatives.map((e) => e.envelopeId),
+    )
+    return negatives.every(
+      (row) => Math.abs(row.deltaUsd) <= (balances.get(row.envelopeId) ?? 0) + 0.015,
+    )
+  }
+
+  let savingsDelta = 0
+  const debitEnvelopeIds: string[] = []
+  for (const row of resolved) {
+    if (row.deltaUsd > 0) {
+      savingsDelta -= row.deltaUsd
+    } else {
+      savingsDelta += Math.abs(row.deltaUsd)
+      debitEnvelopeIds.push(row.envelopeId)
+    }
+  }
+
+  const savingsBefore = await savingsEnvelopeBalanceAllTime(userId, savingsEnvelopeId)
+  if (savingsBefore + savingsDelta < -0.015) return false
+
+  if (debitEnvelopeIds.length === 0) return true
+
+  const balances = await envelopeBalancesAllTimeBatch(userId, debitEnvelopeIds)
+  return resolved.every((row) => {
+    if (row.deltaUsd >= 0) return true
+    const amt = Math.abs(row.deltaUsd)
+    return amt <= (balances.get(row.envelopeId) ?? 0) + 0.015
+  })
+}
+
 export async function createMoveFundsBatch(
   userId: string,
   entries: readonly MoveFundsEntry[],
@@ -95,6 +137,10 @@ export async function createMoveFundsBatch(
 
   if (resolved.length === 0) return 0
 
+  if (!(await validateMoveFundsBalances(userId, savings.id, resolved, mode))) {
+    return 0
+  }
+
   const now = new Date()
   const dateStr = now.toISOString().split("T")[0]!
   const btcPrice = await getBtcPriceForDate(dateStr)
@@ -118,17 +164,6 @@ export async function createMoveFundsBatch(
     if (mode === "balanced") {
       const positives = resolved.filter((e) => e.deltaUsd > 0)
       const negatives = resolved.filter((e) => e.deltaUsd < 0)
-      if (negatives.length > 0) {
-        const balances = await envelopeBalancesAllTimeBatch(
-          userId,
-          negatives.map((e) => e.envelopeId),
-          tx,
-        )
-        for (const row of negatives) {
-          const balance = balances.get(row.envelopeId) ?? 0
-          if (Math.abs(row.deltaUsd) > balance + 0.015) return 0
-        }
-      }
 
       let posIdx = 0
       let negIdx = 0
@@ -175,15 +210,6 @@ export async function createMoveFundsBatch(
       return created
     }
 
-    let savingsDelta = 0
-    for (const row of resolved) {
-      if (row.deltaUsd > 0) savingsDelta -= row.deltaUsd
-      else savingsDelta += Math.abs(row.deltaUsd)
-    }
-
-    const savingsBefore = await savingsEnvelopeBalanceAllTime(userId, savings.id)
-    if (savingsBefore + savingsDelta < -0.015) return 0
-
     for (const row of resolved) {
       if (row.deltaUsd > 0) {
         await createMoveLeg(tx, {
@@ -211,10 +237,6 @@ export async function createMoveFundsBatch(
         created += 2
       } else {
         const amt = Math.abs(row.deltaUsd)
-        const balances = await envelopeBalancesAllTimeBatch(userId, [row.envelopeId], tx)
-        const balance = balances.get(row.envelopeId) ?? 0
-        if (amt > balance + 0.015) return 0
-
         await createMoveLeg(tx, {
           userId,
           envelopeId: row.envelopeId,

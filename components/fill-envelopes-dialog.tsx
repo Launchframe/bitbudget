@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import {
   formatUsd,
+  formatUsdPrecise,
   getCurrentMonthKey,
   getEnvelopeBalance,
   type Envelope,
@@ -159,7 +160,7 @@ function EnvelopePreviewTile({
       </div>
       <span className="text-xs text-muted-foreground block mb-1">{behaviorLabel}</span>
       <p className="text-xs font-mono">
-        {formatUsd(current)} → +{formatUsd(delta)} → {formatUsd(finalBal)}
+        {formatUsd(current)} → {formatUsdPrecise(delta)} → {formatUsd(finalBal)}
       </p>
       <div className="mt-2 h-1.5 rounded-full bg-[#1A1A1A] overflow-hidden relative">
         <div
