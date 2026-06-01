@@ -277,7 +277,7 @@ export async function POST(req: NextRequest) {
   let importBatchId = fundingBatchId
   if (fundingBatchId && created === 0) {
     await prisma.envelopeFundingBatch.delete({
-      where: { id: fundingBatchId, userId },
+      where: { id: fundingBatchId },
     })
     importBatchId = null
   }

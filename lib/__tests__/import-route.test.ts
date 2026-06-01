@@ -214,7 +214,7 @@ describe("POST /api/import", () => {
     expect(json.duplicates).toBe(1)
     expect(json.importBatchId).toBeNull()
     expect(prisma.envelopeFundingBatch.delete).toHaveBeenCalledWith({
-      where: { id: "batch_orphan", userId },
+      where: { id: "batch_orphan" },
     })
   })
 
