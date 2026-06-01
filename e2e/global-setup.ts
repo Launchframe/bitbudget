@@ -4,6 +4,7 @@ import { seedAppE2e } from "./seed-app-e2e"
 import { seedRecurringE2e } from "./seed-recurring-e2e"
 import { seedReferralE2e } from "./seed-referral-e2e"
 import { seedIncomeImporterE2e } from "./seed-income-importer-e2e"
+import { seedIncomeOverhaulE2e } from "./seed-income-overhaul-e2e"
 
 async function globalSetup(): Promise<void> {
   if (!process.env.DATABASE_URL) {
@@ -17,6 +18,7 @@ async function globalSetup(): Promise<void> {
   await seedRecurringE2e()
   await seedAppE2e()
   await seedIncomeImporterE2e()
+  await seedIncomeOverhaulE2e()
 }
 
 export default globalSetup

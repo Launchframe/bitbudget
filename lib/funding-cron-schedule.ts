@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client"
+import { isBudgetAllocationDay } from "@/lib/budget-period"
 import { isFundingDayForUser } from "@/lib/pay-cadence-server"
 import type { PaydayUserFields } from "@/lib/payday-cadence"
 
@@ -13,6 +14,7 @@ export function shouldRunFundingCronForUser(
   runDateUtc: Date,
 ): boolean {
   if (isGoalMaintenanceDay(runDateUtc)) return true
+  if (isBudgetAllocationDay(runDateUtc)) return true
   return isFundingDayForUser(user, runDateUtc)
 }
 

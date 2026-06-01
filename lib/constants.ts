@@ -43,10 +43,22 @@ export const PREMIUM_PRICE_ANNUAL_USD = 50
 export const PREMIUM_ANNUAL_SAVINGS_MONTHS = 2
 
 export const TX_SOURCE_INCOME_IMPORT = "income_import"
+export const TX_SOURCE_PAYCHECK = "paycheck"
+export const TX_SOURCE_IRREGULAR_INCOME = "irregular_income"
+export const TX_SOURCE_FUNDING_OUT = "envelope_funding_out"
+export const TX_SOURCE_FUNDING_IN = "envelope_funding_in"
 export const TX_SOURCE_ENVELOPE_SWEEP = "envelope_sweep"
+export const TX_SOURCE_DEFICIT_COVER = "deficit_cover"
+export const TX_SOURCE_ENVELOPE_TRANSFER_IN = "envelope_transfer_in"
+export const TX_SOURCE_ENVELOPE_TRANSFER_OUT = "envelope_transfer_out"
 
 export const ENVELOPE_FUNDING_BATCH_KIND_FUND = "fund"
 export const ENVELOPE_FUNDING_BATCH_KIND_SWEEP = "sweep"
+export const ENVELOPE_FUNDING_BATCH_KIND_MOVE_FUNDS = "move_funds"
+export const ENVELOPE_FUNDING_BATCH_KIND_DEFICIT_COVER = "deficit_cover"
+
+/** Plaintext payee for manual deficit cover credits on envelopes. */
+export const DEFICIT_COVER_FROM_SAVINGS_LABEL = "Covered from Savings"
 
 export function isReservedSavingsEnvelopeName(name: string): boolean {
   return name.trim().toLowerCase() === RESERVED_SAVINGS_ENVELOPE_NAME.toLowerCase()

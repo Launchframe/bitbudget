@@ -19,6 +19,12 @@ import {
   openSettingsIntegrations,
 } from "./helpers/plaid-link"
 import { dismissWalkthroughIfPresent } from "./helpers/shell"
+import { redeemReferralCode } from '@/lib/referral'
+import {
+  E2E_TEST_ENCRYPTED_PRIVACY_KEY_JSON,
+  E2E_TEST_PRIVACY_KEY_SALT_HEX,
+} from "./fixtures/encryption-e2e-constants"
+import { primePrivacyKeyCache, unlockPassphraseIfNeeded } from "./helpers/privacy-cache"
 
 function pgHostFromDatabaseUrl(url: string | undefined): string | null {
   if (!url) return null
@@ -87,6 +93,36 @@ async function redeemReferralCodeInBrowser(page: Page, code: string): Promise<vo
   expect(redeem.status).toBe(200)
 }
 
+/** Referral redeem works via API before onboarding; Plaid UI needs app shell + encryption. */
+async function bootstrapReferreeAppShell(page: Page, origin: string): Promise<void> {
+  const email = await page.evaluate(async () => {
+    const r = await fetch("/api/auth/session", { credentials: "include" })
+    const j = (await r.json()) as { user?: { email?: string } }
+    return j.user?.email ?? null
+  })
+  expect(email).toBeTruthy()
+
+  await prisma.user.update({
+    where: { email: email! },
+    data: {
+      onboardingComplete: true,
+      onboardingCompletedAt: new Date(),
+      walkthroughCompleted: true,
+      encryptedPrivacyKey: E2E_TEST_ENCRYPTED_PRIVACY_KEY_JSON,
+      privacyKeySalt: E2E_TEST_PRIVACY_KEY_SALT_HEX,
+    },
+  })
+
+  const enc = await fetchJsonInPage(page, "/api/user/encryption")
+  const userId = typeof enc.json?.userId === "string" ? enc.json.userId : ""
+  expect(userId).toBeTruthy()
+
+  await page.goto(`${origin}/#/dashboard`)
+  await unlockPassphraseIfNeeded(page)
+  await primePrivacyKeyCache(page, userId)
+  await dismissWalkthroughIfPresent(page)
+}
+
 async function connectBankAndActivateReferralTrial(
   page: Page,
   origin: string,
@@ -103,9 +139,13 @@ async function connectBankAndActivateReferralTrial(
   expect(beforeSettings.effectiveTier).toBe("free")
   expect(beforeSettings.premiumTrialUntil == null || beforeSettings.premiumTrialUntil === "").toBeTruthy()
 
+  await bootstrapReferreeAppShell(page, origin)
   await openSettingsIntegrations(page, origin)
   await dismissWalkthroughIfPresent(page)
-  await page.getByRole("button", { name: "Connect bank" }).click()
+  const connectBank = page.getByRole("button", { name: "Connect bank" })
+  await expect(connectBank).toBeVisible({ timeout: 30_000 })
+  await connectBank.click()
+  await page.locator('iframe[title="Plaid Link"]').waitFor({ state: "attached", timeout: 60_000 })
   await completePlaidLinkSandbox(page)
   await expectPlaidConnectSuccessDialog(page)
 

@@ -61,6 +61,9 @@ const sourceIcons: Record<TransactionSource, React.ElementType> = {
   envelope_sweep: Sparkles,
   csv_import: FileUp,
   statement_import: FileText,
+  deficit_cover: ArrowDownToLine,
+  envelope_transfer_in: ArrowDownToLine,
+  envelope_transfer_out: ArrowUpFromLine,
 }
 
 const sourceLabels: Record<TransactionSource, string> = {
@@ -80,6 +83,9 @@ const sourceLabels: Record<TransactionSource, string> = {
   envelope_sweep: "Envelope sweep",
   csv_import: "CSV import",
   statement_import: "Statement",
+  deficit_cover: "Cover from Savings",
+  envelope_transfer_in: "Transfer in",
+  envelope_transfer_out: "Transfer out",
 }
 
 export function ReviewInbox() {

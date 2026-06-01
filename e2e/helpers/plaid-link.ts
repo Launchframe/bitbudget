@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test"
+import { expect, type Frame, type Page } from "@playwright/test"
 
 /** Plaid sandbox credentials — see https://plaid.com/docs/sandbox/test-credentials/ */
 export const PLAID_SANDBOX_USERNAME = "user_good"
@@ -12,16 +12,11 @@ export function isPlaidSandboxConfigured(): boolean {
   return env === "sandbox" || env === "development"
 }
 
-function plaidLinkFrame(page: Page) {
-  return page.frameLocator('iframe[title="Plaid Link"]').first()
-}
-
-async function clickFirstMatchingButton(
-  page: Page,
+async function clickFirstMatchingButtonInFrame(
+  frame: Frame,
   name: RegExp,
   timeoutMs = 12_000,
 ): Promise<boolean> {
-  const frame = plaidLinkFrame(page)
   const btn = frame.getByRole("button", { name }).first()
   try {
     await btn.waitFor({ state: "visible", timeout: timeoutMs })
@@ -32,42 +27,90 @@ async function clickFirstMatchingButton(
   }
 }
 
+/** Plaid Link may nest iframes; locate the frame that actually renders Link UI. */
+async function waitForPlaidUiFrame(page: Page, predicate: (frame: Frame) => Promise<boolean>): Promise<Frame> {
+  await page.locator('iframe[title="Plaid Link"]').waitFor({ state: "attached", timeout: 60_000 })
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue
+      if (await predicate(frame).catch(() => false)) return frame
+    }
+    await page.waitForTimeout(300)
+  }
+  throw new Error("Plaid Link UI frame not found")
+}
+
+async function dismissPlaidPreflight(frame: Frame): Promise<void> {
+  await clickFirstMatchingButtonInFrame(frame, /continue as guest|continue without phone/i, 3_000)
+  await clickFirstMatchingButtonInFrame(frame, /^continue$/i, 3_000)
+}
+
+async function findPlaidSearchFrame(page: Page): Promise<Frame> {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue
+      await dismissPlaidPreflight(frame)
+    }
+    try {
+      return await waitForPlaidUiFrame(page, async (frame) => {
+        const search = frame
+          .getByRole("textbox", { name: /search/i })
+          .or(frame.getByPlaceholder(/search/i))
+          .or(frame.locator('input[type="search"]'))
+        return search.first().isVisible()
+      })
+    } catch {
+      await page.waitForTimeout(500)
+    }
+  }
+  throw new Error("Plaid Link institution search not found")
+}
+
 /**
  * Complete Plaid Link in sandbox using `user_good` / `pass_good`.
  * Caller must click **Connect bank** first and wait for the Link iframe to open.
  */
 export async function completePlaidLinkSandbox(page: Page): Promise<void> {
-  const frame = plaidLinkFrame(page)
-  await frame.locator("body").waitFor({ state: "attached", timeout: 60_000 })
+  const pickerFrame = await findPlaidSearchFrame(page)
 
-  await clickFirstMatchingButton(page, /continue as guest|continue without phone/i)
-  await clickFirstMatchingButton(page, /^continue$/i)
+  const search = pickerFrame
+    .getByRole("textbox", { name: /search/i })
+    .or(pickerFrame.getByPlaceholder(/search/i))
+    .or(pickerFrame.locator('input[type="search"]'))
 
-  const search = frame.getByPlaceholder(/search/i)
-  if (await search.isVisible({ timeout: 8_000 }).catch(() => false)) {
-    await search.fill("First Platypus")
-    await frame.getByText(/First Platypus Bank/i).first().click({ timeout: 20_000 })
-  } else {
-    await frame.getByText(/First Platypus Bank/i).first().click({ timeout: 20_000 })
-  }
+  await search.first().fill("First Platypus Bank")
 
-  const username = frame
+  const institution = pickerFrame.getByRole("button", { name: /First Platypus Bank/i })
+  await expect(institution).toBeVisible({ timeout: 45_000 })
+  await institution.click()
+
+  const credentialsFrame = await waitForPlaidUiFrame(page, async (frame) => {
+    const username = frame
+      .getByLabel(/username|user id/i)
+      .or(frame.locator('input[name="username"]'))
+    return username.first().isVisible()
+  })
+
+  const username = credentialsFrame
     .getByLabel(/username|user id/i)
-    .or(frame.locator('input[name="username"]'))
+    .or(credentialsFrame.locator('input[name="username"]'))
     .first()
-  await username.waitFor({ state: "visible", timeout: 20_000 })
   await username.fill(PLAID_SANDBOX_USERNAME)
 
-  const password = frame
+  const password = credentialsFrame
     .getByLabel(/password/i)
-    .or(frame.locator('input[type="password"]'))
+    .or(credentialsFrame.locator('input[type="password"]'))
     .first()
   await password.fill(PLAID_SANDBOX_PASSWORD)
 
-  await clickFirstMatchingButton(page, /submit|sign in|log in/i)
-
-  await clickFirstMatchingButton(page, /continue/i, 20_000)
-  await clickFirstMatchingButton(page, /connect account|connect|finish|allow/i, 20_000)
+  await clickFirstMatchingButtonInFrame(credentialsFrame, /submit|sign in|log in/i)
+  await clickFirstMatchingButtonInFrame(credentialsFrame, /continue/i, 20_000)
+  await clickFirstMatchingButtonInFrame(
+    credentialsFrame,
+    /connect account|connect|finish|allow/i,
+    20_000,
+  )
 }
 
 export async function expectPlaidConnectSuccessDialog(page: Page): Promise<void> {

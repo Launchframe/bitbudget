@@ -45,6 +45,26 @@ Use two scopes consistently:
 
 **Do not** use month-scoped balance for remaining labels — it ignores prior-month carryover and diverges from sweep/funding behavior.
 
+### Ledger periods (agent vocabulary)
+
+Two automatic rhythms — **do not** use these terms in user-facing UI:
+
+| Period | When (UTC) | What moves | Helpers / idempotency |
+|--------|------------|------------|------------------------|
+| **PayPeriod** | User paydays (`isPaydayForUser`) | Paycheck slice → **Savings only** (no allocation legs) | `creditPaycheckToSavings` in `lib/envelope-funding.ts`; batch keys `pay-YYYY-MM-DD` (legacy `fund-YYYY-MM-DD` guarded) |
+| **BudgetPeriod** | Calendar **day 1** | Auto sweep (policy) then **gap-only** top-up Savings → envelopes | `sweepDiscretionaryEnvelopesForUser` + `processMonthlyBudgetAllocations`; keys `sweep-YYYY-MM`, `alloc-YYYY-MM` via `lib/budget-period.ts` |
+
+**User-facing copy:** paydays grow Savings; spending envelopes refill on the **1st**. Progress bars use **calendar-month** balance ÷ `monthlyAllotment` (`lib/envelope-card-metrics.ts`).
+
+**Manual flows (separate from cron):**
+
+- **Extra income** — default Savings (`distributionMode: "savings"`); optional envelope legs via `lib/move-funds-math.ts` + irregular-income API.
+- **Move funds** — `POST /api/transactions/move-funds`; sources `envelope_transfer_in` / `out` or Savings legs (`move_funds` batch kind).
+- **Deficit cover** — manual only, month balance → **$0** (`deficitCoverAmount`, `TX_SOURCE_DEFICIT_COVER`); not a full refill.
+- **Income import** — Savings credits only; no immediate envelope legs (wait for next BudgetPeriod cron).
+
+**Cron:** `lib/envelope-funding-cron.ts` — on 1st: sweep → alloc; on paydays: paycheck only. Goal maintenance stays on UTC 1st (`lib/funding-cron-schedule.ts`).
+
 ### Transaction visibility, analytics, and lifecycle
 
 Not every `Transaction` row belongs in every feed. Ledger funding creates **batches**: an income header (`income_import`, `irregular_income`, etc.) plus hidden allocation legs (`envelope_funding_out` / `envelope_funding_in`). Getting visibility wrong leaks allocation legs into spend charts or leaves orphan legs after delete.
@@ -627,11 +647,24 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - `pnpm.onlyBuiltDependencies` in `package.json` handles native dependency build approvals non-interactively — do not run `pnpm approve-builds`.
 - The Next.js dev server hot-reloads code changes but does **not** pick up new `.env.local` values without a restart.
 
+## Learned User Preferences
+
+- When implementing from a Cursor plan file (`~/.cursor/plans/*.plan.md`), do not edit the plan — use the pre-created todos and mark them in_progress/completed as you work.
+- For large feature branches, split work into logical commits before push and opening a PR.
+- When test-coverage gaps are identified for new shared logic, write the missing unit and e2e tests in the same session rather than deferring (if the user asks to write tests, implement them — do not stop at a coverage summary).
+
 ## Learned Workspace Facts
 
+- Local dev pins Node 22 via `.nvmrc`; run `nvm use` before `pnpm` when the shell reports Node 18 or below (Playwright and the app require Node ≥ 20).
 - Remaining (all-time) discretionary and Savings balances apply a **genesis floor**: only transactions with `date >= envelopeGenesisFloor(envelope.createdAt)` count. `envelopeGenesisFloor` in `lib/data.ts` is one UTC calendar day before `createdAt` (timezone cushion). Pre-genesis rows stay in transaction lists but must not drive new envelopes negative after historical CSV or income imports.
 - Client remaining UI passes `envelopeGenesisFloor(createdAt)` into `getEnvelopeBalanceAllTime` (see `lib/savings-ui-metrics.ts`, envelope pages, sweep dialog). Server sweep/funding uses the same rule in `lib/envelope-balance-server.ts` (`envelopeBalancesBeforeBatch`, `savingsEnvelopeBalanceAllTime`, `savingsEnvelopeBalanceBefore`, month-end batch helpers).
 - Envelope API responses include `createdAt` as `YYYY-MM-DD` so clients can compute the genesis floor.
 - CSV import idempotency: the client derives a per-row `dedupeKey` via HMAC in `lib/import-dedupe-key.ts` using the privacy-key seed hex (server never sees the seed); large imports POST in chunks; the server skips rows with an existing key.
 - `@noble/hashes` v2 subpath imports must use explicit `.js` suffixes (e.g. `@noble/hashes/hmac.js`).
 - Ledger `TX_SOURCE_*` constants belong in `lib/constants.ts`, not `envelope-funding.ts`, to avoid circular imports with `envelope-balance-server.ts`.
+- Rules engine: `AccountRule` + `/api/account-rules`; logic in `lib/account-rules.ts` and `lib/rule-engine-client.ts`; Settings Rules UI at `#/settings/payee-rules` (`components/rules-settings.tsx`).
+- Rules engine tests: `lib/__tests__/rule-engine-client.test.ts`, `lib/__tests__/account-rules.test.ts`, and `e2e/rules-settings.spec.ts`.
+- Income overhaul (`pay-period-splits`): ledger PayPeriod vs BudgetPeriod split is documented under **Ledger periods** above; `RecurringFundingRule` + Settings scheduling UI exist, but automated execution on `nextRunAt` is not implemented yet.
+- `savingsBalance()` in `lib/savings-ui-metrics.ts` takes the Savings `Envelope` (or `undefined`), not `envelopeId` — pass `findSavingsEnvelope(...)`, not `.id`.
+- **Envelope genesis filtering:** `getEnvelopeBalanceAllTime` and server batch helpers only count transactions dated on or after `envelope.createdAt` (calendar-date comparison, YYYY-MM-DD). This prevents historically imported CSV rows from making newly-created envelopes deeply negative. `Envelope.createdAt` is exposed in the client `Envelope` type and the envelopes API response.
+- **CSV import deduplication:** `Transaction.dedupeKey` is a nullable column with a partial unique index (`WHERE "dedupeKey" IS NOT NULL`); imported rows get an HMAC-SHA256 key derived from the user's privacy key seed (available via `getValidCachedPrivacyKeyHex`). The import route uses `createMany({ skipDuplicates: true })` with chunked batches instead of sequential per-row `create` calls.

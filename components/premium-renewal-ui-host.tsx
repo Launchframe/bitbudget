@@ -12,27 +12,38 @@ import {
 } from "@/components/ui/dialog"
 import { useApp } from "@/lib/app-context"
 import {
+  formatPremiumTrialEnd,
+  postPremiumCheckout,
+  type PremiumCheckoutPlan,
+} from "@/lib/billing-checkout-client"
+import {
   PREMIUM_PRICE_ANNUAL_USD,
   PREMIUM_PRICE_MONTHLY_USD,
 } from "@/lib/constants"
 
-type CheckoutPlan = "monthly" | "annual"
-
-async function startPremiumCheckout(plan: CheckoutPlan): Promise<string | null> {
-  const res = await fetch("/api/billing/checkout", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ plan }),
-  })
-  if (!res.ok) {
-    return "Checkout is temporarily unavailable. Please try again later."
+async function startPremiumCheckout(
+  plan: PremiumCheckoutPlan,
+): Promise<{ message: string; simulated: boolean } | null> {
+  const { ok, data } = await postPremiumCheckout(plan)
+  if (!ok) {
+    return { message: "Checkout is temporarily unavailable. Please try again later.", simulated: false }
   }
-  const data = (await res.json()) as { checkoutUrl?: string | null; message?: string }
   if (data.checkoutUrl) {
     window.location.href = data.checkoutUrl
-    return data.checkoutUrl
+    return null
   }
-  return data.message ?? "Thanks — we saved your interest and will follow up when billing is live."
+  if (data.simulated && data.premiumTrialUntil) {
+    const end = formatPremiumTrialEnd(data.premiumTrialUntil)
+    return {
+      message: `Premium trial active through ${end}. Premium features are unlocked.`,
+      simulated: true,
+    }
+  }
+  return {
+    message:
+      data.message ?? "Thanks — we saved your interest and will follow up when billing is live.",
+    simulated: false,
+  }
 }
 
 export function PremiumRenewalUiHost() {
@@ -45,7 +56,8 @@ export function PremiumRenewalUiHost() {
   } = useApp()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null)
-  const [checkoutBusy, setCheckoutBusy] = useState<CheckoutPlan | null>(null)
+  const [checkoutMessageSimulated, setCheckoutMessageSimulated] = useState(false)
+  const [checkoutBusy, setCheckoutBusy] = useState<PremiumCheckoutPlan | null>(null)
 
   useEffect(() => {
     setDialogOpen(Boolean(premiumRenewalPrompt))
@@ -64,12 +76,16 @@ export function PremiumRenewalUiHost() {
     }
   }, [dismissPremiumRenewalUi, premiumExpiredBanner])
 
-  const handleCheckout = useCallback(async (plan: CheckoutPlan) => {
+  const handleCheckout = useCallback(async (plan: PremiumCheckoutPlan) => {
     setCheckoutBusy(plan)
     setCheckoutMessage(null)
+    setCheckoutMessageSimulated(false)
     try {
-      const message = await startPremiumCheckout(plan)
-      if (message) setCheckoutMessage(message)
+      const result = await startPremiumCheckout(plan)
+      if (result) {
+        setCheckoutMessage(result.message)
+        setCheckoutMessageSimulated(result.simulated)
+      }
       await refreshData()
     } finally {
       setCheckoutBusy(null)
@@ -136,7 +152,13 @@ export function PremiumRenewalUiHost() {
               {premiumRenewalPrompt?.ctaRefer ?? "Refer a friend"}
             </button>
             {checkoutMessage ? (
-              <p className="text-xs text-muted-foreground text-left w-full">{checkoutMessage}</p>
+              <p
+                className={`text-xs text-left w-full ${
+                  checkoutMessageSimulated ? "text-[#22C55E]" : "text-muted-foreground"
+                }`}
+              >
+                {checkoutMessage}
+              </p>
             ) : null}
           </DialogFooter>
         </DialogContent>
@@ -172,7 +194,11 @@ export function PremiumRenewalUiHost() {
               </button>
             </div>
             {checkoutMessage ? (
-              <p className="text-xs text-muted-foreground">{checkoutMessage}</p>
+              <p
+                className={`text-xs ${checkoutMessageSimulated ? "text-[#22C55E]" : "text-muted-foreground"}`}
+              >
+                {checkoutMessage}
+              </p>
             ) : null}
           </div>
           <button
