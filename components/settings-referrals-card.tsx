@@ -14,7 +14,7 @@ import {
   refereePremiumExperienceCarrot,
 } from "@/lib/subscription"
 import {
-  REFERRAL_REDEEM_SUCCESS_MESSAGE,
+  REFERRAL_REDEEM_SUCCESS_MESSAGE_SHORT,
   referralRedeemErrorMessage,
   setReferralRedeemFlash,
 } from "@/lib/referral-redeem-messages"
@@ -133,12 +133,11 @@ export function SettingsReferralsCard() {
       const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string }
       if (!res.ok) {
         setRefRedeemError(referralRedeemErrorMessage(j))
-        setReferralRedeemFlash({ type: "error", message: referralRedeemErrorMessage(j) })
         return
       }
       setRefCodeInput("")
       setRefRedeemSuccess(true)
-      setReferralRedeemFlash({ type: "success", message: REFERRAL_REDEEM_SUCCESS_MESSAGE })
+      setReferralRedeemFlash({ type: "success", message: REFERRAL_REDEEM_SUCCESS_MESSAGE_SHORT })
       await refreshData()
     } catch {
       setRefRedeemError("Could not apply referral code")
@@ -216,7 +215,7 @@ export function SettingsReferralsCard() {
                 role="status"
                 className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 text-sm text-[#86EFAC]"
               >
-                {REFERRAL_REDEEM_SUCCESS_MESSAGE}
+                {REFERRAL_REDEEM_SUCCESS_MESSAGE_SHORT}
               </div>
             )}
           </div>

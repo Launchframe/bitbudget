@@ -17,6 +17,10 @@ describe("referralRedeemErrorMessage", () => {
   it("falls back to server error text", () => {
     expect(referralRedeemErrorMessage({ error: "Custom server message" })).toBe("Custom server message")
   })
+
+  it("returns generic fallback for empty payload", () => {
+    expect(referralRedeemErrorMessage({})).toMatch(/couldn't apply/i)
+  })
 })
 
 describe("referral redeem flash sessionStorage", () => {

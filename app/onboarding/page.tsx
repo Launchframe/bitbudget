@@ -434,6 +434,7 @@ export default function OnboardingPage() {
   const [refValidating, setRefValidating] = useState(false)
   const [refError, setRefError] = useState<string | null>(null)
   const [completeFinishError, setCompleteFinishError] = useState<string | null>(null)
+  const [setupApiError, setSetupApiError] = useState<string | null>(null)
 
   const refreshEnvelopeUsage = useCallback(async () => {
     setEnvelopeUsageLoading(true)
@@ -1320,6 +1321,7 @@ export default function OnboardingPage() {
 
   async function handleComplete() {
     setCompleteFinishError(null)
+    setSetupApiError(null)
     setLoading(true)
     try {
       const res = await fetch("/api/user/settings", {
@@ -1332,7 +1334,7 @@ export default function OnboardingPage() {
         return
       }
       if (!res.ok) {
-        setCompleteFinishError("We couldn't finish setup. Please try again.")
+        setSetupApiError("We couldn't finish setup. Please try again.")
         return
       }
       const hadReferralCode = !!referralPayloadForRedeem()?.code
@@ -3320,6 +3322,14 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground text-center">
                 Your envelopes are ready and your data is secured.
               </p>
+              {setupApiError ? (
+                <div
+                  role="alert"
+                  className="w-full rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300 text-left"
+                >
+                  {setupApiError}
+                </div>
+              ) : null}
               {completeFinishError ? (
                 <div
                   role="alert"

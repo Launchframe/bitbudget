@@ -33,6 +33,13 @@ export function referralRedeemErrorMessage(payload: ReferralRedeemErrorPayload):
 export const REFERRAL_REDEEM_SUCCESS_MESSAGE =
   "Referral code applied! Connect your bank to start your premium trial."
 
+/**
+ * Used in Settings and cross-page flash (Dashboard) where bank linking context is absent.
+ * The Plaid-specific reminder already appears via `refereePendingBankLink` UI when applicable.
+ */
+export const REFERRAL_REDEEM_SUCCESS_MESSAGE_SHORT =
+  "Referral code applied! Your account has been updated."
+
 export const REFERRAL_VALIDATE_SUCCESS_HINT =
   "Code accepted — we'll apply it when you finish setup."
 
