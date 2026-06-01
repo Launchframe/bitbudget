@@ -199,7 +199,6 @@ export function MoveFundsPanel({
               <select
                 className="mt-1 w-full rounded-lg border border-[#333] bg-[#1A1A1A] px-2 py-2 text-sm"
                 value={scheduleFrequency}
-                onChange={(e) => setScheduleFrequency(e.target.value)}
                 disabled
                 aria-disabled
               >
