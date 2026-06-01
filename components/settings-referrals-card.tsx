@@ -13,6 +13,11 @@ import {
   REFEREE_PREMIUM_CARROT_FALLBACK,
   refereePremiumExperienceCarrot,
 } from "@/lib/subscription"
+import {
+  REFERRAL_REDEEM_SUCCESS_MESSAGE,
+  referralRedeemErrorMessage,
+  setReferralRedeemFlash,
+} from "@/lib/referral-redeem-messages"
 
 const QRCodeSVG = dynamic(() => import("qrcode.react").then(m => m.QRCodeSVG), { ssr: false })
 
@@ -41,6 +46,7 @@ export function SettingsReferralsCard() {
   const [refCodeInput, setRefCodeInput] = useState("")
   const [refRedeeming, setRefRedeeming] = useState(false)
   const [refRedeemError, setRefRedeemError] = useState<string | null>(null)
+  const [refRedeemSuccess, setRefRedeemSuccess] = useState(false)
 
   const base = useMemo(() => getPublicAppUrlClient(), [])
 
@@ -116,6 +122,7 @@ export function SettingsReferralsCard() {
     const code = refCodeInput.trim()
     if (!code) return
     setRefRedeemError(null)
+    setRefRedeemSuccess(false)
     setRefRedeeming(true)
     try {
       const res = await fetch("/api/referral/redeem", {
@@ -125,25 +132,13 @@ export function SettingsReferralsCard() {
       })
       const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string }
       if (!res.ok) {
-        if (j.code === "already_redeemed") {
-          setRefRedeemError("This account already used a referral code.")
-        } else if (j.code === "redeem_window_closed") {
-          setRefRedeemError("Referral codes can only be applied within 7 days of finishing onboarding.")
-        } else if (j.code === "self_referral") {
-          setRefRedeemError("You cannot use your own referral code.")
-        } else if (
-          j.code === "expired" ||
-          j.code === "exhausted" ||
-          j.code === "not_found" ||
-          j.error === "Referral code is not valid"
-        ) {
-          setRefRedeemError("It looks like that code is invalid, expired, or already taken.")
-        } else {
-          setRefRedeemError(typeof j.error === "string" ? j.error : "Could not apply referral code")
-        }
+        setRefRedeemError(referralRedeemErrorMessage(j))
+        setReferralRedeemFlash({ type: "error", message: referralRedeemErrorMessage(j) })
         return
       }
       setRefCodeInput("")
+      setRefRedeemSuccess(true)
+      setReferralRedeemFlash({ type: "success", message: REFERRAL_REDEEM_SUCCESS_MESSAGE })
       await refreshData()
     } catch {
       setRefRedeemError("Could not apply referral code")
@@ -183,6 +178,7 @@ export function SettingsReferralsCard() {
                 onChange={e => {
                   setRefCodeInput(e.target.value)
                   if (refRedeemError) setRefRedeemError(null)
+                  if (refRedeemSuccess) setRefRedeemSuccess(false)
                 }}
                 placeholder="Enter code"
                 className="bg-[#0D0D0D] border-[#333] text-foreground placeholder:text-[#555] flex-1"
@@ -213,6 +209,14 @@ export function SettingsReferralsCard() {
                 className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
               >
                 {refRedeemError}
+              </div>
+            )}
+            {refRedeemSuccess && !refereePendingBankLink && (
+              <div
+                role="status"
+                className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 text-sm text-[#86EFAC]"
+              >
+                {REFERRAL_REDEEM_SUCCESS_MESSAGE}
               </div>
             )}
           </div>

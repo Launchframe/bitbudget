@@ -26,6 +26,7 @@ import { NotificationBanner } from "@/components/notification-banner"
 import { TransactionLoadingIndicator } from "@/components/transaction-loading-indicator"
 import { TrialWelcomeBanner } from "@/components/trial-welcome-banner"
 import { ReferralPlaidReminderBanner } from "@/components/referral-plaid-reminder-banner"
+import { ReferralRedeemFlashBanner } from "@/components/referral-redeem-flash-banner"
 import { SurveySheetHost } from "@/components/survey-sheet"
 import { WalkthroughOverlay } from "@/components/walkthrough-overlay"
 import { AchievementCelebrationHost } from "@/components/achievement-celebration-host"
@@ -206,6 +207,7 @@ export default function Dashboard() {
                   <Sidebar />
                   <div className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
                     <NotificationBanner />
+                    <ReferralRedeemFlashBanner />
                     <ReferralPlaidReminderBanner />
                     <TrialWelcomeBanner />
                     <TransactionLoadingIndicator />
