@@ -145,6 +145,7 @@ async function connectBankAndActivateReferralTrial(
   const connectBank = page.getByRole("button", { name: "Connect bank" })
   await expect(connectBank).toBeVisible({ timeout: 30_000 })
   await connectBank.click()
+  await page.locator('iframe[title="Plaid Link"]').waitFor({ state: "attached", timeout: 60_000 })
   await completePlaidLinkSandbox(page)
   await expectPlaidConnectSuccessDialog(page)
 

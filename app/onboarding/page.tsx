@@ -2115,7 +2115,7 @@ export default function OnboardingPage() {
                           onBlur={() => setIncome((prev) => normalizeUsdDraftInput(prev))}
                           placeholder="2,500"
                           className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7 text-lg"
-                          aria-invalid={incomeError != null && incomeMode !== "irregular"}
+                          aria-invalid={incomeError != null}
                         />
                       </div>
                     </div>
