@@ -1,8 +1,8 @@
 import "./load-env"
 import path from "node:path"
 import { test, expect } from "@playwright/test"
-import { E2E_RECURRING_USER_EMAIL } from "./fixtures/recurring-e2e-constants"
-import { signInWithE2eEmail } from "./helpers/auth-email"
+import { E2E_TRIAL_USER_EMAIL } from "./fixtures/app-e2e-constants"
+import { signInAppUser } from "./helpers/app-session"
 
 /**
  * Full client path: choose file → POST /api/receipts/scan → openNewTransaction prefill.
@@ -42,10 +42,10 @@ test.describe("Receipt scan → New Transaction prefill", () => {
 
   test("PNG upload prefills dialog and receipt image preview", async ({ page, baseURL }) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
-    await signInWithE2eEmail(page, origin, E2E_RECURRING_USER_EMAIL)
+    await signInAppUser(page, origin, E2E_TRIAL_USER_EMAIL)
 
     await page.goto(`${origin}/#/transactions`)
-    await expect(page.getByText("E2E Recurring Payee").first()).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByRole("heading", { name: /transactions/i }).first()).toBeVisible({ timeout: 90_000 })
 
     await page.getByTitle("Scan Receipt").click()
     await expect(page.getByRole("heading", { name: "Scan Receipt" })).toBeVisible()
@@ -66,10 +66,10 @@ test.describe("Receipt scan → New Transaction prefill", () => {
 
   test("PDF upload prefills transaction fields", async ({ page, baseURL }) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
-    await signInWithE2eEmail(page, origin, E2E_RECURRING_USER_EMAIL)
+    await signInAppUser(page, origin, E2E_TRIAL_USER_EMAIL)
 
     await page.goto(`${origin}/#/transactions`)
-    await expect(page.getByText("E2E Recurring Payee").first()).toBeVisible({ timeout: 90_000 })
+    await expect(page.getByRole("heading", { name: /transactions/i }).first()).toBeVisible({ timeout: 90_000 })
 
     // Override the shared mock to return inputType: "pdf" for this test
     await page.route("**/api/receipts/scan", async route => {

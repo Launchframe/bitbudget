@@ -112,6 +112,33 @@ test.describe("Premium feature API gating", () => {
   })
 })
 
+test.describe("Premium feature UI — locked controls for free users", () => {
+  test("free user sees disabled Scan Receipt and Voice Input in sidebar", async ({ page, baseURL }) => {
+    const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
+    await signInAppUser(page, origin, E2E_APP_USER_EMAIL)
+
+    await page.goto(`${origin}/#/dashboard`)
+    const scanBtn = page.getByRole("button", { name: /Scan Receipt/i })
+    await expect(scanBtn).toBeDisabled()
+    await expect(scanBtn).toHaveAttribute("title", /Receipt scanning requires Premium/i)
+    const voiceBtn = page.getByRole("button", { name: /Voice Input/i })
+    await expect(voiceBtn).toBeDisabled()
+    await expect(voiceBtn).toHaveAttribute("title", /Voice entry requires Premium/i)
+  })
+
+  test("trial user can use Scan Receipt control", async ({ page, baseURL }) => {
+    const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
+    await signInAppUser(page, origin, E2E_TRIAL_USER_EMAIL)
+
+    await page.goto(`${origin}/#/dashboard`)
+    const scanBtn = page.getByTitle("Scan Receipt")
+    await expect(scanBtn).toBeEnabled()
+    await scanBtn.click()
+    await expect(page.getByRole("heading", { name: "Scan Receipt" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Upload File" })).toBeEnabled()
+  })
+})
+
 test.describe("Premium feature UI — voice with mocked parse", () => {
   test.beforeEach(async ({ page }) => {
     await page.route("**/api/voice/parse", async route => {
