@@ -1,8 +1,16 @@
+import { webcrypto } from "node:crypto"
 import { describe, it, expect, afterAll } from "vitest"
 import { generateSecretKey, verifyEvent } from "nostr-tools"
 import { signAuthEvent } from "@/lib/nostr-local-signer"
 import { parseNostrAuthEvent } from "@/lib/sign-in-methods"
 import { prisma } from "@/lib/db"
+
+if (!globalThis.crypto?.getRandomValues) {
+  Object.defineProperty(globalThis, "crypto", {
+    value: webcrypto,
+    configurable: true,
+  })
+}
 
 describe("nostr login event (extension-shaped)", () => {
   it("parse + verify succeeds for localhost origin", () => {
