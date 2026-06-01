@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
 vi.mock("@/lib/db", () => ({ prisma: { recurringFundingRule: { findMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn() } } }))
 
-import { nextRunFromFrequency } from "@/app/api/recurring-rules/route"
+import { nextRunFromFrequency } from "@/lib/recurring-funding-schedule"
 
 describe("nextRunFromFrequency", () => {
   const base = new Date(Date.UTC(2026, 0, 14, 12, 0, 0)) // 2026-01-14

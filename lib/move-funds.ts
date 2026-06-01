@@ -101,10 +101,18 @@ async function validateMoveFundsBalances(
   })
 }
 
+export type CreateMoveFundsBatchOptions = {
+  /** Stable idempotency key; when set, skips if a move-funds batch already exists for this user. */
+  periodKey?: string
+  /** UTC calendar date for leg timestamps (defaults to today UTC). */
+  runDateUtc?: Date
+}
+
 export async function createMoveFundsBatch(
   userId: string,
   entries: readonly MoveFundsEntry[],
   mode: MoveFundsMode,
+  options?: CreateMoveFundsBatchOptions,
 ): Promise<number> {
   if (entries.length === 0) return 0
 
@@ -141,16 +149,27 @@ export async function createMoveFundsBatch(
     return 0
   }
 
-  const now = new Date()
-  const dateStr = now.toISOString().split("T")[0]!
+  const runAt = options?.runDateUtc ?? new Date()
+  const dateStr = runAt.toISOString().split("T")[0]!
   const btcPrice = await getBtcPriceForDate(dateStr)
   const moveDate = new Date(`${dateStr}T12:00:00.000Z`)
-  const periodKey = `move-funds-${randomUUID()}`
+  const periodKey = options?.periodKey?.trim() || `move-funds-${randomUUID()}`
 
   const encTransfer = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
   if (!encTransfer) return 0
 
   return prisma.$transaction(async (tx) => {
+    const existing = await tx.envelopeFundingBatch.findUnique({
+      where: {
+        userId_periodKey_kind: {
+          userId,
+          periodKey,
+          kind: ENVELOPE_FUNDING_BATCH_KIND_MOVE_FUNDS,
+        },
+      },
+    })
+    if (existing) return 0
+
     const batch = await tx.envelopeFundingBatch.create({
       data: {
         userId,

@@ -14,6 +14,8 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import type { DistributionBehavior, DistributionInvalidReason } from "@/lib/move-funds-math"
 import { computeDistribution } from "@/lib/move-funds-math"
+import { incomeDistributionConfigFromPanel } from "@/lib/recurring-funding-config"
+import { nextRunFromFrequency } from "@/lib/recurring-funding-schedule"
 
 function distributionErrorMessage(reason: DistributionInvalidReason | null): string {
   switch (reason) {
@@ -52,7 +54,9 @@ export function MoveFundsPanel({
   const [fundOverage, setFundOverage] = useState(false)
   const [fillOpen, setFillOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
-  const [scheduleFrequency] = useState("monthly")
+  const [scheduleFrequency, setScheduleFrequency] = useState("monthly")
+  const [scheduleSaving, setScheduleSaving] = useState(false)
+  const [scheduleMessage, setScheduleMessage] = useState<string | null>(null)
 
   const preview = useMemo(() => {
     const envelopes = discretionaryEnvelopes.map((e) => ({
@@ -109,6 +113,44 @@ export function MoveFundsPanel({
   const poolTotal =
     (sourceFunding === "income" ? grossUsd : 0) +
     barSegments.reduce((s, x) => s + x.value, 0)
+
+  async function saveSchedule() {
+    if (preview.dist.invalid || preview.rows.length === 0) {
+      setScheduleMessage("Fix the distribution above before saving a schedule.")
+      return
+    }
+    setScheduleSaving(true)
+    setScheduleMessage(null)
+    try {
+      const distributionConfig = incomeDistributionConfigFromPanel({
+        distributionBehavior: behavior,
+        fundOverageFromSavings: fundOverage,
+        grossUsd: sourceFunding === "income" ? grossUsd : 0,
+      })
+      const res = await fetch("/api/recurring-rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "income_distribution",
+          frequency: scheduleFrequency,
+          distributionConfig,
+        }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { rule?: { nextRunAt?: string }; error?: string }
+      if (!res.ok) {
+        setScheduleMessage(typeof data.error === "string" ? data.error : "Could not save schedule.")
+        return
+      }
+      const nextLabel = data.rule?.nextRunAt
+        ? new Date(data.rule.nextRunAt).toLocaleDateString()
+        : new Date(nextRunFromFrequency(scheduleFrequency, new Date())).toLocaleDateString()
+      setScheduleMessage(`Saved. Next automatic run: ${nextLabel}. Manage rules under Settings → Budgeting rules.`)
+    } catch {
+      setScheduleMessage("Network error — try again.")
+    } finally {
+      setScheduleSaving(false)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-[#333] p-4 bg-[#0D0D0D]/50">
@@ -191,16 +233,15 @@ export function MoveFundsPanel({
         {scheduleOpen ? (
           <div className="mt-3 flex flex-col gap-2">
             <p className="text-xs text-muted-foreground">
-              You can save a schedule for later under Settings → Budgeting rules. Automatic runs on
-              that schedule are not available yet — nothing will move funds until that ships.
+              Save this fill option to run automatically on a schedule (daily envelope-funding cron).
+              Amounts are recalculated each run from your current envelope balances.
             </p>
             <label className="text-xs text-muted-foreground">
               Frequency
               <select
                 className="mt-1 w-full rounded-lg border border-[#333] bg-[#1A1A1A] px-2 py-2 text-sm"
                 value={scheduleFrequency}
-                disabled
-                aria-disabled
+                onChange={(e) => setScheduleFrequency(e.target.value)}
               >
                 <option value="weekly">Weekly</option>
                 <option value="bimonthly">Twice a month</option>
@@ -215,11 +256,18 @@ export function MoveFundsPanel({
               type="button"
               size="sm"
               variant="outline"
-              disabled
-              title="Automatic schedule runs are not available yet"
+              disabled={scheduleSaving || preview.dist.invalid}
+              onClick={() => void saveSchedule()}
             >
-              Save schedule (coming soon)
+              {scheduleSaving ? "Saving…" : "Save schedule"}
             </Button>
+            {scheduleMessage ? (
+              <p
+                className={`text-xs ${scheduleMessage.startsWith("Saved") ? "text-success" : "text-muted-foreground"}`}
+              >
+                {scheduleMessage}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
