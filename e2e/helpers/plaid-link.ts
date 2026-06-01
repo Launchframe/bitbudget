@@ -13,7 +13,9 @@ export function isPlaidSandboxConfigured(): boolean {
 }
 
 function plaidLinkFrame(page: Page) {
-  return page.frameLocator('iframe[title="Plaid Link"]').first()
+  return page
+    .frameLocator('iframe[title="Plaid Link"], iframe[src*="cdn.plaid.com"]')
+    .first()
 }
 
 async function clickFirstMatchingButton(
@@ -43,19 +45,24 @@ export async function completePlaidLinkSandbox(page: Page): Promise<void> {
   await clickFirstMatchingButton(page, /continue as guest|continue without phone/i)
   await clickFirstMatchingButton(page, /^continue$/i)
 
-  const search = frame.getByPlaceholder(/search/i)
-  if (await search.isVisible({ timeout: 8_000 }).catch(() => false)) {
-    await search.fill("First Platypus")
-    await frame.getByText(/First Platypus Bank/i).first().click({ timeout: 20_000 })
+  const search = frame.getByRole("textbox", { name: /search/i })
+  const searchVisible = await search.isVisible({ timeout: 15_000 }).catch(() => false)
+
+  if (searchVisible) {
+    await search.fill("First Platypus Bank")
+    await search.press("Enter")
+    const institution = frame.getByRole("button", { name: /First Platypus Bank/i })
+    await institution.waitFor({ state: "visible", timeout: 30_000 })
+    await institution.click()
   } else {
-    await frame.getByText(/First Platypus Bank/i).first().click({ timeout: 20_000 })
+    await frame.getByRole("button", { name: /First Platypus Bank/i }).first().click({ timeout: 20_000 })
   }
 
   const username = frame
     .getByLabel(/username|user id/i)
     .or(frame.locator('input[name="username"]'))
     .first()
-  await username.waitFor({ state: "visible", timeout: 20_000 })
+  await username.waitFor({ state: "visible", timeout: 30_000 })
   await username.fill(PLAID_SANDBOX_USERNAME)
 
   const password = frame
