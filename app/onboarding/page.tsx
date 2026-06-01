@@ -113,6 +113,12 @@ import {
   REFEREE_PREMIUM_CARROT_FALLBACK,
   refereePremiumExperienceCarrot,
 } from "@/lib/subscription"
+import {
+  REFERRAL_REDEEM_SUCCESS_MESSAGE,
+  REFERRAL_VALIDATE_SUCCESS_HINT,
+  referralRedeemErrorMessage,
+  setReferralRedeemFlash,
+} from "@/lib/referral-redeem-messages"
 
 type Step =
   | "referral"
@@ -427,6 +433,8 @@ export default function OnboardingPage() {
   const [refCodeInput, setRefCodeInput] = useState("")
   const [refValidating, setRefValidating] = useState(false)
   const [refError, setRefError] = useState<string | null>(null)
+  const [completeFinishError, setCompleteFinishError] = useState<string | null>(null)
+  const [setupApiError, setSetupApiError] = useState<string | null>(null)
 
   const refreshEnvelopeUsage = useCallback(async () => {
     setEnvelopeUsageLoading(true)
@@ -830,9 +838,11 @@ export default function OnboardingPage() {
   }
 
   /** Redeem referral from state or `bitbudget_ref` cookie (covers skipped referral step). */
-  async function redeemPendingReferralIfAny(): Promise<boolean> {
+  async function redeemPendingReferralIfAny(): Promise<
+    { ok: true } | { ok: false; message: string }
+  > {
     const payload = referralPayloadForRedeem()
-    if (!payload?.code) return false
+    if (!payload?.code) return { ok: true }
     try {
       const res = await fetch("/api/referral/redeem", {
         method: "POST",
@@ -842,10 +852,17 @@ export default function OnboardingPage() {
           shareMethod: payload.shareMethod,
         }),
       })
-      if (res.ok) clearBitbudgetRefCookie()
-      return res.ok
+      const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string }
+      if (res.ok) {
+        clearBitbudgetRefCookie()
+        return { ok: true }
+      }
+      return { ok: false, message: referralRedeemErrorMessage(j) }
     } catch {
-      return false
+      return {
+        ok: false,
+        message: "We couldn't apply your referral code. Check your connection and try again.",
+      }
     }
   }
 
@@ -1303,6 +1320,8 @@ export default function OnboardingPage() {
 
 
   async function handleComplete() {
+    setCompleteFinishError(null)
+    setSetupApiError(null)
     setLoading(true)
     try {
       const res = await fetch("/api/user/settings", {
@@ -1315,11 +1334,17 @@ export default function OnboardingPage() {
         return
       }
       if (!res.ok) {
+        setSetupApiError("We couldn't finish setup. Please try again.")
         return
       }
       const hadReferralCode = !!referralPayloadForRedeem()?.code
-      const redeemOk = await redeemPendingReferralIfAny()
-      if (hadReferralCode && redeemOk) {
+      if (hadReferralCode) {
+        const redeemResult = await redeemPendingReferralIfAny()
+        if (!redeemResult.ok) {
+          setCompleteFinishError(redeemResult.message)
+          return
+        }
+        setReferralRedeemFlash({ type: "success", message: REFERRAL_REDEEM_SUCCESS_MESSAGE })
         setStep("referral-bank")
         return
       }
@@ -1747,7 +1772,8 @@ export default function OnboardingPage() {
               </div>
               {pendingReferral ? (
                 <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 text-sm text-[#86EFAC]">
-                  Referral code applied: <span className="font-mono font-semibold">{pendingReferral.code}</span>
+                  {REFERRAL_VALIDATE_SUCCESS_HINT}{" "}
+                  <span className="font-mono font-semibold">{pendingReferral.code}</span>
                   <button
                     type="button"
                     className="ml-2 text-xs underline text-[#BBF7D0]"
@@ -3296,6 +3322,27 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground text-center">
                 Your envelopes are ready and your data is secured.
               </p>
+              {setupApiError ? (
+                <div
+                  role="alert"
+                  className="w-full rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300 text-left"
+                >
+                  {setupApiError}
+                </div>
+              ) : null}
+              {completeFinishError ? (
+                <div
+                  role="alert"
+                  className="w-full rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300 space-y-2 text-left"
+                >
+                  <p className="font-medium text-red-200">Referral code couldn&apos;t be applied</p>
+                  <p>{completeFinishError}</p>
+                  <p className="text-xs text-red-300/90">
+                    Go <strong className="text-red-200">Back</strong> to check the code, or apply it later under{" "}
+                    <strong className="text-red-200">Settings → Referrals</strong> (within 7 days of finishing setup).
+                  </p>
+                </div>
+              ) : null}
               {refereeTrialExplainerOnComplete ? (
                 <OnboardingDismissibleHint
                   hintId={ONBOARDING_HINT_REFERRAL_COMPLETE}
@@ -3336,6 +3383,13 @@ export default function OnboardingPage() {
 
           {step === "referral-bank" && (
             <div className="flex flex-col gap-6 py-2">
+              <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 flex items-start gap-3">
+                <Gift className="h-5 w-5 text-[#22C55E] shrink-0 mt-0.5" aria-hidden />
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-[#86EFAC]">Referral code applied!</p>
+                  <p className="text-sm text-[#BBF7D0]/90">{REFERRAL_REDEEM_SUCCESS_MESSAGE}</p>
+                </div>
+              </div>
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#F7931A]/10">
                   <Building2 className="h-6 w-6 text-[#F7931A]" />
