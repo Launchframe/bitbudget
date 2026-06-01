@@ -29,6 +29,11 @@ import {
   normalizeCommunicationPreferences,
 } from "@/lib/communication-preferences"
 import {
+  parsePremiumRenewalSettings,
+  type PremiumExpiredBannerPayload,
+  type PremiumRenewalPromptPayload,
+} from "@/lib/premium-renewal-prompt-types"
+import {
   encryptFieldAsymmetric,
   decryptFieldAsymmetric,
   generateKeyPairFromSeed,
@@ -281,6 +286,9 @@ interface AppContextValue {
   referralRefereeTrialMonths: 1 | 3 | null
   premiumTrialUntilIso: string | null
   premiumGratisUntilIso: string | null
+  premiumRenewalPrompt: PremiumRenewalPromptPayload | null
+  premiumExpiredBanner: PremiumExpiredBannerPayload | null
+  dismissPremiumRenewalUi: (logKey: string) => Promise<void>
   referralSummary: ReferralSummaryState | null
 
   /** Server account creation (ISO date YYYY-MM-DD). */
@@ -453,6 +461,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [effectiveTier, setEffectiveTier] = useState<"free" | "premium-trial" | "premium">("free")
   const [premiumTrialUntilIso, setPremiumTrialUntilIso] = useState<string | null>(null)
   const [premiumGratisUntilIso, setPremiumGratisUntilIso] = useState<string | null>(null)
+  const [premiumRenewalPrompt, setPremiumRenewalPrompt] = useState<PremiumRenewalPromptPayload | null>(null)
+  const [premiumExpiredBanner, setPremiumExpiredBanner] = useState<PremiumExpiredBannerPayload | null>(null)
   const [referralSummary, setReferralSummary] = useState<ReferralSummaryState | null>(null)
   const [refereePendingBankLink, setRefereePendingBankLink] = useState(false)
   const [referralRefereeRedeemed, setReferralRefereeRedeemed] = useState(false)
@@ -579,6 +589,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTransactionSyncError(null)
   }, [])
 
+const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
+  const res = await fetch("/api/user/premium-renewal-prompt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ logKey }),
+  })
+  if (res.status === 401 || res.status === 403) {
+    signOut({ callbackUrl: "/auth" })
+    return
+  }
+  setPremiumRenewalPrompt((current) => (current?.logKey === logKey ? null : current))
+  setPremiumExpiredBanner((current) => (current?.logKey === logKey ? null : current))
+}, [])
+
   const refreshData = useCallback(async () => {
     setTransactionSyncError(null)
     try {
@@ -662,6 +686,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setPremiumGratisUntilIso(
         typeof settings.premiumGratisUntil === "string" ? settings.premiumGratisUntil : null,
       )
+      const renewalUi = parsePremiumRenewalSettings(settings)
+      setPremiumRenewalPrompt(renewalUi.premiumRenewalPrompt)
+      setPremiumExpiredBanner(renewalUi.premiumExpiredBanner)
       setRefereePendingBankLink(
         (settings as { referralRefereePendingBankLink?: unknown }).referralRefereePendingBankLink === true,
       )
@@ -1818,6 +1845,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         onboardingCompletedAtIso,
         premiumTrialUntilIso,
         premiumGratisUntilIso,
+        premiumRenewalPrompt,
+        premiumExpiredBanner,
+        dismissPremiumRenewalUi,
         referralSummary,
         pendingTransactions,
         pendingCount: pendingTransactions.length,

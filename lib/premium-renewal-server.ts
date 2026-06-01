@@ -12,12 +12,17 @@ import {
   utcDayWindowForCalendarDate,
   type ActivePremiumExpiry,
   type PremiumExpirySource,
-  type PremiumRenewalReminderKind,
   type TimedPremiumExpiryRow,
   PREMIUM_RENEWAL_REMINDER_DAYS,
 } from "@/lib/premium-expiry"
 import { premiumRenewalCopy } from "@/lib/premium-renewal-copy"
+import type {
+  PremiumExpiredBannerPayload,
+  PremiumRenewalPromptPayload,
+} from "@/lib/premium-renewal-prompt-types"
 import { resolveEffectiveTier } from "@/lib/subscription"
+
+export type { PremiumExpiredBannerPayload, PremiumRenewalPromptPayload } from "@/lib/premium-renewal-prompt-types"
 
 export type PremiumRenewalReminderChannel = "email" | "nostr" | "in_app_dismissed"
 
@@ -27,31 +32,6 @@ const TIMED_PREMIUM_SELECT = {
   premiumGratisUntil: true,
   premiumMembershipUntil: true,
 } as const
-
-export interface PremiumRenewalPromptPayload {
-  logKey: string
-  kind: Exclude<PremiumRenewalReminderKind, "expired">
-  population: "trial" | "membership"
-  expiryDate: string
-  daysRemaining: number
-  headline: string
-  body: string
-  referralLine: string
-  pricingLine: string
-  ctaRenew: string
-  ctaRefer: string
-  settingsReferralsPath: string
-}
-
-export interface PremiumExpiredBannerPayload {
-  logKey: string
-  population: "trial" | "membership"
-  expiryDate: string
-  headline: string
-  body: string
-  pricingLine: string
-  ctaRenew: string
-}
 
 export function timedPremiumExpiryField(source: PremiumExpirySource): keyof TimedPremiumExpiryRow {
   switch (source) {
@@ -102,7 +82,10 @@ export async function findUsersForExpiryReminderWindow(
   switch (source) {
     case "trial": {
       const rows = await prisma.user.findMany({
-        where: { premiumTrialUntil: dateFilter },
+        where: {
+          subscriptionTier: { not: "premium" },
+          premiumTrialUntil: dateFilter,
+        },
         select: { id: true, premiumTrialUntil: true },
       })
       return rows.flatMap((row) =>
@@ -148,7 +131,10 @@ export async function findUsersForExpiredNotification(
   switch (source) {
     case "trial": {
       const rows = await prisma.user.findMany({
-        where: { premiumTrialUntil: dateFilter },
+        where: {
+          subscriptionTier: { not: "premium" },
+          premiumTrialUntil: dateFilter,
+        },
         select: { id: true, premiumTrialUntil: true },
       })
       return rows.flatMap((row) =>
