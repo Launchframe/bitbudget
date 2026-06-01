@@ -210,7 +210,15 @@ function StatementImporterHost() {
       onOpenChange={setStatementImporterOpen}
       existingTransactions={activeTransactions}
       onImportComplete={refreshData}
-      initialData={statementImporterPrefill}
+      initialData={
+        statementImporterPrefill?.transactions
+          ? {
+              transactions: statementImporterPrefill.transactions,
+              meta: statementImporterPrefill.meta,
+            }
+          : null
+      }
+      pendingBatchId={statementImporterPrefill?.pendingBatchId ?? null}
     />
   )
 }

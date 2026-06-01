@@ -24,7 +24,8 @@ import type { Transaction } from "@/lib/data"
 import type { StatementImporterPrefill } from "@/lib/app-context"
 import { useApp } from "@/lib/app-context"
 import { decryptParsedTransactionsForPreview } from "@/lib/import-preview-decrypt"
-import { resolveEncryptFnForImport, resolveSecretKeyForImport } from "@/lib/resolve-import-encrypt-fn"
+import { resolveImportCrypto, resolveSecretKeyForImport } from "@/lib/resolve-import-encrypt-fn"
+import { makeDedupeKeyComputer } from "@/lib/import-dedupe-key"
 import { findCollidingTransaction, findPayeeAgnosticMatches } from "@/lib/transaction-dedup"
 import type { PayeeMatchCandidate } from "@/lib/transaction-dedup"
 import { clearDraft, loadDraft, saveDraft } from "@/lib/draft-storage"
@@ -241,6 +242,7 @@ export function StatementImporterDialog({
   const [institutionName, setInstitutionName] = useState<string | null>(
     () => initialData?.meta?.institutionName ?? null,
   )
+  const [statementFormat, setStatementFormat] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [parseError, setParseError] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
@@ -445,6 +447,7 @@ export function StatementImporterDialog({
     setParsed(null)
     setFileName(null)
     setInstitutionName(null)
+    setStatementFormat(null)
     setEnvelopes([])
     setRowEnvelopes({})
     setManuallySetRows(new Set())
@@ -571,6 +574,7 @@ export function StatementImporterDialog({
         const secretKey = await resolveSecretKeyForImport()
         setParsed(decryptParsedTransactionsForPreview(data.transactions, secretKey))
         setInstitutionName(data.institutionName ?? null)
+        setStatementFormat(data.format ?? null)
         setStep("preview")
         await loadEnvelopes()
         await loadAliases()
@@ -644,9 +648,14 @@ export function StatementImporterDialog({
   }
 
   // ─── Transition to preview ────────────────────────────────────────────────────
-  async function transitionToPreview(transactions: ParsedTransaction[], instName: string | null) {
+  async function transitionToPreview(
+    transactions: ParsedTransaction[],
+    instName: string | null,
+    format: string | null = null,
+  ) {
     setParsed(transactions)
     setInstitutionName(instName)
+    setStatementFormat(format)
     setStep("preview")
 
     // Default to payee view for large statements
@@ -735,7 +744,11 @@ export function StatementImporterDialog({
         setParseError("No transactions found in this file.")
         return
       }
-      await transitionToPreview(first.result.transactions, first.result.institutionName)
+      await transitionToPreview(
+        first.result.transactions,
+        first.result.institutionName,
+        first.result.format,
+      )
       return
     }
 
@@ -758,12 +771,19 @@ export function StatementImporterDialog({
       const instName = files.every(f => f.result.institutionName === files[0]!.result.institutionName)
         ? files[0]!.result.institutionName
         : null
-      await transitionToPreview(merged, instName)
+      const format = files.every(f => f.result.format === files[0]!.result.format)
+        ? files[0]!.result.format
+        : null
+      await transitionToPreview(merged, instName, format)
     } else {
       // Individual mode — start with first file
       setCurrentFileIndex(0)
       const first = files[0]!
-      await transitionToPreview(first.result.transactions, first.result.institutionName)
+      await transitionToPreview(
+        first.result.transactions,
+        first.result.institutionName,
+        first.result.format,
+      )
     }
   }
 
@@ -830,10 +850,12 @@ export function StatementImporterDialog({
     setStep("importing")
 
     try {
-      const encrypt = await resolveEncryptFnForImport()
-      if (!encrypt) throw new Error(
+      const crypto = await resolveImportCrypto()
+      if (!crypto) throw new Error(
         "Encryption key not available. Unlock the app and try again."
       )
+      const { encrypt, seedHex } = crypto
+      const dedupeComputer = makeDedupeKeyComputer(seedHex)
 
       let totalExpenses = 0
       let totalCreditsImported = 0
@@ -867,6 +889,12 @@ export function StatementImporterDialog({
             else totalCreditsImported += t.amount
 
             const envObj = envelopes.find(e => e.id === envelopeId)
+            const dedupeKey = dedupeComputer({
+              date: t.date,
+              payee: canonical,
+              amount: t.amount,
+              type: t.type,
+            })
             return {
               date: t.date,
               payee: encPayee,
@@ -874,6 +902,7 @@ export function StatementImporterDialog({
               type: t.type,
               envelopeName: envObj?.name ?? "Uncategorized",
               notes: encNotes,
+              dedupeKey,
               ...(envelopeId && envelopeId !== SKIP_ROW ? { envelopeId } : {}),
             }
           })
@@ -899,7 +928,7 @@ export function StatementImporterDialog({
           source: "statement_import",
           institutionName: encInstitutionName,
           dateRange: dates.length > 0 ? { from: dates[0]!, to: dates[dates.length - 1]! } : undefined,
-          statementFormat: "fold_csv",
+          statementFormat: statementFormat ?? "fold_csv",
         }),
       })
 
@@ -1185,14 +1214,14 @@ export function StatementImporterDialog({
 
     async function saveRecurring() {
       if (!envId || envId === SKIP_ROW) return
-      const encrypt = await resolveEncryptFnForImport()
-      if (!encrypt) return
+      const crypto = await resolveImportCrypto()
+      if (!crypto) return
       const canonical = resolveCanonicalPayee(txnPayee, localAliases, loadedAliases)
       await fetch("/api/recurring", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          payee: await encrypt(canonical),
+          payee: await crypto.encrypt(canonical),
           amount: txnAmount,
           type: txnType,
           envelopeId: envId,

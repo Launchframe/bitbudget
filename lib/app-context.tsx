@@ -163,10 +163,12 @@ export interface TransactionPrefill {
   receiptScanStats?: ReceiptScanStats
 }
 
-/** Pre-parsed data passed to StatementImporterDialog when a statement PDF is detected via scan. */
+/** Pre-parsed data passed to StatementImporterDialog (scan handoff or email pending batch). */
 export interface StatementImporterPrefill {
-  transactions: ParsedTransaction[]
-  meta: FoldStatementMeta
+  transactions?: ParsedTransaction[]
+  meta?: FoldStatementMeta
+  /** Email-forwarded statement batch — dialog loads encrypted rows from the API. */
+  pendingBatchId?: string
 }
 
 export interface ReferralSummaryState {

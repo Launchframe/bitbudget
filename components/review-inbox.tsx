@@ -523,11 +523,7 @@ export function ReviewInbox() {
                 <button
                   type="button"
                   onClick={() => {
-                    // Open statement importer in pendingBatchId mode
-                    // The dialog will fetch transactions from the server and handle decryption
-                    openStatementImporter()
-                    // Note: pendingBatchId mode requires dialog to accept pendingBatchId prop
-                    // For now, navigating to statement importer is the entry point
+                    openStatementImporter({ pendingBatchId: batch.id })
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-btc-orange text-[#0D0D0D] rounded-lg text-xs font-semibold"
                 >
