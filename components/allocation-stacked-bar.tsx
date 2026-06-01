@@ -95,3 +95,35 @@ export function AllocationStackedBar({
     </div>
   )
 }
+
+/** Before / After pair: full-width rows, shared scale so segment widths are comparable. */
+export function AllocationComparisonBars({
+  before,
+  after,
+}: {
+  before: { envelopes: AllocationBarSegment[]; savingsValue: number }
+  after: { envelopes: AllocationBarSegment[]; savingsValue: number }
+}) {
+  const beforeTotal =
+    before.envelopes.reduce((s, e) => s + Math.max(0, e.value), 0) + Math.max(0, before.savingsValue)
+  const afterTotal =
+    after.envelopes.reduce((s, e) => s + Math.max(0, e.value), 0) + Math.max(0, after.savingsValue)
+  const sharedTotal = Math.max(beforeTotal, afterTotal, 1)
+
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-2">
+      <AllocationStackedBar
+        variant="before"
+        envelopes={before.envelopes}
+        savingsValue={before.savingsValue}
+        totalValue={sharedTotal}
+      />
+      <AllocationStackedBar
+        variant="after"
+        envelopes={after.envelopes}
+        savingsValue={after.savingsValue}
+        totalValue={sharedTotal}
+      />
+    </div>
+  )
+}

@@ -28,8 +28,8 @@ import {
   monthKeyFromDate,
   savingsEnvelopeBalanceAllTime,
 } from "@/lib/envelope-balance-server"
-import type { DistributionBehavior } from "@/lib/move-funds-math"
-import { computeDistribution, validateExplicitAllocations } from "@/lib/move-funds-math"
+import type { DistributionBehavior } from "@/lib/rebalance-math"
+import { computeDistribution, validateExplicitAllocations } from "@/lib/rebalance-math"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 import {
   fundingPeriodKeyForPayday,
@@ -408,6 +408,8 @@ export interface IrregularIncomeInput {
   distributionBehavior?: DistributionBehavior
   fundOverageFromSavings?: boolean
   envelopeAllocations?: IrregularEnvelopeAllocation[]
+  /** Snapshot stored on EnvelopeFundingBatch.config for edit/history. */
+  batchConfig?: Record<string, unknown>
 }
 
 async function resolveIrregularEnvelopeAmounts(
@@ -559,6 +561,7 @@ export async function createIrregularIncomeBatch(input: IrregularIncomeInput): P
         userId: input.userId,
         periodKey,
         kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+        ...(input.batchConfig ? { config: input.batchConfig as object } : {}),
       },
     })
 

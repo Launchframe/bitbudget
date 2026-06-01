@@ -58,7 +58,7 @@ export function RecurringRulesSettings() {
   if (rules.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No recurring rules yet. Schedule one from Move Funds or when adding extra income.
+        No recurring rules yet. Schedule one from Rebalance Envelopes or when adding new income.
       </p>
     )
   }
@@ -71,8 +71,11 @@ export function RecurringRulesSettings() {
           className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-[#333] p-3"
         >
           <div className="min-w-0">
-            <p className="text-sm font-medium capitalize">
-              {rule.kind.replace(/_/g, " ")} · {rule.frequency.replace(/_/g, " ")}
+            <p className="text-sm font-medium">
+              {rule.kind === "rebalance" || rule.kind === "move_funds"
+                ? "Rebalance Envelopes"
+                : "Income distribution"}{" "}
+              · {rule.frequency.replace(/_/g, " ")}
             </p>
             <p className="text-xs text-muted-foreground">
               Next: {new Date(rule.nextRunAt).toLocaleDateString()}

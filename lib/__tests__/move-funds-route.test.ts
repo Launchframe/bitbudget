@@ -2,11 +2,11 @@
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }))
-vi.mock("@/lib/move-funds", () => ({ createMoveFundsBatch: vi.fn() }))
+vi.mock("@/lib/rebalance-envelopes", () => ({ createRebalanceBatch: vi.fn() }))
 
-import { parseBody } from "@/app/api/transactions/move-funds/route"
+import { parseBody } from "@/app/api/transactions/rebalance/route"
 
-describe("parseBody (move-funds route input validation)", () => {
+describe("parseBody (rebalance route input validation)", () => {
   it("returns null for non-object bodies", () => {
     expect(parseBody(null)).toBeNull()
     expect(parseBody("string")).toBeNull()

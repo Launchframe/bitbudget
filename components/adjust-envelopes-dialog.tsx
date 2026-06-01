@@ -52,7 +52,7 @@ export function AdjustEnvelopesDialog({
             }}
           >
             <ArrowLeftRight className="h-4 w-4" aria-hidden />
-            Move funds
+            Rebalance Envelopes
           </Button>
           <Button
             type="button"

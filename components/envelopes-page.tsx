@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useRef, useCallback } from "react"
+import { useState, useMemo, useRef, useCallback, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
 import {
   envelopeGenesisFloor,
@@ -47,7 +47,7 @@ import { canRestoreSoftDeletedEnvelope, daysUntilEnvelopePurge } from "@/lib/env
 import { envelopeDeleteUsageStats } from "@/lib/envelope-ledger-visibility"
 import { ENVELOPE_DELETE_GRACE_DAYS } from "@/lib/constants"
 import { AdjustEnvelopesDialog } from "@/components/adjust-envelopes-dialog"
-import { MoveFundsDialog } from "@/components/move-funds-dialog"
+import { RebalanceEnvelopesDialog } from "@/components/rebalance-envelopes-dialog"
 import { EnvelopeDeficitCoverDialog } from "@/components/envelope-deficit-cover-dialog"
 
 export function EnvelopesPage() {
@@ -95,6 +95,25 @@ export function EnvelopesPage() {
   const [adjustOpen, setAdjustOpen] = useState(false)
   const [moveFundsOpen, setMoveFundsOpen] = useState(false)
   const [moveFundsSource, setMoveFundsSource] = useState<"pool" | "savings">("pool")
+  const [irregularIncomeOpen, setIrregularIncomeOpen] = useState(false)
+  const [showRecurringRulesPill, setShowRecurringRulesPill] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void fetch("/api/recurring-rules")
+      .then((res) => res.json())
+      .then((data: { rules?: { enabled?: boolean }[] }) => {
+        if (cancelled) return
+        const rules = Array.isArray(data.rules) ? data.rules : []
+        setShowRecurringRulesPill(rules.some((r) => r.enabled !== false))
+      })
+      .catch(() => {
+        if (!cancelled) setShowRecurringRulesPill(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [deficitCoverEnv, setDeficitCoverEnv] = useState<{ id: string; name: string } | null>(null)
   const monthKey = getCurrentMonthKey()
 
@@ -314,8 +333,23 @@ export function EnvelopesPage() {
             <span className="text-xs text-muted-foreground">Allocated</span>
             <span className="text-lg font-semibold text-foreground">{formatUsd(totalAllocated)}</span>
           </div>
-          <div className="flex items-center gap-2 ml-auto">
-            <IrregularIncomeDialog />
+          <div className="flex items-center gap-2 ml-auto flex-wrap justify-end">
+            {showRecurringRulesPill ? (
+              <button
+                type="button"
+                onClick={() => {
+                  navigateTo("settings")
+                  window.history.pushState({ page: "settings" }, "", "#/settings/budgeting-rules")
+                }}
+                className="px-2.5 py-1.5 rounded-lg text-xs border border-[#333] text-muted-foreground hover:text-foreground hover:border-[#555] transition-colors"
+              >
+                Recurring rules
+              </button>
+            ) : null}
+            <IrregularIncomeDialog
+              open={irregularIncomeOpen}
+              onOpenChange={setIrregularIncomeOpen}
+            />
             {activeEnvelopes.length > 0 && (
               <button
                 type="button"
@@ -352,10 +386,12 @@ export function EnvelopesPage() {
           setMoveFundsOpen(true)
         }}
       />
-      <MoveFundsDialog
+      <RebalanceEnvelopesDialog
         open={moveFundsOpen}
         onOpenChange={setMoveFundsOpen}
         source={moveFundsSource}
+        onOpenAddIncome={() => setIrregularIncomeOpen(true)}
+        onFundFromSavings={() => setMoveFundsSource("savings")}
       />
       {deficitCoverEnv ? (
         <EnvelopeDeficitCoverDialog

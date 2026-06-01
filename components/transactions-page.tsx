@@ -27,6 +27,12 @@ import { findSavingsEnvelope } from "@/lib/savings-ui-metrics"
 import { TransactionDetailDialog } from "@/components/transaction-detail-dialog"
 import { useTransactionDeleteConfirm } from "@/components/use-transaction-delete-confirm"
 import { canDeleteTransactionFromList } from "@/lib/transaction-batch-delete"
+import {
+  collapseRebalanceBatches,
+  isRebalanceGroupRow,
+} from "@/lib/rebalance-transaction-display"
+import { RebalanceEnvelopesDialog } from "@/components/rebalance-envelopes-dialog"
+import { TX_SOURCE_IRREGULAR_INCOME } from "@/lib/constants"
 import { PayeeMappingReviewBanner } from "@/components/payee-mapping-review-banner"
 import { UpcomingRecurringTransactions } from "@/components/upcoming-recurring-transactions"
 import {
@@ -76,6 +82,8 @@ export function TransactionsPage() {
   const [pageSize, setPageSize] = useState(15)
   const [page, setPage] = useState(1)
   const [moreFiltersOpen, setMoreFiltersOpen] = useState(false)
+  const [rebalanceEditBatchId, setRebalanceEditBatchId] = useState<string | null>(null)
+  const [rebalanceDialogOpen, setRebalanceDialogOpen] = useState(false)
   const moreFiltersRef = useRef<HTMLDivElement>(null)
   const highlightedRef = useRef<HTMLTableRowElement>(null)
 
@@ -165,6 +173,11 @@ export function TransactionsPage() {
     return [...result].sort(compareTransactionsDesc)
   }, [listTransactions, activeTransactions, incomeByFundingBatchId, searchQuery, typeFilter, activeEnvelopeFilters, tagFilters, startDate, endDate])
 
+  const displayRows = useMemo(
+    () => collapseRebalanceBatches(filteredTransactions),
+    [filteredTransactions],
+  )
+
   useEffect(() => {
     if (!highlightTransactionId) return
     const idx = filteredTransactions.findIndex(t => t.id === highlightTransactionId)
@@ -182,8 +195,8 @@ export function TransactionsPage() {
     }
   }, [highlightTransactionId, page])
 
-  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
-  const paginatedTransactions = filteredTransactions.slice((page - 1) * pageSize, page * pageSize)
+  const totalPages = Math.max(1, Math.ceil(displayRows.length / pageSize))
+  const paginatedRows = displayRows.slice((page - 1) * pageSize, page * pageSize)
 
   const expenseTxns = useMemo(
     () => filteredTransactions.filter(t => t.type === "expense"),
@@ -576,7 +589,53 @@ export function TransactionsPage() {
               </tr>
             </thead>
             <tbody>
-              {paginatedTransactions.map((txn) => {
+              {paginatedRows.map((row) => {
+                if (isRebalanceGroupRow(row)) {
+                  const sign = row.savingsDeltaUsd >= 0 ? "+" : "−"
+                  return (
+                    <tr
+                      key={row.id}
+                      className="border-b border-[#1A1A1A] last:border-0 hover:bg-[#111] transition-colors group"
+                    >
+                      <td className="py-3.5 px-4 text-sm text-muted-foreground whitespace-nowrap">
+                        {formatTransactionTableDate(row.date)}
+                      </td>
+                      <td className="py-3.5 px-4 text-sm font-medium text-foreground" colSpan={state.opportunityCostEnabled ? 4 : 3}>
+                        Rebalanced {row.envelopeCount} envelope{row.envelopeCount === 1 ? "" : "s"} · {sign}
+                        {formatUsd(Math.abs(row.savingsDeltaUsd))} to Savings
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100">
+                          <button
+                            type="button"
+                            className="text-xs text-[#3B82F6] hover:underline px-1"
+                            onClick={() => {
+                              setRebalanceEditBatchId(row.fundingBatchId)
+                              setRebalanceDialogOpen(true)
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444]"
+                            aria-label="Delete rebalance"
+                            onClick={() => {
+                              const leg = activeTransactions.find(
+                                (t) => t.fundingBatchId === row.fundingBatchId,
+                              )
+                              if (leg) requestDelete(leg)
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                }
+
+                const txn = row
                 const opCost = calculateOpportunityCost(txn.amount, txn.date)
                 const env = envelopeMap[txn.envelopeId]
                 const isHighlighted = txn.id === highlightTransactionId
@@ -584,6 +643,7 @@ export function TransactionsPage() {
                   txn.isDecrypted === false
                     ? null
                     : displayPayeeForTransaction(txn, activeTransactions, incomeByFundingBatchId)
+                const showIncomeEdit = txn.source === TX_SOURCE_IRREGULAR_INCOME && txn.type === "credit"
                 return (
                   <tr
                     key={txn.id}
@@ -674,20 +734,37 @@ export function TransactionsPage() {
                       </td>
                     )}
                     <td className="py-3.5 px-4 text-right">
-                      {canDeleteTransactionFromList(txn) && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); requestDelete(txn) }}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-all"
-                          aria-label={`Delete transaction ${txn.payee}`}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                      <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100">
+                        {showIncomeEdit ? (
+                          <button
+                            type="button"
+                            className="text-xs text-[#3B82F6] hover:underline px-1"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedTxn(txn)
+                            }}
+                          >
+                            Edit
+                          </button>
+                        ) : null}
+                        {canDeleteTransactionFromList(txn) ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              requestDelete(txn)
+                            }}
+                            className="p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444] transition-all"
+                            aria-label={`Delete transaction ${txn.payee}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 )
               })}
-              {paginatedTransactions.length === 0 && (
+              {paginatedRows.length === 0 && (
                 <tr>
                   <td colSpan={state.opportunityCostEnabled ? 8 : 6} className="py-10 text-center text-muted-foreground text-sm">
                     {!historyReady && !hasActiveFilter
@@ -703,8 +780,8 @@ export function TransactionsPage() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-3 border-t border-[#1F1F1F]">
           <div className="flex items-center gap-3">
             <span className="text-sm text-muted-foreground">
-              {filteredTransactions.length > 0
-                ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, filteredTransactions.length)} of ${filteredTransactions.length}`
+              {displayRows.length > 0
+                ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, displayRows.length)} of ${displayRows.length}`
                 : "0 results"}
             </span>
             <div className="flex items-center gap-1.5 sm:hidden">
@@ -793,6 +870,14 @@ export function TransactionsPage() {
           setEnvelopeFilters(new Set([incomeTxn.envelopeId]))
           setSelectedTxn(incomeTxn)
         }}
+      />
+      <RebalanceEnvelopesDialog
+        open={rebalanceDialogOpen}
+        onOpenChange={(open) => {
+          setRebalanceDialogOpen(open)
+          if (!open) setRebalanceEditBatchId(null)
+        }}
+        editBatchId={rebalanceEditBatchId}
       />
       {confirmDialog}
     </div>

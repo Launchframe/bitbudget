@@ -54,6 +54,8 @@ export const TX_SOURCE_ENVELOPE_TRANSFER_OUT = "envelope_transfer_out"
 
 export const ENVELOPE_FUNDING_BATCH_KIND_FUND = "fund"
 export const ENVELOPE_FUNDING_BATCH_KIND_SWEEP = "sweep"
+export const ENVELOPE_FUNDING_BATCH_KIND_REBALANCE = "rebalance"
+/** @deprecated Use ENVELOPE_FUNDING_BATCH_KIND_REBALANCE */
 export const ENVELOPE_FUNDING_BATCH_KIND_MOVE_FUNDS = "move_funds"
 export const ENVELOPE_FUNDING_BATCH_KIND_DEFICIT_COVER = "deficit_cover"
 

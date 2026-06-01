@@ -3,10 +3,14 @@ import { describe, expect, it } from "vitest"
 import {
   computeDistribution,
   deltaForBehavior,
+  fundablePreviewRows,
+  fundedAmountByEnvelopeId,
   validateExplicitAllocations,
-} from "../move-funds-math"
+  applyBalancedSliderChange,
+  clampRebalanceDeltas,
+} from "../rebalance-math"
 
-describe("move-funds-math", () => {
+describe("rebalance-math", () => {
   it("deltaForBehavior set_to_budget uses gap", () => {
     expect(deltaForBehavior("set_to_budget", 100, 40)).toBe(60)
     expect(deltaForBehavior("add_budget", 100, 40)).toBe(100)
@@ -112,5 +116,69 @@ describe("move-funds-math", () => {
   it("validateExplicitAllocations", () => {
     expect(validateExplicitAllocations(100, [{ amountUsd: 60 }, { amountUsd: 40 }])).toBe(true)
     expect(validateExplicitAllocations(100, [{ amountUsd: 101 }])).toBe(false)
+  })
+
+  it("fundedAmountByEnvelopeId caps to affordable income when invalid", () => {
+    const dist = computeDistribution({
+      behavior: "add_budget",
+      envelopes: [
+        { id: "a", monthlyAllotment: 100, currentMonthBalance: 0 },
+        { id: "b", monthlyAllotment: 100, currentMonthBalance: 0 },
+      ],
+      grossUsd: 50,
+      savingsBalance: 0,
+      fundOverageFromSavings: false,
+    })
+    expect(dist.invalid).toBe(true)
+    const funded = fundedAmountByEnvelopeId(dist)
+    const fundedSum = [...funded.values()].reduce((s, v) => s + v, 0)
+    expect(fundedSum).toBeGreaterThan(0)
+    expect(fundedSum).toBeLessThanOrEqual(50.02)
+    expect(fundablePreviewRows(dist, "Add budget")).toHaveLength(0)
+  })
+
+  it("clampRebalanceDeltas zeros credits when Savings is empty and envelopes have no balance", () => {
+    const clamped = clampRebalanceDeltas(
+      { a: 500, b: 300 },
+      [
+        { id: "a", monthlyAllotment: 1000, currentBalance: 0 },
+        { id: "b", monthlyAllotment: 800, currentBalance: 0 },
+      ],
+      { creditMultiplier: 10, savingsBalance: 0 },
+    )
+    expect(clamped).toEqual({})
+  })
+
+  it("clampRebalanceDeltas scales credits down to Savings balance", () => {
+    const clamped = clampRebalanceDeltas(
+      { a: 600, b: 400 },
+      [
+        { id: "a", monthlyAllotment: 1000, currentBalance: 0 },
+        { id: "b", monthlyAllotment: 800, currentBalance: 0 },
+      ],
+      { creditMultiplier: 10, savingsBalance: 100 },
+    )
+    expect((clamped.a ?? 0) + (clamped.b ?? 0)).toBeCloseTo(100, 1)
+  })
+
+  it("clampRebalanceDeltas blocks debits beyond current balance", () => {
+    const clamped = clampRebalanceDeltas(
+      { a: -50 },
+      [{ id: "a", monthlyAllotment: 100, currentBalance: 20 }],
+      { creditMultiplier: 1, savingsBalance: 1000 },
+    )
+    expect(clamped.a).toBe(-20)
+  })
+
+  it("applyBalancedSliderChange keeps zero-sum across envelopes", () => {
+    const limits = new Map([
+      ["a", { maxDebit: 50, maxCredit: 100, currentBalance: 50 }],
+      ["b", { maxDebit: 50, maxCredit: 100, currentBalance: 50 }],
+      ["c", { maxDebit: 50, maxCredit: 100, currentBalance: 50 }],
+    ])
+    const next = applyBalancedSliderChange("a", 20, { a: 0, b: 0, c: 0 }, ["a", "b", "c"], limits)
+    const sum = Object.values(next).reduce((s, v) => s + v, 0)
+    expect(sum).toBeCloseTo(0, 1)
+    expect(next.a).toBeCloseTo(20, 1)
   })
 })

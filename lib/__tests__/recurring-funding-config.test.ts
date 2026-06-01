@@ -118,7 +118,7 @@ describe("parseRecurringFundingConfig", () => {
         mode: "independent",
         entries: [{ envelopeId: "e1", deltaUsd: 12 }],
       })?.kind,
-    ).toBe("move_funds")
+    ).toBe("rebalance")
     expect(parseRecurringFundingConfig("unknown", {})).toBeNull()
   })
 })

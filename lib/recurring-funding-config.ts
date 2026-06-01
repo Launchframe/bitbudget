@@ -1,7 +1,7 @@
-import type { DistributionBehavior } from "@/lib/move-funds-math"
-import type { MoveFundsMode } from "@/lib/move-funds"
+import type { DistributionBehavior } from "@/lib/rebalance-math"
+import type { RebalanceMode } from "@/lib/rebalance-envelopes"
 
-export const RECURRING_FUNDING_KINDS = ["income_distribution", "move_funds"] as const
+export const RECURRING_FUNDING_KINDS = ["income_distribution", "rebalance"] as const
 export type RecurringFundingKind = (typeof RECURRING_FUNDING_KINDS)[number]
 
 export type IncomeDistributionRuleConfig = {
@@ -12,20 +12,23 @@ export type IncomeDistributionRuleConfig = {
   customByEnvelopeId?: Record<string, number>
 }
 
-export type MoveFundsRuleConfig = {
-  mode: MoveFundsMode
+export type RebalanceRuleConfig = {
+  mode: RebalanceMode
   entries: { envelopeId: string; deltaUsd: number }[]
 }
 
+/** @deprecated Use RebalanceRuleConfig */
+export type MoveFundsRuleConfig = RebalanceRuleConfig
+
 export type ParsedRecurringFundingConfig =
   | { kind: "income_distribution"; config: IncomeDistributionRuleConfig }
-  | { kind: "move_funds"; config: MoveFundsRuleConfig }
+  | { kind: "rebalance"; config: RebalanceRuleConfig }
 
 function isDistributionBehavior(value: unknown): value is DistributionBehavior {
   return value === "set_to_budget" || value === "add_budget" || value === "custom"
 }
 
-function isMoveFundsMode(value: unknown): value is MoveFundsMode {
+function isRebalanceMode(value: unknown): value is RebalanceMode {
   return value === "balanced" || value === "independent"
 }
 
@@ -59,13 +62,13 @@ export function parseIncomeDistributionConfig(raw: unknown): IncomeDistributionR
   }
 }
 
-export function parseMoveFundsRuleConfig(raw: unknown): MoveFundsRuleConfig | null {
+export function parseRebalanceRuleConfig(raw: unknown): RebalanceRuleConfig | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null
   const o = raw as Record<string, unknown>
-  if (!isMoveFundsMode(o.mode)) return null
+  if (!isRebalanceMode(o.mode)) return null
   if (!Array.isArray(o.entries)) return null
 
-  const entries: MoveFundsRuleConfig["entries"] = []
+  const entries: RebalanceRuleConfig["entries"] = []
   for (const row of o.entries) {
     if (typeof row !== "object" || row === null || Array.isArray(row)) return null
     const e = row as Record<string, unknown>
@@ -82,6 +85,9 @@ export function parseMoveFundsRuleConfig(raw: unknown): MoveFundsRuleConfig | nu
   return { mode: o.mode, entries }
 }
 
+/** @deprecated Use parseRebalanceRuleConfig */
+export const parseMoveFundsRuleConfig = parseRebalanceRuleConfig
+
 export function parseRecurringFundingConfig(
   kind: string,
   raw: unknown,
@@ -90,9 +96,9 @@ export function parseRecurringFundingConfig(
     const config = parseIncomeDistributionConfig(raw)
     return config ? { kind, config } : null
   }
-  if (kind === "move_funds") {
-    const config = parseMoveFundsRuleConfig(raw)
-    return config ? { kind, config } : null
+  if (kind === "rebalance" || kind === "move_funds") {
+    const config = parseRebalanceRuleConfig(raw)
+    return config ? { kind: "rebalance", config } : null
   }
   return null
 }
@@ -102,10 +108,15 @@ export function incomeDistributionConfigFromPanel(params: {
   distributionBehavior: DistributionBehavior
   fundOverageFromSavings: boolean
   grossUsd: number
+  customByEnvelopeId?: Record<string, number>
 }): IncomeDistributionRuleConfig {
-  return {
+  const config: IncomeDistributionRuleConfig = {
     distributionBehavior: params.distributionBehavior,
     fundOverageFromSavings: params.fundOverageFromSavings,
     grossUsd: Math.round(params.grossUsd * 100) / 100,
   }
+  if (params.customByEnvelopeId && Object.keys(params.customByEnvelopeId).length > 0) {
+    config.customByEnvelopeId = params.customByEnvelopeId
+  }
+  return config
 }

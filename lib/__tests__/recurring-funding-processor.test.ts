@@ -2,8 +2,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import { nextRunFromFrequency } from "@/lib/recurring-funding-schedule"
 
-vi.mock("@/lib/move-funds", () => ({
-  createMoveFundsBatch: vi.fn(async () => 2),
+vi.mock("@/lib/rebalance-envelopes", () => ({
+  createRebalanceBatch: vi.fn(async () => 2),
 }))
 
 vi.mock("@/lib/db", () => ({
@@ -28,7 +28,7 @@ vi.mock("@/lib/envelope-balance-server", () => ({
 }))
 
 import { prisma } from "@/lib/db"
-import { createMoveFundsBatch } from "@/lib/move-funds"
+import { createRebalanceBatch } from "@/lib/rebalance-envelopes"
 import {
   processAllRecurringFundingRules,
   processOneRecurringFundingRule,
@@ -75,7 +75,7 @@ describe("processOneRecurringFundingRule", () => {
     )
 
     expect(legs).toBe(2)
-    expect(createMoveFundsBatch).toHaveBeenCalledWith(
+    expect(createRebalanceBatch).toHaveBeenCalledWith(
       "u1",
       expect.any(Array),
       "independent",
@@ -92,13 +92,13 @@ describe("processOneRecurringFundingRule", () => {
     )
   })
 
-  it("runs move_funds with stored mode and entries", async () => {
+  it("runs rebalance with stored mode and entries", async () => {
     const asOf = new Date(Date.UTC(2026, 5, 10, 12, 0, 0))
     const legs = await processOneRecurringFundingRule(
       {
         id: "rule-mf",
         userId: "u1",
-        kind: "move_funds",
+        kind: "rebalance",
         frequency: "weekly",
         distributionConfig: {
           mode: "balanced",
@@ -113,7 +113,7 @@ describe("processOneRecurringFundingRule", () => {
     )
 
     expect(legs).toBe(2)
-    expect(createMoveFundsBatch).toHaveBeenCalledWith(
+    expect(createRebalanceBatch).toHaveBeenCalledWith(
       "u1",
       [
         { envelopeId: "env-a", deltaUsd: 25 },
@@ -140,7 +140,7 @@ describe("processOneRecurringFundingRule", () => {
     )
 
     expect(legs).toBe(0)
-    expect(createMoveFundsBatch).not.toHaveBeenCalled()
+    expect(createRebalanceBatch).not.toHaveBeenCalled()
     expect(prisma.recurringFundingRule.update).toHaveBeenCalled()
   })
 
@@ -168,7 +168,7 @@ describe("processOneRecurringFundingRule", () => {
     )
 
     expect(legs).toBe(0)
-    expect(createMoveFundsBatch).not.toHaveBeenCalled()
+    expect(createRebalanceBatch).not.toHaveBeenCalled()
     expect(prisma.recurringFundingRule.update).toHaveBeenCalled()
   })
 })
@@ -253,7 +253,7 @@ describe("processAllRecurringFundingRules", () => {
       {
         id: "rule-2",
         userId: "u2",
-        kind: "move_funds",
+        kind: "rebalance",
         frequency: "weekly",
         distributionConfig: {
           mode: "independent",

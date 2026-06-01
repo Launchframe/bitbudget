@@ -7,12 +7,12 @@ import {
   savingsEnvelopeBalanceAllTime,
 } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
-import { createMoveFundsBatch } from "@/lib/move-funds"
-import { computeDistribution } from "@/lib/move-funds-math"
+import { createRebalanceBatch } from "@/lib/rebalance-envelopes"
+import { computeDistribution } from "@/lib/rebalance-math"
 import {
   parseRecurringFundingConfig,
   type IncomeDistributionRuleConfig,
-  type MoveFundsRuleConfig,
+  type RebalanceRuleConfig,
 } from "@/lib/recurring-funding-config"
 import { nextRunFromFrequency } from "@/lib/recurring-funding-schedule"
 
@@ -99,19 +99,19 @@ async function executeIncomeDistribution(
 
   if (entries.length === 0) return 0
 
-  return createMoveFundsBatch(userId, entries, "independent", {
+  return createRebalanceBatch(userId, entries, "independent", {
     periodKey,
     runDateUtc,
   })
 }
 
-async function executeMoveFundsRule(
+async function executeRebalanceRule(
   userId: string,
-  config: MoveFundsRuleConfig,
+  config: RebalanceRuleConfig,
   runDateUtc: Date,
   periodKey: string,
 ): Promise<number> {
-  return createMoveFundsBatch(userId, config.entries, config.mode, {
+  return createRebalanceBatch(userId, config.entries, config.mode, {
     periodKey,
     runDateUtc,
   })
@@ -144,7 +144,7 @@ export async function processOneRecurringFundingRule(
   if (parsed.kind === "income_distribution") {
     legs = await executeIncomeDistribution(rule.userId, parsed.config, runAt, periodKey)
   } else {
-    legs = await executeMoveFundsRule(rule.userId, parsed.config, runAt, periodKey)
+    legs = await executeRebalanceRule(rule.userId, parsed.config, runAt, periodKey)
   }
 
   await prisma.recurringFundingRule.update({
