@@ -24,7 +24,7 @@ export function FormattedBtcAmount({
 }) {
   if (unit === "btc") {
     return (
-      <span className={cn("font-ibm-plex-mono tabular-nums", className)}>
+      <span className={cn("font-mono tabular-nums", className)}>
         {formatBtcAmount(btcValue, "btc", displayUnit)}
       </span>
     )
@@ -56,7 +56,7 @@ export function FormattedBtcAmountFromSats({
 }) {
   if (unit === "btc") {
     return (
-      <span className={cn("font-ibm-plex-mono tabular-nums", className)}>
+      <span className={cn("font-mono tabular-nums", className)}>
         {formatBtcAmountFromSats(sats, "btc", displayUnit)}
       </span>
     )

@@ -16,6 +16,7 @@ import type { DistributionBehavior, DistributionInvalidReason } from "@/lib/move
 import { computeDistribution } from "@/lib/move-funds-math"
 import { incomeDistributionConfigFromPanel } from "@/lib/recurring-funding-config"
 import { nextRunFromFrequency } from "@/lib/recurring-funding-schedule"
+import { cn } from "@/lib/utils"
 
 function distributionErrorMessage(reason: DistributionInvalidReason | null): string {
   switch (reason) {
@@ -168,17 +169,25 @@ export function MoveFundsPanel({
               ["set_to_budget", "Set to budget amount"],
               ["add_budget", "Add full budget amount"],
             ] as const
-          ).map(([value, label]) => (
-            <Button
-              key={value}
-              type="button"
-              size="sm"
-              variant={behavior === value ? "default" : "outline"}
-              onClick={() => setBehavior(value)}
-            >
-              {label}
-            </Button>
-          ))}
+          ).map(([value, label]) => {
+            const selected = behavior === value
+            return (
+              <Button
+                key={value}
+                type="button"
+                size="sm"
+                variant={selected ? "default" : "outline"}
+                aria-pressed={selected}
+                className={cn(
+                  !selected &&
+                    "border-[#666] bg-[#141414] text-foreground shadow-none hover:border-[#888] hover:bg-[#1A1A1A]",
+                )}
+                onClick={() => setBehavior(value)}
+              >
+                {label}
+              </Button>
+            )
+          })}
         </div>
       </div>
 

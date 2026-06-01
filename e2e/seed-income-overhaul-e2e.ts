@@ -78,6 +78,7 @@ export async function resetIncomeOverhaulUserData(email: string): Promise<void> 
   if (!user) return
   await prisma.transaction.deleteMany({ where: { userId: user.id } })
   await prisma.envelopeFundingBatch.deleteMany({ where: { userId: user.id } })
+  await prisma.recurringFundingRule.deleteMany({ where: { userId: user.id } })
   await prisma.user.update({
     where: { id: user.id },
     data: { lastPaydayAt: null },

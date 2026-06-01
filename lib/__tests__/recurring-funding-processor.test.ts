@@ -1,12 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi, beforeEach } from "vitest"
-import { computeDistribution } from "@/lib/move-funds-math"
-import {
-  parseIncomeDistributionConfig,
-  parseMoveFundsRuleConfig,
-} from "@/lib/recurring-funding-config"
 import { nextRunFromFrequency } from "@/lib/recurring-funding-schedule"
-import { recurringFundingBatchPeriodKey } from "@/lib/recurring-funding-processor"
 
 vi.mock("@/lib/move-funds", () => ({
   createMoveFundsBatch: vi.fn(async () => 2),
@@ -35,28 +29,12 @@ vi.mock("@/lib/envelope-balance-server", () => ({
 
 import { prisma } from "@/lib/db"
 import { createMoveFundsBatch } from "@/lib/move-funds"
-import { processOneRecurringFundingRule } from "@/lib/recurring-funding-processor"
-
-describe("recurring-funding-config", () => {
-  it("parseIncomeDistributionConfig accepts panel-shaped config", () => {
-    const config = parseIncomeDistributionConfig({
-      distributionBehavior: "set_to_budget",
-      fundOverageFromSavings: true,
-      grossUsd: 1200,
-    })
-    expect(config?.distributionBehavior).toBe("set_to_budget")
-    expect(config?.grossUsd).toBe(1200)
-  })
-
-  it("parseMoveFundsRuleConfig requires non-empty entries", () => {
-    expect(parseMoveFundsRuleConfig({ mode: "balanced", entries: [] })).toBeNull()
-    const ok = parseMoveFundsRuleConfig({
-      mode: "independent",
-      entries: [{ envelopeId: "env-a", deltaUsd: 25 }],
-    })
-    expect(ok?.entries).toHaveLength(1)
-  })
-})
+import {
+  processAllRecurringFundingRules,
+  processOneRecurringFundingRule,
+  processRecurringFundingRules,
+  recurringFundingBatchPeriodKey,
+} from "@/lib/recurring-funding-processor"
 
 describe("recurringFundingBatchPeriodKey", () => {
   it("is stable per rule and UTC day", () => {
@@ -114,14 +92,179 @@ describe("processOneRecurringFundingRule", () => {
     )
   })
 
-  it("uses monthlyIncome when grossUsd is omitted", async () => {
-    const dist = computeDistribution({
-      behavior: "add_budget",
-      envelopes: [{ id: "env-a", monthlyAllotment: 200, currentMonthBalance: 0 }],
-      grossUsd: 3000,
-      savingsBalance: 500,
-      fundOverageFromSavings: false,
-    })
-    expect(dist.invalid).toBe(false)
+  it("runs move_funds with stored mode and entries", async () => {
+    const asOf = new Date(Date.UTC(2026, 5, 10, 12, 0, 0))
+    const legs = await processOneRecurringFundingRule(
+      {
+        id: "rule-mf",
+        userId: "u1",
+        kind: "move_funds",
+        frequency: "weekly",
+        distributionConfig: {
+          mode: "balanced",
+          entries: [
+            { envelopeId: "env-a", deltaUsd: 25 },
+            { envelopeId: "env-b", deltaUsd: -25 },
+          ],
+        },
+        nextRunAt: asOf,
+      },
+      asOf,
+    )
+
+    expect(legs).toBe(2)
+    expect(createMoveFundsBatch).toHaveBeenCalledWith(
+      "u1",
+      [
+        { envelopeId: "env-a", deltaUsd: 25 },
+        { envelopeId: "env-b", deltaUsd: -25 },
+      ],
+      "balanced",
+      expect.objectContaining({ periodKey: "recurring-funding-rule-mf-2026-06-10" }),
+    )
+    expect(prisma.user.findUnique).not.toHaveBeenCalled()
+  })
+
+  it("advances schedule without legs when config is invalid", async () => {
+    const asOf = new Date(Date.UTC(2026, 5, 10, 12, 0, 0))
+    const legs = await processOneRecurringFundingRule(
+      {
+        id: "rule-bad",
+        userId: "u1",
+        kind: "income_distribution",
+        frequency: "monthly",
+        distributionConfig: { not: "valid" },
+        nextRunAt: asOf,
+      },
+      asOf,
+    )
+
+    expect(legs).toBe(0)
+    expect(createMoveFundsBatch).not.toHaveBeenCalled()
+    expect(prisma.recurringFundingRule.update).toHaveBeenCalled()
+  })
+
+  it("returns 0 legs when user has no public key", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      monthlyIncome: 3000,
+      publicKey: "",
+    } as never)
+
+    const asOf = new Date(Date.UTC(2026, 5, 10, 12, 0, 0))
+    const legs = await processOneRecurringFundingRule(
+      {
+        id: "rule-1",
+        userId: "u1",
+        kind: "income_distribution",
+        frequency: "monthly",
+        distributionConfig: {
+          distributionBehavior: "set_to_budget",
+          fundOverageFromSavings: false,
+          grossUsd: 500,
+        },
+        nextRunAt: asOf,
+      },
+      asOf,
+    )
+
+    expect(legs).toBe(0)
+    expect(createMoveFundsBatch).not.toHaveBeenCalled()
+    expect(prisma.recurringFundingRule.update).toHaveBeenCalled()
+  })
+})
+
+describe("processRecurringFundingRules", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(prisma.recurringFundingRule.update).mockResolvedValue({} as never)
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      monthlyIncome: 3000,
+      publicKey: "pk",
+    } as never)
+    vi.mocked(prisma.envelope.findMany).mockResolvedValue([
+      { id: "env-a", monthlyAllotment: 200, systemRole: null },
+    ] as never)
+  })
+
+  it("processes only enabled due rules for the user", async () => {
+    const asOf = new Date(Date.UTC(2026, 5, 10, 12, 0, 0))
+    vi.mocked(prisma.recurringFundingRule.findMany).mockResolvedValue([
+      {
+        id: "rule-1",
+        userId: "u1",
+        kind: "income_distribution",
+        frequency: "monthly",
+        distributionConfig: {
+          distributionBehavior: "set_to_budget",
+          fundOverageFromSavings: false,
+          grossUsd: 500,
+        },
+        nextRunAt: asOf,
+      },
+    ] as never)
+
+    const total = await processRecurringFundingRules("u1", asOf)
+    expect(total).toBe(2)
+    expect(prisma.recurringFundingRule.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: "u1",
+          enabled: true,
+        }),
+      }),
+    )
+  })
+
+  it("returns 0 when no due rules", async () => {
+    vi.mocked(prisma.recurringFundingRule.findMany).mockResolvedValue([])
+    const total = await processRecurringFundingRules("u1")
+    expect(total).toBe(0)
+  })
+})
+
+describe("processAllRecurringFundingRules", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(prisma.recurringFundingRule.update).mockResolvedValue({} as never)
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      monthlyIncome: 3000,
+      publicKey: "pk",
+    } as never)
+    vi.mocked(prisma.envelope.findMany).mockResolvedValue([
+      { id: "env-a", monthlyAllotment: 200, systemRole: null },
+    ] as never)
+  })
+
+  it("aggregates legs across all due rules", async () => {
+    const asOf = new Date(Date.UTC(2026, 5, 10, 12, 0, 0))
+    vi.mocked(prisma.recurringFundingRule.findMany).mockResolvedValue([
+      {
+        id: "rule-1",
+        userId: "u1",
+        kind: "income_distribution",
+        frequency: "monthly",
+        distributionConfig: {
+          distributionBehavior: "set_to_budget",
+          fundOverageFromSavings: false,
+          grossUsd: 500,
+        },
+        nextRunAt: asOf,
+      },
+      {
+        id: "rule-2",
+        userId: "u2",
+        kind: "move_funds",
+        frequency: "weekly",
+        distributionConfig: {
+          mode: "independent",
+          entries: [{ envelopeId: "env-x", deltaUsd: 10 }],
+        },
+        nextRunAt: asOf,
+      },
+    ] as never)
+
+    const result = await processAllRecurringFundingRules(asOf)
+    expect(result.rulesProcessed).toBe(2)
+    expect(result.legsCreated).toBe(4)
   })
 })

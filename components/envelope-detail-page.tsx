@@ -300,7 +300,7 @@ export function EnvelopeDetailPage() {
                           <FormattedBtcAmountFromSats
                             sats={txn.satsAmount}
                             unit={state.btcDisplayUnit}
-                            className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}
+                            className={state.btcDisplayUnit === "btc" ? "font-mono" : ""}
                           />
                         ) : (
                           "—"

@@ -167,7 +167,7 @@ export function TopOpportunityCosts() {
                   </td>
                   <td className="py-3 text-right text-muted-foreground text-sm hidden lg:table-cell">
                     {txn.btcPriceAtTime > 0 ? (
-                      <span className={state.btcDisplayUnit === "btc" ? "font-ibm-plex-mono" : ""}>
+                      <span className={state.btcDisplayUnit === "btc" ? "font-mono" : ""}>
                         <FormattedBtcAmount
                           btcValue={txn.amount / txn.btcPriceAtTime}
                           unit={state.btcDisplayUnit}

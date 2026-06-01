@@ -287,21 +287,6 @@ test.describe("Income overhaul — UI", () => {
     })
   })
 
-  test("schedule this shows coming-soon state for automatic runs", async ({ page, baseURL }) => {
-    const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
-    await signInIncomeOverhaulUser(page, origin, E2E_INCOME_OVERHAUL_EMAIL)
-    await openEnvelopesPage(page, origin)
-    await openIrregularIncomeDialog(page)
-    await fillIrregularIncomeDetails(page, { amount: "100", payee: "E2E Schedule Test" })
-    await page.getByRole("button", { name: "Next" }).click()
-    await page.getByRole("radio", { name: /Fill envelopes now/i }).check()
-    await page.getByRole("button", { name: "Schedule this" }).click()
-    await expect(
-      page.getByText(/Automatic runs on that schedule are not available yet/i),
-    ).toBeVisible()
-    await expect(page.getByRole("button", { name: "Save schedule (coming soon)" })).toBeDisabled()
-  })
-
   test("income importer creates Savings credits only (no funding legs)", async ({
     page,
     baseURL,

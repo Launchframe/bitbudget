@@ -72,7 +72,7 @@ export function IrregularIncomeDialog({
     }
     const p = payee.trim()
     if (!p) {
-      setError("Enter who paid you.")
+      setError("Please enter a payer.")
       return
     }
 
@@ -221,7 +221,7 @@ export function IrregularIncomeDialog({
                       return
                     }
                     if (!payee.trim()) {
-                      setError("Enter who paid you.")
+                      setError("Please enter a payer.")
                       return
                     }
                     setStep("distribute")
