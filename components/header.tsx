@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useSession } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
-import { Settings2, LogOut, Upload, ScanLine, Crown, User } from "lucide-react"
+import { Settings2, LogOut, Upload, ScanLine, Crown, User, FileText } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import {
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function Header() {
-  const { navigateTo, refreshData, encryptForStorage, makeImportDedupeKeyComputer, logout, subscriptionTier, state, setInputModeSheetOpen } = useApp()
+  const { navigateTo, refreshData, encryptForStorage, makeImportDedupeKeyComputer, logout, subscriptionTier, state, setInputModeSheetOpen, openStatementImporter } = useApp()
   const { data: session } = useSession()
   const userImage = session?.user?.image
   const userName = session?.user?.name
@@ -96,6 +96,13 @@ export function Header() {
               >
                 <Upload className="mr-2 h-4 w-4 text-muted-foreground" />
                 <span>Import CSV</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => openStatementImporter()}
+                className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
+              >
+                <FileText className="mr-2 h-4 w-4 text-muted-foreground" />
+                <span>Import Statement</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={logout}

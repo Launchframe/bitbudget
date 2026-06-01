@@ -33,6 +33,18 @@ function emptyPost(url: string): NextRequest {
   return new NextRequest(url, { method: "POST" })
 }
 
+/** Minimal JPEG magic (≥12 bytes per resolveReceiptFileKind) so scan hits premium gating. */
+function receiptScanPostWithFile(url: string): NextRequest {
+  const bytes = new Uint8Array(12)
+  bytes[0] = 0xff
+  bytes[1] = 0xd8
+  bytes[2] = 0xff
+  bytes[3] = 0xe0
+  const form = new FormData()
+  form.append("file", new File([bytes], "scan.jpg", { type: "image/jpeg" }))
+  return new NextRequest(url, { method: "POST", body: form })
+}
+
 describe("Premium API route gating", () => {
   const envSnapshot = { openai: process.env.OPENAI_API_KEY }
 
@@ -90,7 +102,9 @@ describe("Premium API route gating", () => {
     it("returns 403 for free users via requirePremiumOrTrial", async () => {
       authMock.mockResolvedValue({ user: { id: userId } })
       requirePremiumOrTrialMock.mockResolvedValue(false)
-      const res = await receiptScanPost(emptyPost("http://localhost/api/receipts/scan"))
+      const res = await receiptScanPost(
+        receiptScanPostWithFile("http://localhost/api/receipts/scan"),
+      )
       expect(res.status).toBe(403)
       expect(requirePremiumOrTrialMock).toHaveBeenCalledWith(userId)
     })
@@ -98,7 +112,9 @@ describe("Premium API route gating", () => {
     it("uses the same gate as voice when allowed (not 403)", async () => {
       authMock.mockResolvedValue({ user: { id: userId } })
       requirePremiumOrTrialMock.mockResolvedValue(true)
-      const res = await receiptScanPost(emptyPost("http://localhost/api/receipts/scan"))
+      const res = await receiptScanPost(
+        receiptScanPostWithFile("http://localhost/api/receipts/scan"),
+      )
       expect(requirePremiumOrTrialMock).toHaveBeenCalledWith(userId)
       expect(res.status).not.toBe(403)
       expect(res.status).not.toBe(401)

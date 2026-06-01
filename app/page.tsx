@@ -8,6 +8,7 @@ import { BtcPriceProvider } from "@/lib/btc-price-context"
 import { Sidebar } from "@/components/sidebar"
 import { Header } from "@/components/header"
 import { NewTransactionDialog } from "@/components/new-transaction-dialog"
+import { StatementImporterDialog } from "@/components/statement-importer-dialog"
 import { DashboardPage } from "@/components/dashboard-page"
 import { AnalyticsPage } from "@/components/analytics-page"
 import { EnvelopesPage } from "@/components/envelopes-page"
@@ -193,6 +194,27 @@ function PageContent() {
   }
 }
 
+function StatementImporterHost() {
+  const {
+    statementImporterOpen,
+    statementImporterPrefill,
+    statementImporterKey,
+    setStatementImporterOpen,
+    activeTransactions,
+    refreshData,
+  } = useApp()
+  return (
+    <StatementImporterDialog
+      key={statementImporterKey}
+      open={statementImporterOpen}
+      onOpenChange={setStatementImporterOpen}
+      existingTransactions={activeTransactions}
+      onImportComplete={refreshData}
+      initialData={statementImporterPrefill}
+    />
+  )
+}
+
 export default function Dashboard() {
   return (
     <OnboardingGate>
@@ -219,6 +241,7 @@ export default function Dashboard() {
               <WalkthroughOverlay />
               <AchievementCelebrationHost />
               <NewTransactionDialog />
+              <StatementImporterHost />
               <SurveySheetHost />
             </div>
           </BtcPriceShell>

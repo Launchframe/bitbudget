@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
+import type { ParsedTransaction } from "@/lib/csv"
+import type { FoldStatementMeta } from "@/lib/fold-pdf-parser"
 import { PremiumLockedLabel } from "@/components/premium-locked-label"
 import { PREMIUM_UI_COPY } from "@/lib/premium-ui-copy"
 import { RECEIPT_SCAN_MAX_BYTES } from "@/lib/receipt-scan-validate"
@@ -41,7 +43,7 @@ export function ScanReceiptDialog({
   /** When set, opens dialog and immediately triggers camera or file picker (e.g. from mobile nav one-tap). */
   initialSource?: "camera" | "upload"
 }) {
-  const { openNewTransaction, hasPremiumFeatures } = useApp()
+  const { openNewTransaction, openStatementImporter, hasPremiumFeatures } = useApp()
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<string | null>(null)
@@ -133,6 +135,29 @@ export function ScanReceiptDialog({
   async function processFile(file: File) {
     if (!hasPremiumFeatures) return
     setError("")
+
+    // CSV: attempt client-side statement parse before uploading to server
+    if (file.name.toLowerCase().endsWith(".csv")) {
+      try {
+        const text = await file.text()
+        const { tryParseStatementCsv } = await import("@/lib/statement-csv")
+        const result = tryParseStatementCsv(text)
+        if (!result) {
+          setError(
+            "This CSV doesn't look like a supported bank statement. To import a BitBudget export, use Import CSV instead."
+          )
+          return
+        }
+        onOpenChange(false)
+        reset()
+        openStatementImporter({ transactions: result.transactions, meta: { institutionName: result.institutionName ?? undefined } })
+        return
+      } catch {
+        setError("Failed to read the CSV file. Please try again.")
+        return
+      }
+    }
+
     if (file.size > RECEIPT_SCAN_MAX_BYTES) {
       setError(
         `File is too large (max ${Math.round(RECEIPT_SCAN_MAX_BYTES / (1024 * 1024))} MB). Try a smaller photo or PDF.`,
@@ -164,30 +189,50 @@ export function ScanReceiptDialog({
         body: formData,
       })
 
-      let data: {
-        error?: string
-        message?: string
-        payee?: string
-        amount?: string
-        date?: string
-        suggestedEnvelopeId?: string
-        extractionConfidence?: number
-        model?: string
-        processingMs?: number
-        inputType?: "photo" | "pdf"
-        fileSizeBytes?: number
-        envelopeMatchConfidence?: number | null
-      }
+      type ScanResponse =
+        | {
+            type?: "receipt" | undefined
+            error?: string
+            message?: string
+            payee?: string
+            amount?: string
+            date?: string
+            suggestedEnvelopeId?: string
+            extractionConfidence?: number
+            model?: string
+            processingMs?: number
+            inputType?: "photo" | "pdf"
+            fileSizeBytes?: number
+            envelopeMatchConfidence?: number | null
+          }
+        | {
+            type: "statement"
+            transactions: ParsedTransaction[]
+            meta: FoldStatementMeta
+            format: string
+            error?: string
+          }
+
+      let data: ScanResponse
       try {
-        data = await res.json()
+        data = await res.json() as ScanResponse
       } catch {
         setError("Invalid response from server. Please try again.")
         setScanning(false)
         return
       }
       if (!res.ok) {
-        setError(data.message || data.error || "Failed to scan receipt")
+        const errData = data as { error?: string; message?: string }
+        setError(errData.message || errData.error || "Failed to scan receipt")
         setScanning(false)
+        return
+      }
+
+      // Statement PDF detected — hand off to the statement importer
+      if ("type" in data && data.type === "statement") {
+        onOpenChange(false)
+        reset()
+        openStatementImporter({ transactions: data.transactions, meta: data.meta })
         return
       }
 
@@ -344,7 +389,9 @@ export function ScanReceiptDialog({
                   Upload File
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {hasPremiumFeatures ? "Image or PDF from your device" : PREMIUM_UI_COPY.receiptScan.hint}
+                  {hasPremiumFeatures
+                    ? "Image, PDF, or bank statement CSV"
+                    : PREMIUM_UI_COPY.receiptScan.hint}
                 </span>
               </div>
               {!hasPremiumFeatures ? <PremiumLockedLabel className="shrink-0 normal-case tracking-normal" /> : null}
@@ -364,7 +411,7 @@ export function ScanReceiptDialog({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/heic,image/heif,image/webp,application/pdf"
+              accept="image/jpeg,image/png,image/heic,image/heif,image/webp,application/pdf,.csv"
               onChange={handleFileChange}
               className="hidden"
             />

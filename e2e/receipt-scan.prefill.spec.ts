@@ -11,6 +11,7 @@ import { signInAppUser } from "./helpers/app-session"
 test.describe("Receipt scan → New Transaction prefill", () => {
   /** Shared mock response that includes all stats fields the real API returns. */
   const MOCK_SCAN_RESPONSE = {
+    type: "receipt",
     payee: "Receipt Scan Café ZZ99",
     amount: "42.50",
     date: "2026-04-01",
@@ -62,6 +63,13 @@ test.describe("Receipt scan → New Transaction prefill", () => {
     await expect(page.locator("#date")).toHaveValue("2026-04-01")
 
     await expect(page.getByRole("img", { name: "Scanned receipt" })).toBeVisible()
+
+    // Stats for nerds button visible after scan
+    await expect(page.getByRole("button", { name: "Show scan details" })).toBeVisible()
+    // Popover opens and shows key stats
+    await page.getByRole("button", { name: "Show scan details" }).click()
+    await expect(page.getByText("Reading quality")).toBeVisible()
+    await expect(page.getByText("GPT-4o mini")).toBeVisible()
   })
 
   test("PDF upload prefills transaction fields", async ({ page, baseURL }) => {
@@ -96,5 +104,12 @@ test.describe("Receipt scan → New Transaction prefill", () => {
     await expect(page.locator("#payee")).toHaveValue("Receipt Scan Café ZZ99")
     await expect(page.locator("#amount")).toHaveValue("42.50")
     await expect(page.locator("#date")).toHaveValue("2026-04-01")
+
+    // Stats for nerds button also appears for PDF uploads
+    await expect(page.getByRole("button", { name: "Show scan details" })).toBeVisible()
+    await page.getByRole("button", { name: "Show scan details" }).click()
+    await expect(page.getByText("Reading quality")).toBeVisible()
+    await expect(page.getByText("PDF document")).toBeVisible()
+    await expect(page.getByText("GPT-4o mini")).toBeVisible()
   })
 })

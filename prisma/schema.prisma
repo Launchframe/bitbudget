@@ -92,6 +92,7 @@ model User {
   envelopeFundingBatches     EnvelopeFundingBatch[]
   savingsGoals               SavingsGoal[]
   achievements               UserAchievement[]
+  pendingStatementBatches    PendingStatementBatch[]
 }
 
 model UserNotificationEmail {
@@ -281,7 +282,8 @@ model EnvelopeFundingBatch {
   id        String   @id @default(cuid())
   userId    String
   periodKey String
-  kind      String   @default("fund") // fund | sweep
+  kind      String   @default("fund") // fund | sweep | rebalance | statement_import
+  config    Json?    // creation-time config; for statement_import: { institutionName, dateFrom, dateTo, format, transactionCount }
   createdAt DateTime @default(now())
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -581,4 +583,25 @@ model ConnectedEmailAccount {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// Pending statement batch created when an email attachment is detected as a bank statement.
+/// Transactions are encrypted server-side with the user's public key and held here until
+/// the user reviews and imports them via StatementImporterDialog (pendingBatchId mode).
+model PendingStatementBatch {
+  id               String   @id @default(cuid())
+  userId           String
+  source           String   // "email_statement"
+  institutionName  String?  // encrypted ciphertext (user's pubkey)
+  format           String   // "fold_csv" | "fold_pdf" | ...
+  transactions     Json     // ParsedTransaction[] with payee/notes encrypted via server-encrypt
+  dateFrom         String?  // YYYY-MM-DD
+  dateTo           String?  // YYYY-MM-DD
+  transactionCount Int
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt])
 }
