@@ -6,7 +6,10 @@ import type { ParsedTransaction } from "@/lib/csv"
 import type { FoldStatementMeta } from "@/lib/fold-pdf-parser"
 import { PremiumLockedLabel } from "@/components/premium-locked-label"
 import { PREMIUM_UI_COPY } from "@/lib/premium-ui-copy"
-import { RECEIPT_SCAN_MAX_BYTES } from "@/lib/receipt-scan-validate"
+import {
+  RECEIPT_SCAN_MAX_BYTES,
+  normalizeScanExtraction,
+} from "@/lib/receipt-scan-validate"
 import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 import { receiptCapturePrefillDate } from "@/lib/transaction-dates"
 import {
@@ -189,85 +192,89 @@ export function ScanReceiptDialog({
         body: formData,
       })
 
-      type ScanResponse =
-        | {
-            type?: "receipt" | undefined
-            error?: string
-            message?: string
-            payee?: string
-            amount?: string
-            date?: string
-            suggestedEnvelopeId?: string
-            extractionConfidence?: number
-            model?: string
-            processingMs?: number
-            inputType?: "photo" | "pdf"
-            fileSizeBytes?: number
-            envelopeMatchConfidence?: number | null
-          }
-        | {
-            type: "statement"
-            transactions: ParsedTransaction[]
-            meta: FoldStatementMeta
-            format: string
-            error?: string
-          }
-
-      let data: ScanResponse
+      let data: unknown
       try {
-        data = await res.json() as ScanResponse
+        data = await res.json()
       } catch {
         setError("Invalid response from server. Please try again.")
         setScanning(false)
         return
       }
       if (!res.ok) {
-        const errData = data as { error?: string; message?: string }
+        const errData = (data && typeof data === "object" ? data : {}) as {
+          error?: string
+          message?: string
+        }
         setError(errData.message || errData.error || "Failed to scan receipt")
         setScanning(false)
         return
       }
 
-      // Statement PDF detected — hand off to the statement importer
-      if ("type" in data && data.type === "statement") {
-        onOpenChange(false)
-        reset()
-        openStatementImporter({ transactions: data.transactions, meta: data.meta })
+      const raw =
+        data && typeof data === "object" && !Array.isArray(data)
+          ? (data as Record<string, unknown>)
+          : null
+      if (!raw) {
+        setError("Invalid response from server. Please try again.")
+        setScanning(false)
         return
       }
+
+      // Statement PDF detected — hand off to the statement importer
+      if (raw.type === "statement" && Array.isArray(raw.transactions)) {
+        onOpenChange(false)
+        reset()
+        openStatementImporter({
+          transactions: raw.transactions as ParsedTransaction[],
+          meta: raw.meta as FoldStatementMeta,
+        })
+        return
+      }
+
+      const extracted = normalizeScanExtraction(raw)
+      const suggestedEnvelopeId =
+        typeof raw.suggestedEnvelopeId === "string" && raw.suggestedEnvelopeId.length > 0
+          ? raw.suggestedEnvelopeId
+          : undefined
 
       const receiptPreviewDataUrl = (await dataUrlPromise) ?? undefined
 
       const prefillDate =
         file.type.startsWith("image/")
-          ? receiptCapturePrefillDate(data.date || "", file.lastModified)
-          : data.date || ""
-
-      const extractionConfidence = typeof data.extractionConfidence === "number"
-        ? data.extractionConfidence
-        : undefined
+          ? receiptCapturePrefillDate(extracted.date, file.lastModified)
+          : extracted.date
 
       const receiptScanStats: ReceiptScanStats | undefined =
-        typeof data.model === "string" && typeof data.processingMs === "number"
+        typeof raw.model === "string" && typeof raw.processingMs === "number"
           ? {
-              model: data.model,
-              processingMs: data.processingMs,
-              inputType: data.inputType ?? (file.type === "application/pdf" ? "pdf" : "photo"),
-              fileSizeBytes: data.fileSizeBytes ?? file.size,
-              extractionConfidence: extractionConfidence ?? 0,
-              envelopeMatchConfidence: data.envelopeMatchConfidence ?? null,
+              model: raw.model,
+              processingMs: raw.processingMs,
+              inputType:
+                raw.inputType === "pdf" || raw.inputType === "photo"
+                  ? raw.inputType
+                  : file.type === "application/pdf"
+                    ? "pdf"
+                    : "photo",
+              fileSizeBytes:
+                typeof raw.fileSizeBytes === "number" ? raw.fileSizeBytes : file.size,
+              extractionConfidence: extracted.extractionConfidence,
+              envelopeMatchConfidence:
+                raw.envelopeMatchConfidence === null ||
+                typeof raw.envelopeMatchConfidence === "number"
+                  ? raw.envelopeMatchConfidence
+                  : null,
             }
           : undefined
 
       onOpenChange(false)
       reset()
       openNewTransaction({
-        payee: data.payee || "",
-        amount: data.amount || "",
+        payee: extracted.payee || (typeof raw.payee === "string" ? raw.payee.trim() : ""),
+        amount: extracted.amount || (typeof raw.amount === "string" ? raw.amount.trim() : ""),
         date: prefillDate,
-        ...(data.suggestedEnvelopeId && { envelopeId: data.suggestedEnvelopeId }),
+        ...(suggestedEnvelopeId ? { envelopeId: suggestedEnvelopeId } : {}),
         ...(receiptPreviewDataUrl ? { receiptPreviewDataUrl } : {}),
-        ...(extractionConfidence !== undefined ? { receiptScanConfidence: extractionConfidence } : {}),
+        receiptScanConfidence: extracted.extractionConfidence,
         ...(receiptScanStats ? { receiptScanStats } : {}),
       })
     } catch {

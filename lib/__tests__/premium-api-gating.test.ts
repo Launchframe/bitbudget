@@ -99,7 +99,7 @@ describe("Premium API route gating", () => {
   })
 
   describe("POST /api/receipts/scan", () => {
-    it("returns 403 for free users via requirePremiumOrTrial", async () => {
+    it("returns 403 for free users via requirePremiumOrTrial (multipart upload)", async () => {
       authMock.mockResolvedValue({ user: { id: userId } })
       requirePremiumOrTrialMock.mockResolvedValue(false)
       const res = await receiptScanPost(
@@ -107,6 +107,18 @@ describe("Premium API route gating", () => {
       )
       expect(res.status).toBe(403)
       expect(requirePremiumOrTrialMock).toHaveBeenCalledWith(userId)
+    })
+
+    it("returns 403 for free users on non-multipart POST (JSON probe)", async () => {
+      authMock.mockResolvedValue({ user: { id: userId } })
+      requirePremiumOrTrialMock.mockResolvedValue(false)
+      const res = await receiptScanPost(
+        jsonRequest("http://localhost/api/receipts/scan", {}),
+      )
+      expect(res.status).toBe(403)
+      expect(requirePremiumOrTrialMock).toHaveBeenCalledWith(userId)
+      const body = await res.json()
+      expect(body.message).toMatch(/premium|trial/i)
     })
 
     it("uses the same gate as voice when allowed (not 403)", async () => {
