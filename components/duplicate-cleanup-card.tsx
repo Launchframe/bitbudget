@@ -69,7 +69,7 @@ export function DuplicateCleanupCard() {
       const count = await bulkDeleteTransactions(ids)
       setLastDeleted(count)
       setSelected(new Set())
-      // Re-scan against the updated list on next render via state.transactions change.
+      // clusters recomputes automatically when activeTransactions updates after deletion.
       setScanned(true)
     } catch (err) {
       setLastDeleted(null)
