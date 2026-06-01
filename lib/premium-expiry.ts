@@ -142,12 +142,14 @@ export function resolveActivePremiumExpiry(
   }
 
   if (row.premiumTrialUntil && isTimedPremiumAccessActive(row.premiumTrialUntil, now)) {
-    candidates.push({
-      source: "trial",
-      population: "trial",
-      expiryInstant: row.premiumTrialUntil,
-      calendarExpiryUtc: calendarExpiryUtcDate(row.premiumTrialUntil),
-    })
+    if (row.subscriptionTier !== "premium") {
+      candidates.push({
+        source: "trial",
+        population: "trial",
+        expiryInstant: row.premiumTrialUntil,
+        calendarExpiryUtc: calendarExpiryUtcDate(row.premiumTrialUntil),
+      })
+    }
   }
 
   if (candidates.length === 0) return null
@@ -177,7 +179,9 @@ export function resolveRecentlyLapsedPremiumExpiry(
 
   pushIfLapsed("membership", "membership", row.premiumMembershipUntil)
   pushIfLapsed("gratis", "membership", row.premiumGratisUntil)
-  pushIfLapsed("trial", "trial", row.premiumTrialUntil)
+  if (row.subscriptionTier !== "premium") {
+    pushIfLapsed("trial", "trial", row.premiumTrialUntil)
+  }
 
   if (candidates.length === 0) return null
   candidates.sort((a, b) => b.calendarExpiryUtc.getTime() - a.calendarExpiryUtc.getTime())

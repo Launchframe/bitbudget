@@ -96,6 +96,19 @@ describe("resolveActivePremiumExpiry", () => {
     expect(active?.source).toBe("trial")
     expect(active?.population).toBe("trial")
   })
+
+  it("ignores stale trial when subscriptionTier is premium", () => {
+    const active = resolveActivePremiumExpiry(
+      {
+        subscriptionTier: "premium",
+        premiumTrialUntil: new Date("2026-06-20T00:00:00.000Z"),
+        premiumGratisUntil: null,
+        premiumMembershipUntil: null,
+      },
+      now,
+    )
+    expect(active).toBeNull()
+  })
 })
 
 describe("resolveRecentlyLapsedPremiumExpiry", () => {

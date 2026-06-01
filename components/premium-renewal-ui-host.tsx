@@ -16,34 +16,7 @@ import {
   PREMIUM_PRICE_MONTHLY_USD,
 } from "@/lib/constants"
 
-interface PremiumRenewalPrompt {
-  logKey: string
-  headline: string
-  body: string
-  referralLine: string
-  pricingLine: string
-  ctaRenew: string
-  ctaRefer: string
-  settingsReferralsPath: string
-}
-
-interface PremiumExpiredBannerState {
-  logKey: string
-  headline: string
-  body: string
-  pricingLine: string
-  ctaRenew: string
-}
-
 type CheckoutPlan = "monthly" | "annual"
-
-async function dismissPremiumRenewalPrompt(logKey: string): Promise<void> {
-  await fetch("/api/user/premium-renewal-prompt", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ logKey }),
-  })
-}
 
 async function startPremiumCheckout(plan: CheckoutPlan): Promise<string | null> {
   const res = await fetch("/api/billing/checkout", {
@@ -62,65 +35,34 @@ async function startPremiumCheckout(plan: CheckoutPlan): Promise<string | null> 
   return data.message ?? "Thanks — we saved your interest and will follow up when billing is live."
 }
 
-function parseRenewalState(settings: unknown): {
-  prompt: PremiumRenewalPrompt | null
-  expiredBanner: PremiumExpiredBannerState | null
-} {
-  if (!settings || typeof settings !== "object") {
-    return { prompt: null, expiredBanner: null }
-  }
-  const s = settings as Record<string, unknown>
-  const prompt = s.premiumRenewalPrompt
-  const expiredBanner = s.premiumExpiredBanner
-  return {
-    prompt: prompt && typeof prompt === "object" ? (prompt as PremiumRenewalPrompt) : null,
-    expiredBanner:
-      expiredBanner && typeof expiredBanner === "object"
-        ? (expiredBanner as PremiumExpiredBannerState)
-        : null,
-  }
-}
-
 export function PremiumRenewalUiHost() {
-  const { navigateTo, refreshData } = useApp()
-  const [prompt, setPrompt] = useState<PremiumRenewalPrompt | null>(null)
-  const [expiredBanner, setExpiredBanner] = useState<PremiumExpiredBannerState | null>(null)
+  const {
+    navigateTo,
+    refreshData,
+    premiumRenewalPrompt,
+    premiumExpiredBanner,
+    dismissPremiumRenewalUi,
+  } = useApp()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null)
   const [checkoutBusy, setCheckoutBusy] = useState<CheckoutPlan | null>(null)
 
-  const loadRenewalState = useCallback(async () => {
-    try {
-      const res = await fetch("/api/user/settings")
-      if (!res.ok) return
-      const settings = await res.json()
-      const parsed = parseRenewalState(settings)
-      setPrompt(parsed.prompt)
-      setExpiredBanner(parsed.expiredBanner)
-      setDialogOpen(Boolean(parsed.prompt))
-    } catch {
-      /* ignore */
-    }
-  }, [])
-
   useEffect(() => {
-    void loadRenewalState()
-  }, [loadRenewalState])
+    setDialogOpen(Boolean(premiumRenewalPrompt))
+  }, [premiumRenewalPrompt])
 
   const dismissPrompt = useCallback(async () => {
-    if (prompt) {
-      await dismissPremiumRenewalPrompt(prompt.logKey)
+    if (premiumRenewalPrompt) {
+      await dismissPremiumRenewalUi(premiumRenewalPrompt.logKey)
     }
     setDialogOpen(false)
-    setPrompt(null)
-  }, [prompt])
+  }, [dismissPremiumRenewalUi, premiumRenewalPrompt])
 
   const dismissExpiredBanner = useCallback(async () => {
-    if (expiredBanner) {
-      await dismissPremiumRenewalPrompt(expiredBanner.logKey)
+    if (premiumExpiredBanner) {
+      await dismissPremiumRenewalUi(premiumExpiredBanner.logKey)
     }
-    setExpiredBanner(null)
-  }, [expiredBanner])
+  }, [dismissPremiumRenewalUi, premiumExpiredBanner])
 
   const handleCheckout = useCallback(async (plan: CheckoutPlan) => {
     setCheckoutBusy(plan)
@@ -142,7 +84,7 @@ export function PremiumRenewalUiHost() {
   return (
     <>
       <Dialog
-        open={dialogOpen && !!prompt}
+        open={dialogOpen && !!premiumRenewalPrompt}
         onOpenChange={(open) => {
           if (!open) void dismissPrompt()
         }}
@@ -151,15 +93,15 @@ export function PremiumRenewalUiHost() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-[#F7931A]">
               <Sparkles className="h-5 w-5 shrink-0" aria-hidden />
-              {prompt?.headline}
+              {premiumRenewalPrompt?.headline}
             </DialogTitle>
             <DialogDescription className="text-muted-foreground text-left space-y-3 pt-2">
-              <span className="block">{prompt?.body}</span>
-              {prompt?.referralLine ? (
-                <span className="block text-sm">{prompt.referralLine}</span>
+              <span className="block">{premiumRenewalPrompt?.body}</span>
+              {premiumRenewalPrompt?.referralLine ? (
+                <span className="block text-sm">{premiumRenewalPrompt.referralLine}</span>
               ) : null}
-              {prompt?.pricingLine ? (
-                <span className="block text-sm font-medium text-foreground">{prompt.pricingLine}</span>
+              {premiumRenewalPrompt?.pricingLine ? (
+                <span className="block text-sm font-medium text-foreground">{premiumRenewalPrompt.pricingLine}</span>
               ) : null}
             </DialogDescription>
           </DialogHeader>
@@ -173,7 +115,7 @@ export function PremiumRenewalUiHost() {
               >
                 {checkoutBusy === "monthly"
                   ? "Starting…"
-                  : `${prompt?.ctaRenew ?? "Renew"} — $${PREMIUM_PRICE_MONTHLY_USD}/mo`}
+                  : `${premiumRenewalPrompt?.ctaRenew ?? "Renew"} — $${PREMIUM_PRICE_MONTHLY_USD}/mo`}
               </button>
               <button
                 type="button"
@@ -191,7 +133,7 @@ export function PremiumRenewalUiHost() {
               onClick={openReferrals}
               className="w-full text-sm font-medium text-[#3B82F6] hover:underline py-1"
             >
-              {prompt?.ctaRefer ?? "Refer a friend"}
+              {premiumRenewalPrompt?.ctaRefer ?? "Refer a friend"}
             </button>
             {checkoutMessage ? (
               <p className="text-xs text-muted-foreground text-left w-full">{checkoutMessage}</p>
@@ -200,13 +142,13 @@ export function PremiumRenewalUiHost() {
         </DialogContent>
       </Dialog>
 
-      {expiredBanner ? (
+      {premiumExpiredBanner ? (
         <div className="rounded-xl border border-[#F7931A]/35 bg-[#F7931A]/10 px-4 py-3 flex flex-col sm:flex-row sm:items-start gap-3">
           <Sparkles className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" aria-hidden />
           <div className="flex-1 min-w-0 space-y-2">
-            <p className="text-sm text-foreground font-medium">{expiredBanner.headline}</p>
-            <p className="text-sm text-muted-foreground">{expiredBanner.body}</p>
-            <p className="text-sm text-muted-foreground">{expiredBanner.pricingLine}</p>
+            <p className="text-sm text-foreground font-medium">{premiumExpiredBanner.headline}</p>
+            <p className="text-sm text-muted-foreground">{premiumExpiredBanner.body}</p>
+            <p className="text-sm text-muted-foreground">{premiumExpiredBanner.pricingLine}</p>
             <div className="flex flex-col sm:flex-row gap-2 pt-1">
               <button
                 type="button"
@@ -216,7 +158,7 @@ export function PremiumRenewalUiHost() {
               >
                 {checkoutBusy === "monthly"
                   ? "Starting…"
-                  : `${expiredBanner.ctaRenew} — $${PREMIUM_PRICE_MONTHLY_USD}/mo`}
+                  : `${premiumExpiredBanner.ctaRenew} — $${PREMIUM_PRICE_MONTHLY_USD}/mo`}
               </button>
               <button
                 type="button"
