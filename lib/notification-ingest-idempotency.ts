@@ -18,6 +18,17 @@ function dedupeSince(): Date {
   return new Date(Date.now() - DEDUPE_HOURS * 60 * 60 * 1000)
 }
 
+/** Drop idempotency rows older than the dedupe window so the table does not grow forever. */
+export async function purgeExpiredNotificationIngestDedupes(userId?: string): Promise<void> {
+  const since = dedupeSince()
+  await prisma.notificationIngestDedupe.deleteMany({
+    where: {
+      createdAt: { lt: since },
+      ...(userId ? { userId } : {}),
+    },
+  })
+}
+
 /** @returns true when this key was already claimed within the dedupe window */
 export async function notificationIngestAlreadySeen(
   userId: string,
@@ -30,8 +41,8 @@ export async function notificationIngestAlreadySeen(
   })
   if (!row) return false
   if (row.createdAt >= since) return true
-  await prisma.notificationIngestDedupe.delete({
-    where: { userId_idempotencyKey: { userId, idempotencyKey } },
+  await prisma.notificationIngestDedupe.deleteMany({
+    where: { userId, idempotencyKey, createdAt: { lt: since } },
   })
   return false
 }
@@ -43,6 +54,7 @@ export async function claimNotificationIngestIdempotency(
   userId: string,
   idempotencyKey: string,
 ): Promise<"claimed" | "duplicate"> {
+  await purgeExpiredNotificationIngestDedupes(userId)
   try {
     await prisma.notificationIngestDedupe.create({
       data: { userId, idempotencyKey },
@@ -53,13 +65,7 @@ export async function claimNotificationIngestIdempotency(
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2002"
     ) {
-      if (await notificationIngestAlreadySeen(userId, idempotencyKey)) {
-        return "duplicate"
-      }
-      await prisma.notificationIngestDedupe.create({
-        data: { userId, idempotencyKey },
-      })
-      return "claimed"
+      return "duplicate"
     }
     throw err
   }
@@ -69,9 +75,7 @@ export async function releaseNotificationIngestIdempotency(
   userId: string,
   idempotencyKey: string,
 ): Promise<void> {
-  await prisma.notificationIngestDedupe
-    .delete({
-      where: { userId_idempotencyKey: { userId, idempotencyKey } },
-    })
-    .catch(() => undefined)
+  await prisma.notificationIngestDedupe.deleteMany({
+    where: { userId, idempotencyKey },
+  })
 }

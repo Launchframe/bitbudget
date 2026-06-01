@@ -1,8 +1,8 @@
 import { randomBytes, timingSafeEqual } from "node:crypto"
 
-/** 32-byte hex secret for per-user ingest webhooks (receipt inbox, notification forward). */
+/** 32 random bytes → 64 hex chars for per-user ingest webhooks. */
 export function generateIngestToken(): string {
-  return randomBytes(16).toString("hex")
+  return randomBytes(32).toString("hex")
 }
 
 export function ingestTokenMatches(provided: string, stored: string | null | undefined): boolean {

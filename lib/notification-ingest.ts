@@ -128,21 +128,27 @@ export async function ingestNotificationAlert(
     return { ok: false, status: 400, error: "Invalid postedAt" }
   }
 
-  const envelopeMatch = await matchEnvelope(userId, parsed.payee)
-  const confidence = envelopeMatch?.confidence ?? 0.3
   const pkg = payload.package?.trim()
   const rawPrefix = idempotencyKey ? `idempotency:${idempotencyKey}\n` : ""
   const rawInput = `${rawPrefix}${pkg ? `package:${pkg}\n` : ""}${alertText.slice(0, 500)}`
 
-  const result = await routeTransaction(userId, {
-    payee: parsed.payee,
-    amount: parsed.amount,
-    date,
-    source: NOTIFICATION_FORWARD_SOURCE,
-    suggestedEnvelopeId: envelopeMatch?.envelopeId ?? null,
-    confidence,
-    rawInput,
-  })
+  let result
+  try {
+    const envelopeMatch = await matchEnvelope(userId, parsed.payee)
+    const confidence = envelopeMatch?.confidence ?? 0.3
+    result = await routeTransaction(userId, {
+      payee: parsed.payee,
+      amount: parsed.amount,
+      date,
+      source: NOTIFICATION_FORWARD_SOURCE,
+      suggestedEnvelopeId: envelopeMatch?.envelopeId ?? null,
+      confidence,
+      rawInput,
+    })
+  } catch (err) {
+    await releaseClaim()
+    throw err
+  }
 
   idempotencyClaimed = false
   return { ok: true, route: result.route, id: result.id }

@@ -36,6 +36,8 @@ vi.mock("@/lib/confidence-router", () => ({
   routeTransaction: vi.fn().mockResolvedValue({ route: "pending", id: "pend_1" }),
 }))
 
+import { routeTransaction } from "@/lib/confidence-router"
+
 import { parseBankAlertText } from "@/lib/bank-alert-parser"
 import {
   claimNotificationIngestIdempotency,
@@ -118,5 +120,18 @@ describe("ingestNotificationAlert", () => {
     })
     const out = await ingestNotificationAlert("u1", { text: "Debit $5 at Coffee" })
     expect(out).toEqual({ ok: true, route: "pending", id: "pend_1" })
+  })
+
+  it("releases idempotency claim when routeTransaction throws", async () => {
+    vi.mocked(parseBankAlertText).mockResolvedValue({
+      payee: "Coffee",
+      amount: 5,
+      date: "2026-05-27",
+    })
+    vi.mocked(routeTransaction).mockRejectedValue(new Error("db down"))
+    await expect(
+      ingestNotificationAlert("u1", { text: "Debit $5", idempotencyKey: "k3" }),
+    ).rejects.toThrow("db down")
+    expect(releaseNotificationIngestIdempotency).toHaveBeenCalledWith("u1", "k3")
   })
 })
