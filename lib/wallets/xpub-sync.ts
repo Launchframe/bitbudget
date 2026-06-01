@@ -176,7 +176,14 @@ async function scanChain(
     const used = usedCount > 0
     let lastSeenAt: string | null = null
     if (used) {
-      const txs = await client.getAddressTxs(address)
+      let txs: EsploraTx[]
+      try {
+        txs = await client.getAddressTxs(address)
+      } catch (err) {
+        throw new Error(
+          `Explorer tx query failed for ${address} (chain ${chain} index ${i}): ${(err as Error).message}`,
+        )
+      }
       for (const tx of txs) {
         if (!txMap.has(tx.txid)) txMap.set(tx.txid, tx)
         if (tx.status.confirmed && tx.status.block_time) {
@@ -353,6 +360,10 @@ export async function runSync(opts: RunSyncOptions): Promise<RunSyncResult> {
     try {
       serverId = await saveTransaction(txnForApi)
     } catch {
+      // Leave un-recorded so the next sync retries; do not poison the cache.
+      continue
+    }
+    if (!serverId) {
       // Leave un-recorded so the next sync retries; do not poison the cache.
       continue
     }

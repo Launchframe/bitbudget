@@ -73,7 +73,11 @@ function readRaw(userId: string): string | null {
 
 function writeRaw(userId: string, value: string): void {
   if (typeof window === "undefined") return
-  window.localStorage.setItem(storageKey(userId), value)
+  try {
+    window.localStorage.setItem(storageKey(userId), value)
+  } catch {
+    throw new Error("Failed to write wallets to localStorage (storage may be full or blocked).")
+  }
 }
 
 function clearRaw(userId: string): void {
@@ -228,9 +232,17 @@ function isLocalOrOnionHost(hostname: string): boolean {
   const h = hostname.toLowerCase()
   if (h === "localhost" || h.endsWith(".local") || h.endsWith(".onion")) return true
   if (h === "127.0.0.1" || h === "::1") return true
-  // RFC1918 IPv4
-  if (/^10\.(\d{1,3}\.){2}\d{1,3}$/.test(h)) return true
-  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(h)) return true
-  if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(h)) return true
+
+  const parts = h.split(".")
+  const isIpv4 =
+    parts.length === 4 &&
+    parts.every((p) => /^\d+$/.test(p) && Number(p) >= 0 && Number(p) <= 255)
+  if (!isIpv4) return false
+
+  const [a, b] = parts.map(Number)
+  if (a === 10) return true
+  if (a === 192 && b === 168) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
   return false
+}
 }
