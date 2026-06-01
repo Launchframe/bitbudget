@@ -12,6 +12,8 @@ describe("referralRedeemErrorMessage", () => {
     expect(referralRedeemErrorMessage({ code: "redeem_window_closed" })).toMatch(/7 days/i)
     expect(referralRedeemErrorMessage({ code: "self_referral" })).toMatch(/your own/i)
     expect(referralRedeemErrorMessage({ code: "expired" })).toMatch(/invalid, expired/i)
+    expect(referralRedeemErrorMessage({ code: "exhausted" })).toMatch(/invalid, expired/i)
+    expect(referralRedeemErrorMessage({ code: "not_found" })).toMatch(/invalid, expired/i)
   })
 
   it("falls back to server error text", () => {
