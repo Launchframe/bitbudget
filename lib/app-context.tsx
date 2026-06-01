@@ -589,15 +589,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTransactionSyncError(null)
   }, [])
 
-  const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
-    await fetch("/api/user/premium-renewal-prompt", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ logKey }),
-    })
-    setPremiumRenewalPrompt((current) => (current?.logKey === logKey ? null : current))
-    setPremiumExpiredBanner((current) => (current?.logKey === logKey ? null : current))
-  }, [])
+const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
+  const res = await fetch("/api/user/premium-renewal-prompt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ logKey }),
+  })
+  if (res.status === 401 || res.status === 403) {
+    signOut({ callbackUrl: "/auth" })
+    return
+  }
+  setPremiumRenewalPrompt((current) => (current?.logKey === logKey ? null : current))
+  setPremiumExpiredBanner((current) => (current?.logKey === logKey ? null : current))
+}, [])
 
   const refreshData = useCallback(async () => {
     setTransactionSyncError(null)

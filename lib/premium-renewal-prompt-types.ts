@@ -28,13 +28,34 @@ export interface PremiumExpiredBannerPayload {
 function isRenewalPrompt(value: unknown): value is PremiumRenewalPromptPayload {
   if (!value || typeof value !== "object") return false
   const row = value as Record<string, unknown>
-  return typeof row.logKey === "string" && typeof row.headline === "string"
+  return (
+    typeof row.logKey === "string" &&
+    (row.kind === 14 || row.kind === 3 || row.kind === 1) &&
+    (row.population === "trial" || row.population === "membership") &&
+    typeof row.expiryDate === "string" &&
+    typeof row.daysRemaining === "number" &&
+    typeof row.headline === "string" &&
+    typeof row.body === "string" &&
+    typeof row.referralLine === "string" &&
+    typeof row.pricingLine === "string" &&
+    typeof row.ctaRenew === "string" &&
+    typeof row.ctaRefer === "string" &&
+    typeof row.settingsReferralsPath === "string"
+  )
 }
 
 function isExpiredBanner(value: unknown): value is PremiumExpiredBannerPayload {
   if (!value || typeof value !== "object") return false
   const row = value as Record<string, unknown>
-  return typeof row.logKey === "string" && typeof row.headline === "string"
+  return (
+    typeof row.logKey === "string" &&
+    (row.population === "trial" || row.population === "membership") &&
+    typeof row.expiryDate === "string" &&
+    typeof row.headline === "string" &&
+    typeof row.body === "string" &&
+    typeof row.pricingLine === "string" &&
+    typeof row.ctaRenew === "string"
+  )
 }
 
 export function parsePremiumRenewalSettings(settings: unknown): {
