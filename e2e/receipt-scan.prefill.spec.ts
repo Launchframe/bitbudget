@@ -6,38 +6,11 @@ import { signInAppUser } from "./helpers/app-session"
 
 /**
  * Full client path: choose file → POST /api/receipts/scan → openNewTransaction prefill.
- * The scan route is intercepted so CI does not need OpenAI or premium entitlements.
+ * With E2E_TEST=true the scan route returns deterministic mock extraction (no OpenAI).
  */
 test.describe("Receipt scan → New Transaction prefill", () => {
-  /** Shared mock response that includes all stats fields the real API returns. */
-  const MOCK_SCAN_RESPONSE = {
-    payee: "Receipt Scan Café ZZ99",
-    amount: "42.50",
-    date: "2026-04-01",
-    extractionConfidence: 0.92,
-    suggestedEnvelopeId: null,
-    suggestedEnvelopeName: null,
-    confidence: 0,
-    envelopeMatchConfidence: null,
-    model: "GPT-4o mini",
-    processingMs: 1240,
-    inputType: "photo",
-    fileSizeBytes: 24601,
-  }
-
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 })
-    await page.route("**/api/receipts/scan", async route => {
-      if (route.request().method() !== "POST") {
-        await route.continue()
-        return
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(MOCK_SCAN_RESPONSE),
-      })
-    })
   })
 
   test("PNG upload prefills dialog and receipt image preview", async ({ page, baseURL }) => {
@@ -62,6 +35,11 @@ test.describe("Receipt scan → New Transaction prefill", () => {
     await expect(page.locator("#date")).toHaveValue("2026-04-01")
 
     await expect(page.getByRole("img", { name: "Scanned receipt" })).toBeVisible()
+
+    await expect(page.getByRole("button", { name: "Show scan details" })).toBeVisible()
+    await page.getByRole("button", { name: "Show scan details" }).click()
+    await expect(page.getByText("Reading quality")).toBeVisible()
+    await expect(page.getByText("GPT-4o mini")).toBeVisible()
   })
 
   test("PDF upload prefills transaction fields", async ({ page, baseURL }) => {
@@ -71,20 +49,8 @@ test.describe("Receipt scan → New Transaction prefill", () => {
     await page.goto(`${origin}/#/transactions`)
     await expect(page.getByRole("heading", { name: /transactions/i }).first()).toBeVisible({ timeout: 90_000 })
 
-    // Override the shared mock to return inputType: "pdf" for this test
-    await page.route("**/api/receipts/scan", async route => {
-      if (route.request().method() !== "POST") {
-        await route.continue()
-        return
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ ...MOCK_SCAN_RESPONSE, inputType: "pdf", fileSizeBytes: 98304 }),
-      })
-    })
-
     await page.getByTitle("Scan Receipt").click()
+    await expect(page.getByRole("heading", { name: "Scan Receipt" })).toBeVisible()
 
     const fileChooserPromise = page.waitForEvent("filechooser")
     await page.getByRole("button", { name: "Upload File" }).click()
@@ -96,5 +62,11 @@ test.describe("Receipt scan → New Transaction prefill", () => {
     await expect(page.locator("#payee")).toHaveValue("Receipt Scan Café ZZ99")
     await expect(page.locator("#amount")).toHaveValue("42.50")
     await expect(page.locator("#date")).toHaveValue("2026-04-01")
+
+    await expect(page.getByRole("button", { name: "Show scan details" })).toBeVisible()
+    await page.getByRole("button", { name: "Show scan details" }).click()
+    await expect(page.getByText("Reading quality")).toBeVisible()
+    await expect(page.getByText("PDF document")).toBeVisible()
+    await expect(page.getByText("GPT-4o mini")).toBeVisible()
   })
 })

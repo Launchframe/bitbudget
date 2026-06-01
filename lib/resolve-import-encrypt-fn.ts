@@ -134,3 +134,14 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
   const crypto = await resolveImportCrypto()
   return crypto?.encrypt ?? null
 }
+
+/** Privacy key bytes for decrypting email-forwarded statement batches in the importer. */
+export async function resolveSecretKeyForImport(): Promise<Uint8Array | null> {
+  const crypto = await resolveImportCrypto()
+  if (!crypto) return null
+  try {
+    return hexToUint8(crypto.seedHex)
+  } catch {
+    return null
+  }
+}

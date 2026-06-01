@@ -12,6 +12,8 @@ import type {
   RecurringTransaction,
   CommunicationPreferenceKey,
 } from "@/lib/data"
+import type { ParsedTransaction } from "@/lib/csv"
+import type { FoldStatementMeta } from "@/lib/fold-pdf-parser"
 import {
   applyServerTransactionAfterOptimisticCreate,
   compareTransactionsDesc,
@@ -161,6 +163,14 @@ export interface TransactionPrefill {
   receiptScanStats?: ReceiptScanStats
 }
 
+/** Pre-parsed data passed to StatementImporterDialog (scan handoff or email pending batch). */
+export interface StatementImporterPrefill {
+  transactions?: ParsedTransaction[]
+  meta?: FoldStatementMeta
+  /** Email-forwarded statement batch — dialog loads encrypted rows from the API. */
+  pendingBatchId?: string
+}
+
 export interface ReferralSummaryState {
   code: string | null
   codeExpiresAt: string | null
@@ -209,6 +219,12 @@ interface AppContextValue {
   navigateTo: (page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => void
   setTransactionDialogOpen: (open: boolean) => void
   openNewTransaction: (prefill?: TransactionPrefill) => void
+  statementImporterOpen: boolean
+  statementImporterPrefill: StatementImporterPrefill | null
+  /** Incremented on each openStatementImporter() call so the dialog remounts with fresh state. */
+  statementImporterKey: number
+  setStatementImporterOpen: (open: boolean) => void
+  openStatementImporter: (prefill?: StatementImporterPrefill) => void
 
   addTransaction: (txn: Omit<Transaction, "id">) => Promise<boolean>
   editTransaction: (id: string, updates: Partial<Omit<Transaction, "id">>) => void
@@ -410,6 +426,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return Object.keys(next).length > 0 ? next : null
     })
   }, [transactionDialogOpen])
+
+  const [statementImporterOpen, setStatementImporterOpen] = useState(false)
+  const [statementImporterPrefill, setStatementImporterPrefill] = useState<StatementImporterPrefill | null>(null)
+  const [statementImporterKey, setStatementImporterKey] = useState(0)
+
+  const openStatementImporter = useCallback((prefill?: StatementImporterPrefill) => {
+    setStatementImporterPrefill(prefill ?? null)
+    setStatementImporterKey(k => k + 1)
+    setStatementImporterOpen(true)
+  }, [])
 
   const [inputModeSheetOpen, setInputModeSheetOpen] = useState(false)
   const [transactionEnvelopeFilter, setTransactionEnvelopeFilter] = useState<Set<string>>(() => {
@@ -1764,6 +1790,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         navigateTo,
         setTransactionDialogOpen,
         openNewTransaction,
+        statementImporterOpen,
+        statementImporterPrefill,
+        statementImporterKey,
+        setStatementImporterOpen,
+        openStatementImporter,
         addTransaction,
         editTransaction,
         deleteTransaction,

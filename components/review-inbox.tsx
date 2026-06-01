@@ -18,6 +18,8 @@ import {
   Copy,
   Sparkles,
   FileUp,
+  FileText,
+  ArrowRight,
 } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import type { TransactionSource } from "@/lib/data"
@@ -29,6 +31,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+
+interface PendingStatementBatchTile {
+  id: string
+  source: string
+  institutionName: string | null
+  format: string
+  dateFrom: string | null
+  dateTo: string | null
+  transactionCount: number
+  createdAt: string
+}
 
 const sourceIcons: Record<TransactionSource, React.ElementType> = {
   manual: Inbox,
@@ -46,6 +59,7 @@ const sourceIcons: Record<TransactionSource, React.ElementType> = {
   income_import: TrendingUp,
   envelope_sweep: Sparkles,
   csv_import: FileUp,
+  statement_import: FileText,
 }
 
 const sourceLabels: Record<TransactionSource, string> = {
@@ -64,10 +78,11 @@ const sourceLabels: Record<TransactionSource, string> = {
   income_import: "Past income",
   envelope_sweep: "Envelope sweep",
   csv_import: "CSV import",
+  statement_import: "Statement",
 }
 
 export function ReviewInbox() {
-  const { pendingTransactions, confirmPending, dismissPending, state, activeEnvelopes, addTag, refreshData } = useApp()
+  const { pendingTransactions, confirmPending, dismissPending, state, activeEnvelopes, addTag, refreshData, openStatementImporter } = useApp()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editEnvelopeId, setEditEnvelopeId] = useState<string>("")
   const [editPayee, setEditPayee] = useState("")
@@ -79,6 +94,7 @@ export function ReviewInbox() {
   const [tagCreatingById, setTagCreatingById] = useState<Record<string, boolean>>({})
   const [receiptInboxAddress, setReceiptInboxAddress] = useState<string | null>(null)
   const [copiedReceiptAddress, setCopiedReceiptAddress] = useState(false)
+  const [pendingStatementBatches, setPendingStatementBatches] = useState<PendingStatementBatchTile[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -92,7 +108,18 @@ export function ReviewInbox() {
         // best-effort onboarding helper
       }
     }
+    async function loadPendingStatementBatches() {
+      try {
+        const res = await fetch("/api/import/pending-statements")
+        if (!res.ok) return
+        const data = await res.json() as PendingStatementBatchTile[]
+        if (!cancelled) setPendingStatementBatches(data)
+      } catch {
+        // best-effort
+      }
+    }
     loadReceiptInbox()
+    loadPendingStatementBatches()
     return () => {
       cancelled = true
     }
@@ -464,6 +491,61 @@ export function ReviewInbox() {
           )
         })}
       </div>
+
+      {/* Pending statement batches from email forwarding */}
+      {pendingStatementBatches.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider px-1">
+            Statements to review
+          </h3>
+          {pendingStatementBatches.map((batch) => (
+            <div
+              key={batch.id}
+              className="rounded-xl bg-[#1A1A1A] border border-[#252525] p-4 space-y-2"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-btc-orange/10 shrink-0">
+                  <FileText className="h-4 w-4 text-btc-orange" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground">
+                    {batch.institutionName ? `${batch.institutionName} Statement` : "Bank Statement"}
+                    {batch.dateFrom ? ` · ${batch.dateFrom.slice(0, 7)}` : ""}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {batch.transactionCount} transaction{batch.transactionCount !== 1 ? "s" : ""}
+                    {" · "}
+                    {new Date(batch.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    openStatementImporter({ pendingBatchId: batch.id })
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-btc-orange text-[#0D0D0D] rounded-lg text-xs font-semibold"
+                >
+                  Review & Import <ArrowRight className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await fetch(`/api/import/pending-batch/${batch.id}`, { method: "DELETE" })
+                      setPendingStatementBatches(prev => prev.filter(b => b.id !== batch.id))
+                    } catch {}
+                  }}
+                  className="px-3 py-1.5 text-muted-foreground text-xs hover:text-red-400"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

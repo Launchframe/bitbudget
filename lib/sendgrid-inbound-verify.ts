@@ -89,3 +89,43 @@ export function parseMultipartFormFields(
     bb.end(buffer)
   })
 }
+
+export interface MultipartFile {
+  name: string
+  filename: string
+  mimeType: string
+  data: Buffer
+}
+
+export function parseMultipartFormFieldsWithFiles(
+  buffer: Buffer,
+  contentType: string,
+): Promise<{ fields: Record<string, string>; files: MultipartFile[] }> {
+  return new Promise((resolve, reject) => {
+    const fields: Record<string, string> = {}
+    const files: MultipartFile[] = []
+    const bb = busboy({
+      headers: { "content-type": contentType },
+      defParamCharset: "utf8",
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB per file
+    })
+    bb.on("field", (name, val) => {
+      fields[name] = val
+    })
+    bb.on("file", (fieldname, stream, info) => {
+      const chunks: Buffer[] = []
+      stream.on("data", (chunk: Buffer) => chunks.push(chunk))
+      stream.on("end", () => {
+        files.push({
+          name: fieldname,
+          filename: info.filename ?? "",
+          mimeType: info.mimeType ?? "application/octet-stream",
+          data: Buffer.concat(chunks),
+        })
+      })
+    })
+    bb.on("error", (err: Error) => reject(err))
+    bb.on("finish", () => resolve({ fields, files }))
+    bb.end(buffer)
+  })
+}

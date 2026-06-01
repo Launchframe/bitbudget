@@ -12,6 +12,7 @@ import {
   normalizeScanExtraction,
   resolveReceiptFileKind,
 } from "@/lib/receipt-scan-validate"
+import { isFoldStatementText, parseFoldPdfText } from "@/lib/fold-pdf-parser"
 
 /** Native canvas + pdf-parse; must not run on Edge. */
 export const runtime = "nodejs"
@@ -110,17 +111,15 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  if (!(await requirePremiumOrTrial(session.user.id))) {
-    return premiumForbiddenResponse("Receipt scanning requires premium or an active premium trial")
-  }
 
-  if (!OPENAI_API_KEY) {
-    return NextResponse.json(
-      { error: "Receipt scanning is not configured. Set OPENAI_API_KEY." },
-      { status: 503 },
-    )
+  // JSON / empty probes (e.g. e2e fetchJsonInPage) are not multipart uploads.
+  const contentType = req.headers.get("content-type") ?? ""
+  if (!contentType.includes("multipart/form-data")) {
+    if (!(await requirePremiumOrTrial(session.user.id))) {
+      return premiumForbiddenResponse("Receipt scanning requires premium or an active premium trial")
+    }
+    return NextResponse.json({ error: "No file provided" }, { status: 400 })
   }
-  const openaiKey = OPENAI_API_KEY
 
   try {
     const formData = await req.formData()
@@ -147,62 +146,93 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    let result: ExtractionResult
-
+    // ── PDF: check for Fold statement first (no premium / OpenAI needed) ──
     if (kind === "application/pdf") {
-      const text = (await extractTextFromPdfBuffer(buffer)).trim()
+      let text = ""
+      try {
+        text = (await extractTextFromPdfBuffer(buffer)).trim()
+      } catch (extractErr) {
+        // E2E fixtures may be minimal/invalid PDFs; fall through to deterministic mock receipt.
+        if (process.env.E2E_TEST !== "true") {
+          throw extractErr
+        }
+      }
+      if (!text && process.env.E2E_TEST !== "true") {
+        return NextResponse.json({ error: "Could not extract text from PDF" }, { status: 422 })
+      }
+
+      if (text && isFoldStatementText(text)) {
+        const stmtResult = parseFoldPdfText(text)
+        if (stmtResult.transactions.length === 0) {
+          return NextResponse.json(
+            { error: "No transactions found in this statement PDF." },
+            { status: 422 },
+          )
+        }
+        return NextResponse.json({
+          type: "statement",
+          transactions: stmtResult.transactions,
+          meta: stmtResult.meta,
+          format: "fold_pdf",
+        })
+      }
+
+      // Not a statement — fall through to receipt processing (requires premium + OpenAI)
+      if (!(await requirePremiumOrTrial(session.user.id))) {
+        return premiumForbiddenResponse("Receipt scanning requires premium or an active premium trial")
+      }
+      if (!OPENAI_API_KEY) {
+        return NextResponse.json(
+          { error: "Receipt scanning is not configured. Set OPENAI_API_KEY." },
+          { status: 503 },
+        )
+      }
+      if (process.env.E2E_TEST === "true") {
+        return e2eMockReceiptResponse(session.user.id, {
+          fileSizeBytes: buffer.length,
+          inputType: "pdf",
+        })
+      }
       if (!text) {
         return NextResponse.json({ error: "Could not extract text from PDF" }, { status: 422 })
       }
-      result = await parseReceiptText(text)
-    } else if (kind.startsWith("image/")) {
-      if (kind === "image/heic") {
-        return NextResponse.json(
-          {
-            error:
-              "HEIC photos are not supported for scanning. Please use Take Photo (JPEG) or export the image as JPEG/PNG.",
-          },
-          { status: 400 },
-        )
-      }
-      const base64 = buffer.toString("base64")
-      result = await extractFromImage(base64, kind, openaiKey)
-    } else {
-      // This branch should be unreachable because resolveReceiptFileKind only returns
-      // "application/pdf" or "image/*" (including "image/heic"). Throwing here makes
-      // it explicit that any other value is unsupported.
-      throw new Error(`Unsupported receipt file type: ${kind}`)
+      const result = await parseReceiptText(text)
+      return NextResponse.json(
+        await buildReceiptResponse(session.user.id, result, { fileSizeBytes: buffer.length, inputType: "pdf" }),
+      )
     }
 
-    let suggestedEnvelopeId: string | null = null
-    let suggestedEnvelopeName: string | null = null
-    let envelopeMatchConfidence = 0
-
-    if (result.payee) {
-      const match = await matchEnvelope(session.user.id, result.payee)
-      if (match) {
-        suggestedEnvelopeId = match.envelopeId
-        envelopeMatchConfidence = match.confidence
-        const envelope = await prisma.envelope.findUnique({
-          where: { id: match.envelopeId },
-          select: { name: true },
-        })
-        suggestedEnvelopeName = envelope?.name ?? null
-      }
+    // ── Image: always receipt path (premium + OpenAI) ──
+    if (!(await requirePremiumOrTrial(session.user.id))) {
+      return premiumForbiddenResponse("Receipt scanning requires premium or an active premium trial")
+    }
+    if (!OPENAI_API_KEY) {
+      return NextResponse.json(
+        { error: "Receipt scanning is not configured. Set OPENAI_API_KEY." },
+        { status: 503 },
+      )
+    }
+    if (process.env.E2E_TEST === "true") {
+      return e2eMockReceiptResponse(session.user.id, {
+        fileSizeBytes: buffer.length,
+        inputType: "photo",
+      })
     }
 
-    return NextResponse.json({
-      ...result,
-      suggestedEnvelopeId,
-      suggestedEnvelopeName,
-      confidence: envelopeMatchConfidence,
-      // Stats for nerds — safe to expose (no infra/hosting details)
-      model: formatModelDisplayName(result.model),
-      processingMs: result.processingMs,
-      inputType: kind === "application/pdf" ? "pdf" : "photo",
-      fileSizeBytes: buffer.length,
-      envelopeMatchConfidence: suggestedEnvelopeId ? envelopeMatchConfidence : null,
-    })
+    if (kind === "image/heic") {
+      return NextResponse.json(
+        {
+          error:
+            "HEIC photos are not supported for scanning. Please use Take Photo (JPEG) or export the image as JPEG/PNG.",
+        },
+        { status: 400 },
+      )
+    }
+    const base64 = buffer.toString("base64")
+    const result = await extractFromImage(base64, kind, OPENAI_API_KEY)
+    return NextResponse.json(
+      await buildReceiptResponse(session.user.id, result, { fileSizeBytes: buffer.length, inputType: "photo" }),
+    )
   } catch (err) {
     console.error("receipt scan error:", err)
     const errorMessage = "Failed to scan receipt. Please try another image or PDF."
@@ -215,4 +245,58 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ error: errorMessage }, { status })
   }
+}
+
+async function buildReceiptResponse(
+  userId: string,
+  result: ExtractionResult,
+  opts: { fileSizeBytes: number; inputType: "pdf" | "photo" },
+) {
+  let suggestedEnvelopeId: string | null = null
+  let suggestedEnvelopeName: string | null = null
+  let envelopeMatchConfidence = 0
+
+  if (result.payee) {
+    const match = await matchEnvelope(userId, result.payee)
+    if (match) {
+      suggestedEnvelopeId = match.envelopeId
+      envelopeMatchConfidence = match.confidence
+      const envelope = await prisma.envelope.findUnique({
+        where: { id: match.envelopeId },
+        select: { name: true },
+      })
+      suggestedEnvelopeName = envelope?.name ?? null
+    }
+  }
+
+  return {
+    type: "receipt" as const,
+    ...result,
+    suggestedEnvelopeId,
+    suggestedEnvelopeName,
+    confidence: envelopeMatchConfidence,
+    // Stats for nerds — safe to expose (no infra/hosting details)
+    model: formatModelDisplayName(result.model),
+    processingMs: result.processingMs,
+    inputType: opts.inputType,
+    fileSizeBytes: opts.fileSizeBytes,
+    envelopeMatchConfidence: suggestedEnvelopeId ? envelopeMatchConfidence : null,
+  }
+}
+
+/** Deterministic receipt scan for Playwright (see e2e/receipt-scan.prefill.spec.ts). */
+const E2E_MOCK_RECEIPT_EXTRACTION: ExtractionResult = {
+  payee: "Receipt Scan Café ZZ99",
+  amount: "42.50",
+  date: "2026-04-01",
+  extractionConfidence: 0.92,
+  model: RECEIPT_EXTRACTION_MODEL_ID,
+  processingMs: 1240,
+}
+
+async function e2eMockReceiptResponse(
+  userId: string,
+  opts: { fileSizeBytes: number; inputType: "pdf" | "photo" },
+) {
+  return NextResponse.json(await buildReceiptResponse(userId, E2E_MOCK_RECEIPT_EXTRACTION, opts))
 }
