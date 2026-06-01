@@ -268,13 +268,16 @@ export async function redeemReferralCode(args: {
 
   try {
     await prisma.$transaction(async (tx) => {
+      // Prisma `DateTime` maps to `timestamp without time zone` (UTC wall clock). Comparing
+      // those columns to a timestamptz bind param uses the session TZ and can reject valid
+      // codes — treat stored values as UTC explicitly (see referral-redeem-bump.test.ts).
       const bumped = await tx.$executeRaw`
         UPDATE "ReferralCode"
         SET "usedCount" = "usedCount" + 1
         WHERE "id" = ${codeId}
           AND "active" = true
-          AND "startsAt" <= ${now}
-          AND "expiresAt" > ${now}
+          AND ("startsAt" AT TIME ZONE 'UTC') <= ${now}
+          AND ("expiresAt" AT TIME ZONE 'UTC') > ${now}
           AND "usedCount" < "maxUses"
       `
       // Prisma may return bigint for row counts; `1n !== 1` must not trigger a false 410.

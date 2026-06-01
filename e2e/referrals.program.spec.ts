@@ -11,6 +11,7 @@ import {
   E2E_EXHAUSTED_CODE,
 } from "./fixtures/referral-e2e-constants"
 import { signInWithE2eEmail } from "./helpers/auth-email"
+import { withPgSessionTimeZone } from "./helpers/pg-session-timezone"
 
 function pgHostFromDatabaseUrl(url: string | undefined): string | null {
   if (!url) return null
@@ -134,6 +135,135 @@ test.describe("Referral program (API + DB)", () => {
     expect(res.ok()).toBeTruthy()
     const body = (await res.json()) as { valid: boolean }
     expect(body.valid).toBe(false)
+  })
+
+  test("redeemReferralCode — fresh startsAt=now under America/Los_Angeles session TZ", async () => {
+    const premiumReferrer = await prisma.user.findUnique({
+      where: { email: E2E_REFERRER_PREMIUM_EMAIL },
+      select: { id: true },
+    })
+    expect(premiumReferrer?.id, "e2e seed missing — run globalSetup").toBeTruthy()
+
+    const now = new Date()
+    const expiresAt = new Date(now.getTime() + 7 * 86400000)
+    const code = `E2EF${(Date.now() % 1_000_000).toString(36).toUpperCase().padStart(4, "0")}`
+
+    const codeRow = await prisma.referralCode.create({
+      data: {
+        code,
+        type: "user",
+        ownerId: premiumReferrer!.id,
+        maxUses: 1,
+        usedCount: 0,
+        /** Production + `pnpm referral:admin-code` use `startsAt: now` — not the backdated e2e seed. */
+        startsAt: now,
+        expiresAt,
+        active: true,
+      },
+    })
+
+    const referee = await prisma.user.create({
+      data: {
+        email: `e2e-referee-fresh-tz-${Date.now()}@bitbudget.test`,
+        name: "E2E Fresh TZ Referee",
+        subscriptionTier: "free",
+        onboardingComplete: false,
+      },
+    })
+
+    try {
+      await withPgSessionTimeZone("America/Los_Angeles", async () => {
+        const [dateCheck] = await prisma.$queryRaw<
+          Array<{ naive_starts_ok: boolean; utc_starts_ok: boolean }>
+        >`
+          SELECT
+            "startsAt" <= ${now} AS naive_starts_ok,
+            ("startsAt" AT TIME ZONE 'UTC') <= ${now} AS utc_starts_ok
+          FROM "ReferralCode"
+          WHERE id = ${codeRow.id}
+        `
+        expect(dateCheck?.utc_starts_ok).toBe(true)
+        expect(
+          dateCheck?.naive_starts_ok,
+          "non-UTC session should expose naive timestamp vs timestamptz mismatch for fresh codes",
+        ).toBe(false)
+
+        const result = await redeemReferralCode({
+          refereeId: referee.id,
+          rawCode: codeRow.code,
+          shareMethod: "e2e",
+          now,
+        })
+        expect(result, JSON.stringify(result)).toEqual({
+          ok: true,
+          codeType: "user",
+          referrerId: premiumReferrer!.id,
+        })
+      })
+
+      const updated = await prisma.referralCode.findUnique({
+        where: { id: codeRow.id },
+        select: { usedCount: true },
+      })
+      expect(updated?.usedCount).toBe(1)
+
+      const referral = await prisma.referral.findUnique({ where: { refereeId: referee.id } })
+      expect(referral?.status).toBe("accepted")
+    } finally {
+      await prisma.referral.deleteMany({ where: { refereeId: referee.id } }).catch(() => {})
+      await prisma.user.delete({ where: { id: referee.id } }).catch(() => {})
+      await prisma.referralCode.delete({ where: { id: codeRow.id } }).catch(() => {})
+    }
+  })
+
+  test("POST /api/referral/redeem — fresh startsAt=now via API (production-like code)", async ({
+    page,
+    baseURL,
+  }) => {
+    const premiumReferrer = await prisma.user.findUnique({
+      where: { email: E2E_REFERRER_PREMIUM_EMAIL },
+      select: { id: true },
+    })
+    expect(premiumReferrer?.id).toBeTruthy()
+
+    const now = new Date()
+    const code = `E2EA${(Date.now() % 1_000_000).toString(36).toUpperCase().padStart(4, "0")}`
+    const codeRow = await prisma.referralCode.create({
+      data: {
+        code,
+        type: "user",
+        ownerId: premiumReferrer!.id,
+        maxUses: 1,
+        usedCount: 0,
+        startsAt: now,
+        expiresAt: new Date(now.getTime() + 7 * 86400000),
+        active: true,
+      },
+    })
+
+    const email = `e2e-referee-fresh-api-${Date.now()}@bitbudget.test`
+    try {
+      await signInWithE2eEmail(page, baseURL!, email)
+
+      const redeem = await fetchJsonInPage(page, "/api/referral/redeem", {
+        method: "POST",
+        body: { code: codeRow.code, shareMethod: "e2e" },
+      })
+      expect(redeem.status, JSON.stringify(redeem.json)).toBe(200)
+
+      const updated = await prisma.referralCode.findUnique({
+        where: { id: codeRow.id },
+        select: { usedCount: true },
+      })
+      expect(updated?.usedCount).toBe(1)
+    } finally {
+      const u = await prisma.user.findUnique({ where: { email }, select: { id: true } })
+      if (u) {
+        await prisma.referral.deleteMany({ where: { refereeId: u.id } }).catch(() => {})
+        await prisma.user.delete({ where: { id: u.id } }).catch(() => {})
+      }
+      await prisma.referralCode.delete({ where: { id: codeRow.id } }).catch(() => {})
+    }
   })
 
   test("POST /api/referral/redeem — happy path, settings show pending bank link", async ({
