@@ -93,10 +93,9 @@ export function reminderKindForDaysLeft(
 
 /** True on the UTC calendar day after the expiry date (expired notification day). */
 export function isExpiredNotificationDay(expiryInstant: Date, now: Date = new Date()): boolean {
-  const today = startOfUtcDay(now)
-  const expiryDay = calendarExpiryUtcDate(expiryInstant)
-  const dayAfterExpiry = addUtcDays(expiryDay, 1)
-  return today.getTime() === dayAfterExpiry.getTime()
+  const endsAt = premiumAccessEndsAt(expiryInstant)
+  if (now.getTime() < endsAt.getTime()) return false
+  return startOfUtcDay(now).getTime() === startOfUtcDay(endsAt).getTime()
 }
 
 export function premiumRenewalLogKey(

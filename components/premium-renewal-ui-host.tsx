@@ -51,7 +51,9 @@ async function startPremiumCheckout(plan: CheckoutPlan): Promise<string | null> 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ plan }),
   })
-  if (!res.ok) return null
+  if (!res.ok) {
+    return "Checkout is temporarily unavailable. Please try again later."
+  }
   const data = (await res.json()) as { checkoutUrl?: string | null; message?: string }
   if (data.checkoutUrl) {
     window.location.href = data.checkoutUrl

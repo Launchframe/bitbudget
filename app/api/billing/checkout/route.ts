@@ -24,34 +24,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid plan" }, { status: 400 })
   }
 
-  const stripeReady = Boolean(
-    process.env.STRIPE_SECRET_KEY &&
-      (plan === "monthly"
-        ? process.env.STRIPE_PRICE_ID_MONTHLY
-        : process.env.STRIPE_PRICE_ID_ANNUAL),
-  )
+  // Until Stripe checkout session creation is wired, always record interest and return a stub response.
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { premiumInterestAt: new Date() },
+  })
 
-  if (!stripeReady) {
-    await prisma.user.update({
-      where: { id: session.user.id },
-      data: { premiumInterestAt: new Date() },
-    })
-
-    return NextResponse.json({
-      checkoutUrl: null,
-      recorded: true,
-      plan,
-      amountUsd: plan === "monthly" ? PREMIUM_PRICE_MONTHLY_USD : PREMIUM_PRICE_ANNUAL_USD,
-      message:
-        "Billing checkout is coming soon. We saved your interest and will email you when renewals are live.",
-    })
-  }
-
-  return NextResponse.json(
-    {
-      error: "Not implemented",
-      message: "Stripe checkout session creation is not wired yet.",
-    },
-    { status: 501 },
-  )
+  return NextResponse.json({
+    checkoutUrl: null,
+    recorded: true,
+    plan,
+    amountUsd: plan === "monthly" ? PREMIUM_PRICE_MONTHLY_USD : PREMIUM_PRICE_ANNUAL_USD,
+    message:
+      "Billing checkout is coming soon. We saved your interest and will email you when renewals are live.",
+  })
 }

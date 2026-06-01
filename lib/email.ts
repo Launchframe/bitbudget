@@ -218,7 +218,7 @@ export async function sendPremiumRenewalReminderEmail(
 ): Promise<void> {
   const origin = appOriginForEmail()
   const referBlock = args.showReferCta
-    ? `<p style="margin: 24px 0 0;"><a href="${origin}/#settings/general" style="color: #F7931A; font-weight: 600;">${escapeHtml(args.ctaRefer)}</a></p>`
+    ? `<p style="margin: 24px 0 0;"><a href="${origin}/#/settings/general" style="color: #F7931A; font-weight: 600;">${escapeHtml(args.ctaRefer)}</a></p>`
     : ""
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">

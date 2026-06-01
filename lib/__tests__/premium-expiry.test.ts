@@ -49,10 +49,11 @@ describe("reminderKindForDaysLeft", () => {
 })
 
 describe("isExpiredNotificationDay", () => {
-  it("is true only on the UTC day after calendar expiry", () => {
+  it("is true only after grace ends on the UTC day after calendar expiry", () => {
     const expiry = new Date("2026-06-15T00:00:00.000Z")
     expect(isExpiredNotificationDay(expiry, new Date("2026-06-15T12:00:00.000Z"))).toBe(false)
-    expect(isExpiredNotificationDay(expiry, new Date("2026-06-16T09:00:00.000Z"))).toBe(true)
+    expect(isExpiredNotificationDay(expiry, new Date("2026-06-16T03:59:59.000Z"))).toBe(false)
+    expect(isExpiredNotificationDay(expiry, new Date("2026-06-16T04:00:00.000Z"))).toBe(true)
     expect(isExpiredNotificationDay(expiry, new Date("2026-06-17T09:00:00.000Z"))).toBe(false)
   })
 })

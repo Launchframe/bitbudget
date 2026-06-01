@@ -83,8 +83,9 @@ export async function recordRenewalReminderLog(
   logKey: string,
   channel: PremiumRenewalReminderChannel,
 ): Promise<void> {
-  await prisma.premiumRenewalReminderLog.create({
-    data: { userId, logKey, channel },
+  await prisma.premiumRenewalReminderLog.createMany({
+    data: [{ userId, logKey, channel }],
+    skipDuplicates: true,
   })
 }
 

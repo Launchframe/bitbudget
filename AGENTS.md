@@ -541,7 +541,7 @@ Production ops visibility uses **Sentry** (stack traces), **`GET /api/health`** 
 
 ### Schema and migrations
 
-- **Schema during development:** optional **`pnpm db:push`** only for early WIP on schema-modeled columns before a migration exists; once migrations are committed (especially raw SQL / partial indexes), use **`pnpm exec prisma migrate deploy`** locally (see **Database → Local schema sync**). Ask the maintainer whether to **`pnpm db:migrate`** now or defer until PR finalization.>>>>>>> db744ce (agents: PR etiquette)
+- **Schema during development:** optional **`pnpm db:push`** only for early WIP on schema-modeled columns before a migration exists; once migrations are committed (especially raw SQL / partial indexes), use **`pnpm exec prisma migrate deploy`** locally (see **Database → Local schema sync**). Ask the maintainer whether to **`pnpm db:migrate`** now or defer until PR finalization.
 - **Before merge:** consolidate branch migrations into clean idempotent file(s) and reconcile the maintainer's local `_prisma_migrations` without a full DB reset (see **Database → PR finalization**).
 - **Database migrations** on the merged branch must be committed alongside the schema change and the code that uses the new field.
 
