@@ -3,6 +3,8 @@
 import { useState, useCallback, useRef } from "react"
 import { Mic, MicOff, Loader2 } from "lucide-react"
 import { VoiceConfirmationCard } from "@/components/voice-confirmation-card"
+import { PremiumLockedLabel } from "@/components/premium-locked-label"
+import { PREMIUM_UI_COPY } from "@/lib/premium-ui-copy"
 
 interface ParsedVoiceResult {
   payee: string
@@ -14,7 +16,7 @@ interface ParsedVoiceResult {
 
 type VoiceState = "idle" | "listening" | "processing" | "result" | "unsupported"
 
-export function VoiceDictationButton() {
+export function VoiceDictationButton({ locked = false }: { locked?: boolean }) {
   const [voiceState, setVoiceState] = useState<VoiceState>(() => {
     if (typeof window !== "undefined" && !("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
       return "unsupported"
@@ -87,6 +89,23 @@ export function VoiceDictationButton() {
   }, [])
 
   if (voiceState === "unsupported") return null
+
+  if (locked && voiceState === "idle") {
+    return (
+      <button
+        type="button"
+        disabled
+        aria-disabled
+        aria-label="Voice Input"
+        title={PREMIUM_UI_COPY.voiceEntry.hint}
+        className="flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-4 py-2.5 rounded-xl text-sm transition-colors border bg-[#1A1A1A]/60 border-[#333] text-muted-foreground cursor-not-allowed opacity-80 w-full"
+      >
+        <Mic className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="hidden lg:inline ml-1">Voice Input</span>
+        <PremiumLockedLabel className="hidden lg:inline ml-auto normal-case tracking-normal" />
+      </button>
+    )
+  }
 
   return (
     <>

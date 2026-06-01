@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
+import { PremiumLockedLabel } from "@/components/premium-locked-label"
+import { PREMIUM_UI_COPY } from "@/lib/premium-ui-copy"
 import { RECEIPT_SCAN_MAX_BYTES } from "@/lib/receipt-scan-validate"
 import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 import { receiptCapturePrefillDate } from "@/lib/transaction-dates"
@@ -39,7 +41,7 @@ export function ScanReceiptDialog({
   /** When set, opens dialog and immediately triggers camera or file picker (e.g. from mobile nav one-tap). */
   initialSource?: "camera" | "upload"
 }) {
-  const { openNewTransaction } = useApp()
+  const { openNewTransaction, hasPremiumFeatures } = useApp()
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<string | null>(null)
@@ -72,7 +74,7 @@ export function ScanReceiptDialog({
   }
 
   useEffect(() => {
-    if (!open || !initialSource) {
+    if (!open || !initialSource || !hasPremiumFeatures) {
       expectCloseAfterPickerRef.current = false
       return
     }
@@ -92,7 +94,7 @@ export function ScanReceiptDialog({
     return () => {
       clearTimeout(t)
     }
-  }, [open, initialSource, cameraMode])
+  }, [open, initialSource, cameraMode, hasPremiumFeatures])
 
   function handleTakePhotoClick(mode: ReceiptCameraMode) {
     setError("")
@@ -129,6 +131,7 @@ export function ScanReceiptDialog({
   }, [open, initialSource, scanning, error, onOpenChange])
 
   async function processFile(file: File) {
+    if (!hasPremiumFeatures) return
     setError("")
     if (file.size > RECEIPT_SCAN_MAX_BYTES) {
       setError(
@@ -163,6 +166,7 @@ export function ScanReceiptDialog({
 
       let data: {
         error?: string
+        message?: string
         payee?: string
         amount?: string
         date?: string
@@ -182,7 +186,7 @@ export function ScanReceiptDialog({
         return
       }
       if (!res.ok) {
-        setError(data.error || "Failed to scan receipt")
+        setError(data.message || data.error || "Failed to scan receipt")
         setScanning(false)
         return
       }
@@ -277,45 +281,76 @@ export function ScanReceiptDialog({
           />
         ) : (
           <div className="flex flex-col gap-3 py-2">
-            <p className="text-sm text-muted-foreground mb-2">
-              Scan a receipt to auto-fill a new transaction.
-            </p>
+            {!hasPremiumFeatures ? (
+              <div className="rounded-xl border border-[#F7931A]/25 bg-[#F7931A]/10 px-4 py-3 space-y-2">
+                <PremiumLockedLabel className="normal-case tracking-normal text-xs" />
+                <p className="text-sm text-muted-foreground">{PREMIUM_UI_COPY.receiptScan.dialogHint}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground mb-2">
+                Scan a receipt to auto-fill a new transaction.
+              </p>
+            )}
 
             {showTakePhoto ? (
               <button
                 type="button"
-                onClick={() => handleTakePhotoClick(cameraMode)}
-                className="flex items-center gap-4 w-full py-4 px-4 bg-[#1A1A1A] rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
+                onClick={() => hasPremiumFeatures && handleTakePhotoClick(cameraMode)}
+                disabled={!hasPremiumFeatures}
+                aria-disabled={!hasPremiumFeatures}
+                title={hasPremiumFeatures ? undefined : PREMIUM_UI_COPY.receiptScan.hint}
+                className={`flex items-center gap-4 w-full py-4 px-4 rounded-xl text-sm border border-[#333] ${
+                  hasPremiumFeatures
+                    ? "bg-[#1A1A1A] hover:bg-[#222] transition-colors"
+                    : "bg-[#1A1A1A]/60 cursor-not-allowed opacity-80"
+                }`}
               >
                 <div className="p-2.5 rounded-lg bg-btc-orange/10">
-                  <Camera className="h-5 w-5 text-btc-orange" />
+                  <Camera className={`h-5 w-5 ${hasPremiumFeatures ? "text-btc-orange" : "text-muted-foreground"}`} />
                 </div>
-                <div className="flex flex-col text-left">
-                  <span className="font-semibold text-foreground">Take Photo</span>
+                <div className="flex flex-col text-left min-w-0 flex-1">
+                  <span className={`font-semibold ${hasPremiumFeatures ? "text-foreground" : "text-muted-foreground"}`}>
+                    Take Photo
+                  </span>
                   <span className="text-xs text-muted-foreground">
-                    {cameraMode === "live"
-                      ? "Use your webcam to capture a receipt"
-                      : "Use your camera to scan a receipt"}
+                    {hasPremiumFeatures
+                      ? cameraMode === "live"
+                        ? "Use your webcam to capture a receipt"
+                        : "Use your camera to scan a receipt"
+                      : PREMIUM_UI_COPY.receiptScan.hint}
                   </span>
                 </div>
+                {!hasPremiumFeatures ? <PremiumLockedLabel className="shrink-0 normal-case tracking-normal" /> : null}
               </button>
             ) : null}
 
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-4 w-full py-4 px-4 bg-[#1A1A1A] rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
+              onClick={() => hasPremiumFeatures && fileInputRef.current?.click()}
+              disabled={!hasPremiumFeatures}
+              aria-disabled={!hasPremiumFeatures}
+              title={hasPremiumFeatures ? undefined : PREMIUM_UI_COPY.receiptScan.hint}
+              className={`flex items-center gap-4 w-full py-4 px-4 rounded-xl text-sm border border-[#333] ${
+                hasPremiumFeatures
+                  ? "bg-[#1A1A1A] hover:bg-[#222] transition-colors"
+                  : "bg-[#1A1A1A]/60 cursor-not-allowed opacity-80"
+              }`}
             >
               <div className="p-2.5 rounded-lg bg-[#8B5CF6]/10">
-                <Upload className="h-5 w-5 text-[#8B5CF6]" />
+                <Upload className={`h-5 w-5 ${hasPremiumFeatures ? "text-[#8B5CF6]" : "text-muted-foreground"}`} />
               </div>
-              <div className="flex flex-col text-left">
-                <span className="font-semibold text-foreground">Upload File</span>
-                <span className="text-xs text-muted-foreground">Image or PDF from your device</span>
+              <div className="flex flex-col text-left min-w-0 flex-1">
+                <span className={`font-semibold ${hasPremiumFeatures ? "text-foreground" : "text-muted-foreground"}`}>
+                  Upload File
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {hasPremiumFeatures ? "Image or PDF from your device" : PREMIUM_UI_COPY.receiptScan.hint}
+                </span>
               </div>
+              {!hasPremiumFeatures ? <PremiumLockedLabel className="shrink-0 normal-case tracking-normal" /> : null}
             </button>
 
-            {cameraMode === "capture-input" ? (
+            {hasPremiumFeatures && cameraMode === "capture-input" ? (
               <input
                 ref={cameraInputRef}
                 type="file"
@@ -325,6 +360,7 @@ export function ScanReceiptDialog({
                 className="hidden"
               />
             ) : null}
+            {hasPremiumFeatures ? (
             <input
               ref={fileInputRef}
               type="file"
@@ -332,6 +368,7 @@ export function ScanReceiptDialog({
               onChange={handleFileChange}
               className="hidden"
             />
+            ) : null}
           </div>
         )}
       </DialogContent>
