@@ -109,6 +109,7 @@ import {
 } from "@/lib/allocation-cadence"
 import { parseBitbudgetRefCookie } from "@/lib/bitbudget-ref-cookie"
 import { ONBOARDING_SESSION_STORAGE_KEY } from "@/lib/onboarding-session"
+import { normalizeUsdDraftInput, parseUsdDraftInput } from "@/lib/onboarding-income-input"
 import {
   REFEREE_PREMIUM_CARROT_FALLBACK,
   refereePremiumExperienceCarrot,
@@ -225,6 +226,7 @@ export default function OnboardingPage() {
   const [payDayOfWeek, setPayDayOfWeek] = useState(5)
   const [lastPaydayAt, setLastPaydayAt] = useState(() => new Date().toISOString().split("T")[0]!)
   const [estimatedAnnualIncome, setEstimatedAnnualIncome] = useState("")
+  const [incomeError, setIncomeError] = useState<string | null>(null)
 
   // Allocations
   const [allocPhase, setAllocPhase] = useState<AllocPhase>("budget")
@@ -495,20 +497,25 @@ export default function OnboardingPage() {
             ...(typeof roe === "boolean" ? { referrerOpportunityCostEnabled: roe } : {}),
           })
         }
-        if (saved.income) setIncome(saved.income)
+        if (saved.income) setIncome(normalizeUsdDraftInput(String(saved.income)))
         if (saved.incomeMode) setIncomeMode(saved.incomeMode)
         if (saved.cadence) setCadence(saved.cadence)
         if (Array.isArray(saved.payDays) && saved.payDays.length > 0) setPayDays(saved.payDays)
         if (typeof saved.payDayOfWeek === "number") setPayDayOfWeek(saved.payDayOfWeek)
         if (typeof saved.lastPaydayAt === "string") setLastPaydayAt(saved.lastPaydayAt)
-        if (saved.estimatedAnnualIncome) setEstimatedAnnualIncome(saved.estimatedAnnualIncome)
+        if (saved.estimatedAnnualIncome) {
+          setEstimatedAnnualIncome(normalizeUsdDraftInput(String(saved.estimatedAnnualIncome)))
+        }
         if (saved.allocPhase) setAllocPhase(saved.allocPhase)
         if (typeof saved.savingsGoalAmount === "number") {
           setSavingsGoalAmount(saved.savingsGoalAmount)
         } else if (saved.allocPhase === "savings-goal") {
           const regular =
             saved.incomeMode !== "irregular"
-              ? monthlyBudgetForAllocation(parseFloat(saved.income) || 0, saved.cadence ?? "monthly")
+              ? monthlyBudgetForAllocation(
+                  parseUsdDraftInput(String(saved.income)) ?? 0,
+                  saved.cadence ?? "monthly",
+                )
               : 0
           const irregular =
             saved.incomeMode === "irregular" || saved.incomeMode === "mix"
@@ -555,17 +562,29 @@ export default function OnboardingPage() {
   }, [])
 
   useEffect(() => {
+    if (step !== "income") return
+    setIncome((prev) => {
+      const next = normalizeUsdDraftInput(prev)
+      return next === prev ? prev : next
+    })
+    setEstimatedAnnualIncome((prev) => {
+      const next = normalizeUsdDraftInput(prev)
+      return next === prev ? prev : next
+    })
+  }, [step])
+
+  useEffect(() => {
     if (!hydrated) return
     try {
       sessionStorage.setItem(ONBOARDING_SESSION_STORAGE_KEY, JSON.stringify({
         step,
-        income,
+        income: normalizeUsdDraftInput(income),
         incomeMode,
         cadence,
         payDays,
         payDayOfWeek,
         lastPaydayAt,
-        estimatedAnnualIncome,
+        estimatedAnnualIncome: normalizeUsdDraftInput(estimatedAnnualIncome),
         allocPhase,
         savingsGoalAmount,
         savingsGoalPct,
@@ -955,10 +974,27 @@ export default function OnboardingPage() {
   }
 
   async function handleIncomeSave() {
+    setIncomeError(null)
+    const parsedIncome = incomeMode !== "irregular" ? parseUsdDraftInput(income) : null
+    if (incomeMode !== "irregular") {
+      if (parsedIncome == null) {
+        setIncomeError("Enter a paycheck amount greater than zero.")
+        return
+      }
+      setIncome(String(parsedIncome))
+    }
+
+    const annualRaw = estimatedAnnualIncome.trim()
+    const parsedAnnual = annualRaw === "" ? 0 : parseUsdDraftInput(annualRaw)
+    if (annualRaw !== "" && parsedAnnual == null) {
+      setIncomeError("Enter a valid estimated annual income, or leave it blank.")
+      return
+    }
+
     setLoading(true)
     try {
-      const rawIncome = parseFloat(income) || 0
-      const annualEstimate = parseFloat(estimatedAnnualIncome) || 0
+      const rawIncome = parsedIncome ?? 0
+      const annualEstimate = parsedAnnual ?? 0
       const regularMonthly =
         incomeMode !== "irregular"
           ? monthlyBudgetForAllocation(rawIncome, cadence)
@@ -1358,17 +1394,17 @@ export default function OnboardingPage() {
   const allocateMonthlyBudget = useMemo(() => {
     const regular =
       incomeMode !== "irregular"
-        ? monthlyBudgetForAllocation(parseFloat(income) || 0, cadence)
+        ? monthlyBudgetForAllocation(parseUsdDraftInput(income) ?? 0, cadence)
         : 0
     const irregular =
       incomeMode === "irregular" || incomeMode === "mix"
-        ? monthlyCapacityFromAnnualEstimate(parseFloat(estimatedAnnualIncome) || 0)
+        ? monthlyCapacityFromAnnualEstimate(parseUsdDraftInput(estimatedAnnualIncome) ?? 0)
         : 0
     return regular + irregular
   }, [incomeMode, income, cadence, estimatedAnnualIncome])
   const savingsGoalPaycheckPct = useMemo(() => {
     if (incomeMode === "irregular") return null
-    return savingsGoalPercentOfPaycheck(savingsGoalAmount, parseFloat(income) || 0)
+    return savingsGoalPercentOfPaycheck(savingsGoalAmount, parseUsdDraftInput(income) ?? 0)
   }, [incomeMode, income, savingsGoalAmount])
   const savings = Math.max(0, allocateMonthlyBudget - totalAllocated)
   const unboundedAlloc = isUnboundedOnboardingAllocation(allocateMonthlyBudget)
@@ -2018,9 +2054,9 @@ export default function OnboardingPage() {
           {/* Income Step */}
           {step === "income" && (
             <form
-              onSubmit={e => {
+              onSubmit={(e) => {
                 e.preventDefault()
-                if (incomeMode === "irregular" || income) handleIncomeSave()
+                void handleIncomeSave()
               }}
               className="flex flex-col gap-6"
             >
@@ -2068,13 +2104,18 @@ export default function OnboardingPage() {
                       <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
                         <Input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
                           value={income}
-                          onChange={e => setIncome(e.target.value)}
+                          onChange={(e) => {
+                            setIncomeError(null)
+                            setIncome(normalizeUsdDraftInput(e.target.value))
+                          }}
+                          onBlur={() => setIncome((prev) => normalizeUsdDraftInput(prev))}
                           placeholder="2,500"
                           className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7 text-lg"
-                          min="0"
-                          step="any"
+                          aria-invalid={incomeError != null && incomeMode !== "irregular"}
                         />
                       </div>
                     </div>
@@ -2197,13 +2238,20 @@ export default function OnboardingPage() {
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
                       <Input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
                         value={estimatedAnnualIncome}
-                        onChange={e => setEstimatedAnnualIncome(e.target.value)}
+                        onChange={(e) => {
+                          setIncomeError(null)
+                          setEstimatedAnnualIncome(normalizeUsdDraftInput(e.target.value))
+                        }}
+                        onBlur={() =>
+                          setEstimatedAnnualIncome((prev) => normalizeUsdDraftInput(prev))
+                        }
                         placeholder="60,000"
                         className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7"
-                        min="0"
-                        step="any"
+                        aria-invalid={incomeError != null}
                       />
                     </div>
                     <p className="text-[11px] text-muted-foreground">
@@ -2212,6 +2260,12 @@ export default function OnboardingPage() {
                   </div>
                 )}
               </div>
+
+              {incomeError ? (
+                <p className="text-sm text-amber-400/95" role="alert">
+                  {incomeError}
+                </p>
+              ) : null}
 
               <div className="flex gap-3">
                 <button
@@ -2225,7 +2279,10 @@ export default function OnboardingPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || (incomeMode !== "irregular" && !income)}
+                  disabled={
+                    loading ||
+                    (incomeMode !== "irregular" && parseUsdDraftInput(income) == null)
+                  }
                   className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {loading ? "Saving..." : "Continue"}
