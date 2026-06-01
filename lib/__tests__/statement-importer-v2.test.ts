@@ -19,7 +19,6 @@ import type { ParsedTransaction } from "@/lib/csv"
 function makeTxn(overrides: Partial<Transaction> = {}): Transaction {
   return {
     id: "t1",
-    userId: "u1",
     date: "2026-03-15",
     payee: "Whole Foods Market",
     amount: 42.5,

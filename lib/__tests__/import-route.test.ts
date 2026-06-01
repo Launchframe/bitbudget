@@ -6,6 +6,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     envelope: { findMany: vi.fn(), create: vi.fn() },
     transaction: { createMany: vi.fn() },
+    envelopeFundingBatch: { create: vi.fn(), delete: vi.fn() },
   },
 }))
 vi.mock("@/lib/btc-price", () => ({
@@ -150,5 +151,95 @@ describe("POST /api/import", () => {
     expect(res.status).toBe(400)
     const json = (await res.json()) as { error: string }
     expect(json.error).toMatch(/dedupeKey/)
+  })
+
+  it("returns importBatchId for statement_import when rows are inserted", async () => {
+    vi.mocked(prisma.envelopeFundingBatch.create).mockResolvedValue({ id: "batch_1" } as never)
+    vi.mocked(prisma.transaction.createMany).mockResolvedValue({ count: 1 } as never)
+
+    const key = "d".repeat(32)
+    const res = await POST(
+      postRequest({
+        source: "statement_import",
+        transactions: [
+          {
+            date: "2026-01-01",
+            payee: "enc1",
+            amount: 5,
+            type: "expense",
+            envelopeName: "Groceries",
+            notes: null,
+            dedupeKey: key,
+            envelopeId: "env_groceries",
+          },
+        ],
+        envelopeMapping: {},
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as { imported: number; importBatchId: string | null }
+    expect(json.imported).toBe(1)
+    expect(json.importBatchId).toBe("batch_1")
+    expect(prisma.envelopeFundingBatch.delete).not.toHaveBeenCalled()
+  })
+
+  it("deletes statement_import batch and omits importBatchId when every row dedupes", async () => {
+    vi.mocked(prisma.envelopeFundingBatch.create).mockResolvedValue({ id: "batch_orphan" } as never)
+    vi.mocked(prisma.transaction.createMany).mockResolvedValue({ count: 0 } as never)
+
+    const key = "e".repeat(32)
+    const res = await POST(
+      postRequest({
+        source: "statement_import",
+        transactions: [
+          {
+            date: "2026-01-01",
+            payee: "enc1",
+            amount: 5,
+            type: "expense",
+            envelopeName: "Groceries",
+            notes: null,
+            dedupeKey: key,
+            envelopeId: "env_groceries",
+          },
+        ],
+        envelopeMapping: {},
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as { imported: number; duplicates: number; importBatchId: string | null }
+    expect(json.imported).toBe(0)
+    expect(json.duplicates).toBe(1)
+    expect(json.importBatchId).toBeNull()
+    expect(prisma.envelopeFundingBatch.delete).toHaveBeenCalledWith({
+      where: { id: "batch_orphan" },
+    })
+  })
+
+  it("inserts rows without dedupeKey when client omits it (force-import path)", async () => {
+    vi.mocked(prisma.transaction.createMany).mockResolvedValue({ count: 1 } as never)
+
+    const res = await POST(
+      postRequest({
+        transactions: [
+          {
+            date: "2026-01-01",
+            payee: "enc1",
+            amount: 5,
+            type: "expense",
+            envelopeName: "Groceries",
+            notes: null,
+            envelopeId: "env_groceries",
+          },
+        ],
+        envelopeMapping: {},
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const call = createManyArg()
+    expect(call.data[0].dedupeKey).toBeNull()
   })
 })

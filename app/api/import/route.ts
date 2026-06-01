@@ -274,12 +274,20 @@ export async function POST(req: NextRequest) {
 
   const duplicates = data.length - created
 
+  let importBatchId = fundingBatchId
+  if (fundingBatchId && created === 0) {
+    await prisma.envelopeFundingBatch.delete({
+      where: { id: fundingBatchId },
+    })
+    importBatchId = null
+  }
+
   return NextResponse.json({
     imported: created,
     skipped,
     duplicates,
     newEnvelopes,
     totalRows: transactions.length,
-    importBatchId: fundingBatchId,
+    importBatchId,
   })
 }
