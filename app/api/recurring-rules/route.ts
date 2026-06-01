@@ -88,9 +88,7 @@ export async function POST(req: NextRequest) {
     const parsed = new Date(nextRunAt)
     if (!Number.isNaN(parsed.getTime())) runAt = parsed
   } else {
-    runAt = frequency === "weekly"
-      ? new Date(runAt.getTime() + 7 * 86_400_000)
-      : addMonthsUtc(runAt, 1)
+    runAt = nextRunFromFrequency(frequency, runAt)
   }
 
   const rule = await prisma.recurringFundingRule.create({

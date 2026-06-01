@@ -137,7 +137,7 @@ export function computeDistribution(params: {
           ? remainingIncomeCents
           : Math.min(lineCents, Math.floor((fromIncome * lineCents) / totalNeed))
       remainingIncomeCents -= share
-      line.fromSavings = Math.round((lineCents - share) * 100) / 100
+      line.fromSavings = (lineCents - share) / 100
     }
   } else if (fromSavings > 0) {
     for (const line of lines) {
