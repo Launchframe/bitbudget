@@ -37,6 +37,11 @@ export const SAVINGS_GOAL_DEFAULT_PERIOD = "default"
 /** Savings UI accent (distinct from Bitcoin orange #F7931A). */
 export const SAVINGS_GOLD_ACCENT = "#D4AF37"
 
+/** Premium renewal pricing (USD) — shown in renewal reminders until live checkout. */
+export const PREMIUM_PRICE_MONTHLY_USD = 5
+export const PREMIUM_PRICE_ANNUAL_USD = 50
+export const PREMIUM_ANNUAL_SAVINGS_MONTHS = 2
+
 export const TX_SOURCE_INCOME_IMPORT = "income_import"
 export const TX_SOURCE_ENVELOPE_SWEEP = "envelope_sweep"
 

@@ -120,6 +120,13 @@ export async function sendTrialExpiredDm(recipientPubkey: string): Promise<void>
   await sendNostrDm(recipientPubkey, "Your BitBudget premium trial has ended.")
 }
 
+export async function sendPremiumRenewalReminderDm(
+  recipientPubkey: string,
+  text: string,
+): Promise<void> {
+  await sendNostrDm(recipientPubkey, text)
+}
+
 export async function sendAdminDigestDm(recipientPubkey: string, text: string): Promise<void> {
   await sendNostrDm(recipientPubkey, text)
 }

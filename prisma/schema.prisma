@@ -62,6 +62,8 @@ model User {
   premiumInterestAt      DateTime?
   premiumGratisUntil     DateTime?
   premiumTrialUntil      DateTime?
+  // Paid membership end (Stripe); null with subscriptionTier premium = no expiry.
+  premiumMembershipUntil DateTime?
   referredByCodeId       String?
 
   createdAt DateTime @default(now())
@@ -94,6 +96,20 @@ model User {
   savingsGoals               SavingsGoal[]
   achievements               UserAchievement[]
   pendingStatementBatches    PendingStatementBatch[]
+  premiumRenewalReminderLogs PremiumRenewalReminderLog[]
+}
+
+model PremiumRenewalReminderLog {
+  id        String   @id @default(cuid())
+  userId    String
+  logKey    String
+  channel   String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, logKey, channel])
+  @@index([userId])
 }
 
 /// Prevents duplicate Android notification-forward webhook deliveries (pending or live).

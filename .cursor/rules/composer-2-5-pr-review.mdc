@@ -1,0 +1,52 @@
+---
+description: Composer 2.5 PR review checklist for BitBudget — use when reviewing a branch or PR (/real-steel composer)
+alwaysApply: false
+---
+
+# Composer 2.5 PR review (BitBudget)
+
+Read [AGENTS.md](../../AGENTS.md) first. Review the **full branch diff vs `main`**, not only the latest commit.
+
+## Before commenting
+
+1. `git fetch origin main && git log --oneline origin/main..HEAD` — scope and commit story
+2. `git diff --stat origin/main..HEAD` — touch surfaces (schema, crons, crypto, e2e)
+3. Confirm branch is rebased on current `main`; note if force-push is needed
+4. Run or cite: `pnpm lint`, `pnpm test`, and e2e when UI/API contracts change
+
+## Privacy (blockers)
+
+- No cleartext payee/notes in DB, APIs, logs, alerts, or Sentry — scrub before persist/send (`lib/sentry-scrub.ts`, `scrubAlertText`)
+- No `encryptFieldForUser(...) ?? plaintext` fallbacks
+- Outbound ops/email alerts: generic copy only; no merchant or user-identifying strings in bodies
+- Cron/auth: use `cronAuthFailureResponse` from `lib/cron-auth.ts` (timing-safe), not string-compare `Bearer` helpers
+
+## Ops / cron PRs
+
+- Every production cron should use `runCron(name, fn)` unless there is an explicit exception documented in the PR
+- `CronRun.errorMessage` and alert bodies must use scrubbed text; raw `err.message` only in server logs if needed
+- Migrations: idempotent DDL (`IF NOT EXISTS`); ship with schema
+- `E2E_TEST` must skip real alerts (`sendAlert` / email) — do not enable in Vercel prod
+
+## E2E
+
+- Assert what the UI actually renders (split nodes, no invented `"From X → Y"` prefixes unless copy exists)
+- Prefer role/locator scoping (`listitem` + `filter`) over one long `getByText` across elements
+- Update seeds/specs when settings routes or API shapes change
+
+## Review output format
+
+Post a short summary: **merge readiness** (yes / yes with nits / no), **blockers** (numbered), **nits**, **test plan** checkboxes. Do not resolve GitHub review threads unless asked.
+
+## Cron route pattern
+
+```typescript
+export async function GET(req: NextRequest) {
+  const authFailure = cronAuthFailureResponse(req.headers.get("authorization"))
+  if (authFailure) return authFailure
+  return runCron("job-name", async () => {
+    const result = await doWork()
+    return { ...result, processed: result.usersProcessed } // if result uses usersProcessed
+  })
+}
+```

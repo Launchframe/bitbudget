@@ -63,7 +63,7 @@ Mention that you want **feature slicing** or **stacked PRs**, and point at the f
 - *"Don't one-shot this integration. Break it into reviewable PRs following our feature-slice skill; slice 1 should be pure lib/ + Vitest."*
 - *"What's the next slice after the API routes land? Follow feature-slice ordering."*
 
-**Typical output:** A plan under `.cursor/plans/`, an ordered slice list, and work scoped to one layer at a time (e.g. "no UI until server helpers and tests exist").
+**Typical output:** A plan under `~/.cursor/plans/` (canonical home), an ordered slice list, and work scoped to one layer at a time (e.g. "no UI until server helpers and tests exist").
 
 ---
 

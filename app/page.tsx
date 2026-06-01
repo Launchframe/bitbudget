@@ -28,6 +28,7 @@ import { TransactionLoadingIndicator } from "@/components/transaction-loading-in
 import { TrialWelcomeBanner } from "@/components/trial-welcome-banner"
 import { ReferralPlaidReminderBanner } from "@/components/referral-plaid-reminder-banner"
 import { ReferralRedeemFlashBanner } from "@/components/referral-redeem-flash-banner"
+import { PremiumRenewalUiHost } from "@/components/premium-renewal-ui-host"
 import { SurveySheetHost } from "@/components/survey-sheet"
 import { WalkthroughOverlay } from "@/components/walkthrough-overlay"
 import { AchievementCelebrationHost } from "@/components/achievement-celebration-host"
@@ -239,6 +240,7 @@ export default function Dashboard() {
                     <NotificationBanner />
                     <ReferralRedeemFlashBanner />
                     <ReferralPlaidReminderBanner />
+                    <PremiumRenewalUiHost />
                     <TrialWelcomeBanner />
                     <TransactionLoadingIndicator />
                     <PageContent />
