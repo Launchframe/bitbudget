@@ -211,17 +211,9 @@ export async function redeemReferralCode(args: {
   | { ok: false; status: number; code: string; message: string }
 > {
   const now = args.now ?? new Date()
-  const validation = await validateReferralCodeRow(args.rawCode, now)
-  if (!validation.valid) {
-    const gone = validation.reason === "expired" || validation.reason === "exhausted"
-    return {
-      ok: false,
-      status: gone ? 410 : 400,
-      code: validation.reason,
-      message: "Referral code is not valid",
-    }
-  }
-
+  // Check before validate so a successful-then-retried redeem returns the clear
+  // "already_redeemed" message instead of a misleading 410 "exhausted" (which
+  // fires when the single-use code is now full after the first successful bump).
   const existingRef = await prisma.referral.findUnique({
     where: { refereeId: args.refereeId },
   })
@@ -231,6 +223,17 @@ export async function redeemReferralCode(args: {
       status: 409,
       code: "already_redeemed",
       message: "This account already used a referral",
+    }
+  }
+
+  const validation = await validateReferralCodeRow(args.rawCode, now)
+  if (!validation.valid) {
+    const gone = validation.reason === "expired" || validation.reason === "exhausted"
+    return {
+      ok: false,
+      status: gone ? 410 : 400,
+      code: validation.reason,
+      message: "Referral code is not valid",
     }
   }
 
