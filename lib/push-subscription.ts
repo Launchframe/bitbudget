@@ -1,3 +1,5 @@
+import { ensureServiceWorkerRegistered } from "@/lib/service-worker-registration"
+
 export async function registerPushSubscription(): Promise<boolean> {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) return false
 
@@ -5,7 +7,8 @@ export async function registerPushSubscription(): Promise<boolean> {
   if (!vapidKey) return false
 
   try {
-    const registration = await navigator.serviceWorker.register("/sw.js")
+    const registration = await ensureServiceWorkerRegistered()
+    if (!registration) return false
     const subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidKey) as BufferSource,
