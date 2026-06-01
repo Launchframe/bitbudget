@@ -224,6 +224,25 @@ export async function creditPaycheckToSavings(userId: string, runDateUtc?: Date)
       },
     })
 
+    const legacyKey = periodKeys[1]
+    if (legacyKey && legacyKey !== periodKey) {
+      try {
+        await tx.envelopeFundingBatch.create({
+          data: {
+            userId,
+            periodKey: legacyKey,
+            kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+          },
+        })
+      } catch (e) {
+        if (
+          !(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")
+        ) {
+          throw e
+        }
+      }
+    }
+
     return 1
   })
 }

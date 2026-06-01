@@ -32,7 +32,7 @@ async function seedIncomeOverhaulUser(
       walkthroughCompleted: true,
       monthlyIncome: 6000,
       payCadence: "bimonthly",
-      payDays: [15],
+      payDays: [1, 15],
       payDayOfWeek: null,
       lastPaydayAt: null,
       opportunityCostEnabled: false,

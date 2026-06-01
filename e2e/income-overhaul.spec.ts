@@ -49,7 +49,7 @@ const BUDGET_DAY_UTC = new Date(Date.UTC(2026, 5, 1, 12, 0, 0))
 
 const CRON_USER_FIELDS = {
   payCadence: "bimonthly" as const,
-  payDays: [15],
+  payDays: [1, 15],
   payDayOfWeek: null as number | null,
   lastPaydayAt: null as Date | null,
 }

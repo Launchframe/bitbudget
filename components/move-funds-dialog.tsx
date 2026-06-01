@@ -268,7 +268,7 @@ export function MoveFundsDialog({
         open={fillOpen}
         onOpenChange={setFillOpen}
         rows={previewRows}
-        grossUsd={entries.reduce((s, e) => s + Math.max(0, e.deltaUsd), 0)}
+        grossUsd={entries.reduce((s, e) => s + e.deltaUsd, 0)}
         readOnly
       />
     </>

@@ -14,8 +14,8 @@ import {
 } from "@/lib/constants"
 import { deficitCoverAmount } from "@/lib/budget-period"
 import {
-  envelopeBalanceForMonth,
   envelopeBalancesAllTimeBatch,
+  envelopeBalancesForMonthBatch,
   monthKeyFromDate,
   savingsEnvelopeBalanceAllTime,
 } from "@/lib/envelope-balance-server"
@@ -425,9 +425,14 @@ export async function createManualDeficitCover(
   const resolved: Resolved[] = []
   let totalCover = 0
 
+  const candidateIds = entries
+    .map((e) => e.envelopeId)
+    .filter((id) => allowed.has(id))
+  const monthBalances = await envelopeBalancesForMonthBatch(userId, candidateIds, monthKey)
+
   for (const entry of entries) {
     if (!allowed.has(entry.envelopeId)) continue
-    const monthBal = await envelopeBalanceForMonth(userId, entry.envelopeId, monthKey)
+    const monthBal = monthBalances.get(entry.envelopeId) ?? 0
     if (monthBal >= 0) continue
     const maxCover = deficitCoverAmount(monthBal)
     const amount = Math.min(entry.amount, maxCover)
