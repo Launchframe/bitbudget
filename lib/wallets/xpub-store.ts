@@ -44,7 +44,7 @@ export interface StoredWallet {
   kind: WalletKind
   /** BIP44 gap-limit; used by the sync engine to decide when to stop scanning. */
   gapLimit: number
-  /** Default envelope for transactions imported from this wallet. Null = ask each time. */
+  /** Default envelope for transactions imported from this wallet. Null = first active envelope. */
   defaultEnvelopeId: string | null
   /** User-chosen Esplora-compatible base URL (no trailing slash). */
   explorerBaseUrl: string

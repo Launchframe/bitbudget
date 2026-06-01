@@ -384,6 +384,73 @@ describe("runSync (mocked Esplora, BIP84 vector)", () => {
     expect(importedTxids.length).toBe(3) // 2 imported + 1 self-transfer recorded
   })
 
+  it("picks up a new tx on a previously used address during incremental sync", async () => {
+    const mock1 = buildMockEsplora({
+      byAddressTxs: new Map<string, MockTx[]>([
+        [
+          ADDR_R0,
+          [
+            {
+              txid: "TX_ONCE",
+              vin: [{ addr: "external", value: 10000 }],
+              vout: [{ addr: ADDR_R0, value: 10000 }],
+              blockTime: 1711929600,
+              blockHeight: 800050,
+            },
+          ],
+        ],
+      ]),
+    })
+    const client1 = new EsploraClient({
+      baseUrl: wallet.explorerBaseUrl, fetchImpl: mock1.fetchImpl, minRequestSpacingMs: 0,
+    })
+    await runSync({
+      userId: USER, wallet, fallbackEnvelopeId: "env-fb", client: client1,
+      getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never,
+    })
+    expect(savedPayloads.length).toBe(1)
+
+    const mock2 = buildMockEsplora({
+      byAddressTxs: new Map<string, MockTx[]>([
+        [
+          ADDR_R0,
+          [
+            {
+              txid: "TX_ONCE",
+              vin: [{ addr: "external", value: 10000 }],
+              vout: [{ addr: ADDR_R0, value: 10000 }],
+              blockTime: 1711929600,
+              blockHeight: 800050,
+            },
+            {
+              txid: "TX_LATER",
+              vin: [{ addr: "external", value: 5000 }],
+              vout: [{ addr: ADDR_R0, value: 5000 }],
+              blockTime: 1712016000,
+              blockHeight: 800051,
+            },
+          ],
+        ],
+      ]),
+    })
+    const client2 = new EsploraClient({
+      baseUrl: wallet.explorerBaseUrl, fetchImpl: mock2.fetchImpl, minRequestSpacingMs: 0,
+    })
+    const meta = await getMeta(USER, wallet.id)
+    const resumeFrom = {
+      externalIndex: Math.max(0, meta!.externalScanHigh - wallet.gapLimit),
+      changeIndex: Math.max(0, meta!.changeScanHigh - wallet.gapLimit),
+    }
+    const r2 = await runSync({
+      userId: USER, wallet, fallbackEnvelopeId: "env-fb", client: client2,
+      resumeFrom,
+      getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never,
+    })
+    expect(r2.txsImported).toBe(1)
+    expect(savedPayloads.some((p) => p.notes?.includes("TX_LATER"))).toBe(true)
+    expect(savedPayloads.length).toBe(2)
+  })
+
   it("re-running the sync is idempotent (no duplicate writes)", async () => {
     const mock = buildMockEsplora({
       byAddressTxs: new Map<string, MockTx[]>([

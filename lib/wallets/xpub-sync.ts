@@ -24,6 +24,7 @@ import {
   type CachedAddress,
   type CachedTxId,
   addressKey,
+  getAddressesForWallet,
   hasImportedTxid,
   putAddresses,
   putMeta,
@@ -180,9 +181,9 @@ async function scanChain(
       try {
         txs = await client.getAddressTxs(address)
       } catch (err) {
-        throw new Error(
-          `Explorer tx query failed for ${address} (chain ${chain} index ${i}): ${(err as Error).message}`,
-        )
+      throw new Error(
+        `Explorer tx query failed at chain ${chain} index ${i}: ${(err as Error).message}`,
+      )
       }
       for (const tx of txs) {
         if (!txMap.has(tx.txid)) txMap.set(tx.txid, tx)
@@ -208,6 +209,47 @@ async function scanChain(
     i++
   }
   return i
+}
+
+/**
+ * Re-fetch txs for previously scanned used addresses outside the current gap
+ * window so incremental sync picks up new activity on old receive/change addrs.
+ */
+async function refreshCachedUsedAddressTxs(
+  previouslyCached: CachedAddress[],
+  collected: CachedAddress[],
+  client: EsploraClient,
+  txMap: Map<string, EsploraTx>,
+): Promise<void> {
+  const collectedKeys = new Set(collected.map((c) => c.key))
+  for (const row of previouslyCached) {
+    if (!row.used || collectedKeys.has(row.key)) continue
+    let txs: EsploraTx[]
+    try {
+      txs = await client.getAddressTxs(row.address)
+    } catch (err) {
+      throw new Error(
+        `Explorer tx refresh failed for chain ${row.chain} index ${row.index}: ${(err as Error).message}`,
+      )
+    }
+    for (const tx of txs) {
+      if (!txMap.has(tx.txid)) txMap.set(tx.txid, tx)
+    }
+  }
+}
+
+function buildMyAddressSet(
+  collected: CachedAddress[],
+  previouslyCached: CachedAddress[],
+): Set<string> {
+  const out = new Set<string>()
+  for (const row of collected) {
+    if (row.used) out.add(row.address)
+  }
+  for (const row of previouslyCached) {
+    if (row.used) out.add(row.address)
+  }
+  return out
 }
 
 export interface RunSyncOptions {
@@ -274,7 +316,9 @@ export async function runSync(opts: RunSyncOptions): Promise<RunSyncResult> {
     parsed, 1, wallet.gapLimit, client, changeStart, collected, txMap, wallet.id, tick,
   )
 
-  const myAddresses = new Set(collected.filter((c) => c.used).map((c) => c.address))
+  const previouslyCached = await getAddressesForWallet(userId, wallet.id)
+  await refreshCachedUsedAddressTxs(previouslyCached, collected, client, txMap)
+  const myAddresses = buildMyAddressSet(collected, previouslyCached)
 
   let tipHeight: number | null = null
   try {

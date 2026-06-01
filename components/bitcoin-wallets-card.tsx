@@ -18,6 +18,7 @@ import { Bitcoin, Loader2, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-r
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
   DialogContent,
@@ -79,7 +80,7 @@ function formatLastSync(iso: string | null): string {
 }
 
 export function BitcoinWalletsCard() {
-  const { state, currentUserId, getPrivacyKey, addTransaction, encryption } = useApp()
+  const { state, currentUserId, getPrivacyKey, addTransaction, deleteTransaction, encryption } = useApp()
   const { getPriceOnDate } = useBtcPrices()
 
   const [wallets, setWallets] = useState<StoredWallet[]>([])
@@ -212,9 +213,7 @@ export function BitcoinWalletsCard() {
         const records = await getImportedTxidsForWallet(currentUserId, wallet.id)
         for (const r of records) {
           if (!r.bitbudgetTxnId) continue
-          await fetch(`/api/transactions?id=${encodeURIComponent(r.bitbudgetTxnId)}`, {
-            method: "DELETE",
-          })
+          deleteTransaction(r.bitbudgetTxnId)
         }
       } catch {
         /* best-effort; cache cleanup proceeds either way */
@@ -282,18 +281,24 @@ export function BitcoinWalletsCard() {
 
   return (
     <div className={cardClass}>
-      <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 rounded-lg bg-[#F7931A]/10">
-          <Bitcoin className="h-5 w-5 text-[#F7931A]" />
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="p-2 rounded-lg bg-[#F7931A]/10 shrink-0">
+            <Bitcoin className="h-5 w-5 text-[#F7931A]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-lg font-semibold text-foreground">Bitcoin wallets</h3>
+            <p className="text-sm text-muted-foreground">
+              Track on-chain spending from one or more wallets via their public xpub. Your xpub never
+              leaves this device.
+            </p>
+          </div>
         </div>
-        <div className="flex-1 min-w-0">
-          <h3 className="text-lg font-semibold text-foreground">Bitcoin wallets</h3>
-          <p className="text-sm text-muted-foreground">
-            Track on-chain spending from one or more wallets via their public xpub. Your xpub never
-            leaves this device.
-          </p>
-        </div>
-        <button type="button" onClick={() => { resetAddForm(); setAddOpen(true) }} className={primaryBtnClass}>
+        <button
+          type="button"
+          onClick={() => { resetAddForm(); setAddOpen(true) }}
+          className={`${primaryBtnClass} w-full sm:w-auto shrink-0`}
+        >
           <Plus className="h-4 w-4" /> Add wallet
         </button>
       </div>
@@ -355,7 +360,7 @@ export function BitcoinWalletsCard() {
       )}
 
       <Dialog open={addOpen} onOpenChange={(open) => { setAddOpen(open); if (!open) resetAddForm() }}>
-        <DialogContent className="border-[#333] bg-[#0D0D0D] text-foreground max-w-lg">
+        <DialogContent className="border-[#333] bg-[#0D0D0D] text-foreground max-w-[min(96vw,32rem)]">
           {addStep === "warning" ? (
             <>
               <DialogHeader>
@@ -377,11 +382,11 @@ export function BitcoinWalletsCard() {
                   For maximum privacy, point this at <span className="font-medium text-foreground">your own node</span>
                   {" "}(Umbrel, Esplora, Blockstream self-host). You can configure that in the next step.
                 </p>
-                <label className="flex items-start gap-2 text-xs text-foreground/90 mt-2">
-                  <input
-                    type="checkbox"
+                <label className="flex items-start gap-3 text-xs text-foreground/90 mt-2">
+                  <Switch
                     checked={warningAcknowledged}
-                    onChange={(e) => setWarningAcknowledged(e.target.checked)}
+                    onCheckedChange={setWarningAcknowledged}
+                    aria-label="I understand my chosen explorer will see my wallet's addresses"
                     className="mt-0.5"
                   />
                   <span>I understand my chosen explorer will see my wallet&apos;s addresses.</span>
@@ -479,7 +484,7 @@ export function BitcoinWalletsCard() {
                       onChange={(e) => setFormDefaultEnvelopeId(e.target.value)}
                       className="w-full h-10 rounded-md border border-[#333] bg-[#1A1A1A] px-3 text-sm text-foreground"
                     >
-                      <option value="">Ask each time</option>
+                      <option value="">First available envelope</option>
                       {state.envelopes.filter((e) => !e.archived).map((e) => (
                         <option key={e.id} value={e.id}>{e.name}</option>
                       ))}
@@ -522,7 +527,7 @@ function RemoveWalletButton({
         <Trash2 className="h-3.5 w-3.5" /> Remove
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="border-[#333] bg-[#0D0D0D] text-foreground">
+        <DialogContent className="border-[#333] bg-[#0D0D0D] text-foreground max-w-[min(96vw,28rem)]">
           <DialogHeader>
             <DialogTitle>Remove “{wallet.nickname}”?</DialogTitle>
             <DialogDescription>
@@ -530,8 +535,13 @@ function RemoveWalletButton({
               BitBudget transactions are kept by default.
             </DialogDescription>
           </DialogHeader>
-          <label className="flex items-start gap-2 text-sm text-foreground/90">
-            <input type="checkbox" checked={alsoDelete} onChange={(e) => setAlsoDelete(e.target.checked)} className="mt-0.5" />
+          <label className="flex items-start gap-3 text-sm text-foreground/90">
+            <Switch
+              checked={alsoDelete}
+              onCheckedChange={setAlsoDelete}
+              aria-label="Also delete every BitBudget transaction this wallet has imported"
+              className="mt-0.5"
+            />
             <span>Also delete every BitBudget transaction this wallet has imported.</span>
           </label>
           <DialogFooter>
