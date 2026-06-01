@@ -42,6 +42,7 @@ import {
 import {
   deleteWalletData,
   getImportedTxidsForWallet,
+  getMeta,
 } from "@/lib/wallets/xpub-cache"
 import { EsploraClient } from "@/lib/wallets/esplora-client"
 import { runSync, type SyncProgress } from "@/lib/wallets/xpub-sync"
@@ -240,11 +241,19 @@ export function BitcoinWalletsCard() {
     setSyncStates((s) => ({ ...s, [wallet.id]: { status: "running" } }))
     try {
       const client = new EsploraClient({ baseUrl: wallet.explorerBaseUrl })
+      const meta = await getMeta(currentUserId, wallet.id)
+      const resumeFrom = meta
+        ? {
+            externalIndex: Math.max(0, meta.externalScanHigh - wallet.gapLimit),
+            changeIndex: Math.max(0, meta.changeScanHigh - wallet.gapLimit),
+          }
+        : undefined
       const res = await runSync({
         userId: currentUserId,
         wallet,
         fallbackEnvelopeId: fallbackEnv,
         client,
+        resumeFrom,
         getPriceOnDate,
         saveTransaction: (txn) => addTransaction(txn),
         onProgress: (p) =>

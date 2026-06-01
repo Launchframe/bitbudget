@@ -88,6 +88,12 @@ export class EsploraError extends Error {
 
 const DEFAULT_SPACING = 150
 
+/** Strip trailing slashes and a trailing `/api` so paths like `/api/address/...` are not doubled. */
+export function normalizeExplorerBaseUrl(url: string): string {
+  const trimmed = url.replace(/\/+$/, "")
+  return trimmed.endsWith("/api") ? trimmed.slice(0, -4) : trimmed
+}
+
 function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, "")}${path.startsWith("/") ? "" : "/"}${path}`
 }
@@ -105,7 +111,7 @@ export class EsploraClient {
   private lastAt = 0
 
   constructor(opts: EsploraClientOptions) {
-    this.baseUrl = opts.baseUrl.replace(/\/+$/, "")
+    this.baseUrl = normalizeExplorerBaseUrl(opts.baseUrl)
     const fImpl = opts.fetchImpl ?? (typeof fetch !== "undefined" ? (fetch as unknown as FetchLike) : undefined)
     if (!fImpl) throw new Error("EsploraClient: no fetch implementation available")
     this.fetchImpl = fImpl

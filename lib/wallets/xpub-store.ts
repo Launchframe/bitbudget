@@ -22,6 +22,7 @@
  */
 
 import { decryptField, encryptField } from "@/lib/crypto"
+import { normalizeExplorerBaseUrl } from "@/lib/wallets/esplora-client"
 
 export const WALLETS_BLOB_VERSION = 1
 export const STORAGE_KEY_PREFIX = "bitbudget-wallets-"
@@ -90,8 +91,7 @@ function clearRaw(userId: string): void {
 }
 
 function sanitizeExplorerBase(url: string): string {
-  const trimmed = url.replace(/\/+$/, "")
-  return trimmed.endsWith("/api") ? trimmed.slice(0, -4) : trimmed
+  return normalizeExplorerBaseUrl(url)
 }
 
 function normalizeWallet(w: StoredWallet): StoredWallet {
@@ -244,5 +244,4 @@ function isLocalOrOnionHost(hostname: string): boolean {
   if (a === 192 && b === 168) return true
   if (a === 172 && b >= 16 && b <= 31) return true
   return false
-}
 }

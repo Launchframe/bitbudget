@@ -14,6 +14,7 @@ import {
   clearWalletDb,
   getAddressesForWallet,
   getImportedTxidsForWallet,
+  getMeta,
   hasImportedTxid,
 } from "@/lib/wallets/xpub-cache"
 import { deriveAddress, parseExtendedKey } from "@/lib/wallets/xpub-derive"
@@ -407,12 +408,20 @@ describe("runSync (mocked Esplora, BIP84 vector)", () => {
       userId: USER, wallet, fallbackEnvelopeId: "env-fb", client,
       getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never,
     })
+    const meta = await getMeta(USER, wallet.id)
+    expect(meta).not.toBeNull()
+    const resumeFrom = {
+      externalIndex: Math.max(0, meta!.externalScanHigh - wallet.gapLimit),
+      changeIndex: Math.max(0, meta!.changeScanHigh - wallet.gapLimit),
+    }
     const r2 = await runSync({
       userId: USER, wallet, fallbackEnvelopeId: "env-fb", client,
+      resumeFrom,
       getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never,
     })
     expect(r1.txsImported).toBe(1)
     expect(r2.txsImported).toBe(0)
+    expect(r2.scannedAddresses).toBeLessThan(r1.scannedAddresses)
     expect(savedPayloads.length).toBe(1)
   })
 })

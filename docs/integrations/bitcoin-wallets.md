@@ -103,7 +103,9 @@ For each wallet:
 
 1. Parse the xpub; assert the parsed kind matches the stored kind.
 2. For each chain (0 = external/receive, 1 = change/internal):
-   - Derive `m/<chain>/<i>` starting from index 0 (full scan each sync in v1).
+   - Derive `m/<chain>/<i>` starting from the saved scan watermark minus
+     `gapLimit` (first sync starts at 0). This re-checks the tail gap window
+     for newly used addresses without rescanning the whole chain.
    - Query `GET /api/address/<addr>` to learn `tx_count + mempool_tx_count`.
    - If `> 0`, fetch all txs via `GET /api/address/<addr>/txs` (paginated).
    - Reset the consecutive-unused counter; mark the address as `used`.
