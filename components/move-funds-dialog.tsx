@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import {
-  formatUsd,
-  getCurrentMonthKey,
-  getEnvelopeBalance,
-} from "@/lib/data"
+import { formatUsd, getEnvelopeBalanceAllTime } from "@/lib/data"
 import {
   Dialog,
   DialogContent,
@@ -35,7 +31,6 @@ export function MoveFundsDialog({
   source?: "pool" | "savings"
 }) {
   const { discretionaryEnvelopes, activeTransactions, refreshData } = useApp()
-  const monthKey = getCurrentMonthKey()
   const defaultMode: MoveMode = source === "savings" ? "independent" : "balanced"
   const [mode, setMode] = useState<MoveMode>(defaultMode)
   const [multiplier, setMultiplier] = useState(1)
@@ -45,9 +40,9 @@ export function MoveFundsDialog({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  const getBalance = useCallback(
-    (id: string) => getEnvelopeBalance(activeTransactions, id, monthKey),
-    [activeTransactions, monthKey],
+  const getRemaining = useCallback(
+    (id: string) => getEnvelopeBalanceAllTime(activeTransactions, id),
+    [activeTransactions],
   )
 
   const beforeSegments: AllocationBarSegment[] = useMemo(
@@ -57,9 +52,9 @@ export function MoveFundsDialog({
         name: e.name,
         color: e.color,
         icon: e.icon,
-        value: Math.max(0, getBalance(e.id)),
+        value: Math.max(0, getRemaining(e.id)),
       })),
-    [discretionaryEnvelopes, getBalance],
+    [discretionaryEnvelopes, getRemaining],
   )
 
   const afterSegments: AllocationBarSegment[] = useMemo(
@@ -69,9 +64,9 @@ export function MoveFundsDialog({
         name: e.name,
         color: e.color,
         icon: e.icon,
-        value: Math.max(0, getBalance(e.id) + (deltas[e.id] ?? 0)),
+        value: Math.max(0, getRemaining(e.id) + (deltas[e.id] ?? 0)),
       })),
-    [discretionaryEnvelopes, getBalance, deltas],
+    [discretionaryEnvelopes, getRemaining, deltas],
   )
 
   const entries = useMemo(() => {
@@ -203,24 +198,27 @@ export function MoveFundsDialog({
 
               <div className="flex flex-col gap-3 max-h-[40vh] overflow-y-auto">
                 {discretionaryEnvelopes.map((env) => {
-                  const bal = getBalance(env.id)
-                  const max = env.monthlyAllotment * multiplier
+                  const remaining = getRemaining(env.id)
+                  const maxCredit = env.monthlyAllotment * multiplier
+                  const maxDebit = Math.max(0, remaining)
                   const delta = deltas[env.id] ?? 0
                   return (
                     <div key={env.id} className="rounded-xl border border-[#333] p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <EnvelopeIconDisplay icon={env.icon} fallbackName={env.name} className="h-5 w-5" />
                         <span className="text-sm font-medium truncate">{env.name}</span>
-                        <span className="text-xs text-muted-foreground ml-auto">{formatUsd(bal)}</span>
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          {formatUsd(remaining)} left
+                        </span>
                       </div>
-                      {bal < 0 ? (
-                        <p className="text-xs text-amber-400 mb-1">In deficit this month: {formatUsd(bal)}</p>
+                      {remaining < 0 ? (
+                        <p className="text-xs text-amber-400 mb-1">Overdrawn: {formatUsd(remaining)}</p>
                       ) : null}
                       <Label className="text-xs">Change (+/−)</Label>
                       <input
                         type="range"
-                        min={-max}
-                        max={max}
+                        min={-maxDebit}
+                        max={maxCredit}
                         step={0.01}
                         value={delta}
                         onChange={(e) => {
