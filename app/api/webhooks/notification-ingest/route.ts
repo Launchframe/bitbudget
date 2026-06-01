@@ -32,11 +32,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  if (!body || typeof body !== "object") {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "Expected JSON object" }, { status: 400 })
   }
 
   const payload = body as Record<string, unknown>
+  if (Object.keys(payload).length > 20) {
+    return NextResponse.json({ error: "Too many JSON fields" }, { status: 400 })
+  }
+
   const result = await ingestNotificationAlert(user.id, {
     text: typeof payload.text === "string" ? payload.text : null,
     title: typeof payload.title === "string" ? payload.title : null,

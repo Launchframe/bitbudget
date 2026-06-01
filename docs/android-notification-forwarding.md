@@ -44,7 +44,7 @@ Response:
 
 ```json
 {
-  "notificationIngestToken": "32-char-hex",
+  "notificationIngestToken": "64-char-hex",
   "webhookUrl": "https://bitbudget.io/api/webhooks/notification-ingest"
 }
 ```
@@ -76,7 +76,7 @@ Content-Type: application/json
 | `body` | No | Notification body |
 | `package` | No | Android package name, e.g. `com.chase.sig.android` (logging / support only) |
 | `postedAt` | No | ISO 8601 when the notification was posted (defaults to server now) |
-| `idempotencyKey` | No | Opaque string; duplicate keys within 24h return `200` with `{ "deduplicated": true }` |
+| `idempotencyKey` | No | Opaque string (max 128 chars); duplicate keys within 24h return `200` with `{ "deduplicated": true }` (applies to pending **and** auto-posted live transactions) |
 
 \*At least one of `text`, or both `title` and `body`, must be present.
 

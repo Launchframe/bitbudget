@@ -89,10 +89,23 @@ model User {
   survey                     Survey?
   referredByCode             ReferralCode?              @relation("ReferredByCode", fields: [referredByCodeId], references: [id], onDelete: SetNull)
   notificationEmails         UserNotificationEmail[]
+  notificationIngestDedupes  NotificationIngestDedupe[]
   envelopeFundingBatches     EnvelopeFundingBatch[]
   savingsGoals               SavingsGoal[]
   achievements               UserAchievement[]
   pendingStatementBatches    PendingStatementBatch[]
+}
+
+/// Prevents duplicate Android notification-forward webhook deliveries (pending or live).
+model NotificationIngestDedupe {
+  userId         String
+  idempotencyKey String
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, idempotencyKey])
+  @@index([createdAt])
 }
 
 model UserNotificationEmail {

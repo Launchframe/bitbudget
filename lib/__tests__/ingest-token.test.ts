@@ -6,9 +6,9 @@ import {
 } from "@/lib/ingest-token"
 
 describe("ingest-token", () => {
-  it("generateIngestToken returns 32 hex chars", () => {
+  it("generateIngestToken returns 64 hex chars", () => {
     const t = generateIngestToken()
-    expect(t).toMatch(/^[a-f0-9]{32}$/)
+    expect(t).toMatch(/^[a-f0-9]{64}$/)
   })
 
   it("ingestTokenMatches is timing-safe equal", () => {
