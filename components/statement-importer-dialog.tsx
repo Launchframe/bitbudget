@@ -73,6 +73,7 @@ interface PayeeMatchSuggestion {
 interface ImportSummary {
   imported: number
   skipped: number
+  duplicates: number
   totalExpenses: number
   totalCreditsImported: number
   importBatchId: string | null
@@ -889,12 +890,15 @@ export function StatementImporterDialog({
             else totalCreditsImported += t.amount
 
             const envObj = envelopes.find(e => e.id === envelopeId)
-            const dedupeKey = dedupeComputer({
-              date: t.date,
-              payee: canonical,
-              amount: t.amount,
-              type: t.type,
-            })
+            const isForcedDuplicate = forceImportRows.has(i)
+            const dedupeKey = isForcedDuplicate
+              ? undefined
+              : dedupeComputer({
+                  date: t.date,
+                  payee: canonical,
+                  amount: t.amount,
+                  type: t.type,
+                })
             return {
               date: t.date,
               payee: encPayee,
@@ -902,14 +906,14 @@ export function StatementImporterDialog({
               type: t.type,
               envelopeName: envObj?.name ?? "Uncategorized",
               notes: encNotes,
-              dedupeKey,
+              ...(dedupeKey ? { dedupeKey } : {}),
               ...(envelopeId && envelopeId !== SKIP_ROW ? { envelopeId } : {}),
             }
           })
       )
 
       if (toImport.length === 0) {
-        setResult({ imported: 0, skipped: parsed.length, totalExpenses: 0, totalCreditsImported: 0, importBatchId: null })
+        setResult({ imported: 0, skipped: parsed.length, duplicates: 0, totalExpenses: 0, totalCreditsImported: 0, importBatchId: null })
         clearDraft(STATEMENT_IMPORTER_DRAFT_KEY)
         setStep("done")
         return
@@ -932,7 +936,7 @@ export function StatementImporterDialog({
         }),
       })
 
-      let data: { imported?: number; skipped?: number; newEnvelopes?: string[]; importBatchId?: string; error?: string }
+      let data: { imported?: number; skipped?: number; duplicates?: number; newEnvelopes?: string[]; importBatchId?: string; error?: string }
       try { data = await res.json() } catch { throw new Error("Import failed.") }
       if (!res.ok) throw new Error(data.error ?? "Import failed.")
 
@@ -984,11 +988,18 @@ export function StatementImporterDialog({
         await fetch(`/api/import/pending-batch/${pendingBatchId}`, { method: "DELETE" }).catch(() => {})
       }
 
+      const imported = data.imported ?? 0
+      const duplicates = data.duplicates ?? 0
+      const sentCount = toImport.length
+      const amountsMatchServer =
+        imported === sentCount && duplicates === 0
+
       setResult({
-        imported: data.imported ?? 0,
-        skipped: (data.skipped ?? 0) + (parsed.length - toImport.length),
-        totalExpenses,
-        totalCreditsImported,
+        imported,
+        skipped: (data.skipped ?? 0) + (parsed.length - sentCount),
+        duplicates,
+        totalExpenses: amountsMatchServer ? totalExpenses : 0,
+        totalCreditsImported: amountsMatchServer ? totalCreditsImported : 0,
         importBatchId: batchId,
       })
 
@@ -1818,11 +1829,31 @@ export function StatementImporterDialog({
             <div className="flex flex-col items-center gap-4 py-6">
               <CheckCircle2 className="h-14 w-14 text-green-500" />
               <div className="text-center space-y-1">
-                <p className="text-foreground font-medium text-lg">
-                  You successfully imported <span className="text-btc-orange">${formatCurrency(result.totalExpenses)}</span> of transactions.
-                </p>
-                {result.totalCreditsImported > 0 && (
-                  <p className="text-sm text-green-400">+${formatCurrency(result.totalCreditsImported)} in credits imported</p>
+                {result.imported === 0 ? (
+                  <p className="text-foreground font-medium text-lg">
+                    No new transactions were imported.
+                  </p>
+                ) : result.totalExpenses > 0 || result.totalCreditsImported > 0 ? (
+                  <>
+                    <p className="text-foreground font-medium text-lg">
+                      You successfully imported{" "}
+                      <span className="text-btc-orange">${formatCurrency(result.totalExpenses)}</span> of transactions.
+                    </p>
+                    {result.totalCreditsImported > 0 && (
+                      <p className="text-sm text-green-400">
+                        +${formatCurrency(result.totalCreditsImported)} in credits imported
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-foreground font-medium text-lg">
+                    You successfully imported {result.imported} transaction{result.imported === 1 ? "" : "s"}.
+                  </p>
+                )}
+                {result.duplicates > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    {result.duplicates} duplicate{result.duplicates === 1 ? "" : "s"} skipped
+                  </p>
                 )}
                 {result.skipped > 0 && (
                   <p className="text-sm text-muted-foreground">{result.skipped} skipped</p>
