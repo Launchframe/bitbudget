@@ -41,7 +41,8 @@ function receiptScanPostWithFile(url: string): NextRequest {
   bytes[2] = 0xff
   bytes[3] = 0xe0
   const form = new FormData()
-  form.append("file", new File([bytes], "scan.jpg", { type: "image/jpeg" }))
+  const blob = new Blob([bytes], { type: "image/jpeg" })
+  form.append("file", blob, "scan.jpg")
   return new NextRequest(url, { method: "POST", body: form })
 }
 

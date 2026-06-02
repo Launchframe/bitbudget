@@ -5,7 +5,8 @@ import { cn } from "@/lib/utils"
 
 /**
  * Scrollable region with a bottom fade when more content is below the fold.
- * Prefer this over chevrons alone — the gradient reads as "continues" without extra copy.
+ * Pass `max-h-*` via className on this component — it applies to the scrollport
+ * (max-height and overflow must live on the same element).
  */
 export function ScrollOverflowHint({
   children,
@@ -43,11 +44,12 @@ export function ScrollOverflowHint({
   }, [update, children])
 
   return (
-    <div className={cn("relative flex min-h-0 min-w-0 flex-col overflow-hidden", className)}>
+    <div className="relative min-w-0">
       <div
         ref={ref}
         className={cn(
-          "min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch]",
+          "relative overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch]",
+          className,
           contentClassName,
         )}
       >

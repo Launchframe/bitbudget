@@ -1,6 +1,7 @@
 "use client"
 
 import { PiggyBank } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { formatUsd } from "@/lib/data"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 
@@ -100,15 +101,21 @@ export function AllocationStackedBar({
 export function AllocationComparisonBars({
   before,
   after,
+  /** Sum of absolute envelope deltas (USD). When ~0, the After bar stays muted until the user moves funds. */
+  afterMovementUsd,
 }: {
   before: { envelopes: AllocationBarSegment[]; savingsValue: number }
   after: { envelopes: AllocationBarSegment[]; savingsValue: number }
+  afterMovementUsd?: number
 }) {
   const beforeTotal =
     before.envelopes.reduce((s, e) => s + Math.max(0, e.value), 0) + Math.max(0, before.savingsValue)
   const afterTotal =
     after.envelopes.reduce((s, e) => s + Math.max(0, e.value), 0) + Math.max(0, after.savingsValue)
   const sharedTotal = Math.max(beforeTotal, afterTotal, 1)
+
+  const afterMuted =
+    typeof afterMovementUsd === "number" && Number.isFinite(afterMovementUsd) && afterMovementUsd <= 0.005
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-2">
@@ -118,12 +125,19 @@ export function AllocationComparisonBars({
         savingsValue={before.savingsValue}
         totalValue={sharedTotal}
       />
-      <AllocationStackedBar
-        variant="after"
-        envelopes={after.envelopes}
-        savingsValue={after.savingsValue}
-        totalValue={sharedTotal}
-      />
+      <div
+        className={cn(
+          "min-w-0 rounded-xl transition-[filter,opacity] duration-500 ease-out motion-reduce:transition-none",
+          afterMuted ? "grayscale opacity-[0.72] brightness-95 contrast-95" : "grayscale-0 opacity-100",
+        )}
+      >
+        <AllocationStackedBar
+          variant="after"
+          envelopes={after.envelopes}
+          savingsValue={after.savingsValue}
+          totalValue={sharedTotal}
+        />
+      </div>
     </div>
   )
 }

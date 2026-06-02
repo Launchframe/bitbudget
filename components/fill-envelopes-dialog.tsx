@@ -15,6 +15,7 @@ import {
   AllocationStackedBar,
   type AllocationBarSegment,
 } from "@/components/allocation-stacked-bar"
+import { SavingsDrawdownSummary } from "@/components/savings-drawdown-summary"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import {
   Dialog,
@@ -27,6 +28,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { DistributionBehavior } from "@/lib/rebalance-math"
 import { cn } from "@/lib/utils"
+import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
 
 export interface FillEnvelopePreviewRow {
   envelopeId: string
@@ -54,6 +56,8 @@ function invalidBannerMessage(reason: DistributionInvalidReason | null): string 
       return "Savings cannot cover the rest. Amounts below show what can be covered from income and Savings."
     case "no_income":
       return "Enter an income amount to preview a distribution."
+    case "no_split_targets":
+      return "Add a monthly amount to at least one spending envelope to split this deposit."
     default:
       return "This distribution cannot be fully funded. Amounts below show what can be covered."
   }
@@ -71,6 +75,8 @@ export function FillEnvelopesDialog({
   distributionInvalid = false,
   invalidReason = null,
   embedded = false,
+  savingsDrawForSummaryUsd,
+  savingsBalanceForSummaryUsd,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -85,6 +91,9 @@ export function FillEnvelopesDialog({
   invalidReason?: DistributionInvalidReason | null
   /** Render body only (no Dialog wrapper) for confirm step embedding. */
   embedded?: boolean
+  /** Optional: show draw-from-Savings vs balance strip (Add income / rebalance review). */
+  savingsDrawForSummaryUsd?: number
+  savingsBalanceForSummaryUsd?: number
 }) {
   const { discretionaryEnvelopes, activeTransactions } = useApp()
   const [search, setSearch] = useState("")
@@ -182,9 +191,16 @@ export function FillEnvelopesDialog({
         onSegmentClick={scrollToEnvelope}
       />
 
+      {typeof savingsBalanceForSummaryUsd === "number" && Number.isFinite(savingsDrawForSummaryUsd ?? 0) ? (
+        <SavingsDrawdownSummary
+          drawFromSavingsUsd={Math.max(0, savingsDrawForSummaryUsd ?? 0)}
+          savingsBalanceUsd={Math.max(0, savingsBalanceForSummaryUsd)}
+        />
+      ) : null}
+
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <Input
-          placeholder="Search envelopes…"
+          placeholder="Filter envelopes…"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value)
@@ -262,14 +278,39 @@ export function FillEnvelopesDialog({
   )
 
   if (embedded) {
-    return open ? <div className="flex flex-col gap-4 min-w-0">{body}</div> : null
+    if (!open) return null
+    return (
+      <div className="flex flex-col gap-4 min-w-0">
+        {body}
+        {onConfirm ? (
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end shrink-0 border-t border-[#333] pt-4">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Back
+            </Button>
+            <Button type="button" onClick={onConfirm}>
+              {confirmLabel}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    )
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[min(96vw,32rem)] max-h-[85vh] flex flex-col">
+      <DialogContent
+        className="max-w-[min(96vw,32rem)] max-h-[85vh] flex flex-col transition-all duration-200 ease-out"
+        onKeyDown={(e) =>
+          handleDialogEnterToPrimary(e, {
+            disabled: readOnly || !onConfirm,
+            onPrimary: () => {
+              onConfirm?.()
+            },
+          })
+        }
+      >
         <DialogHeader>
-          <DialogTitle>{readOnly ? "Review distribution" : "Affected envelopes"}</DialogTitle>
+          <DialogTitle>{readOnly ? "Rebalance preview" : "Affected envelopes"}</DialogTitle>
         </DialogHeader>
 
         {body}
@@ -346,6 +387,8 @@ export function behaviorLabel(behavior: DistributionBehavior): string {
       return "Set to budget"
     case "add_budget":
       return "Add budget"
+    case "split_income_proportional":
+      return "Split by budget size"
     case "custom":
       return "Choose amounts"
     default: {

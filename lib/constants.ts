@@ -37,6 +37,13 @@ export const SAVINGS_GOAL_DEFAULT_PERIOD = "default"
 /** Savings UI accent (distinct from Bitcoin orange #F7931A). */
 export const SAVINGS_GOLD_ACCENT = "#D4AF37"
 
+/** Draw-from-Savings vs balance: D/B below low → green; between low and high → orange; at or above high → red. */
+export const SAVINGS_DRAW_WARN_RATIO_LOW = 0.25
+export const SAVINGS_DRAW_WARN_RATIO_HIGH = 0.4
+
+/** Adjust envelopes → bidirectional Savings ↔ spending envelopes (rebalance dialog source=savings). */
+export const MOVE_TO_FROM_SAVINGS_TITLE = "Move to/from Savings"
+
 /** Premium renewal pricing (USD) — shown in renewal reminders until live checkout. */
 export const PREMIUM_PRICE_MONTHLY_USD = 5
 export const PREMIUM_PRICE_ANNUAL_USD = 50
@@ -44,6 +51,8 @@ export const PREMIUM_ANNUAL_SAVINGS_MONTHS = 2
 
 export const TX_SOURCE_INCOME_IMPORT = "income_import"
 export const TX_SOURCE_PAYCHECK = "paycheck"
+/** One-time catch-up credit for income before BitBudget (Savings + proportional envelope legs). */
+export const TX_SOURCE_RETRO_PAYCHECK = "retro_paycheck"
 export const TX_SOURCE_IRREGULAR_INCOME = "irregular_income"
 export const TX_SOURCE_FUNDING_OUT = "envelope_funding_out"
 export const TX_SOURCE_FUNDING_IN = "envelope_funding_in"

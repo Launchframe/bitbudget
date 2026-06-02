@@ -21,6 +21,10 @@ import {
   parsePartialMoneyInput,
   roundMoneyCents,
 } from "@/lib/allocation-cadence"
+import {
+  RetroMissedPaycheckDialog,
+  fetchRetroMissedPaycheckStatus,
+} from "@/components/retro-missed-paycheck-dialog"
 
 /** Draft value for an envelope: user override or current allotment. Avoids syncing state in useEffect. */
 function useDraftAllotments() {
@@ -55,6 +59,9 @@ export function EnvelopeAllocationsPage() {
   const [textDrafts, setTextDrafts] = useState<Record<string, string>>({})
   const [focusedAmountEnvId, setFocusedAmountEnvId] = useState<string | null>(null)
   const sliderRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const retroAfterSaveRef = useRef(false)
+  const [retroDialogOpen, setRetroDialogOpen] = useState(false)
+  const [retroPreviewGross, setRetroPreviewGross] = useState(0)
 
   function dismissMergeHint() {
     setMergeHintDismissed(true)
@@ -65,15 +72,39 @@ export function EnvelopeAllocationsPage() {
     navigateTo("envelopes")
   }
 
-  function handleSave() {
+  async function handleSave() {
     for (const env of activeEnvelopes) {
       const newVal = getDraft(env.id, env.monthlyAllotment)
       if (newVal !== env.monthlyAllotment) {
         editEnvelope(env.id, { monthlyAllotment: newVal })
       }
     }
+    const status = await fetchRetroMissedPaycheckStatus()
+    if (
+      status &&
+      status.eligible &&
+      !status.applied &&
+      Number.isFinite(status.previewGrossUsd) &&
+      status.previewGrossUsd >= 0.01
+    ) {
+      retroAfterSaveRef.current = true
+      setRetroPreviewGross(status.previewGrossUsd)
+      setRetroDialogOpen(true)
+      return
+    }
     navigateTo("envelopes")
   }
+
+  const handleRetroDialogOpenChange = useCallback(
+    (next: boolean) => {
+      setRetroDialogOpen(next)
+      if (!next && retroAfterSaveRef.current) {
+        retroAfterSaveRef.current = false
+        navigateTo("envelopes")
+      }
+    },
+    [navigateTo],
+  )
 
   const draftTotalAllocated = activeEnvelopes.reduce(
     (s, e) => s + getDraft(e.id, e.monthlyAllotment),
@@ -177,6 +208,7 @@ export function EnvelopeAllocationsPage() {
   }
 
   return (
+    <>
     <div className="flex flex-col gap-6">
       {/* Income header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
@@ -512,5 +544,11 @@ export function EnvelopeAllocationsPage() {
         </div>
       </div>
     </div>
+    <RetroMissedPaycheckDialog
+      open={retroDialogOpen}
+      onOpenChange={handleRetroDialogOpenChange}
+      previewGrossUsd={retroPreviewGross}
+    />
+    </>
   )
 }

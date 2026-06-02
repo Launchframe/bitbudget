@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import {
   Dialog,
@@ -19,8 +19,17 @@ import {
   DistributionPanel,
   type DistributionPanelConfig,
 } from "@/components/distribution-panel"
+import { SavingsOptionHeadline } from "@/components/savings-drawdown-summary"
 import { formatUsd } from "@/lib/data"
+import { findSavingsEnvelope, savingsBalance } from "@/lib/savings-ui-metrics"
 import { useTransactionCaptureReadiness } from "@/lib/use-transaction-capture-readiness"
+import { clearDraft } from "@/lib/draft-storage"
+import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
+import {
+  IRREGULAR_INCOME_DRAFT_KEY,
+  loadIrregularIncomeDraft,
+  saveIrregularIncomeDraft,
+} from "@/lib/irregular-income-draft"
 
 function todayIso(): string {
   return new Date().toISOString().split("T")[0]!
@@ -40,7 +49,7 @@ export function IrregularIncomeDialog({
   onOpenChange?: (open: boolean) => void
   hideTrigger?: boolean
 }) {
-  const { refreshData, state } = useApp()
+  const { refreshData, state, activeTransactions } = useApp()
   const { readiness, loading: readinessLoading } = useTransactionCaptureReadiness()
   const [internalOpen, setInternalOpen] = useState(false)
   const open = controlledOpen ?? internalOpen
@@ -59,6 +68,7 @@ export function IrregularIncomeDialog({
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const draftLoadedRef = useRef(false)
 
   const resetForm = useCallback(() => {
     setStep("details")
@@ -75,18 +85,90 @@ export function IrregularIncomeDialog({
     (next: boolean) => {
       controlledOnOpenChange?.(next)
       if (controlledOpen === undefined) setInternalOpen(next)
-      if (!next) resetForm()
+      if (!next) {
+        draftLoadedRef.current = false
+        resetForm()
+      }
     },
     [controlledOpen, controlledOnOpenChange, resetForm],
   )
 
   const grossNum = parseFloat(amount)
 
+  const savingsBalForSummary = useMemo(
+    () => savingsBalance(activeTransactions, findSavingsEnvelope(state.envelopes)),
+    [activeTransactions, state.envelopes],
+  )
+
   const canReviewEnvelopes =
     destination === "envelopes" &&
     panelConfig != null &&
     !panelConfig.distributionInvalid &&
     panelConfig.fundableRows.length > 0
+
+  useEffect(() => {
+    if (!open) {
+      draftLoadedRef.current = false
+      return
+    }
+    if (draftLoadedRef.current) return
+    draftLoadedRef.current = true
+    const d = loadIrregularIncomeDraft()
+    if (!d) return
+    setAmount(d.amount)
+    setDate(d.date)
+    setPayee(d.payee)
+    setNotes(d.notes)
+    setDestination(d.destination)
+    if (d.step === "distribute") setStep("distribute")
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    if (step === "success" || step === "confirm") return
+    const persistStep = step === "distribute" ? "distribute" : "details"
+    saveIrregularIncomeDraft({
+      v: 1,
+      step: persistStep,
+      amount,
+      date,
+      payee,
+      notes,
+      destination,
+    })
+  }, [open, step, amount, date, payee, notes, destination])
+
+  const goDetailsNext = useCallback(() => {
+    setError(null)
+    if (!readiness.ok) {
+      setError(readiness.message)
+      return
+    }
+    if (!Number.isFinite(grossNum) || grossNum <= 0) {
+      setError("Enter a positive amount.")
+      return
+    }
+    if (!payee.trim()) {
+      setError("Please enter a payer.")
+      return
+    }
+    setStep("distribute")
+  }, [readiness, grossNum, payee])
+
+  const goDistributeReview = useCallback(() => {
+    if (destination === "envelopes") {
+      if (!panelConfig || panelConfig.distributionInvalid) {
+        setError("This distribution cannot be funded. Adjust the fill option or use Savings.")
+        return
+      }
+      if (panelConfig.fundableRows.length === 0) {
+        setError("Choose a fill option or put the money in Savings.")
+        return
+      }
+    }
+    setError(null)
+    setStep("confirm")
+  }, [destination, panelConfig])
 
   const submit = useCallback(async () => {
     setError(null)
@@ -142,6 +224,7 @@ export function IrregularIncomeDialog({
         setError(typeof data.error === "string" ? data.error : "Could not record income.")
         return
       }
+      clearDraft(IRREGULAR_INCOME_DRAFT_KEY)
       const toEnvelopes = panelConfig?.fundableRows.reduce((s, r) => s + r.deltaUsd, 0) ?? 0
       setSuccessSummary({
         gross: grossNum,
@@ -156,7 +239,16 @@ export function IrregularIncomeDialog({
     } finally {
       setSubmitting(false)
     }
-  }, [grossNum, date, payee, notes, destination, panelConfig, refreshData, readiness])
+  }, [
+    grossNum,
+    date,
+    payee,
+    notes,
+    destination,
+    panelConfig,
+    refreshData,
+    readiness,
+  ])
 
   const readinessBlock =
     !readinessLoading && !readiness.ok ? (
@@ -193,7 +285,28 @@ export function IrregularIncomeDialog({
       ) : null}
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-[min(96vw,28rem)] max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-[min(96vw,28rem)] max-h-[90vh] overflow-y-auto transition-all duration-200 ease-out"
+          onKeyDown={(e) =>
+            handleDialogEnterToPrimary(e, {
+              disabled:
+                submitting ||
+                step === "success" ||
+                (step === "details" && (!readiness.ok || readinessLoading)) ||
+                (step === "distribute" && destination === "envelopes" && !canReviewEnvelopes) ||
+                (step === "confirm" &&
+                  (!readiness.ok ||
+                    submitting ||
+                    (destination === "envelopes" && !canReviewEnvelopes))),
+              onPrimary: () => {
+                if (step === "details") goDetailsNext()
+                else if (step === "distribute") goDistributeReview()
+                else if (step === "confirm") void submit()
+                else if (step === "success") handleOpenChange(false)
+              },
+            })
+          }
+        >
           {step === "details" && (
             <>
               <DialogHeader>
@@ -260,22 +373,7 @@ export function IrregularIncomeDialog({
                   type="button"
                   className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90"
                   disabled={!readiness.ok && !readinessLoading}
-                  onClick={() => {
-                    setError(null)
-                    if (!readiness.ok) {
-                      setError(readiness.message)
-                      return
-                    }
-                    if (!Number.isFinite(grossNum) || grossNum <= 0) {
-                      setError("Enter a positive amount.")
-                      return
-                    }
-                    if (!payee.trim()) {
-                      setError("Please enter a payer.")
-                      return
-                    }
-                    setStep("distribute")
-                  }}
+                  onClick={() => void goDetailsNext()}
                 >
                   Next
                 </Button>
@@ -302,7 +400,15 @@ export function IrregularIncomeDialog({
                     className="mt-1 accent-[#F7931A]"
                   />
                   <span>
-                    <span className="font-medium block">Put it in Savings</span>
+                    <span className="font-medium flex flex-wrap items-baseline gap-2">
+                      Put it in Savings
+                      {Number.isFinite(grossNum) && grossNum > 0 && state.monthlyIncome > 0 ? (
+                        <SavingsOptionHeadline
+                          depositUsd={grossNum}
+                          monthlyIncomeUsd={state.monthlyIncome}
+                        />
+                      ) : null}
+                    </span>
                     <span className="text-xs text-muted-foreground">Recommended</span>
                   </span>
                 </label>
@@ -340,20 +446,7 @@ export function IrregularIncomeDialog({
                   type="button"
                   className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90"
                   disabled={destination === "envelopes" && !canReviewEnvelopes}
-                  onClick={() => {
-                    if (destination === "envelopes") {
-                      if (!panelConfig || panelConfig.distributionInvalid) {
-                        setError("This distribution cannot be funded. Adjust the fill option or use Savings.")
-                        return
-                      }
-                      if (panelConfig.fundableRows.length === 0) {
-                        setError("Choose a fill option or put the money in Savings.")
-                        return
-                      }
-                    }
-                    setError(null)
-                    setStep("confirm")
-                  }}
+                  onClick={() => void goDistributeReview()}
                 >
                   Review
                 </Button>
@@ -382,6 +475,8 @@ export function IrregularIncomeDialog({
                   readOnly
                   distributionInvalid={panelConfig.distributionInvalid}
                   invalidReason={panelConfig.invalidReason}
+                  savingsDrawForSummaryUsd={panelConfig.fromSavingsUsd}
+                  savingsBalanceForSummaryUsd={savingsBalForSummary}
                 />
               ) : null}
               <div className="flex justify-end gap-2 pt-2">

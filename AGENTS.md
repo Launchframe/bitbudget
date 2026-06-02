@@ -361,6 +361,15 @@ Treat horizontal overflow, clipped controls, and fixed-width layouts on small sc
 - Below `md`, navigation is **`MobileNav`** (bottom bar) + **`Header`**; the sidebar is hidden. Pages must not depend on desktop-only chrome for core actions.
 - Dialogs and sheets: use responsive max widths (`max-w-[min(96vw,…)]`, `sm:max-w-lg`) and scrollable bodies (`max-h-[…] overflow-y-auto`) so content fits short viewports.
 - Data tables may scroll horizontally inside a **`overflow-x-auto`** wrapper scoped to the table — not by widening the entire page. Update empty-state `colSpan` when columns are conditionally hidden.
+- **Stable chrome:** Prefer **fixed-height** or **always-present** regions for **dialog headers, footers, and summary strips** so lists and charts do not jump vertically when helper text appears or values update.
+- **Layout shift (CLS):** Avoid **per-row conditional blocks** that grow only some rows (for example funding hints on envelope cards). Put summaries **once** at the top or bottom of a list, or reserve **`min-height`** when optional copy must stay inline.
+- **Charts:** Summary lines above a plot (for example **Saved** / cumulative totals on `components/opportunity-cost-chart.tsx`) should use a **reserved band** so toggling overlay data does not resize the chart body.
+
+### Power users (hash routing, drafts, keyboard)
+
+- **Signed-in navigation** uses hash routes in the shell (for example `/#/envelopes/allocations`, `/#/transactions`). When linking from static routes into the app, use `next/link` with `href="/#/<page>"` so it matches `AppContext` navigation.
+- **Draft persistence:** Multi-step flows may cache in `sessionStorage` under keys like `bitbudget-<feature>-draft`. Irregular income uses `bitbudget-irregular-income-draft` (`lib/irregular-income-draft.ts`). Logout runs `clearAllDrafts()` in `lib/draft-storage.ts`, which removes `bitbudget-*-draft` keys.
+- **Enter to submit:** On supported dialogs, **Enter** (without Shift) triggers the primary action for the current step when focus is not in a `TEXTAREA`, a `contentEditable` region, or an element inside `[data-no-enter-submit]`. Shared helper: `handleDialogEnterToPrimary` in `lib/dialog-enter-submit.ts`. Initial coverage: irregular income, rebalance, and fill-envelope preview confirm.
 
 **Before finishing UI work**
 - Resize the browser (or DevTools device mode) to **390px and 320px** on every touched screen, dialog, and banner — including Settings, onboarding steps, and modals.
@@ -652,6 +661,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - When implementing from a Cursor plan file (`~/.cursor/plans/*.plan.md`), do not edit the plan — use the pre-created todos and mark them in_progress/completed as you work.
 - For large feature branches, split work into logical commits before push and opening a PR.
 - When test-coverage gaps are identified for new shared logic, write the missing unit and e2e tests in the same session rather than deferring (if the user asks to write tests, implement them — do not stop at a coverage summary).
+- Onboarding and similar money inputs should normalize on blur or when changing steps (strip meaningless leading zeros, coerce empty to zero) so values like `000100000` cannot persist after navigating forward and back.
 
 ## Learned Workspace Facts
 
@@ -666,5 +676,3 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - Rules engine tests: `lib/__tests__/rule-engine-client.test.ts`, `lib/__tests__/account-rules.test.ts`, and `e2e/rules-settings.spec.ts`.
 - **Recurring funding rules:** `RecurringFundingRule` stores scheduled income distribution / move-funds configs (`nextRunAt`). Executed by `processAllRecurringFundingRules()` from the daily **envelope-funding** cron (`/api/cron/envelope-funding`). Distinct from `RecurringTransaction` + `/api/cron/recurring` (user transaction templates).
 - `savingsBalance()` in `lib/savings-ui-metrics.ts` takes the Savings `Envelope` (or `undefined`), not `envelopeId` — pass `findSavingsEnvelope(...)`, not `.id`.
-- **Envelope genesis filtering:** `getEnvelopeBalanceAllTime` and server batch helpers only count transactions dated on or after `envelope.createdAt` (calendar-date comparison, YYYY-MM-DD). This prevents historically imported CSV rows from making newly-created envelopes deeply negative. `Envelope.createdAt` is exposed in the client `Envelope` type and the envelopes API response.
-- **CSV import deduplication:** `Transaction.dedupeKey` is a nullable column with a partial unique index (`WHERE "dedupeKey" IS NOT NULL`); imported rows get an HMAC-SHA256 key derived from the user's privacy key seed (available via `getValidCachedPrivacyKeyHex`). The import route uses `createMany({ skipDuplicates: true })` with chunked batches instead of sequential per-row `create` calls.

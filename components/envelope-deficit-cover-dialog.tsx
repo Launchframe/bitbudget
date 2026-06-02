@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button"
 import { formatUsd, getCurrentMonthKey, getEnvelopeBalance } from "@/lib/data"
 import { deficitCoverAmount } from "@/lib/budget-period"
 import { useApp } from "@/lib/app-context"
+import { SavingsDrawdownSummary } from "@/components/savings-drawdown-summary"
+import { findSavingsEnvelope, savingsBalance } from "@/lib/savings-ui-metrics"
 
 export function EnvelopeDeficitCoverDialog({
   open,
@@ -23,13 +25,15 @@ export function EnvelopeDeficitCoverDialog({
   envelopeId: string
   envelopeName: string
 }) {
-  const { activeTransactions, refreshData } = useApp()
+  const { activeTransactions, refreshData, state } = useApp()
   const monthKey = getCurrentMonthKey()
   const monthBal = getEnvelopeBalance(activeTransactions, envelopeId, monthKey)
   const maxCover = deficitCoverAmount(monthBal)
   const [amount, setAmount] = useState(maxCover)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const savingsBal = savingsBalance(activeTransactions, findSavingsEnvelope(state.envelopes))
 
   const daysToFirst = (() => {
     const now = new Date()
@@ -90,6 +94,7 @@ export function EnvelopeDeficitCoverDialog({
             className="mt-1 w-full rounded-lg border border-[#333] bg-[#1A1A1A] px-3 py-2"
           />
         </label>
+        <SavingsDrawdownSummary drawFromSavingsUsd={amount} savingsBalanceUsd={savingsBal} />
         {error ? (
           <p className="text-sm text-amber-400/95" role="alert">
             {error}

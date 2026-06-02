@@ -9,10 +9,12 @@ import {
   type AllocationBarSegment,
 } from "@/components/allocation-stacked-bar"
 import { EnvelopeFundSliders } from "@/components/envelope-fund-sliders"
+import { SavingsDrawdownSummary } from "@/components/savings-drawdown-summary"
 import { FillEnvelopesDialog, behaviorLabel, type FillEnvelopePreviewRow } from "@/components/fill-envelopes-dialog"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { DistributionBehavior, DistributionInvalidReason } from "@/lib/rebalance-math"
 import {
   computeDistribution,
@@ -42,6 +44,8 @@ function distributionErrorMessage(
       return "This fill needs more than the income amount. Choose a smaller option."
     case "insufficient_savings":
       return "Not enough in Savings to cover the rest of this distribution."
+    case "no_split_targets":
+      return "Add a monthly amount to at least one spending envelope to split this deposit."
     default:
       return "This distribution cannot be funded with the current amounts."
   }
@@ -50,6 +54,7 @@ function distributionErrorMessage(
 const BEHAVIOR_OPTIONS: { value: DistributionBehavior; label: string }[] = [
   { value: "set_to_budget", label: "Set to budget amount" },
   { value: "add_budget", label: "Add full budget amount" },
+  { value: "split_income_proportional", label: "Split by budget size" },
   { value: "custom", label: "Choose amounts" },
 ]
 
@@ -62,6 +67,8 @@ export interface DistributionPanelConfig {
   fundableRows: FillEnvelopePreviewRow[]
   requestedRows: FillEnvelopePreviewRow[]
   customByEnvelopeId?: Record<string, number>
+  /** Total USD this distribution draws from Savings (overage). For confirm UI. */
+  fromSavingsUsd: number
 }
 
 export function DistributionPanel({
@@ -121,6 +128,42 @@ export function DistributionPanel({
     customByEnvelopeId,
   ])
 
+  const distributionByBehaviorOption = useMemo(() => {
+    const envelopes = discretionaryEnvelopes.map((e) => ({
+      id: e.id,
+      monthlyAllotment: e.monthlyAllotment,
+      currentMonthBalance: getEnvelopeBalance(activeTransactions, e.id, monthKey),
+    }))
+    const gross = sourceFunding === "income" ? grossUsd : 0
+    const customMap = new Map(
+      Object.entries(customByEnvelopeId).filter(([, v]) => Number.isFinite(v) && v > 0.005),
+    )
+    const mk = (b: DistributionBehavior) =>
+      computeDistribution({
+        behavior: b,
+        envelopes,
+        grossUsd: gross,
+        savingsBalance: savingsBal,
+        fundOverageFromSavings: fundOverage,
+        customByEnvelopeId: b === "custom" ? customMap : undefined,
+      })
+    return {
+      set_to_budget: mk("set_to_budget"),
+      add_budget: mk("add_budget"),
+      split_income_proportional: mk("split_income_proportional"),
+      custom: mk("custom"),
+    }
+  }, [
+    discretionaryEnvelopes,
+    activeTransactions,
+    monthKey,
+    grossUsd,
+    sourceFunding,
+    savingsBal,
+    fundOverage,
+    customByEnvelopeId,
+  ])
+
   const fundedMap = useMemo(
     () => fundedAmountByEnvelopeId(preview.dist),
     [preview.dist],
@@ -142,6 +185,7 @@ export function DistributionPanel({
       fundableRows: preview.fundableRows,
       requestedRows: preview.requestedRows,
       customByEnvelopeId: customPayload,
+      fromSavingsUsd: preview.dist.fromSavings,
     })
   }, [behavior, fundOverage, preview, customByEnvelopeId, onConfigChange])
 
@@ -255,21 +299,49 @@ export function DistributionPanel({
         >
           {BEHAVIOR_OPTIONS.map(({ value, label }) => {
             const selected = behavior === value
-            return (
+            const optDist = distributionByBehaviorOption[value]
+            const cannotSwitch = value !== "custom" && optDist.invalid && !selected
+            const tip =
+              cannotSwitch && optDist.invalidReason
+                ? distributionErrorMessage(optDist.invalidReason, savingsBal, fundOverage)
+                : null
+            const buttonEl = (
               <button
-                key={value}
                 type="button"
+                disabled={cannotSwitch}
                 className={cn(
-                  "flex-1 py-2 px-2 text-xs sm:text-sm rounded-lg transition-colors text-center min-w-0",
+                  "w-full py-2 px-2 text-xs sm:text-sm rounded-lg transition-colors text-center min-w-0",
                   selected
                     ? "bg-[#F7931A] text-[#0D0D0D] font-medium"
-                    : "text-muted-foreground hover:text-foreground border border-transparent",
+                    : cannotSwitch
+                      ? "text-muted-foreground/50 cursor-not-allowed border border-transparent"
+                      : "text-muted-foreground hover:text-foreground border border-transparent",
                 )}
                 aria-pressed={selected}
                 onClick={() => handleBehaviorChange(value)}
               >
                 {label}
               </button>
+            )
+            return (
+              <div key={value} className="flex flex-1 min-w-0">
+                {cannotSwitch && tip ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex w-full min-w-0">{buttonEl}</span>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      sideOffset={6}
+                      className="max-w-[min(96vw,18rem)] border border-[#333] bg-[#1A1A1A] px-3 py-2 text-xs text-muted-foreground shadow-xl [&>svg]:hidden"
+                    >
+                      {tip}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  buttonEl
+                )}
+              </div>
             )
           })}
         </div>
@@ -328,6 +400,10 @@ export function DistributionPanel({
         </div>
       ) : null}
 
+      {sourceFunding === "income" && Number.isFinite(grossUsd) && grossUsd > 0.005 ? (
+        <SavingsDrawdownSummary drawFromSavingsUsd={preview.dist.fromSavings} savingsBalanceUsd={savingsBal} />
+      ) : null}
+
       {preview.dist.invalid ? (
         <p className="text-sm text-destructive" role="alert">
           {distributionErrorMessage(preview.dist.invalidReason, savingsBal, fundOverage)}
@@ -368,6 +444,8 @@ export function DistributionPanel({
         readOnly
         distributionInvalid={preview.dist.invalid}
         invalidReason={preview.dist.invalidReason}
+        savingsDrawForSummaryUsd={preview.dist.fromSavings}
+        savingsBalanceForSummaryUsd={savingsBal}
       />
 
       <div className="border-t border-[#333] pt-3">

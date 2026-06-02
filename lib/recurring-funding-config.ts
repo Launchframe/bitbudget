@@ -25,7 +25,12 @@ export type ParsedRecurringFundingConfig =
   | { kind: "rebalance"; config: RebalanceRuleConfig }
 
 function isDistributionBehavior(value: unknown): value is DistributionBehavior {
-  return value === "set_to_budget" || value === "add_budget" || value === "custom"
+  return (
+    value === "set_to_budget" ||
+    value === "add_budget" ||
+    value === "split_income_proportional" ||
+    value === "custom"
+  )
 }
 
 function isRebalanceMode(value: unknown): value is RebalanceMode {

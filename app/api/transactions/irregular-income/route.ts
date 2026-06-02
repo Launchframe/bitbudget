@@ -11,6 +11,7 @@ import { parseTransactionQueryCalendarDate } from "@/lib/transaction-query-dates
 const DISTRIBUTION_BEHAVIORS: DistributionBehavior[] = [
   "set_to_budget",
   "add_budget",
+  "split_income_proportional",
   "custom",
 ]
 

@@ -301,7 +301,7 @@ test.describe("Income overhaul — UI", () => {
     await expect(page.getByText(/Envelopes rebalanced/i)).toBeVisible({ timeout: 15_000 })
   })
 
-  test("fund from Savings opens move funds in independent mode", async ({ page, baseURL }) => {
+  test("move to/from Savings opens move funds in independent mode", async ({ page, baseURL }) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
     await resetIncomeOverhaulUserData(E2E_INCOME_OVERHAUL_EMAIL)
     const userId = await getIncomeOverhaulUserId(E2E_INCOME_OVERHAUL_EMAIL)
@@ -311,8 +311,8 @@ test.describe("Income overhaul — UI", () => {
     await openEnvelopesPage(page, origin)
 
     await openAdjustEnvelopesDialog(page)
-    await page.getByRole("button", { name: "Fund envelopes from Savings" }).click()
-    const fundDialog = page.getByRole("dialog", { name: "Fund from Savings" })
+    await page.getByRole("button", { name: "Move to/from Savings" }).click()
+    const fundDialog = page.getByRole("dialog", { name: "Move to/from Savings" })
     await expect(fundDialog).toBeVisible()
     await expect(fundDialog.getByRole("button", { name: "Choose each" })).toBeVisible()
     await expect(fundDialog.getByText("Before")).toBeVisible()

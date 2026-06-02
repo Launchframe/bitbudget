@@ -1,6 +1,11 @@
 import { allocationTopUpAmount } from "@/lib/budget-period"
+import { splitUsdProportionalByAllotment } from "@/lib/allotment-proportional-split"
 
-export type DistributionBehavior = "set_to_budget" | "add_budget" | "custom"
+export type DistributionBehavior =
+  | "set_to_budget"
+  | "add_budget"
+  | "split_income_proportional"
+  | "custom"
 
 export interface EnvelopeForDistribution {
   id: string
@@ -18,6 +23,7 @@ export type DistributionInvalidReason =
   | "no_income"
   | "insufficient_income"
   | "insufficient_savings"
+  | "no_split_targets"
 
 export interface EnvelopeSliderLimits {
   maxDebit: number
@@ -101,6 +107,8 @@ export function deltaForBehavior(
         : 0
     case "custom":
       return Number.isFinite(customUsd) && customUsd! > 0 ? Math.round(customUsd! * 100) / 100 : 0
+    case "split_income_proportional":
+      return 0
     default: {
       const _exhaustive: never = behavior
       return _exhaustive
@@ -131,6 +139,38 @@ export function computeDistribution(params: {
       invalidReason: "no_income",
       totalNeed: 0,
       fromIncome: 0,
+      fromSavings: 0,
+    }
+  }
+
+  if (params.behavior === "split_income_proportional") {
+    const map = splitUsdProportionalByAllotment(
+      gross,
+      params.envelopes.map((e) => ({ id: e.id, monthlyAllotment: e.monthlyAllotment })),
+    )
+    if (map.size === 0) {
+      return {
+        lines: [],
+        invalid: true,
+        invalidReason: "no_split_targets",
+        totalNeed: 0,
+        fromIncome: 0,
+        fromSavings: 0,
+      }
+    }
+    const lines: DistributionLine[] = []
+    let totalNeed = 0
+    for (const [envelopeId, deltaUsd] of map) {
+      lines.push({ envelopeId, deltaUsd, fromSavings: 0 })
+      totalNeed += deltaUsd
+    }
+    totalNeed = Math.round(totalNeed * 100) / 100
+    return {
+      lines,
+      invalid: false,
+      invalidReason: null,
+      totalNeed,
+      fromIncome: totalNeed,
       fromSavings: 0,
     }
   }

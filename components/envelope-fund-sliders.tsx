@@ -8,8 +8,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import { applyBalancedSliderChange } from "@/lib/rebalance-math"
+import { SavingsDrawdownSummary } from "@/components/savings-drawdown-summary"
+import { ChevronRightIcon } from "lucide-react"
 
 const SLIDER_STEP = 0.01
+const EPS = 0.005
 
 export function EnvelopeFundSliders({
   mode,
@@ -34,7 +37,7 @@ export function EnvelopeFundSliders({
   moveCreditMultiplier?: number
   rebalanceMode?: "balanced" | "independent"
   fundFromSavings?: boolean
-  /** Remaining Savings available for credits (Fund from Savings). */
+  /** Remaining Savings available for credits (Move to/from Savings). */
   savingsBalance?: number
   scrollEnvelopeList?: boolean
 }) {
@@ -69,17 +72,16 @@ export function EnvelopeFundSliders({
     )
   }, [valuesByEnvelopeId])
 
-  const savingsNet = useMemo(() => {
-    if (mode !== "move" || rebalanceMode !== "independent") return 0
-    return Object.entries(valuesByEnvelopeId).reduce((s, [, v]) => {
-      if (!Number.isFinite(v)) return s
-      return s - v
-    }, 0)
-  }, [mode, rebalanceMode, valuesByEnvelopeId])
-
   const totalPositiveCredits = useMemo(() => {
     return Object.values(valuesByEnvelopeId).reduce(
       (s, v) => s + (Number.isFinite(v) && v > 0 ? v : 0),
+      0,
+    )
+  }, [valuesByEnvelopeId])
+
+  const intoSavingsUsd = useMemo(() => {
+    return Object.values(valuesByEnvelopeId).reduce(
+      (s, v) => s + (Number.isFinite(v) && v < -EPS ? -v : 0),
       0,
     )
   }, [valuesByEnvelopeId])
@@ -91,7 +93,11 @@ export function EnvelopeFundSliders({
   const [preciseIds, setPreciseIds] = useState<Set<string>>(() => new Set())
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({})
 
-  function enterPreciseMode(envelopeId: string, current: number) {
+  function togglePreciseMode(envelopeId: string, current: number) {
+    if (preciseIds.has(envelopeId)) {
+      exitPreciseMode(envelopeId)
+      return
+    }
     setPreciseIds((prev) => new Set(prev).add(envelopeId))
     setAmountDrafts((prev) => ({
       ...prev,
@@ -151,20 +157,6 @@ export function EnvelopeFundSliders({
         </p>
       ) : null}
 
-      {mode === "move" && rebalanceMode === "independent" ? (
-        <p className="text-xs text-muted-foreground" role="status">
-          {Math.abs(savingsNet) <= 0.005 ? (
-            "Savings will stay the same"
-          ) : (
-            <>
-              Savings will {savingsNet > 0 ? "increase" : "decrease"} by{" "}
-              {formatUsd(Math.abs(savingsNet), 2)}
-              {savingsNet > 0 ? " (money from envelopes)" : " (money into envelopes)"}
-            </>
-          )}
-        </p>
-      ) : null}
-
       <div
         className={cn(
           "flex flex-col gap-3 min-w-0",
@@ -218,7 +210,7 @@ export function EnvelopeFundSliders({
                 <EnvelopeIconDisplay icon={env.icon} fallbackName={env.name} className="h-5 w-5 shrink-0" />
                 <span className="text-sm font-medium truncate">{env.name}</span>
                 <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                  Balance {formatUsd(lim.currentBalance)}
+                  Current balance {formatUsd(lim.currentBalance)}
                 </span>
               </div>
               {lim.currentBalance < -0.005 ? (
@@ -231,14 +223,7 @@ export function EnvelopeFundSliders({
                   There isn&apos;t any money in {env.name} to move out.
                 </p>
               ) : null}
-              {fundFromSavings && max <= 0.005 ? (
-                <p className="text-xs text-muted-foreground mb-2">
-                  {savingsHeadroom <= 0.005 && totalPositiveCredits > 0.005
-                    ? "All available Savings is already assigned above."
-                    : "No Savings available to move into this envelope."}
-                </p>
-              ) : null}
-              <Label className="text-xs">
+              <Label className="text-xs hidden">
                 {mode === "income" ? "Add to envelope" : fundFromSavings ? "Add from Savings" : "Change (+/−)"}
               </Label>
               <div className="flex items-stretch gap-0 min-w-0 -mx-1">
@@ -303,7 +288,7 @@ export function EnvelopeFundSliders({
                     type="button"
                     className="shrink-0 min-w-[4.25rem] border-l border-[#444] pl-2 pr-1 flex flex-col items-center justify-center gap-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-[#1A1A1A]/80 rounded-r-lg transition-colors disabled:opacity-50"
                     disabled={sliderDisabled}
-                    onClick={() => exitPreciseMode(env.id)}
+                    onClick={() => togglePreciseMode(env.id, value)}
                     aria-label={`Use slider for ${env.name}`}
                   >
                     Slider
@@ -311,15 +296,18 @@ export function EnvelopeFundSliders({
                 ) : (
                   <button
                     type="button"
-                    className="shrink-0 min-w-[4.25rem] border-l border-[#444] pl-2 pr-1 -mt-2 flex flex-col items-end justify-center gap-0.5 hover:bg-[#1A1A1A]/80 rounded-r-lg transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                    className="shrink-0 min-w-[4.25rem] border-l border-[#444] pl-2 pr-1 flex flex-row items-center justify-end gap-1 hover:bg-[#1A1A1A]/80 rounded-r-lg transition-colors disabled:opacity-50 disabled:pointer-events-none"
                     disabled={sliderDisabled}
-                    onClick={() => enterPreciseMode(env.id, value)}
+                    onClick={() => togglePreciseMode(env.id, value)}
                     aria-label={`Type exact amount for ${env.name}`}
                   >
-                    <span className="text-[10px] leading-none text-muted-foreground">Exact</span>
-                    <span className="text-xs font-mono tabular-nums text-foreground">
-                      {formatUsd(value, 2)}
-                    </span>
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="text-[10px] leading-none text-muted-foreground">New bal.</span>
+                      <span className="text-xs font-mono tabular-nums text-foreground">
+                        {formatUsd(value, 2)}
+                      </span>
+                    </div>
+                    <ChevronRightIcon className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
                   </button>
                 )}
               </div>
@@ -327,6 +315,15 @@ export function EnvelopeFundSliders({
           )
         })}
       </div>
+
+      {mode === "move" && fundFromSavings ? (
+        <SavingsDrawdownSummary
+          drawFromSavingsUsd={totalPositiveCredits}
+          savingsBalanceUsd={Math.max(0, savingsBalance)}
+          intoSavingsUsd={intoSavingsUsd}
+          showRebalanceExtras
+        />
+      ) : null}
     </div>
   )
 }

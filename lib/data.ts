@@ -17,6 +17,7 @@ export type TransactionSource =
   | "email_scan"
   | "plaid"
   | "paycheck"
+  | "retro_paycheck"
   | "irregular_income"
   | "envelope_funding_out"
   | "envelope_funding_in"

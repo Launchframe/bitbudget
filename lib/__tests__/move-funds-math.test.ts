@@ -27,6 +27,40 @@ describe("rebalance-math", () => {
     // custom with zero or missing amount
     expect(deltaForBehavior("custom", 100, 0, 0)).toBe(0)
     expect(deltaForBehavior("custom", 100, 0, undefined)).toBe(0)
+    expect(deltaForBehavior("split_income_proportional", 100, 40)).toBe(0)
+  })
+
+  it("computeDistribution split_income_proportional splits gross by allotment", () => {
+    const result = computeDistribution({
+      behavior: "split_income_proportional",
+      envelopes: [
+        { id: "a", monthlyAllotment: 60, currentMonthBalance: 0 },
+        { id: "b", monthlyAllotment: 40, currentMonthBalance: 0 },
+      ],
+      grossUsd: 100,
+      savingsBalance: 0,
+      fundOverageFromSavings: false,
+    })
+    expect(result.invalid).toBe(false)
+    expect(result.totalNeed).toBe(100)
+    expect(result.fromIncome).toBe(100)
+    expect(result.fromSavings).toBe(0)
+    const a = result.lines.find((l) => l.envelopeId === "a")?.deltaUsd
+    const b = result.lines.find((l) => l.envelopeId === "b")?.deltaUsd
+    expect(a).toBeCloseTo(60, 2)
+    expect(b).toBeCloseTo(40, 2)
+  })
+
+  it("computeDistribution split_income_proportional invalid when no positive allotments", () => {
+    const result = computeDistribution({
+      behavior: "split_income_proportional",
+      envelopes: [{ id: "a", monthlyAllotment: 0, currentMonthBalance: 0 }],
+      grossUsd: 100,
+      savingsBalance: 0,
+      fundOverageFromSavings: false,
+    })
+    expect(result.invalid).toBe(true)
+    expect(result.invalidReason).toBe("no_split_targets")
   })
 
   it("computeDistribution uses income then savings when flagged", () => {

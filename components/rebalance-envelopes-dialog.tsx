@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { formatUsd, getEnvelopeBalanceAllTime } from "@/lib/data"
@@ -31,7 +32,14 @@ import {
   type RebalanceQuickSelectId,
 } from "@/lib/rebalance-quick-selects"
 import { clampRebalanceDeltas } from "@/lib/rebalance-math"
+import {
+  countIneligibleQuickSelects,
+  quickSelectWouldMoveDeltas,
+} from "@/lib/rebalance-quick-select-eligibility"
 import type { RebalanceMode } from "@/lib/rebalance-envelopes"
+import { MOVE_TO_FROM_SAVINGS_TITLE } from "@/lib/constants"
+import { cn } from "@/lib/utils"
+import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
 
 type DialogStep = "adjust" | "confirm" | "success"
 
@@ -71,6 +79,9 @@ export function RebalanceEnvelopesDialog({
   const [successSavingsDelta, setSuccessSavingsDelta] = useState(0)
   const [loadingEdit, setLoadingEdit] = useState(false)
   const [quickSelectsOpen, setQuickSelectsOpen] = useState(true)
+  const [activeQuickSelectId, setActiveQuickSelectId] = useState<
+    RebalanceQuickSelectId | "custom" | null
+  >(null)
   const customSnapshotRef = useRef<Record<string, number>>({})
 
   useEffect(() => {
@@ -130,6 +141,16 @@ export function RebalanceEnvelopesDialog({
     }, 0)
   }, [deltas])
 
+  /** Total USD moving on any envelope — drives After stacked bar color (muted until positive). */
+  const totalAbsMoveUsd = useMemo(
+    () =>
+      Object.values(deltas).reduce((sum, v) => {
+        if (!Number.isFinite(v)) return sum
+        return sum + Math.abs(v)
+      }, 0),
+    [deltas],
+  )
+
   const previewRows: FillEnvelopePreviewRow[] = useMemo(() => {
     if (entries.length > 0) {
       return entries.map((e) => ({
@@ -144,6 +165,11 @@ export function RebalanceEnvelopesDialog({
       behaviorLabel: "Rebalance",
     }))
   }, [entries, discretionaryEnvelopes])
+
+  const confirmSavingsDrawUsd = useMemo(() => {
+    if (!fundFromSavings) return undefined
+    return previewRows.reduce((s, r) => s + (r.deltaUsd > 0.005 ? r.deltaUsd : 0), 0)
+  }, [fundFromSavings, previewRows])
 
   const affectedCount = entries.length
 
@@ -172,6 +198,33 @@ export function RebalanceEnvelopesDialog({
       })),
     [discretionaryEnvelopes, getCurrentBalance],
   )
+
+  const setupIncompleteForQuickActions = useMemo(() => {
+    if (state.monthlyIncome <= 0) return true
+    return !discretionaryEnvelopes.some(
+      (e) => Number.isFinite(e.monthlyAllotment) && e.monthlyAllotment > 0.005,
+    )
+  }, [state.monthlyIncome, discretionaryEnvelopes])
+
+  const quickSelectEligibilityInput = useMemo(
+    () => ({
+      envelopes: envelopeQuickContext,
+      clampContext,
+      monthlyIncome: state.monthlyIncome,
+      savingsBal,
+      creditMultiplier: multiplier,
+    }),
+    [envelopeQuickContext, clampContext, state.monthlyIncome, savingsBal, multiplier],
+  )
+
+  const ineligibleQuickActionCount = useMemo(
+    () => countIneligibleQuickSelects(quickSelectEligibilityInput),
+    [quickSelectEligibilityInput],
+  )
+
+  const fundedLiquidityCount = fundedEnvelopeCount + (savingsBal > 0.005 ? 1 : 0)
+  const showInsufficientFundedHint =
+    !fundFromSavings && !needsIncomeFirst && fundedLiquidityCount < 2
 
   const applyClampedDeltas = useCallback(
     (raw: Record<string, number>, replaceAll = false) => {
@@ -211,13 +264,16 @@ export function RebalanceEnvelopesDialog({
     })
     const replaceAll = id === "sweep_to_savings" || id === "zero_base"
     applyClampedDeltas(raw, replaceAll)
+    setActiveQuickSelectId(id)
   }
 
   function revertToCustom() {
     setDeltas({ ...customSnapshotRef.current })
+    setActiveQuickSelectId("custom")
   }
 
   function setCreditMultiplier(next: number) {
+    setActiveQuickSelectId(null)
     setMultiplier(next)
     setDeltas((prev) =>
       clampRebalanceDeltas(prev, clampContext, {
@@ -230,6 +286,7 @@ export function RebalanceEnvelopesDialog({
   const reset = useCallback(() => {
     setDeltas({})
     setMultiplier(1)
+    setActiveQuickSelectId(null)
     setError(null)
     setSuccessSavingsDelta(0)
     setManuallySetEnvelopes(new Set())
@@ -312,11 +369,13 @@ export function RebalanceEnvelopesDialog({
   }
 
   const title =
-    editBatchId != null && editBatchId.length > 0
-      ? "Edit rebalance"
-      : fundFromSavings
-        ? "Fund from Savings"
-        : "Rebalance Envelopes"
+    step === "confirm"
+      ? "Review changes"
+      : editBatchId != null && editBatchId.length > 0
+        ? "Edit rebalance"
+        : fundFromSavings
+          ? MOVE_TO_FROM_SAVINGS_TITLE
+          : "Rebalance Envelopes"
 
   return (
     <>
@@ -327,12 +386,58 @@ export function RebalanceEnvelopesDialog({
           if (!next) reset()
         }}
       >
-        <DialogContent className="!flex max-h-[90dvh] max-w-[min(96vw,32rem)] min-h-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,32rem)]">
+        <DialogContent
+          className="flex max-h-[90dvh] max-w-[min(96vw,32rem)] flex-col gap-0 overflow-hidden p-0 transition-all duration-200 ease-out sm:max-w-[min(96vw,32rem)]"
+          onKeyDown={(e) =>
+            handleDialogEnterToPrimary(e, {
+              disabled:
+                submitting ||
+                loadingEdit ||
+                (step === "confirm" && (submitting || entries.length === 0)) ||
+                (step === "adjust" &&
+                  (loadingEdit || needsIncomeFirst || entries.length === 0)),
+              onPrimary: () => {
+                if (step === "success") onOpenChange(false)
+                else if (step === "confirm") void submit()
+                else if (step === "adjust" && !needsIncomeFirst && entries.length > 0) setStep("confirm")
+              },
+            })
+          }
+        >
           <DialogHeader className="shrink-0 space-y-0 px-6 pt-6 pb-4">
             <DialogTitle className="pr-8">{title}</DialogTitle>
           </DialogHeader>
 
-          <ScrollOverflowHint className="min-h-0 flex-1 basis-0 px-6 pb-6">
+          {step === "confirm" ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <ScrollOverflowHint className="max-h-[calc(90dvh-9.5rem)] min-h-0 px-6">
+                <FillEnvelopesDialog
+                  open
+                  onOpenChange={(next) => {
+                    if (!next) setStep("adjust")
+                  }}
+                  rows={previewRows}
+                  grossUsd={0}
+                  embedded
+                  savingsDrawForSummaryUsd={fundFromSavings ? confirmSavingsDrawUsd : undefined}
+                  savingsBalanceForSummaryUsd={fundFromSavings ? savingsBal : undefined}
+                />
+              </ScrollOverflowHint>
+              <div className="flex shrink-0 flex-col gap-2 border-t border-[#333] bg-[#0D0D0D] px-6 py-4 sm:flex-row sm:justify-end">
+                <Button type="button" variant="outline" onClick={() => setStep("adjust")}>
+                  Back
+                </Button>
+                <Button
+                  type="button"
+                  disabled={submitting || entries.length === 0}
+                  onClick={() => void submit()}
+                >
+                  {submitting ? "Saving…" : editBatchId ? "Replace rebalance" : "Rebalance envelopes"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+          <ScrollOverflowHint className="max-h-[calc(90dvh-5.5rem)] px-6 pb-6">
           {loadingEdit ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : step === "success" ? (
@@ -346,18 +451,6 @@ export function RebalanceEnvelopesDialog({
                 Done
               </Button>
             </div>
-          ) : step === "confirm" ? (
-            <FillEnvelopesDialog
-              open
-              onOpenChange={(next) => {
-                if (!next) setStep("adjust")
-              }}
-              rows={previewRows}
-              grossUsd={0}
-              embedded
-              onConfirm={() => void submit()}
-              confirmLabel={submitting ? "Saving…" : editBatchId ? "Replace rebalance" : "Rebalance envelopes"}
-            />
           ) : needsIncomeFirst ? (
             <div className="flex flex-col gap-4 min-w-0">
               <p className="text-sm text-foreground leading-relaxed">
@@ -365,20 +458,31 @@ export function RebalanceEnvelopesDialog({
                 envelopes first.
               </p>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Record income and choose &ldquo;Fill envelopes now,&rdquo; or move money from Savings
-                into envelopes.
+                {savingsBal > 0.005 ? (
+                  <>
+                    Record income and choose &ldquo;Fill envelopes now,&rdquo; or use{" "}
+                    {MOVE_TO_FROM_SAVINGS_TITLE} from Adjust envelopes.
+                  </>
+                ) : (
+                  <>
+                    Record income and choose &ldquo;Fill envelopes now&rdquo; so you have balances to
+                    move between envelopes.
+                  </>
+                )}
               </p>
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    if (onFundFromSavings) onFundFromSavings()
-                    else setPreferFundFromSavings(true)
-                  }}
-                >
-                  Dip into savings
-                </Button>
+                {savingsBal > 0.005 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      if (onFundFromSavings) onFundFromSavings()
+                      else setPreferFundFromSavings(true)
+                    }}
+                  >
+                    {MOVE_TO_FROM_SAVINGS_TITLE}
+                  </Button>
+                ) : null}
                 {onOpenAddIncome ? (
                   <Button
                     type="button"
@@ -405,44 +509,68 @@ export function RebalanceEnvelopesDialog({
                       envelopes: afterSegments,
                       savingsValue: Math.max(0, savingsBal + savingsNet),
                     }}
+                    afterMovementUsd={totalAbsMoveUsd}
                   />
                 </div>
 
                 <div className="flex flex-col gap-4 pt-4 min-w-0">
-              {!fundFromSavings ? (
-                <div className="flex gap-2 flex-wrap">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={mode === "balanced" ? "default" : "outline"}
-                    onClick={() => {
-                      snapshotCustom()
-                      setMode("balanced")
-                    }}
-                  >
-                    Balanced
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={mode === "independent" ? "default" : "outline"}
-                    onClick={() => {
-                      snapshotCustom()
-                      setMode("independent")
-                    }}
-                  >
-                    Let me choose for each
-                  </Button>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Move money from Savings into envelopes. Savings balance: {formatUsd(savingsBal)}
-                </p>
-              )}
-
               <Collapsible open={quickSelectsOpen} onOpenChange={setQuickSelectsOpen}>
-                <CollapsibleTrigger className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-[#333] bg-[#111] px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-[#1A1A1A] transition-colors">
-                  <span>Quick selects</span>
+                <CollapsibleTrigger className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-[#333] bg-[#222] px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-[#1A1A1A] transition-colors">
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span>Quick actions</span>
+                    {setupIncompleteForQuickActions && ineligibleQuickActionCount > 0 ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex shrink-0 rounded-full p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F7931A]/50"
+                            aria-label="Why quick actions may be unavailable"
+                          >
+                            <Info className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          sideOffset={6}
+                          className="max-w-[min(96vw,20rem)] border border-[#333] bg-[#1A1A1A] px-3 py-2 text-xs text-muted-foreground shadow-xl [&>svg]:hidden"
+                        >
+                          <p className="leading-relaxed">
+                            To use quick actions, finish{" "}
+                            <Link
+                              href="/#/envelopes/allocations"
+                              className="text-[#3B82F6] underline underline-offset-2 hover:text-[#60A5FA]"
+                            >
+                              setting up your monthly budget
+                            </Link>
+                            .
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
+                    {showInsufficientFundedHint ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex shrink-0 rounded-full p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F7931A]/50"
+                            aria-label="Why some quick actions may be unavailable"
+                          >
+                            <Info className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          sideOffset={6}
+                          className="max-w-[min(96vw,20rem)] border border-[#333] bg-[#1A1A1A] px-3 py-2 text-xs text-muted-foreground shadow-xl [&>svg]:hidden"
+                        >
+                          <p className="leading-relaxed">
+                            It looks like you don&apos;t have enough funded envelopes to move money
+                            right now.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
+                  </span>
                   <ChevronDown
                     className={`h-4 w-4 shrink-0 transition-transform ${quickSelectsOpen ? "rotate-180" : ""}`}
                     aria-hidden
@@ -450,62 +578,119 @@ export function RebalanceEnvelopesDialog({
                 </CollapsibleTrigger>
                 <CollapsibleContent className="pt-2">
                   <div className="flex gap-1 flex-wrap">
-                    {REBALANCE_QUICK_SELECTS.map(({ id, label }) => (
-                      <Button
-                        key={id}
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="text-xs"
-                        onClick={() => applyQuickSelect(id)}
-                      >
-                        {label}
-                      </Button>
-                    ))}
+                    {REBALANCE_QUICK_SELECTS.map(({ id, label }) => {
+                      const wouldMove = quickSelectWouldMoveDeltas(id, quickSelectEligibilityInput)
+                      const isActive = activeQuickSelectId === id
+                      const showStrike = !wouldMove && !isActive
+                      return (
+                        <Button
+                          key={id}
+                          type="button"
+                          size="sm"
+                          variant={isActive ? "default" : "outline"}
+                          aria-pressed={isActive}
+                          className={cn(
+                            "text-xs relative",
+                            showStrike && "opacity-60",
+                          )}
+                          onClick={() => applyQuickSelect(id)}
+                        >
+                          <span className={cn("relative z-[1]", showStrike && "line-through decoration-red-500/90")}>
+                            {label}
+                          </span>
+                        </Button>
+                      )
+                    })}
                     <Button
                       type="button"
                       size="sm"
-                      variant="outline"
+                      variant={activeQuickSelectId === "custom" ? "default" : "outline"}
                       className="text-xs"
+                      aria-pressed={activeQuickSelectId === "custom"}
                       onClick={revertToCustom}
                     >
-                      Revert to custom
+                      Custom
                     </Button>
                   </div>
                 </CollapsibleContent>
               </Collapsible>
 
-              <EnvelopeFundSliders
-                mode="move"
-                grossUsd={0}
-                moveCreditMultiplier={multiplier}
-                valuesByEnvelopeId={deltas}
-                manuallySetEnvelopes={manuallySetEnvelopes}
-                rebalanceMode={effectiveMode}
-                fundFromSavings={fundFromSavings}
-                savingsBalance={savingsBal}
-                scrollEnvelopeList={false}
-                onChange={(envelopeId, amountUsd) => {
-                  setDeltas((prev) => {
-                    const merged = { ...prev, [envelopeId]: amountUsd }
-                    const clamped = clampRebalanceDeltas(merged, clampContext, {
-                      creditMultiplier: multiplier,
-                      savingsBalance: savingsBal,
+              <div className="flex min-w-0 flex-col gap-3 rounded-xl border border-[#333] bg-[#141414]/80 p-3 sm:p-4">
+                {!fundFromSavings ? (
+                  <div className="flex min-w-0 flex-col gap-2">
+                    <p className="text-xs font-medium text-muted-foreground" id="rebalance-slider-mode-label">
+                      How sliders work together
+                    </p>
+                    <div
+                      className="flex flex-wrap gap-2"
+                      role="group"
+                      aria-labelledby="rebalance-slider-mode-label"
+                    >
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={mode === "balanced" ? "default" : "outline"}
+                        onClick={() => {
+                          snapshotCustom()
+                          setActiveQuickSelectId(null)
+                          setMode("balanced")
+                        }}
+                      >
+                        Balanced
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={mode === "independent" ? "default" : "outline"}
+                        onClick={() => {
+                          snapshotCustom()
+                          setActiveQuickSelectId(null)
+                          setMode("independent")
+                        }}
+                      >
+                        Let me choose for each
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Move money between Savings and your envelopes. Savings balance: {formatUsd(savingsBal)}
+                  </p>
+                )}
+
+                <EnvelopeFundSliders
+                  mode="move"
+                  grossUsd={0}
+                  moveCreditMultiplier={multiplier}
+                  valuesByEnvelopeId={deltas}
+                  manuallySetEnvelopes={manuallySetEnvelopes}
+                  rebalanceMode={effectiveMode}
+                  fundFromSavings={fundFromSavings}
+                  savingsBalance={savingsBal}
+                  scrollEnvelopeList={false}
+                  onChange={(envelopeId, amountUsd) => {
+                    setActiveQuickSelectId(null)
+                    setDeltas((prev) => {
+                      const merged = { ...prev, [envelopeId]: amountUsd }
+                      const clamped = clampRebalanceDeltas(merged, clampContext, {
+                        creditMultiplier: multiplier,
+                        savingsBalance: savingsBal,
+                      })
+                      const next: Record<string, number> = { ...prev }
+                      for (const id of Object.keys(merged)) {
+                        const v = clamped[id]
+                        if (v !== undefined && Math.abs(v) > 0.005) next[id] = v
+                        else delete next[id]
+                      }
+                      return next
                     })
-                    const next: Record<string, number> = { ...prev }
-                    for (const id of Object.keys(merged)) {
-                      const v = clamped[id]
-                      if (v !== undefined && Math.abs(v) > 0.005) next[id] = v
-                      else delete next[id]
-                    }
-                    return next
-                  })
-                }}
-                onManualTouch={(id) => {
-                  snapshotCustom()
-                  setManuallySetEnvelopes((prev) => new Set(prev).add(id))
-                }}
-              />
+                  }}
+                  onManualTouch={(id) => {
+                    snapshotCustom()
+                    setManuallySetEnvelopes((prev) => new Set(prev).add(id))
+                  }}
+                />
+              </div>
 
               <div className="flex flex-col gap-2 min-w-0 border-t border-[#333] pt-3">
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -528,10 +713,8 @@ export function RebalanceEnvelopesDialog({
                       className="max-w-[min(96vw,18rem)] border border-[#333] bg-[#1A1A1A] px-3 py-2 text-foreground shadow-xl [&>svg]:hidden"
                     >
                       <p className="text-xs leading-relaxed text-muted-foreground">
-                        When you add money to an envelope from Savings, this caps how much you can
-                        add in one move, as a multiple of that envelope&apos;s monthly budget. 1× is
-                        up to one month&apos;s budget; 12× allows you to fund with a year&apos;s worth of budget. Moving
-                        money out is still limited by what&apos;s already in the envelope.
+                        Caps the maximum amount you can add to your envelopes in this funding round, as a multiple of that envelope&apos;s monthly budget. 1× is
+                        up to one month&apos;s budget; 12× allows you to fund a year&apos;s worth of budget.
                       </p>
                     </TooltipContent>
                   </Tooltip>
@@ -586,6 +769,7 @@ export function RebalanceEnvelopesDialog({
             </>
           )}
           </ScrollOverflowHint>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -595,6 +779,8 @@ export function RebalanceEnvelopesDialog({
         rows={previewRows}
         grossUsd={0}
         readOnly
+        savingsDrawForSummaryUsd={fundFromSavings ? confirmSavingsDrawUsd : undefined}
+        savingsBalanceForSummaryUsd={fundFromSavings ? savingsBal : undefined}
       />
     </>
   )

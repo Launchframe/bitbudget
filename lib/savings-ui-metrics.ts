@@ -8,6 +8,7 @@ import { currentGoalStreakFromClosed } from "@/lib/savings-goal-streak"
 
 export const SAVINGS_INFLOW_SOURCES = new Set([
   "paycheck",
+  "retro_paycheck",
   "irregular_income",
   "income_import",
   TX_SOURCE_ENVELOPE_SWEEP,
@@ -16,6 +17,7 @@ export const SAVINGS_INFLOW_SOURCES = new Set([
 /** External income credits (excludes envelope sweeps). */
 export const MONTHLY_INCOME_SOURCES = new Set([
   "paycheck",
+  "retro_paycheck",
   "irregular_income",
   "income_import",
 ])

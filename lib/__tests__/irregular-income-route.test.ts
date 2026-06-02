@@ -58,7 +58,7 @@ describe("POST /api/transactions/irregular-income", () => {
     })
     expect(res.status).toBe(400)
     const data = await res.json()
-    expect(data.error).toMatch(/Could not record extra income/i)
+    expect(data.error).toMatch(/Could not record new income/i)
     expect(data.error).not.toMatch(/encryption/i)
   })
 

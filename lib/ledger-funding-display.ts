@@ -8,6 +8,7 @@ export function isEnvelopeFundingLeg(txn: Pick<Transaction, "source">): boolean 
 export function isIncomeHeaderTransaction(txn: Pick<Transaction, "source">): boolean {
   return (
     txn.source === "paycheck" ||
+    txn.source === "retro_paycheck" ||
     txn.source === "irregular_income" ||
     txn.source === "income_import"
   )
@@ -56,6 +57,7 @@ function incomeForBatch(
 function incomeSourceLabel(income: Transaction | undefined): string {
   if (!income) return "Income"
   if (income.source === "paycheck") return "Income"
+  if (income.source === "retro_paycheck") return "Missed paycheck"
   const label = income.payee?.trim()
   if (label && label !== LEDGER_INCOME_PAYEE_LABEL) return label
   return "Income"

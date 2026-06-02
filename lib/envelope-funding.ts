@@ -10,6 +10,7 @@ import {
   TX_SOURCE_FUNDING_OUT,
   TX_SOURCE_IRREGULAR_INCOME,
   TX_SOURCE_PAYCHECK,
+  TX_SOURCE_RETRO_PAYCHECK,
   isBudgetEnvelope,
 } from "@/lib/constants"
 import {
@@ -44,6 +45,8 @@ import {
   sumAllocatedIrregularCents,
 } from "@/lib/irregular-income-split"
 import { ensureSystemSavingsEnvelope, savingsEnvelopeForUserDb } from "@/lib/ensure-system-savings-envelope"
+import { splitUsdProportionalByAllotment } from "@/lib/allotment-proportional-split"
+import { retroMissedPaycheckGrossUsd } from "@/lib/retro-paycheck-proration"
 
 export { ensureSystemSavingsEnvelope } from "@/lib/ensure-system-savings-envelope"
 
@@ -53,6 +56,7 @@ export {
   TX_SOURCE_FUNDING_OUT,
   TX_SOURCE_IRREGULAR_INCOME,
   TX_SOURCE_PAYCHECK,
+  TX_SOURCE_RETRO_PAYCHECK,
 } from "@/lib/constants"
 
 const EMPTY_TAGS = "[]"
@@ -728,4 +732,237 @@ export async function repairIrregularIncomeFundingLegs(
   })
 
   return created
+}
+
+const RETRO_MISSED_PAYCHECK_PERIOD_KEY = "retro-missed-paycheck"
+const RETRO_PAYCHECK_PAYEE_PLAIN = "Missed paycheck (catch-up)"
+
+export interface RetroMissedPaycheckStatus {
+  applied: boolean
+  eligible: boolean
+  previewGrossUsd: number
+  reason?:
+    | "already_applied"
+    | "no_public_key"
+    | "no_income"
+    | "no_envelopes"
+    | "cadence_unsupported"
+    | "amount_too_small"
+}
+
+export async function getRetroMissedPaycheckStatus(
+  userId: string,
+  runDateUtc?: Date,
+): Promise<RetroMissedPaycheckStatus> {
+  const now = runDateUtc ?? new Date()
+  const dup = await prisma.envelopeFundingBatch.findUnique({
+    where: {
+      userId_periodKey_kind: {
+        userId,
+        periodKey: RETRO_MISSED_PAYCHECK_PERIOD_KEY,
+        kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+      },
+    },
+  })
+  if (dup) {
+    return { applied: true, eligible: false, previewGrossUsd: 0, reason: "already_applied" }
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      publicKey: true,
+      monthlyIncome: true,
+      payCadence: true,
+      payDays: true,
+      payDayOfWeek: true,
+      lastPaydayAt: true,
+    },
+  })
+  if (!user?.publicKey?.trim()) {
+    return { applied: false, eligible: false, previewGrossUsd: 0, reason: "no_public_key" }
+  }
+  if (user.payCadence === "irregular" || user.payCadence === "mixed") {
+    return { applied: false, eligible: false, previewGrossUsd: 0, reason: "cadence_unsupported" }
+  }
+
+  const mi = user.monthlyIncome
+  if (!Number.isFinite(mi) || mi <= 0) {
+    return { applied: false, eligible: false, previewGrossUsd: 0, reason: "no_income" }
+  }
+
+  const envelopeRows = await prisma.envelope.findMany({
+    where: budgetEnvelopeWhere(userId),
+    select: { id: true, monthlyAllotment: true, systemRole: true },
+  })
+  const envelopes = envelopeRows.filter((e) => isBudgetEnvelope(e.systemRole))
+  const hasAllotted = envelopes.some((e) => Number.isFinite(e.monthlyAllotment) && e.monthlyAllotment > 0)
+  if (!hasAllotted) {
+    return { applied: false, eligible: false, previewGrossUsd: 0, reason: "no_envelopes" }
+  }
+
+  const dailyAllowed = isDailyPayCadenceAllowed()
+  const gross = retroMissedPaycheckGrossUsd(
+    mi,
+    {
+      monthlyIncome: mi,
+      payCadence: user.payCadence,
+      payDays: user.payDays,
+      payDayOfWeek: user.payDayOfWeek,
+      lastPaydayAt: user.lastPaydayAt,
+    },
+    now,
+    dailyAllowed,
+  )
+  if (!Number.isFinite(gross) || gross < 0.01) {
+    return { applied: false, eligible: false, previewGrossUsd: gross, reason: "amount_too_small" }
+  }
+
+  return { applied: false, eligible: true, previewGrossUsd: gross }
+}
+
+export async function createRetroMissedPaycheckBatch(
+  userId: string,
+  runDateUtc?: Date,
+): Promise<{ ok: true; grossUsd: number; created: number } | { ok: false; error: string }> {
+  const status = await getRetroMissedPaycheckStatus(userId, runDateUtc)
+  if (status.reason === "already_applied") return { ok: false, error: "Catch-up paycheck was already added." }
+  if (!status.eligible || status.reason) {
+    return { ok: false, error: "You are not eligible for this catch-up right now." }
+  }
+
+  const gross = status.previewGrossUsd
+  const now = runDateUtc ?? new Date()
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      publicKey: true,
+      monthlyIncome: true,
+      payCadence: true,
+      payDays: true,
+      payDayOfWeek: true,
+      lastPaydayAt: true,
+    },
+  })
+  const pk = user?.publicKey?.trim()
+  if (!user || !pk) return { ok: false, error: "Encryption is not set up yet." }
+
+  const savings = await ensureSystemSavingsEnvelope(userId)
+
+  const envelopeRows = await prisma.envelope.findMany({
+    where: budgetEnvelopeWhere(userId),
+    select: { id: true, monthlyAllotment: true, systemRole: true },
+  })
+  const envelopes = envelopeRows.filter((e) => isBudgetEnvelope(e.systemRole))
+  const split = splitUsdProportionalByAllotment(gross, envelopes)
+  if (split.size === 0) {
+    return { ok: false, error: "Add monthly amounts to at least one spending envelope first." }
+  }
+
+  let allocSum = 0
+  for (const v of split.values()) allocSum += v
+  allocSum = Math.round(allocSum * 100) / 100
+  if (allocSum > gross + 0.02) {
+    return { ok: false, error: "Allocation math failed — try again or contact support." }
+  }
+
+  const dateStr = now.toISOString().split("T")[0]!
+  const btcPrice = await getBtcPriceForDate(dateStr)
+  const fundingDate = new Date(`${dateStr}T12:00:00.000Z`)
+
+  const encIncomePayee = encryptFieldForUser(RETRO_PAYCHECK_PAYEE_PLAIN, pk)
+  if (!encIncomePayee) return { ok: false, error: "Could not encrypt payee." }
+
+  const encAllocOut = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
+  const encAllocIn = encryptFieldForUser(LEDGER_ALLOCATION_PAYEE_LABEL, pk)
+  if (!encAllocOut || !encAllocIn) return { ok: false, error: "Could not encrypt allocation labels." }
+
+  try {
+    const created = await prisma.$transaction(async (tx) => {
+      const dup = await tx.envelopeFundingBatch.findUnique({
+        where: {
+          userId_periodKey_kind: {
+            userId,
+            periodKey: RETRO_MISSED_PAYCHECK_PERIOD_KEY,
+            kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+          },
+        },
+      })
+      if (dup) return 0
+
+      let batch
+      try {
+        batch = await tx.envelopeFundingBatch.create({
+          data: {
+            userId,
+            periodKey: RETRO_MISSED_PAYCHECK_PERIOD_KEY,
+            kind: ENVELOPE_FUNDING_BATCH_KIND_FUND,
+            config: { kind: "retro_missed_paycheck", grossUsd: gross } as object,
+          },
+        })
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+          return 0
+        }
+        throw e
+      }
+
+      let n = 0
+      await tx.transaction.create({
+        data: {
+          userId,
+          envelopeId: savings.id,
+          date: fundingDate,
+          payee: encIncomePayee,
+          amount: gross,
+          type: "credit",
+          tags: EMPTY_TAGS,
+          notes: null,
+          source: TX_SOURCE_RETRO_PAYCHECK,
+          satsAmount: btcPrice ? usdToSats(gross, btcPrice) : null,
+          excludeFromMainHistory: false,
+          fundingBatchId: batch.id,
+        },
+      })
+      n++
+
+      for (const [envId, amt] of split) {
+        if (amt <= 0) continue
+        await createFundingLeg(tx, {
+          userId,
+          envelopeId: savings.id,
+          date: fundingDate,
+          amount: amt,
+          type: "expense",
+          payeeCipher: encAllocOut,
+          source: TX_SOURCE_FUNDING_OUT,
+          excludeFromMainHistory: true,
+          fundingBatchId: batch.id,
+          btcPrice,
+        })
+        await createFundingLeg(tx, {
+          userId,
+          envelopeId: envId,
+          date: fundingDate,
+          amount: amt,
+          type: "credit",
+          payeeCipher: encAllocIn,
+          source: TX_SOURCE_FUNDING_IN,
+          excludeFromMainHistory: true,
+          fundingBatchId: batch.id,
+          btcPrice,
+        })
+        n += 2
+      }
+
+      return n
+    })
+    if (created === 0) {
+      return { ok: false, error: "Catch-up paycheck was already added." }
+    }
+    return { ok: true, grossUsd: gross, created }
+  } catch {
+    return { ok: false, error: "Could not record catch-up paycheck." }
+  }
 }
