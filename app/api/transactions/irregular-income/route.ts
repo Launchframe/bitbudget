@@ -5,12 +5,13 @@ import {
   createIrregularIncomeBatch,
   type IrregularDistributionMode,
 } from "@/lib/envelope-funding"
-import type { DistributionBehavior } from "@/lib/move-funds-math"
+import type { DistributionBehavior } from "@/lib/rebalance-math"
 import { parseTransactionQueryCalendarDate } from "@/lib/transaction-query-dates"
 
 const DISTRIBUTION_BEHAVIORS: DistributionBehavior[] = [
   "set_to_budget",
   "add_budget",
+  "split_income_proportional",
   "custom",
 ]
 
@@ -136,16 +137,24 @@ export async function POST(req: NextRequest) {
 
   if (!user.publicKey?.trim()) {
     return NextResponse.json(
-      { error: "Finish Secure Your Data setup before recording irregular income." },
+      { error: "Finish Secure Your Data setup before recording new income." },
       { status: 400 },
     )
   }
 
   if (!Number.isFinite(user.monthlyIncome) || user.monthlyIncome <= 0) {
     return NextResponse.json(
-      { error: "Set a positive Monthly Income under allocations/settings before irregular income." },
+      { error: "Set a positive Monthly Income under allocations/settings before adding new income." },
       { status: 400 },
     )
+  }
+
+  const batchConfig: Record<string, unknown> = {
+    distributionMode: mode,
+    distributionBehavior: behavior ?? null,
+    fundOverageFromSavings: fundOverage,
+    grossUsd: amountNum,
+    envelopeAllocations: allocations ?? null,
   }
 
   const createdCount = await createIrregularIncomeBatch({
@@ -162,13 +171,14 @@ export async function POST(req: NextRequest) {
     distributionBehavior: behavior,
     fundOverageFromSavings: fundOverage,
     envelopeAllocations: allocations,
+    batchConfig,
   })
 
   if (createdCount <= 0) {
     return NextResponse.json(
       {
         error:
-          "Could not record extra income. Check Monthly Income and envelope allocations under Allocations, and confirm your encryption keys are set up.",
+          "Could not record new income. Check your monthly income and envelope amounts, or put the money in Savings only.",
       },
       { status: 400 },
     )

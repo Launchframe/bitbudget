@@ -63,6 +63,7 @@ export type ApiTransactionRow = {
   excludeFromMainHistory?: boolean
   fundingBatchId?: string | null
   fundingBatchPeriodKey?: string | null
+  fundingBatchKind?: string | null
   createdAt?: string
   /** Present after API migration; callers may synthesize for older payloads. */
   updatedAt?: string
@@ -393,6 +394,7 @@ export function apiRowToCachedLocked(row: ApiTransactionRow): CachedTransaction 
     excludeFromMainHistory: row.excludeFromMainHistory ?? false,
     fundingBatchId: row.fundingBatchId ?? null,
     fundingBatchPeriodKey: row.fundingBatchPeriodKey ?? null,
+    fundingBatchKind: row.fundingBatchKind ?? null,
     createdAt: rowCreatedAt(row),
     updatedAt: rowUpdatedAt(row),
     isDecrypted: false,
@@ -417,6 +419,7 @@ export function apiRowToCachedPlaintext(row: ApiTransactionRow): CachedTransacti
     excludeFromMainHistory: row.excludeFromMainHistory ?? false,
     fundingBatchId: row.fundingBatchId ?? null,
     fundingBatchPeriodKey: row.fundingBatchPeriodKey ?? null,
+    fundingBatchKind: row.fundingBatchKind ?? null,
     createdAt: rowCreatedAt(row),
     updatedAt: rowUpdatedAt(row),
     isDecrypted: true,
@@ -478,6 +481,7 @@ export function decryptSingleCachedRow(row: ApiTransactionRow, secretKey: Uint8A
     excludeFromMainHistory: row.excludeFromMainHistory ?? false,
     fundingBatchId: row.fundingBatchId ?? null,
     fundingBatchPeriodKey: row.fundingBatchPeriodKey ?? null,
+    fundingBatchKind: row.fundingBatchKind ?? null,
     createdAt: rowCreatedAt(row),
     updatedAt: rowUpdatedAt(row),
     isDecrypted,
@@ -607,6 +611,7 @@ function cachedUndecryptedToApiRow(c: CachedTransaction): ApiTransactionRow {
     excludeFromMainHistory: c.excludeFromMainHistory,
     fundingBatchId: c.fundingBatchId ?? null,
     fundingBatchPeriodKey: c.fundingBatchPeriodKey ?? null,
+    fundingBatchKind: c.fundingBatchKind ?? null,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
   }

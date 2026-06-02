@@ -1303,7 +1303,7 @@ export function NewTransactionDialog() {
                       <span className="text-foreground">{duplicateExisting.date}</span>
                       {": "}
                       <span className="text-foreground">{duplicateExisting.payee}</span>,{" "}
-                      <span className="font-ibm-plex-mono text-foreground">
+                      <span className="font-mono text-foreground">
                         {formatUsdPrecise(duplicateExisting.amount)}
                       </span>
                       {duplicateEnvelopeName ? (

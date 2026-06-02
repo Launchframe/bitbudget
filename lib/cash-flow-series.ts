@@ -4,6 +4,7 @@ import {
   TX_SOURCE_FUNDING_OUT,
   TX_SOURCE_INCOME_IMPORT,
   TX_SOURCE_IRREGULAR_INCOME,
+  TX_SOURCE_RETRO_PAYCHECK,
 } from "@/lib/constants"
 import { isUserFacingExpense, todayUtcIso, txnIsoDate } from "@/lib/transaction-visibility"
 
@@ -27,6 +28,7 @@ function txnDay(txn: Transaction): string {
  */
 export const CASH_INFLOW_SOURCES = new Set([
   TX_SOURCE_IRREGULAR_INCOME,
+  TX_SOURCE_RETRO_PAYCHECK,
   TX_SOURCE_INCOME_IMPORT,
   "manual",
   "plaid",

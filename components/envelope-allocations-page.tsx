@@ -8,6 +8,10 @@ import { Check, Info, X, PiggyBank } from "lucide-react"
 import { EnvelopeIconDisplay } from "@/components/envelope-icon-display"
 import { OnboardingAllocFineScroller } from "@/components/onboarding-alloc-fine-scroller"
 import {
+  AllocationStackedBar,
+  type AllocationBarSegment,
+} from "@/components/allocation-stacked-bar"
+import {
   nudgeOnboardingAllocationAmount,
   ONBOARDING_ALLOCATE_FINE_STEP,
 } from "@/lib/onboarding-allocate-budget"
@@ -17,10 +21,10 @@ import {
   parsePartialMoneyInput,
   roundMoneyCents,
 } from "@/lib/allocation-cadence"
-
-/** Stacked allocation bar: smooth width when envelope totals change. */
-const ALLOC_STACK_BAR_WIDTH_TRANSITION =
-  "width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1), min-width 0.38s cubic-bezier(0.25, 0.8, 0.25, 1)"
+import {
+  RetroMissedPaycheckDialog,
+  fetchRetroMissedPaycheckStatus,
+} from "@/components/retro-missed-paycheck-dialog"
 
 /** Draft value for an envelope: user override or current allotment. Avoids syncing state in useEffect. */
 function useDraftAllotments() {
@@ -55,6 +59,9 @@ export function EnvelopeAllocationsPage() {
   const [textDrafts, setTextDrafts] = useState<Record<string, string>>({})
   const [focusedAmountEnvId, setFocusedAmountEnvId] = useState<string | null>(null)
   const sliderRowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const retroAfterSaveRef = useRef(false)
+  const [retroDialogOpen, setRetroDialogOpen] = useState(false)
+  const [retroPreviewGross, setRetroPreviewGross] = useState(0)
 
   function dismissMergeHint() {
     setMergeHintDismissed(true)
@@ -65,15 +72,39 @@ export function EnvelopeAllocationsPage() {
     navigateTo("envelopes")
   }
 
-  function handleSave() {
+  async function handleSave() {
     for (const env of activeEnvelopes) {
       const newVal = getDraft(env.id, env.monthlyAllotment)
       if (newVal !== env.monthlyAllotment) {
         editEnvelope(env.id, { monthlyAllotment: newVal })
       }
     }
+    const status = await fetchRetroMissedPaycheckStatus()
+    if (
+      status &&
+      status.eligible &&
+      !status.applied &&
+      Number.isFinite(status.previewGrossUsd) &&
+      status.previewGrossUsd >= 0.01
+    ) {
+      retroAfterSaveRef.current = true
+      setRetroPreviewGross(status.previewGrossUsd)
+      setRetroDialogOpen(true)
+      return
+    }
     navigateTo("envelopes")
   }
+
+  const handleRetroDialogOpenChange = useCallback(
+    (next: boolean) => {
+      setRetroDialogOpen(next)
+      if (!next && retroAfterSaveRef.current) {
+        retroAfterSaveRef.current = false
+        navigateTo("envelopes")
+      }
+    },
+    [navigateTo],
+  )
 
   const draftTotalAllocated = activeEnvelopes.reduce(
     (s, e) => s + getDraft(e.id, e.monthlyAllotment),
@@ -82,6 +113,20 @@ export function EnvelopeAllocationsPage() {
   const draftSavings = Math.max(0, roundMoneyCents(state.monthlyIncome - draftTotalAllocated))
   const draftSavingsPct = state.monthlyIncome > 0 ? Math.round((draftSavings / state.monthlyIncome) * 100) : 0
   const showAllocStackBar = state.monthlyIncome > 0 && draftTotalAllocated > 0
+
+  const allocBarSegments: AllocationBarSegment[] = useMemo(
+    () =>
+      activeEnvelopes
+        .map((env) => ({
+          id: env.id,
+          name: env.name,
+          color: env.color,
+          icon: env.icon,
+          value: getDraft(env.id, env.monthlyAllotment),
+        }))
+        .filter((s) => s.value > 0),
+    [activeEnvelopes, getDraft],
+  )
 
   const clearTextDraft = useCallback((envId: string) => {
     setTextDrafts(prev => {
@@ -163,6 +208,7 @@ export function EnvelopeAllocationsPage() {
   }
 
   return (
+    <>
     <div className="flex flex-col gap-6">
       {/* Income header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
@@ -316,57 +362,16 @@ export function EnvelopeAllocationsPage() {
         <div className="flex min-w-0 flex-col max-md:max-h-[calc(100dvh-13rem)] max-md:overflow-x-hidden max-md:overflow-y-auto max-md:overscroll-y-contain max-md:touch-pan-y max-md:[-webkit-overflow-scrolling:touch]">
           {showAllocStackBar && (
             <div className="sticky top-0 z-20 -mx-4 px-4 md:-mx-6 md:px-6 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
-              <div className="flex flex-col gap-2">
-                <div className="flex h-10 w-full flex-row rounded-xl overflow-hidden bg-[#1A1A1A]">
-                  {activeEnvelopes.map((env) => {
-                    const val = getDraft(env.id, env.monthlyAllotment)
-                    if (val <= 0) return null
-                    const pct = state.monthlyIncome > 0 ? (val / state.monthlyIncome) * 100 : 0
-                    return (
-                      <button
-                        key={env.id}
-                        type="button"
-                        onClick={() => {
-                          setActiveSliderEnvId(env.id)
-                          sliderRowRefs.current[env.id]?.scrollIntoView({ behavior: "smooth", block: "center" })
-                        }}
-                        className={`flex min-w-0 shrink-0 items-center justify-center relative box-border ${
-                          activeSliderEnvId === env.id ? "brightness-110" : "hover:brightness-110"
-                        }`}
-                        style={{
-                          width: `${pct}%`,
-                          minWidth: 4,
-                          backgroundColor: env.color,
-                          transition: ALLOC_STACK_BAR_WIDTH_TRANSITION,
-                        }}
-                        title={`${env.name}: ${formatUsd(val)} (${Math.round(pct)}%)`}
-                        aria-label={`${env.name}, ${formatUsd(val)}, ${Math.round(pct)} percent of income`}
-                      >
-                        {pct > 8 && (
-                          <EnvelopeIconDisplay
-                            icon={env.icon}
-                            fallbackName={env.name}
-                            className="h-4 w-4 text-[10px] text-[#0D0D0D]/70"
-                          />
-                        )}
-                      </button>
-                    )
-                  })}
-                  {draftSavings > 0 && (
-                    <div
-                      className="flex min-w-0 shrink-0 items-center justify-center box-border"
-                      style={{
-                        width: `${(draftSavings / state.monthlyIncome) * 100}%`,
-                        minWidth: 4,
-                        backgroundColor: "rgba(34, 197, 94, 0.25)",
-                        transition: ALLOC_STACK_BAR_WIDTH_TRANSITION,
-                      }}
-                      title={`Savings: ${formatUsd(draftSavings)} (${draftSavingsPct}%)`}
-                    >
-                      {draftSavingsPct > 8 && <PiggyBank className="h-4 w-4 text-[#22C55E]/60" />}
-                    </div>
-                  )}
-                </div>
+              <div className="flex flex-col gap-2 min-w-0">
+                <AllocationStackedBar
+                  envelopes={allocBarSegments}
+                  savingsValue={draftSavings}
+                  totalValue={state.monthlyIncome}
+                  onSegmentClick={(envelopeId) => {
+                    setActiveSliderEnvId(envelopeId)
+                    sliderRowRefs.current[envelopeId]?.scrollIntoView({ behavior: "smooth", block: "center" })
+                  }}
+                />
                 <div className="flex items-center justify-between text-xs text-muted-foreground px-1 tabular-nums">
                   <span>{formatUsd(draftTotalAllocated)} allocated</span>
                   <span>{formatUsd(state.monthlyIncome)} income</span>
@@ -539,5 +544,11 @@ export function EnvelopeAllocationsPage() {
         </div>
       </div>
     </div>
+    <RetroMissedPaycheckDialog
+      open={retroDialogOpen}
+      onOpenChange={handleRetroDialogOpenChange}
+      previewGrossUsd={retroPreviewGross}
+    />
+    </>
   )
 }

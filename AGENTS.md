@@ -246,6 +246,7 @@ Both DB URLs are required for `migrate deploy`. If `DATABASE_URL_UNPOOLED` is mi
 - Components that use React hooks, local state, or browser-only APIs must be client components (include the `"use client"` directive at the top of the file). Purely presentational components that don't rely on client-only features can be server components.
 - Page-level components live in `components/` (e.g. `dashboard-page.tsx`, `transactions-page.tsx`).
 - The app uses hash-based routing managed by `AppContext` (`navigateTo`, `currentPage`), not the Next.js file-based router, for in-app navigation after auth.
+- **Envelope transaction drill-ins** use **`#/envelope/<id>`** (`navigateTo("envelope-detail", envelopeId)`). Do not rewrite these to `#/transactions` with an envelope filter; the scoped envelope view reuses the main Transactions list behavior.
 - `app/page.tsx` is the shell: `OnboardingGate → AppProvider → EncryptionGate → BtcPriceProvider → layout`.
 - When changing interactive UI, keep accessibility state and labels current: update `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-pressed`, `aria-selected`, and related screen-reader text alongside visible labels and control state.
 
@@ -260,6 +261,13 @@ Both DB URLs are required for `migrate deploy`. If `DATABASE_URL_UNPOOLED` is mi
 - `AppContext` (`lib/app-context.tsx`) is the single source of truth for app state. It holds transactions, envelopes, tags, user settings, encryption state, and navigation.
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
 - `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **should** be called within `BtcPriceProvider`. If it runs outside the provider (e.g. vanilla mode or a missing wrapper), it returns **`NOOP_PRICES`** (zeros / no-op helpers) and logs a **dev-time warning** — it does not throw. Still wrap components that need real BTC data in `BtcPriceProvider` when `opportunityCostEnabled` is on.
+
+### Transaction dates (calendar day vs instant; agents)
+
+- **Display and filters in the browser:** use `lib/transaction-dates.ts` (`transactionCalendarDay`, `formatTransactionTableDate`, `todayTransactionCalendarDay`, etc.) so list and filter “days” match the **user’s local calendar** where those helpers run client-side.
+- **Storage for calendar-only semantics:** prefer `calendarDateToStorageInstant` / `parseTransactionDateInput` for `YYYY-MM-DD` inputs so the DB instant is not naive-UTC-midnight drift (see comments in `transaction-dates.ts`).
+- **User-initiated server writes** (rebalance, move-funds, manual transaction POST bodies, etc.): the server **must not** infer the user’s posting calendar day from `new Date().toISOString().slice(0, 10)` (UTC day). Send an explicit calendar string from the client (`postedOn`, `date`, etc.) validated like other transaction inputs, or document a single timezone contract for the endpoint.
+- **Cron / BudgetPeriod / payday automation** intentionally uses **UTC calendar boundaries** for schedule math where documented in this file — do not conflate that with interactive posting-date UX.
 
 ### Smart defaults must never overwrite explicit user choices
 
@@ -335,7 +343,7 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 - Accent color: `#F7931A` (Bitcoin orange), used for CTAs, active states, and BTC-related highlights.
 - **Savings gold accent:** `SAVINGS_GOLD_ACCENT` (`#D4AF37` in `lib/constants.ts`) — use sparingly for Savings hero card border, pinned Savings filter pill, savings-mode chart lines, and Savings dashboard tile highlights. Distinct from Bitcoin orange.
 - Success/credit color: `#22C55E`. Blue accent: `#3B82F6`.
-- BTC numeric values use `font-ibm-plex-mono` class for monospace rendering.
+- Monospace text (BTC/sats, codes, tabular numbers) uses `font-mono` (JetBrains Mono via `next/font/google`).
 - **Use `Switch` for boolean settings**, not `<input type="checkbox">`. Native checkboxes are off-brand; the shadcn `Switch` component (`components/ui/switch.tsx`) fits the dark-theme design language.
 - **Mobile-first responsive design is required**, not optional. Default styles target narrow viewports; use Tailwind breakpoints (`sm:`, `md:`, `lg:`) to enhance layout on larger screens. Most signed-in users reach the app on phones — a page that only looks correct on desktop is a bug.
 
@@ -361,6 +369,15 @@ Treat horizontal overflow, clipped controls, and fixed-width layouts on small sc
 - Below `md`, navigation is **`MobileNav`** (bottom bar) + **`Header`**; the sidebar is hidden. Pages must not depend on desktop-only chrome for core actions.
 - Dialogs and sheets: use responsive max widths (`max-w-[min(96vw,…)]`, `sm:max-w-lg`) and scrollable bodies (`max-h-[…] overflow-y-auto`) so content fits short viewports.
 - Data tables may scroll horizontally inside a **`overflow-x-auto`** wrapper scoped to the table — not by widening the entire page. Update empty-state `colSpan` when columns are conditionally hidden.
+- **Stable chrome:** Prefer **fixed-height** or **always-present** regions for **dialog headers, footers, and summary strips** so lists and charts do not jump vertically when helper text appears or values update.
+- **Layout shift (CLS):** Avoid **per-row conditional blocks** that grow only some rows (for example funding hints on envelope cards). Put summaries **once** at the top or bottom of a list, or reserve **`min-height`** when optional copy must stay inline.
+- **Charts:** Summary lines above a plot (for example **Saved** / cumulative totals on `components/opportunity-cost-chart.tsx`) should use a **reserved band** so toggling overlay data does not resize the chart body.
+
+### Power users (hash routing, drafts, keyboard)
+
+- **Signed-in navigation** uses hash routes in the shell (for example `/#/envelopes/allocations`, `/#/transactions`, `/#/envelope/<envelopeId>`). When linking from static routes into the app, use `next/link` with `href="/#/<page>"` so it matches `AppContext` navigation.
+- **Draft persistence:** Multi-step flows may cache in `sessionStorage` under keys like `bitbudget-<feature>-draft`. Irregular income uses `bitbudget-irregular-income-draft` (`lib/irregular-income-draft.ts`). Logout runs `clearAllDrafts()` in `lib/draft-storage.ts`, which removes `bitbudget-*-draft` keys.
+- **Enter to submit:** On supported dialogs, **Enter** (without Shift) triggers the primary action for the current step when focus is not in a `TEXTAREA`, a `contentEditable` region, or an element inside `[data-no-enter-submit]`. Shared helper: `handleDialogEnterToPrimary` in `lib/dialog-enter-submit.ts`. Initial coverage: irregular income, rebalance, and fill-envelope preview confirm.
 
 **Before finishing UI work**
 - Resize the browser (or DevTools device mode) to **390px and 320px** on every touched screen, dialog, and banner — including Settings, onboarding steps, and modals.
@@ -652,6 +669,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - When implementing from a Cursor plan file (`~/.cursor/plans/*.plan.md`), do not edit the plan — use the pre-created todos and mark them in_progress/completed as you work.
 - For large feature branches, split work into logical commits before push and opening a PR.
 - When test-coverage gaps are identified for new shared logic, write the missing unit and e2e tests in the same session rather than deferring (if the user asks to write tests, implement them — do not stop at a coverage summary).
+- Onboarding and similar money inputs should normalize on blur or when changing steps (strip meaningless leading zeros, coerce empty to zero) so values like `000100000` cannot persist after navigating forward and back.
 
 ## Learned Workspace Facts
 
@@ -664,7 +682,6 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - Ledger `TX_SOURCE_*` constants belong in `lib/constants.ts`, not `envelope-funding.ts`, to avoid circular imports with `envelope-balance-server.ts`.
 - Rules engine: `AccountRule` + `/api/account-rules`; logic in `lib/account-rules.ts` and `lib/rule-engine-client.ts`; Settings Rules UI at `#/settings/payee-rules` (`components/rules-settings.tsx`).
 - Rules engine tests: `lib/__tests__/rule-engine-client.test.ts`, `lib/__tests__/account-rules.test.ts`, and `e2e/rules-settings.spec.ts`.
-- Income overhaul (`pay-period-splits`): ledger PayPeriod vs BudgetPeriod split is documented under **Ledger periods** above; `RecurringFundingRule` + Settings scheduling UI exist, but automated execution on `nextRunAt` is not implemented yet.
+- **Recurring funding rules:** `RecurringFundingRule` stores scheduled income distribution / move-funds configs (`nextRunAt`). Executed by `processAllRecurringFundingRules()` from the daily **envelope-funding** cron (`/api/cron/envelope-funding`). Distinct from `RecurringTransaction` + `/api/cron/recurring` (user transaction templates).
 - `savingsBalance()` in `lib/savings-ui-metrics.ts` takes the Savings `Envelope` (or `undefined`), not `envelopeId` — pass `findSavingsEnvelope(...)`, not `.id`.
-- **Envelope genesis filtering:** `getEnvelopeBalanceAllTime` and server batch helpers only count transactions dated on or after `envelope.createdAt` (calendar-date comparison, YYYY-MM-DD). This prevents historically imported CSV rows from making newly-created envelopes deeply negative. `Envelope.createdAt` is exposed in the client `Envelope` type and the envelopes API response.
-- **CSV import deduplication:** `Transaction.dedupeKey` is a nullable column with a partial unique index (`WHERE "dedupeKey" IS NOT NULL`); imported rows get an HMAC-SHA256 key derived from the user's privacy key seed (available via `getValidCachedPrivacyKeyHex`). The import route uses `createMany({ skipDuplicates: true })` with chunked batches instead of sequential per-row `create` calls.
+- **Rebalance vs Move to/from Savings:** Both use `createRebalanceBatch` in `lib/rebalance-envelopes.ts` (same rebalance API). **`balanced`** mode only creates discretionary envelope ↔ envelope transfer pairs (Savings is not debited/credited by those legs). **`independent`** mode is used when the Savings path or “fund from Savings” is on: each envelope net change is paired with Savings out/in legs so Savings can fund envelopes or absorb money moved back.

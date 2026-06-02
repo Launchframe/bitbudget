@@ -20,15 +20,26 @@ export async function openAdjustEnvelopesDialog(page: Page): Promise<void> {
   await expect(page.getByRole("dialog", { name: "Adjust envelopes" })).toBeVisible()
 }
 
-export async function openMoveFundsFromAdjust(page: Page): Promise<void> {
+export async function openAdjustEnvelopes(page: Page): Promise<void> {
   await openAdjustEnvelopesDialog(page)
-  await page.getByRole("button", { name: "Move funds" }).click()
-  await expect(page.getByRole("dialog", { name: "Move funds" })).toBeVisible()
+}
+
+export async function openRebalanceFromAdjust(page: Page): Promise<void> {
+  await openAdjustEnvelopesDialog(page)
+  await page.getByRole("button", { name: "Rebalance Envelopes" }).click()
+  await expect(page.getByRole("dialog", { name: "Rebalance Envelopes" })).toBeVisible()
+}
+
+/** @deprecated Use openRebalanceFromAdjust */
+export const openMoveFundsFromAdjust = openRebalanceFromAdjust
+
+export async function openAddNewIncome(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Add new income" }).click()
+  await expect(page.getByRole("dialog", { name: "Add new income" })).toBeVisible()
 }
 
 export async function openIrregularIncomeDialog(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Add extra income" }).click()
-  await expect(page.getByRole("dialog", { name: "Add extra income" })).toBeVisible()
+  await openAddNewIncome(page)
 }
 
 export async function fillIrregularIncomeDetails(

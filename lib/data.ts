@@ -17,6 +17,7 @@ export type TransactionSource =
   | "email_scan"
   | "plaid"
   | "paycheck"
+  | "retro_paycheck"
   | "irregular_income"
   | "envelope_funding_out"
   | "envelope_funding_in"
@@ -45,6 +46,7 @@ export interface Transaction {
   excludeFromMainHistory?: boolean
   fundingBatchId?: string | null
   fundingBatchPeriodKey?: string | null
+  fundingBatchKind?: string | null
   /** Server creation timestamp for ordering same-day transactions. */
   createdAt?: string
   /** Server row version for delta sync (ISO 8601). */

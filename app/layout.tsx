@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next"
-import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google"
+import { JetBrains_Mono, Space_Grotesk } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { SessionProvider } from "@/components/session-provider"
 import { ReturningUserCookie } from "@/components/returning-user-cookie"
@@ -9,10 +9,10 @@ import { ServiceWorkerRegister } from "@/components/service-worker-register"
 import "./globals.css"
 
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"] })
-const ibmPlexMono = IBM_Plex_Mono({
+const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-ibm-plex-mono",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-jetbrains-mono",
 })
 
 export const metadata: Metadata = {
@@ -44,7 +44,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`${spaceGrotesk.className} ${ibmPlexMono.variable} antialiased`}>
+      <body className={`${spaceGrotesk.className} ${jetbrainsMono.variable} antialiased`}>
         <SessionProvider>
           <ServiceWorkerRegister />
           <ReturningUserCookie />

@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { SlidersHorizontal, ArrowLeftRight, PiggyBank } from "lucide-react"
 import { useApp } from "@/lib/app-context"
+import { MOVE_TO_FROM_SAVINGS_TITLE } from "@/lib/constants"
 
 export function AdjustEnvelopesDialog({
   open,
@@ -52,7 +53,7 @@ export function AdjustEnvelopesDialog({
             }}
           >
             <ArrowLeftRight className="h-4 w-4" aria-hidden />
-            Move funds
+            Rebalance Envelopes
           </Button>
           <Button
             type="button"
@@ -64,7 +65,7 @@ export function AdjustEnvelopesDialog({
             }}
           >
             <PiggyBank className="h-4 w-4" aria-hidden />
-            Fund envelopes from Savings
+            {MOVE_TO_FROM_SAVINGS_TITLE}
           </Button>
         </div>
       </DialogContent>

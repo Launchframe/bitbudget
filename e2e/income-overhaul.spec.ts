@@ -205,7 +205,48 @@ test.describe("Income overhaul — UI", () => {
       .toBeGreaterThan(0)
   })
 
-  test("move funds: sliders update After bar and POST succeeds", async ({ page, baseURL }) => {
+  test("tiny income blocks Review for unaffordable envelope fill", async ({ page, baseURL }) => {
+    const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
+    await resetIncomeOverhaulUserData(E2E_INCOME_OVERHAUL_EMAIL)
+    await signInIncomeOverhaulUser(page, origin, E2E_INCOME_OVERHAUL_EMAIL)
+    await openEnvelopesPage(page, origin)
+
+    await openIrregularIncomeDialog(page)
+    await fillIrregularIncomeDetails(page, { amount: "5", payee: "E2E Tiny" })
+    await page.getByRole("button", { name: "Next" }).click()
+
+    await page.getByRole("radio", { name: /Fill envelopes now/i }).check()
+    await page.getByRole("button", { name: "Add full budget amount" }).click()
+    await expect(page.getByRole("alert")).toContainText(/income amount/i)
+    await expect(page.getByRole("button", { name: "Review" })).toBeDisabled()
+  })
+
+  test("irregular income Back from confirm clears API error", async ({ page, baseURL }) => {
+    const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
+    await resetIncomeOverhaulUserData(E2E_INCOME_OVERHAUL_EMAIL)
+    await signInIncomeOverhaulUser(page, origin, E2E_INCOME_OVERHAUL_EMAIL)
+    await openEnvelopesPage(page, origin)
+
+    await openIrregularIncomeDialog(page)
+    await fillIrregularIncomeDetails(page, { amount: "250", payee: "E2E Bonus Client" })
+    await page.getByRole("button", { name: "Next" }).click()
+    await page.getByRole("button", { name: "Review" }).click()
+
+    await page.route("**/api/transactions/irregular-income", async (route) => {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Could not record extra income. Check your monthly income." }),
+      })
+    })
+
+    await page.getByRole("button", { name: "Confirm" }).click()
+    await expect(page.getByText(/Could not record new income/i)).toBeVisible()
+    await page.getByRole("button", { name: "Back" }).click()
+    await expect(page.getByText(/Could not record new income/i)).toBeHidden()
+  })
+
+  test("rebalance envelopes: sliders update After bar and POST succeeds", async ({ page, baseURL }) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
     await resetIncomeOverhaulUserData(E2E_INCOME_OVERHAUL_EMAIL)
     const userId = await getIncomeOverhaulUserId(E2E_INCOME_OVERHAUL_EMAIL)
@@ -232,7 +273,7 @@ test.describe("Income overhaul — UI", () => {
     await expect(page.getByText("After")).toBeVisible()
     await page.getByRole("button", { name: "Choose each" }).click()
 
-    const dialog = page.getByRole("dialog", { name: "Move funds" })
+    const dialog = page.getByRole("dialog", { name: "Rebalance Envelopes" })
     const slider = dialog.locator(`input[type="range"]`).first()
     await expect(slider).toBeVisible()
 
@@ -246,19 +287,21 @@ test.describe("Income overhaul — UI", () => {
     await expect(slider).not.toHaveValue("0")
     await expect(dialog.getByText(/\$50/)).toBeVisible()
 
+    await dialog.getByRole("button", { name: "Review changes" }).click()
+
     const movePromise = page.waitForResponse(
       (res) =>
-        res.url().includes("/api/transactions/move-funds") &&
+        res.url().includes("/api/transactions/rebalance") &&
         res.request().method() === "POST",
     )
-    await dialog.getByRole("button", { name: "Move funds" }).click()
+    await dialog.getByRole("button", { name: "Rebalance envelopes" }).click()
     const moveRes = await movePromise
     expect(moveRes.ok(), await moveRes.text()).toBeTruthy()
 
-    await expect(page.getByText("Funds moved successfully.")).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/Envelopes rebalanced/i)).toBeVisible({ timeout: 15_000 })
   })
 
-  test("fund from Savings opens move funds in independent mode", async ({ page, baseURL }) => {
+  test("move to/from Savings opens move funds in independent mode", async ({ page, baseURL }) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
     await resetIncomeOverhaulUserData(E2E_INCOME_OVERHAUL_EMAIL)
     const userId = await getIncomeOverhaulUserId(E2E_INCOME_OVERHAUL_EMAIL)
@@ -268,8 +311,8 @@ test.describe("Income overhaul — UI", () => {
     await openEnvelopesPage(page, origin)
 
     await openAdjustEnvelopesDialog(page)
-    await page.getByRole("button", { name: "Fund envelopes from Savings" }).click()
-    const fundDialog = page.getByRole("dialog", { name: "Fund from Savings" })
+    await page.getByRole("button", { name: "Move to/from Savings" }).click()
+    const fundDialog = page.getByRole("dialog", { name: "Move to/from Savings" })
     await expect(fundDialog).toBeVisible()
     await expect(fundDialog.getByRole("button", { name: "Choose each" })).toBeVisible()
     await expect(fundDialog.getByText("Before")).toBeVisible()
@@ -285,21 +328,6 @@ test.describe("Income overhaul — UI", () => {
     await expect(page.getByRole("heading", { name: "Recurring rules" })).toBeVisible({
       timeout: 15_000,
     })
-  })
-
-  test("schedule this shows coming-soon state for automatic runs", async ({ page, baseURL }) => {
-    const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
-    await signInIncomeOverhaulUser(page, origin, E2E_INCOME_OVERHAUL_EMAIL)
-    await openEnvelopesPage(page, origin)
-    await openIrregularIncomeDialog(page)
-    await fillIrregularIncomeDetails(page, { amount: "100", payee: "E2E Schedule Test" })
-    await page.getByRole("button", { name: "Next" }).click()
-    await page.getByRole("radio", { name: /Fill envelopes now/i }).check()
-    await page.getByRole("button", { name: "Schedule this" }).click()
-    await expect(
-      page.getByText(/Automatic runs on that schedule are not available yet/i),
-    ).toBeVisible()
-    await expect(page.getByRole("button", { name: "Save schedule (coming soon)" })).toBeDisabled()
   })
 
   test("income importer creates Savings credits only (no funding legs)", async ({
