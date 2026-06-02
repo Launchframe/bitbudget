@@ -9,6 +9,7 @@ import {
   incomeTransactionsByFundingBatchId,
   displayTypeLabelForTransaction,
   typeBadgeClassForTransaction,
+  REBALANCE_TYPE_BADGE_CLASS,
   transactionMatchesTypeFilter,
   type TransactionListTypeFilter,
 } from "@/lib/ledger-funding-display"
@@ -42,6 +43,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { TransactionsCashFlowPanel } from "@/components/transactions-cash-flow-panel"
 
 function BtcAmount({
   sats,
@@ -58,7 +60,7 @@ function BtcAmount({
 const PAGE_SIZE_OPTIONS = [10, 15, 25, 50, 100]
 const MOBILE_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
-export function TransactionsPage() {
+export function TransactionsPage({ scopedEnvelopeId }: { scopedEnvelopeId?: string } = {}) {
   const {
     state,
     discretionaryEnvelopes,
@@ -68,6 +70,7 @@ export function TransactionsPage() {
     clearTransactionEnvelopeFilter,
     openNewTransaction,
     historyReady,
+    navigateTo,
   } = useApp()
   const { requestDelete, confirmDialog } = useTransactionDeleteConfirm()
   const { calculateOpportunityCost } = useBtcPrices()
@@ -88,9 +91,10 @@ export function TransactionsPage() {
   const highlightedRef = useRef<HTMLTableRowElement>(null)
 
   const activeEnvelopeFilters = useMemo(() => {
+    if (scopedEnvelopeId) return new Set([scopedEnvelopeId])
     if (transactionEnvelopeFilter.size > 0) return transactionEnvelopeFilter
     return envelopeFilters
-  }, [transactionEnvelopeFilter, envelopeFilters])
+  }, [scopedEnvelopeId, transactionEnvelopeFilter, envelopeFilters])
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -215,9 +219,48 @@ export function TransactionsPage() {
     return expenseTxns.reduce((sum, t) => sum + (t.satsAmount ?? 0), 0)
   }, [expenseTxns])
 
-  const hasActiveFilter = searchQuery.trim() || typeFilter !== "all" || activeEnvelopeFilters.size > 0 || tagFilters.size > 0 || startDate || endDate
+  const hasActiveFilter =
+    searchQuery.trim() ||
+    typeFilter !== "all" ||
+    (!scopedEnvelopeId && activeEnvelopeFilters.size > 0) ||
+    tagFilters.size > 0 ||
+    startDate ||
+    endDate
+
+  const transactionsHeroTitle = useMemo(() => {
+    const anyFilter =
+      searchQuery.trim() ||
+      typeFilter !== "all" ||
+      (!scopedEnvelopeId && activeEnvelopeFilters.size > 0) ||
+      tagFilters.size > 0 ||
+      startDate ||
+      endDate
+    if (!anyFilter) return "All Transactions"
+    if (!scopedEnvelopeId && activeEnvelopeFilters.size === 1) {
+      const id = [...activeEnvelopeFilters][0]!
+      const name = envelopeMap[id]?.name ?? "This envelope"
+      const hasExtra =
+        typeFilter !== "all" ||
+        searchQuery.trim() ||
+        tagFilters.size > 0 ||
+        !!startDate ||
+        !!endDate
+      return hasExtra ? `${name} — filtered` : `${name} transactions`
+    }
+    return "Filtered transactions"
+  }, [
+    scopedEnvelopeId,
+    activeEnvelopeFilters,
+    envelopeMap,
+    typeFilter,
+    searchQuery,
+    tagFilters,
+    startDate,
+    endDate,
+  ])
 
   function toggleEnvelopeFilter(id: string) {
+    if (scopedEnvelopeId) return
     clearTransactionEnvelopeFilter()
     setEnvelopeFilters(prev => {
       const next = new Set(prev)
@@ -280,46 +323,73 @@ export function TransactionsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
-        <h2 className="text-xl font-semibold text-foreground" data-walkthrough="transactions-header">
-          All Transactions
-        </h2>
-        <div className="flex flex-wrap items-center gap-4 md:gap-6 mt-2">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Total</span>
-            <span className="text-lg font-semibold text-foreground">{filteredTransactions.length}</span>
-          </div>
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Expenses</span>
-            <span className="text-lg font-semibold text-foreground">{formatUsd(totalExpenses)}</span>
-          </div>
-          {totalCredits > 0 && (
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs text-muted-foreground uppercase tracking-wider">Credits</span>
-              <span className="text-lg font-semibold text-[#22C55E]">{formatUsd(totalCredits)}</span>
+      {!scopedEnvelopeId && (
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-6">
+          <div className="flex flex-col gap-1 rounded-2xl bg-[#0D0D0D] p-4 md:p-6 lg:w-[min(100%,24rem)] lg:max-w-md lg:shrink-0">
+            <h2 className="text-xl font-semibold text-foreground" data-walkthrough="transactions-header">
+              {transactionsHeroTitle}
+            </h2>
+            <div className="mt-2 flex flex-wrap items-center gap-4 md:gap-6">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">Total</span>
+                <span className="text-lg font-semibold text-foreground">{filteredTransactions.length}</span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">Expenses</span>
+                <span className="text-lg font-semibold text-foreground">{formatUsd(totalExpenses)}</span>
+              </div>
+              {totalCredits > 0 && (
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Credits</span>
+                  <span className="text-lg font-semibold text-[#22C55E]">{formatUsd(totalCredits)}</span>
+                </div>
+              )}
+              {state.opportunityCostEnabled && hasActiveFilter && expenseTxns.length > 0 && (
+                <>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">You could have stacked</span>
+                    <BtcAmount
+                      sats={totalSats}
+                      unit={state.btcDisplayUnit}
+                      className="text-lg font-semibold text-foreground"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">Opportunity Cost</span>
+                    <span className="text-lg font-semibold text-[#F7931A]">{formatUsd(totalOpportunityCost)}</span>
+                  </div>
+                </>
+              )}
             </div>
-          )}
-          {state.opportunityCostEnabled && hasActiveFilter && expenseTxns.length > 0 && (
-            <>
-              <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">You could have stacked</span>
-                <BtcAmount
-                  sats={totalSats}
-                  unit={state.btcDisplayUnit}
-                  className="text-lg font-semibold text-foreground"
-                />
-              </div>
-              <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">Opportunity Cost</span>
-                <span className="text-lg font-semibold text-[#F7931A]">{formatUsd(totalOpportunityCost)}</span>
-              </div>
-            </>
-          )}
+            <div className="mt-3 flex items-center gap-2 self-start">
+              <button
+                type="button"
+                onClick={() => openNewTransaction()}
+                className="flex items-center gap-2 rounded-xl bg-[#F7931A] px-4 py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90 md:hidden"
+              >
+                <Plus className="h-4 w-4" />
+                New Transaction
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                className="flex items-center gap-2 rounded-xl border border-[#333] bg-[#0D0D0D] px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-[#1A1A1A]"
+              >
+                <Download className="h-4 w-4" />
+                Export
+              </button>
+            </div>
+          </div>
+          <TransactionsCashFlowPanel />
         </div>
-        <div className="self-start flex items-center gap-2 mt-3">
+      )}
+
+      {scopedEnvelopeId && (
+        <div className="flex flex-wrap items-center gap-2">
           <button
+            type="button"
             onClick={() => openNewTransaction()}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors md:hidden"
+            className="flex items-center gap-2 rounded-xl bg-[#F7931A] px-4 py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90"
           >
             <Plus className="h-4 w-4" />
             New Transaction
@@ -327,13 +397,13 @@ export function TransactionsPage() {
           <button
             type="button"
             onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#0D0D0D] text-foreground rounded-xl font-semibold text-sm hover:bg-[#1A1A1A] transition-colors border border-[#333]"
+            className="flex items-center gap-2 rounded-xl border border-[#333] bg-[#0D0D0D] px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-[#1A1A1A]"
           >
             <Download className="h-4 w-4" />
             Export
           </button>
         </div>
-      </div>
+      )}
 
       <PayeeMappingReviewBanner />
 
@@ -457,7 +527,7 @@ export function TransactionsPage() {
         </div>
 
         {/* Envelope quick-filter bubbles */}
-        {(savingsEnvelope || discretionaryEnvelopes.length > 0) && (
+        {(savingsEnvelope || discretionaryEnvelopes.length > 0) && !scopedEnvelopeId && (
           <div className="flex items-center gap-2 flex-wrap">
             {savingsEnvelope && (
               <>
@@ -571,7 +641,7 @@ export function TransactionsPage() {
         </div>
       )}
 
-      <UpcomingRecurringTransactions />
+      {!scopedEnvelopeId && <UpcomingRecurringTransactions />}
 
       <div className="bg-[#0D0D0D] rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -595,20 +665,39 @@ export function TransactionsPage() {
                   return (
                     <tr
                       key={row.id}
-                      className="border-b border-[#1A1A1A] last:border-0 hover:bg-[#111] transition-colors group"
+                      className="border-b border-[#1A1A1A] last:border-0 transition-colors group hover:bg-[#111]"
                     >
-                      <td className="py-3.5 px-4 text-sm text-muted-foreground whitespace-nowrap">
+                      <td className="whitespace-nowrap px-4 py-3.5 text-sm text-muted-foreground">
                         {formatTransactionTableDate(row.date)}
                       </td>
-                      <td className="py-3.5 px-4 text-sm font-medium text-foreground" colSpan={state.opportunityCostEnabled ? 4 : 3}>
+                      <td className="px-4 py-3.5 text-sm font-medium text-foreground">
                         Rebalanced {row.envelopeCount} envelope{row.envelopeCount === 1 ? "" : "s"} · {sign}
                         {formatUsd(Math.abs(row.savingsDeltaUsd))} to Savings
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="hidden px-4 py-3.5 md:table-cell">
+                        <span className="text-sm text-muted-foreground">—</span>
+                      </td>
+                      <td className="hidden px-4 py-3.5 sm:table-cell">
+                        <Badge variant="outline" className={REBALANCE_TYPE_BADGE_CLASS}>
+                          Rebalance
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3.5 text-right text-sm text-muted-foreground">—</td>
+                      {state.opportunityCostEnabled && (
+                        <td className="hidden px-4 py-3.5 text-right text-sm text-muted-foreground md:table-cell">
+                          —
+                        </td>
+                      )}
+                      {state.opportunityCostEnabled && (
+                        <td className="hidden px-4 py-3.5 text-right text-sm text-muted-foreground sm:table-cell">
+                          —
+                        </td>
+                      )}
+                      <td className="px-4 py-3.5 text-right">
                         <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100">
                           <button
                             type="button"
-                            className="text-xs text-[#3B82F6] hover:underline px-1"
+                            className="px-1 text-xs text-[#3B82F6] hover:underline"
                             onClick={() => {
                               setRebalanceEditBatchId(row.fundingBatchId)
                               setRebalanceDialogOpen(true)
@@ -618,7 +707,7 @@ export function TransactionsPage() {
                           </button>
                           <button
                             type="button"
-                            className="p-1 rounded hover:bg-[#1F1F1F] text-muted-foreground hover:text-[#EF4444]"
+                            className="rounded p-1 text-muted-foreground hover:bg-[#1F1F1F] hover:text-[#EF4444]"
                             aria-label="Delete rebalance"
                             onClick={() => {
                               const leg = activeTransactions.find(
@@ -866,6 +955,11 @@ export function TransactionsPage() {
         open={!!selectedTxn}
         onOpenChange={(open) => { if (!open) setSelectedTxn(null) }}
         onNavigateToLinkedIncome={(incomeTxn) => {
+          if (scopedEnvelopeId) {
+            navigateTo("envelope-detail", incomeTxn.envelopeId)
+            setSelectedTxn(incomeTxn)
+            return
+          }
           clearTransactionEnvelopeFilter()
           setEnvelopeFilters(new Set([incomeTxn.envelopeId]))
           setSelectedTxn(incomeTxn)

@@ -11,6 +11,7 @@ import {
 } from "@/lib/data"
 import { deficitCoverAmount } from "@/lib/budget-period"
 import { envelopeBudgetProgressPct, envelopeHealthColor } from "@/lib/envelope-card-metrics"
+import { monthProgressMarkerPct } from "@/lib/sweep-math"
 import { Progress } from "@/components/ui/progress"
 import { Pencil, Trash2, Plus, SlidersHorizontal, Merge, X, Archive, RotateCcw, ChevronDown } from "lucide-react"
 import {
@@ -186,14 +187,8 @@ export function EnvelopesPage() {
     : undefined
   const pendingDeleteStats = pendingDeleteId ? envelopeDeleteStats(pendingDeleteId) : null
 
-  // Marker position: 100% on day 1 (full month ahead), 0% on last day.
-  // formula: (1 − (dayOfMonth − 1) / (daysInMonth − 1)) × 100
-  // Compute each render so the marker stays correct across day/month boundaries while the page is open.
-  const today = new Date()
-  const dayOfMonth = today.getDate()
-  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
-  const monthMarkerPct =
-    daysInMonth > 1 ? (1 - (dayOfMonth - 1) / (daysInMonth - 1)) * 100 : 100
+  // Same as `monthProgressMarkerPct` in sweep-math — recompute each render for day/month boundaries.
+  const monthMarkerPct = monthProgressMarkerPct()
 
   const totalAllocated = useMemo(
     () => activeEnvelopes.reduce((sum, e) => sum + e.monthlyAllotment, 0),
@@ -425,7 +420,7 @@ export function EnvelopesPage() {
               className="flex flex-col bg-[#0D0D0D] rounded-2xl hover:bg-[#111] transition-colors overflow-hidden"
             >
               <button
-                onClick={() => navigateTo("transactions", undefined, { envelopeFilter: env.id })}
+                onClick={() => navigateTo("envelope-detail", env.id)}
                 className="flex flex-col gap-4 p-5 text-left flex-1"
               >
                 <div className="flex items-center gap-3 min-w-0">

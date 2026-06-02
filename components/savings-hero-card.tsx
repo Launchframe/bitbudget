@@ -273,7 +273,7 @@ export function SavingsHeroCard() {
         </div>
         <button
           type="button"
-          onClick={() => navigateTo("transactions", undefined, { envelopeFilter: savingsEnvelope.id })}
+          onClick={() => navigateTo("envelope-detail", savingsEnvelope.id)}
           className="text-sm text-[#D4AF37] hover:underline flex items-center gap-1"
         >
           View Savings transactions
