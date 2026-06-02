@@ -246,6 +246,7 @@ Both DB URLs are required for `migrate deploy`. If `DATABASE_URL_UNPOOLED` is mi
 - Components that use React hooks, local state, or browser-only APIs must be client components (include the `"use client"` directive at the top of the file). Purely presentational components that don't rely on client-only features can be server components.
 - Page-level components live in `components/` (e.g. `dashboard-page.tsx`, `transactions-page.tsx`).
 - The app uses hash-based routing managed by `AppContext` (`navigateTo`, `currentPage`), not the Next.js file-based router, for in-app navigation after auth.
+- **Envelope transaction drill-ins** use **`#/envelope/<id>`** (`navigateTo("envelope-detail", envelopeId)`). Do not rewrite these to `#/transactions` with an envelope filter; the scoped envelope view reuses the main Transactions list behavior.
 - `app/page.tsx` is the shell: `OnboardingGate → AppProvider → EncryptionGate → BtcPriceProvider → layout`.
 - When changing interactive UI, keep accessibility state and labels current: update `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-pressed`, `aria-selected`, and related screen-reader text alongside visible labels and control state.
 
@@ -260,6 +261,13 @@ Both DB URLs are required for `migrate deploy`. If `DATABASE_URL_UNPOOLED` is mi
 - `AppContext` (`lib/app-context.tsx`) is the single source of truth for app state. It holds transactions, envelopes, tags, user settings, encryption state, and navigation.
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
 - `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **should** be called within `BtcPriceProvider`. If it runs outside the provider (e.g. vanilla mode or a missing wrapper), it returns **`NOOP_PRICES`** (zeros / no-op helpers) and logs a **dev-time warning** — it does not throw. Still wrap components that need real BTC data in `BtcPriceProvider` when `opportunityCostEnabled` is on.
+
+### Transaction dates (calendar day vs instant; agents)
+
+- **Display and filters in the browser:** use `lib/transaction-dates.ts` (`transactionCalendarDay`, `formatTransactionTableDate`, `todayTransactionCalendarDay`, etc.) so list and filter “days” match the **user’s local calendar** where those helpers run client-side.
+- **Storage for calendar-only semantics:** prefer `calendarDateToStorageInstant` / `parseTransactionDateInput` for `YYYY-MM-DD` inputs so the DB instant is not naive-UTC-midnight drift (see comments in `transaction-dates.ts`).
+- **User-initiated server writes** (rebalance, move-funds, manual transaction POST bodies, etc.): the server **must not** infer the user’s posting calendar day from `new Date().toISOString().slice(0, 10)` (UTC day). Send an explicit calendar string from the client (`postedOn`, `date`, etc.) validated like other transaction inputs, or document a single timezone contract for the endpoint.
+- **Cron / BudgetPeriod / payday automation** intentionally uses **UTC calendar boundaries** for schedule math where documented in this file — do not conflate that with interactive posting-date UX.
 
 ### Smart defaults must never overwrite explicit user choices
 
@@ -367,7 +375,7 @@ Treat horizontal overflow, clipped controls, and fixed-width layouts on small sc
 
 ### Power users (hash routing, drafts, keyboard)
 
-- **Signed-in navigation** uses hash routes in the shell (for example `/#/envelopes/allocations`, `/#/transactions`). When linking from static routes into the app, use `next/link` with `href="/#/<page>"` so it matches `AppContext` navigation.
+- **Signed-in navigation** uses hash routes in the shell (for example `/#/envelopes/allocations`, `/#/transactions`, `/#/envelope/<envelopeId>`). When linking from static routes into the app, use `next/link` with `href="/#/<page>"` so it matches `AppContext` navigation.
 - **Draft persistence:** Multi-step flows may cache in `sessionStorage` under keys like `bitbudget-<feature>-draft`. Irregular income uses `bitbudget-irregular-income-draft` (`lib/irregular-income-draft.ts`). Logout runs `clearAllDrafts()` in `lib/draft-storage.ts`, which removes `bitbudget-*-draft` keys.
 - **Enter to submit:** On supported dialogs, **Enter** (without Shift) triggers the primary action for the current step when focus is not in a `TEXTAREA`, a `contentEditable` region, or an element inside `[data-no-enter-submit]`. Shared helper: `handleDialogEnterToPrimary` in `lib/dialog-enter-submit.ts`. Initial coverage: irregular income, rebalance, and fill-envelope preview confirm.
 
@@ -676,3 +684,4 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - Rules engine tests: `lib/__tests__/rule-engine-client.test.ts`, `lib/__tests__/account-rules.test.ts`, and `e2e/rules-settings.spec.ts`.
 - **Recurring funding rules:** `RecurringFundingRule` stores scheduled income distribution / move-funds configs (`nextRunAt`). Executed by `processAllRecurringFundingRules()` from the daily **envelope-funding** cron (`/api/cron/envelope-funding`). Distinct from `RecurringTransaction` + `/api/cron/recurring` (user transaction templates).
 - `savingsBalance()` in `lib/savings-ui-metrics.ts` takes the Savings `Envelope` (or `undefined`), not `envelopeId` — pass `findSavingsEnvelope(...)`, not `.id`.
+- **Rebalance vs Move to/from Savings:** Both use `createRebalanceBatch` in `lib/rebalance-envelopes.ts` (same rebalance API). **`balanced`** mode only creates discretionary envelope ↔ envelope transfer pairs (Savings is not debited/credited by those legs). **`independent`** mode is used when the Savings path or “fund from Savings” is on: each envelope net change is paired with Savings out/in legs so Savings can fund envelopes or absorb money moved back.
