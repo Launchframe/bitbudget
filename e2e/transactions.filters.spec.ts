@@ -7,7 +7,7 @@ import {
   E2E_APP_USER_EMAIL,
 } from "./fixtures/app-e2e-constants"
 import { signInAppUser } from "./helpers/app-session"
-import { dismissWalkthroughIfPresent, expectTransactionsPageReady, waitForPayeeAliasesLoaded } from "./helpers/shell"
+import { dismissWalkthroughIfPresent, expectTransactionsPageReady, waitForPayeeRulesLoaded } from "./helpers/shell"
 
 function transactionRow(page: Page, payee: string) {
   return page.locator("tbody tr").filter({ hasText: payee })
@@ -30,7 +30,7 @@ test.describe("Transactions filters", () => {
     await dismissWalkthroughIfPresent(page)
     await expectTransactionsPageReady(page)
     await expect(transactionRow(page, "E2E Grocery Run")).toBeVisible({ timeout: 90_000 })
-    await waitForPayeeAliasesLoaded(page)
+    await waitForPayeeRulesLoaded(page)
   })
 
   test("search, type, envelope pill, and tag filters", async ({ page }) => {

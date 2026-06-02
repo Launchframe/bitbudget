@@ -409,7 +409,7 @@ function CreateRuleForm({
         actions.push({ type: "add_tag" as const, params: { tag: tagName.trim() } })
         return { type: "auto_tag", trigger: "on_import" as const, enabled: true, priority: 0, conditions, actions }
       case "summary_email":
-        actions.push({ type: "exclude" as const, params: { summaryEmail: true } })
+        actions.push({ type: "send_summary_email" as const, params: { minCount: 1 } })
         return { type: "summary_email", trigger: "on_import" as const, enabled: true, priority: 0, conditions, actions }
       case "round_up":
         conditions.push({ field: "type" as const, op: "eq" as const, value: "expense" })

@@ -39,8 +39,8 @@ export async function dismissWalkthroughIfPresent(page: Page): Promise<void> {
   }
 }
 
-/** Wait for async payee-rule fetch on Transactions so filter rows stop shifting. */
-export async function waitForPayeeAliasesLoaded(page: Page): Promise<void> {
+/** Wait for async payee-rules fetch on Transactions so filter rows stop shifting. */
+export async function waitForPayeeRulesLoaded(page: Page): Promise<void> {
   await page
     .waitForResponse(
       (resp) => resp.url().includes("/api/payee-rules") && resp.request().method() === "GET",

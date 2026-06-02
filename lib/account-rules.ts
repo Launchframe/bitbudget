@@ -6,8 +6,8 @@
  * - Conditions (what it matches)
  * - Actions (what it does)
  *
- * The rule evaluator lives in `lib/rule-engine.ts` (Phase 3 — planned).
- * For now, rule execution is handled inline at each trigger point.
+ * Client-side evaluation helpers live in `lib/rule-engine-client.ts`.
+ * Server persistence and CRUD live in `app/api/account-rules/route.ts`.
  */
 
 export type RuleTrigger =

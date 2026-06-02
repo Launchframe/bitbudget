@@ -63,6 +63,21 @@ function jsonTxnRow(t: {
 
 const TXN_TYPES = new Set(["expense", "credit"])
 
+function normalizeTransactionSourceForCreate(raw: unknown): string | { error: string } {
+  if (raw === undefined || raw === null) return "manual"
+  if (typeof raw !== "string") return { error: "source must be a string" }
+  const s = raw.trim()
+  if (s.length === 0) return "manual"
+  if (!/^[a-z0-9_]{1,64}$/.test(s)) return { error: "Invalid source" }
+  return s
+}
+
+function normalizeExcludeFromMainHistory(raw: unknown): boolean | { error: string } {
+  if (raw === undefined || raw === null) return false
+  if (typeof raw !== "boolean") return { error: "excludeFromMainHistory must be a boolean" }
+  return raw
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
@@ -122,10 +137,19 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { date, payee, amount, type, envelopeId, tags, notes } = body
+  const { date, payee, amount, type, envelopeId, tags, notes, source: rawSource, excludeFromMainHistory: rawExclude } =
+    body as Record<string, unknown>
 
   if (!date || payee == null || amount == null || !type || !envelopeId) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+  }
+  const sourceNorm = normalizeTransactionSourceForCreate(rawSource)
+  if (typeof sourceNorm !== "string") {
+    return NextResponse.json({ error: sourceNorm.error }, { status: 400 })
+  }
+  const excludeNorm = normalizeExcludeFromMainHistory(rawExclude)
+  if (typeof excludeNorm !== "boolean") {
+    return NextResponse.json({ error: excludeNorm.error }, { status: 400 })
   }
   if (typeof payee !== "string" || payee.trim().length === 0) {
     return NextResponse.json({ error: "Invalid payee" }, { status: 400 })
@@ -169,6 +193,8 @@ export async function POST(req: NextRequest) {
       tags: JSON.stringify(tags || []),
       notes: notes || null,
       satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
+      source: sourceNorm,
+      excludeFromMainHistory: excludeNorm,
     },
   })
 
