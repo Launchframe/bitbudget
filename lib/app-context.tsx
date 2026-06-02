@@ -416,7 +416,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentPage, setCurrentPage] = useState<PageId>(() => {
     if (typeof window === "undefined") return "dashboard"
     const { page } = hashToPage(window.location.hash)
-    return page === "envelope-detail" ? "transactions" : page
+    return page
   })
   const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null
@@ -447,11 +447,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const [inputModeSheetOpen, setInputModeSheetOpen] = useState(false)
-  const [transactionEnvelopeFilter, setTransactionEnvelopeFilter] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set()
-    const { page, envelopeId } = hashToPage(window.location.hash)
-    return page === "envelope-detail" && envelopeId ? new Set([envelopeId]) : new Set()
-  })
+  const [transactionEnvelopeFilter, setTransactionEnvelopeFilter] = useState<Set<string>>(() => new Set())
   const [txnLoadPhase, setTxnLoadPhase] = useState<TxnLoadPhase>("init")
   const [transactionSyncError, setTransactionSyncError] = useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
@@ -997,55 +993,64 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
   const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => {
     const targetPage = page === "envelopes" && opts?.openAllocations ? "envelope-allocations" : page
     setCurrentPage(targetPage)
-    if (envelopeId) setSelectedEnvelopeId(envelopeId)
+    if (targetPage === "envelope-detail" && envelopeId) {
+      setSelectedEnvelopeId(envelopeId)
+    } else {
+      setSelectedEnvelopeId(null)
+    }
     setHighlightTransactionId(opts?.highlightTxnId ?? null)
-    if (opts?.envelopeFilter) setTransactionEnvelopeFilter(new Set([opts.envelopeFilter]))
+    if (targetPage === "envelope-detail") {
+      setTransactionEnvelopeFilter(new Set())
+    } else if (opts?.envelopeFilter) {
+      setTransactionEnvelopeFilter(new Set([opts.envelopeFilter]))
+    }
 
     if (!isPopstate.current) {
       const hash = pageToHash(targetPage, envelopeId)
       if (window.location.hash !== hash) {
-        window.history.pushState({ page: targetPage, envelopeId }, "", hash)
+        window.history.pushState(null, "", hash)
       }
     }
     isPopstate.current = false
   }, [])
 
   useEffect(() => {
-    function onPopState() {
+    function syncRouteFromHash() {
       const { page, envelopeId } = hashToPage(window.location.hash)
       // Mark as popstate so navigateTo skips pushState — but since navigateTo is
       // not called inside this handler we must reset the flag ourselves at the end,
       // otherwise the very next user-triggered navigateTo silently skips pushState
       // and the history entry for that navigation is never written.
       isPopstate.current = true
-      if (page === "envelope-detail" && envelopeId) {
-        setCurrentPage("transactions")
-        setTransactionEnvelopeFilter(new Set([envelopeId]))
-        window.history.replaceState({ page: "transactions" }, "", "#/transactions")
-      } else {
-        setCurrentPage(page)
-        if (envelopeId) setSelectedEnvelopeId(envelopeId)
-        // Clear any envelope filter when going back to a page that isn't transactions.
-        if (page !== "transactions") setTransactionEnvelopeFilter(new Set())
-      }
+      setCurrentPage(page)
+      setSelectedEnvelopeId(page === "envelope-detail" && envelopeId ? envelopeId : null)
+      // Clear any envelope filter when going back to a page that isn't transactions.
+      if (page !== "transactions") setTransactionEnvelopeFilter(new Set())
       // Reset immediately — navigateTo is never invoked inside this handler so it
       // will never reset the flag on our behalf.
       isPopstate.current = false
     }
 
-    window.addEventListener("popstate", onPopState)
+    function onPopState() {
+      syncRouteFromHash()
+    }
 
-    // Redirect initial envelope-detail URLs (e.g. direct link or old bookmark)
-    const initial = hashToPage(window.location.hash)
-    if (initial.page === "envelope-detail" && initial.envelopeId) {
-      setCurrentPage("transactions")
-      setTransactionEnvelopeFilter(new Set([initial.envelopeId]))
-      window.history.replaceState({ page: "transactions" }, "", "#/transactions")
-    } else if (!window.location.hash) {
+    function onHashChange() {
+      // In-page hash changes (e.g. `<a href="#/...">`) do not fire popstate; keep React in sync with the URL.
+      syncRouteFromHash()
+    }
+
+    window.addEventListener("popstate", onPopState)
+    window.addEventListener("hashchange", onHashChange)
+
+    if (!window.location.hash) {
       window.history.replaceState({ page: "dashboard" }, "", "#/dashboard")
     }
 
-    return () => window.removeEventListener("popstate", onPopState)
+    return () => {
+      window.removeEventListener("popstate", onPopState)
+      window.removeEventListener("hashchange", onHashChange)
+    }
   }, [])
 
   const addTransaction = useCallback(async (txn: Omit<Transaction, "id">) => {
