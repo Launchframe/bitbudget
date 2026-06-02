@@ -63,19 +63,28 @@ function jsonTxnRow(t: {
 
 const TXN_TYPES = new Set(["expense", "credit"])
 
+/** Sources the authenticated client may set on POST /api/transactions (not ledger/cron paths). */
+const CLIENT_POST_SOURCES = new Set(["manual", "round_up", "surplus_sweep"])
+
 function normalizeTransactionSourceForCreate(raw: unknown): string | { error: string } {
   if (raw === undefined || raw === null) return "manual"
   if (typeof raw !== "string") return { error: "source must be a string" }
   const s = raw.trim()
   if (s.length === 0) return "manual"
   if (!/^[a-z0-9_]{1,64}$/.test(s)) return { error: "Invalid source" }
+  if (!CLIENT_POST_SOURCES.has(s)) return { error: "Invalid source" }
   return s
 }
 
-function normalizeExcludeFromMainHistory(raw: unknown): boolean | { error: string } {
+function excludeFromMainHistoryForCreate(
+  source: string,
+  raw: unknown,
+): boolean | { error: string } {
+  if (source === "round_up" || source === "surplus_sweep") return true
   if (raw === undefined || raw === null) return false
   if (typeof raw !== "boolean") return { error: "excludeFromMainHistory must be a boolean" }
-  return raw
+  if (raw) return { error: "excludeFromMainHistory not allowed for manual transactions" }
+  return false
 }
 
 export async function GET(req: NextRequest) {
@@ -147,7 +156,7 @@ export async function POST(req: NextRequest) {
   if (typeof sourceNorm !== "string") {
     return NextResponse.json({ error: sourceNorm.error }, { status: 400 })
   }
-  const excludeNorm = normalizeExcludeFromMainHistory(rawExclude)
+  const excludeNorm = excludeFromMainHistoryForCreate(sourceNorm, rawExclude)
   if (typeof excludeNorm !== "boolean") {
     return NextResponse.json({ error: excludeNorm.error }, { status: 400 })
   }
