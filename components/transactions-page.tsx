@@ -178,8 +178,8 @@ export function TransactionsPage({ scopedEnvelopeId }: { scopedEnvelopeId?: stri
   }, [listTransactions, activeTransactions, incomeByFundingBatchId, searchQuery, typeFilter, activeEnvelopeFilters, tagFilters, startDate, endDate])
 
   const displayRows = useMemo(
-    () => collapseRebalanceBatches(filteredTransactions),
-    [filteredTransactions],
+    () => collapseRebalanceBatches(filteredTransactions, savingsEnvelope?.id),
+    [filteredTransactions, savingsEnvelope?.id],
   )
 
   useEffect(() => {

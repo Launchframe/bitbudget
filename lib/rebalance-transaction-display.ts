@@ -30,8 +30,28 @@ export function isRebalanceGroupRow(row: TransactionListRow): row is RebalanceGr
   return (row as RebalanceGroupRow).kind === "rebalance_group"
 }
 
+function savingsDeltaFromLegs(
+  legs: readonly Transaction[],
+  savingsEnvelopeId: string | null | undefined,
+): number {
+  if (!savingsEnvelopeId) return 0
+  let savingsDeltaUsd = 0
+  for (const leg of legs) {
+    if (leg.envelopeId !== savingsEnvelopeId) continue
+    if (leg.source === TX_SOURCE_ENVELOPE_TRANSFER_IN) {
+      savingsDeltaUsd += leg.amount
+    } else if (leg.source === TX_SOURCE_ENVELOPE_TRANSFER_OUT) {
+      savingsDeltaUsd -= leg.amount
+    }
+  }
+  return savingsDeltaUsd
+}
+
 /** Collapse rebalance transfer legs into one summary row per batch (newest-first list order preserved). */
-export function collapseRebalanceBatches(transactions: readonly Transaction[]): TransactionListRow[] {
+export function collapseRebalanceBatches(
+  transactions: readonly Transaction[],
+  savingsEnvelopeId?: string | null,
+): TransactionListRow[] {
   const seenBatch = new Set<string>()
   const out: TransactionListRow[] = []
 
@@ -43,16 +63,11 @@ export function collapseRebalanceBatches(transactions: readonly Transaction[]): 
       const legs = transactions.filter(
         (x) => x.fundingBatchId === batchId && isRebalanceTransferLeg(x),
       )
-      let savingsDeltaUsd = 0
       const envelopeIds = new Set<string>()
       for (const leg of legs) {
         envelopeIds.add(leg.envelopeId)
-        if (leg.source === TX_SOURCE_ENVELOPE_TRANSFER_IN) {
-          savingsDeltaUsd -= leg.amount
-        } else {
-          savingsDeltaUsd += leg.amount
-        }
       }
+      const savingsDeltaUsd = savingsDeltaFromLegs(legs, savingsEnvelopeId)
       out.push({
         kind: "rebalance_group",
         id: `rebalance-${batchId}`,
