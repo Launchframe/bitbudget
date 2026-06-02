@@ -115,7 +115,13 @@ async function validateRebalanceBalances(
 
 export type CreateRebalanceBatchOptions = {
   periodKey?: string
+  /**
+   * Calendar posting instant for transfer legs (from `parseTransactionDateInput` / client `postedOn`).
+   * When set, `postedCalendarDay` should be the same `YYYY-MM-DD` string for BTC price lookup.
+   */
   runDateUtc?: Date
+  /** Required when `runDateUtc` is set — same calendar key the client used for `postedOn`. */
+  postedCalendarDay?: string
   config?: Prisma.InputJsonValue
   /** Legacy rows may use move_funds kind until migrated. */
   batchKind?: typeof ENVELOPE_FUNDING_BATCH_KIND_REBALANCE | typeof ENVELOPE_FUNDING_BATCH_KIND_MOVE_FUNDS
@@ -162,10 +168,20 @@ export async function createRebalanceBatch(
     return 0
   }
 
-  const runAt = options?.runDateUtc ?? new Date()
-  const dateStr = runAt.toISOString().split("T")[0]!
-  const btcPrice = await getBtcPriceForDate(dateStr)
-  const moveDate = new Date(`${dateStr}T12:00:00.000Z`)
+  const explicitRun = options?.runDateUtc
+  const legacyClock = new Date()
+  let moveDate: Date
+  let dateStrForBtc: string
+  if (explicitRun) {
+    moveDate = explicitRun
+    const cal = options?.postedCalendarDay?.trim()
+    dateStrForBtc =
+      cal && /^\d{4}-\d{2}-\d{2}$/.test(cal) ? cal : explicitRun.toISOString().split("T")[0]!
+  } else {
+    dateStrForBtc = legacyClock.toISOString().split("T")[0]!
+    moveDate = new Date(`${dateStrForBtc}T12:00:00.000Z`)
+  }
+  const btcPrice = await getBtcPriceForDate(dateStrForBtc)
   const periodKey = options?.periodKey?.trim() || `rebalance-${randomUUID()}`
   const batchKind = resolveBatchKind(options?.batchKind)
 

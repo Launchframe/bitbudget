@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
+import { parseTransactionDateInput } from "@/lib/transaction-dates"
 import {
   createRebalanceBatch,
   type RebalanceEntry,
@@ -8,12 +9,13 @@ import {
 
 export function parseBody(
   body: unknown,
-): { entries: RebalanceEntry[]; mode: RebalanceMode; config?: unknown } | null {
+): { entries: RebalanceEntry[]; mode: RebalanceMode; config?: unknown; postedOn?: string } | null {
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null
-  const { entries, mode, config } = body as {
+  const { entries, mode, config, postedOn } = body as {
     entries?: unknown
     mode?: unknown
     config?: unknown
+    postedOn?: unknown
   }
   if (mode !== "balanced" && mode !== "independent") return null
   if (!Array.isArray(entries)) return null
@@ -28,10 +30,18 @@ export function parseBody(
     parsed.push({ envelopeId: envelopeId.trim(), deltaUsd: delta })
   }
   if (parsed.length === 0) return null
+  let postedCalendar: string | undefined
+  if (postedOn !== undefined && postedOn !== null && String(postedOn).trim() !== "") {
+    if (typeof postedOn !== "string") return null
+    const trimmed = postedOn.trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null
+    postedCalendar = trimmed
+  }
   return {
     entries: parsed,
     mode,
     config: config !== undefined ? config : undefined,
+    postedOn: postedCalendar,
   }
 }
 
@@ -56,8 +66,19 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const runDateUtc =
+    parsed.postedOn != null && parsed.postedOn.length > 0
+      ? parseTransactionDateInput(parsed.postedOn)
+      : undefined
+  if (parsed.postedOn && !runDateUtc) {
+    return NextResponse.json({ error: "Invalid postedOn date" }, { status: 400 })
+  }
+
   const created = await createRebalanceBatch(session.user.id, parsed.entries, parsed.mode, {
     config: parsed.config as object | undefined,
+    ...(runDateUtc && parsed.postedOn
+      ? { runDateUtc, postedCalendarDay: parsed.postedOn }
+      : {}),
   })
   if (created <= 0) {
     return NextResponse.json(

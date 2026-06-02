@@ -32,6 +32,7 @@ import {
   type RebalanceQuickSelectId,
 } from "@/lib/rebalance-quick-selects"
 import { clampRebalanceDeltas } from "@/lib/rebalance-math"
+import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
 import {
   countIneligibleQuickSelects,
   quickSelectWouldMoveDeltas,
@@ -350,6 +351,7 @@ export function RebalanceEnvelopesDialog({
         body: JSON.stringify({
           mode: effectiveMode,
           entries,
+          postedOn: todayTransactionCalendarDay(),
           config: { mode: effectiveMode, entries, multiplier, source },
         }),
       })
