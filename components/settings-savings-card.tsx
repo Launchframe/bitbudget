@@ -103,7 +103,10 @@ function WhySavingsExplainer({ defaultOpen = false }: { defaultOpen?: boolean })
   )
 }
 
-export function SettingsSavingsCard() {
+import type { SettingsLayoutMode } from "@/lib/settings-layout-mode"
+import { settingsInnerSectionClass, settingsSlotClass } from "@/components/settings/settings-layout-utils"
+
+export function SettingsSavingsCard({ layoutMode = "grid" }: { layoutMode?: SettingsLayoutMode }) {
   const { state, discretionaryEnvelopes, activeTransactions, setSavingsExperience, editEnvelope } = useApp()
 
   const engaged = state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED
@@ -398,8 +401,8 @@ export function SettingsSavingsCard() {
           </Button>
         </div>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2 3xl:grid-cols-3">
-          <div className="space-y-6 min-w-0 lg:col-span-1 3xl:col-span-1">
+        <div className={settingsInnerSectionClass(layoutMode, "lg:grid-cols-2 3xl:grid-cols-3")}>
+          <div className={settingsSlotClass(layoutMode, "space-y-6 min-w-0 lg:col-span-1 3xl:col-span-1", "space-y-6 min-w-0")}>
           {streak > 0 && (
             <div
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-[#1A1A1A]"
@@ -567,7 +570,13 @@ export function SettingsSavingsCard() {
           <WhySavingsExplainer />
           </div>
 
-          <div className="rounded-lg bg-[#1A1A1A] p-4 space-y-4 min-w-0 lg:col-span-1 3xl:col-span-2 lg:max-w-3xl 3xl:max-w-none w-full">
+          <div
+            className={settingsSlotClass(
+              layoutMode,
+              "rounded-lg bg-[#1A1A1A] p-4 space-y-4 min-w-0 lg:col-span-1 3xl:col-span-2 lg:max-w-3xl 3xl:max-w-none w-full",
+              "rounded-lg bg-[#1A1A1A] p-4 space-y-4 min-w-0 w-full",
+            )}
+          >
             <div>
               <h4 className="text-sm font-medium text-foreground">Sweep policy</h4>
               <p className="text-xs text-muted-foreground mt-1">

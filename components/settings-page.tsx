@@ -46,7 +46,19 @@ import { SettingsTagsCard } from "@/components/settings/settings-tags-card"
 import { IncomeImporterCard } from "@/components/income-importer-dialog"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
 import { SettingsSetupGuideSection } from "@/components/settings-setup-guide-section"
+import { cn } from "@/lib/utils"
 import { SettingsLayout } from "@/components/settings/settings-layout"
+import { SettingsLayoutModeToggle } from "@/components/settings/settings-layout-mode-toggle"
+import {
+  settingsInnerSectionClass,
+  settingsSectionClass,
+  settingsSlotClass,
+} from "@/components/settings/settings-layout-utils"
+import {
+  getSettingsLayoutMode,
+  subscribeSettingsLayoutMode,
+  type SettingsLayoutMode,
+} from "@/lib/settings-layout-mode"
 import { SettingsSetupGuideDrawer } from "@/components/settings/settings-setup-guide-drawer"
 import {
   SETTINGS_TAB_SLUGS,
@@ -81,6 +93,12 @@ export function SettingsPage() {
     : Math.max(state.transactions.length, memoTransactionCount ?? 0)
   const [editingIncome, setEditingIncome] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(() => settingsTabFromLocationHash() ?? "general")
+  const [cardLayoutMode, setCardLayoutMode] = useState<SettingsLayoutMode>("grid")
+
+  useEffect(() => {
+    setCardLayoutMode(getSettingsLayoutMode())
+    return subscribeSettingsLayoutMode(() => setCardLayoutMode(getSettingsLayoutMode()))
+  }, [])
 
   const selectSettingsTab = useCallback((tab: SettingsTab, mode: "push" | "replace" = "push") => {
     setSettingsTab(tab)
@@ -290,11 +308,16 @@ export function SettingsPage() {
   )
 
   const communicationsSection = (
-    <div className="grid min-w-0 w-full max-w-full gap-6 lg:grid-cols-2 3xl:grid-cols-3">
-      <div className="min-w-0 lg:col-span-1 3xl:col-span-1">
+    <div className={settingsSectionClass(cardLayoutMode, "lg:grid-cols-2 3xl:grid-cols-3")}>
+      <div className={settingsSlotClass(cardLayoutMode, "min-w-0 lg:col-span-1 3xl:col-span-1")}>
         <CommunicationChannelsCard />
       </div>
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-1 3xl:col-span-2">
+      <div
+        className={settingsSlotClass(
+          cardLayoutMode,
+          "p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-1 3xl:col-span-2",
+        )}
+      >
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-[#3B82F6]/10">
             <MessageSquare className="h-5 w-5 text-[#3B82F6]" />
@@ -306,13 +329,22 @@ export function SettingsPage() {
             </p>
           </div>
         </div>
-        <div className="flex flex-col divide-y divide-[#1F1F1F] rounded-xl border border-[#1F1F1F] bg-[#1A1A1A] 3xl:grid 3xl:grid-cols-2 3xl:divide-y-0 3xl:gap-0">
+        <div
+          className={cn(
+            "flex flex-col divide-y divide-[#1F1F1F] rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]",
+            cardLayoutMode === "grid" && "3xl:grid 3xl:grid-cols-2 3xl:divide-y-0 3xl:gap-0",
+          )}
+        >
           {COMMUNICATION_PREFERENCE_DETAILS.map((preference) => {
             const checked = state.communicationPreferences[preference.key]
             return (
               <div
                 key={preference.key}
-                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between 3xl:border-[#1F1F1F] 3xl:border-b last:3xl:border-b-0 odd:3xl:border-r"
+                className={cn(
+                  "flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between",
+                  cardLayoutMode === "grid" &&
+                    "3xl:border-[#1F1F1F] 3xl:border-b last:3xl:border-b-0 odd:3xl:border-r",
+                )}
               >
                 <div className="pr-2">
                   <p className="font-medium text-foreground">{preference.label}</p>
@@ -348,10 +380,20 @@ export function SettingsPage() {
   }, [])
 
   const generalSection = (
-    <div className="grid min-w-0 w-full max-w-full gap-6 tablet:grid-cols-2 lg:grid-cols-3 3xl:grid-cols-4">
-      <SettingsSetupGuideSection />
+    <div
+      className={settingsSectionClass(
+        cardLayoutMode,
+        "tablet:grid-cols-2 lg:grid-cols-3 3xl:grid-cols-4",
+      )}
+    >
+      <SettingsSetupGuideSection layoutMode={cardLayoutMode} />
       {/* Plan / Tier */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-1 3xl:col-start-3 3xl:row-start-1">
+      <div
+        className={settingsSlotClass(
+          cardLayoutMode,
+          "p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-1 3xl:col-start-3 3xl:row-start-1",
+        )}
+      >
         <div className="flex items-center gap-3 mb-4">
           <div
             className={`p-2 rounded-lg ${
@@ -393,7 +435,12 @@ export function SettingsPage() {
       </div>
 
       {/* Income */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 3xl:col-start-1 3xl:row-start-1">
+      <div
+        className={settingsSlotClass(
+          cardLayoutMode,
+          "p-6 bg-[#0D0D0D] rounded-2xl min-w-0 3xl:col-start-1 3xl:row-start-1",
+        )}
+      >
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-[#22C55E]/10">
             <DollarSign className="h-5 w-5 text-[#22C55E]" />
@@ -435,13 +482,25 @@ export function SettingsPage() {
         )}
       </div>
 
-      <div className="min-w-0 tablet:col-span-2 lg:col-span-1 3xl:col-start-4 3xl:row-start-1 3xl:row-span-2 flex flex-col gap-6">
+      <div
+        className={settingsSlotClass(
+          cardLayoutMode,
+          "min-w-0 tablet:col-span-2 lg:col-span-1 3xl:col-start-4 3xl:row-start-1 3xl:row-span-2 flex flex-col gap-6",
+          "min-w-0 flex flex-col gap-6",
+        )}
+      >
         <SettingsReferralsCard />
       </div>
 
       {/* Opportunity cost + BTC display: premium-only (free users keep landing/onboarding defaults) */}
       {subscriptionTier === "premium" && (
-        <div className="flex flex-col gap-6 tablet:col-span-2 lg:col-span-3 3xl:col-span-4">
+        <div
+          className={settingsSlotClass(
+            cardLayoutMode,
+            "flex flex-col gap-6 tablet:col-span-2 lg:col-span-3 3xl:col-span-4",
+            "flex flex-col gap-6",
+          )}
+        >
           <div className="p-4 md:p-6 bg-[#0D0D0D] rounded-2xl min-w-0">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 rounded-lg bg-[#F7931A]/10">
@@ -527,10 +586,18 @@ export function SettingsPage() {
   )
 
   const savingsSection = (
-    <div className="flex flex-col gap-6 min-w-0 w-full max-w-full lg:grid lg:grid-cols-2 lg:gap-6 3xl:grid-cols-3">
+    <div
+      className={settingsSectionClass(cardLayoutMode, "lg:grid-cols-2 3xl:grid-cols-3")}
+    >
       <SettingsPastGoalsCard />
-      <div className="min-w-0 lg:col-span-1 3xl:col-span-2 flex flex-col gap-6">
-        <SettingsSavingsCard />
+      <div
+        className={settingsSlotClass(
+          cardLayoutMode,
+          "min-w-0 lg:col-span-1 3xl:col-span-2 flex flex-col gap-6",
+          "min-w-0 flex flex-col gap-6",
+        )}
+      >
+        <SettingsSavingsCard layoutMode={cardLayoutMode} />
         <IncomeImporterCard />
       </div>
     </div>
@@ -746,8 +813,13 @@ export function SettingsPage() {
   )
 
   const dataSection = (
-    <div className="grid min-w-0 w-full max-w-full gap-6 lg:grid-cols-2 3xl:grid-cols-3">
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-2 3xl:col-span-3">
+    <div className={settingsSectionClass(cardLayoutMode, "lg:grid-cols-2 3xl:grid-cols-3")}>
+      <div
+        className={settingsSlotClass(
+          cardLayoutMode,
+          "p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-2 3xl:col-span-3",
+        )}
+      >
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-[#8B5CF6]/10">
             <Shield className="h-5 w-5 text-[#8B5CF6]" />
@@ -766,7 +838,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-1">
+      <div className={settingsSlotClass(cardLayoutMode, "p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-1")}>
         <h3 className="text-lg font-semibold text-foreground mb-3">Data Summary</h3>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -783,13 +855,18 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-2 3xl:col-span-3 border border-[#1F1F1F]">
+      <div
+        className={settingsSlotClass(
+          cardLayoutMode,
+          "p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-2 3xl:col-span-3 border border-[#1F1F1F]",
+        )}
+      >
         <h3 className="text-lg font-semibold text-foreground mb-2">Own your data</h3>
         <p className="text-sm text-muted-foreground mb-6">
           Export, clean up duplicates, or permanently remove your data.
         </p>
-        <div className="grid gap-6 lg:grid-cols-2 3xl:grid-cols-3">
-          <div className="min-w-0 lg:col-span-1 3xl:order-3">
+        <div className={settingsInnerSectionClass(cardLayoutMode, "lg:grid-cols-2 3xl:grid-cols-3")}>
+          <div className={settingsSlotClass(cardLayoutMode, "min-w-0 lg:col-span-1 3xl:order-3")}>
             <div className="rounded-xl border border-[#1F1F1F] bg-[#111] p-4 h-full">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg bg-[#3B82F6]/10">
@@ -820,11 +897,22 @@ export function SettingsPage() {
             </div>
           </div>
 
-          <div className="min-w-0 lg:col-span-1 3xl:order-2 [&>div]:rounded-xl [&>div]:border [&>div]:border-[#1F1F1F]">
+          <div
+            className={settingsSlotClass(
+              cardLayoutMode,
+              "min-w-0 lg:col-span-1 3xl:order-2 [&>div]:rounded-xl [&>div]:border [&>div]:border-[#1F1F1F]",
+            )}
+          >
             <DuplicateCleanupCard />
           </div>
 
-          <div className="min-w-0 lg:col-span-2 3xl:col-span-1 3xl:order-1 rounded-xl border border-red-500/20 bg-[#111] p-4">
+          <div
+            className={settingsSlotClass(
+              cardLayoutMode,
+              "min-w-0 lg:col-span-2 3xl:col-span-1 3xl:order-1 rounded-xl border border-red-500/20 bg-[#111] p-4",
+              "min-w-0 rounded-xl border border-red-500/20 bg-[#111] p-4",
+            )}
+          >
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 rounded-lg bg-red-500/10">
                 <Trash2 className="h-5 w-5 text-red-500" />
@@ -880,15 +968,27 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div id="settings-linked-sign-in" className="min-w-0 lg:col-span-2 3xl:col-span-3">
-        <LinkedSignInMethods providerGridClassName="grid gap-3 sm:grid-cols-2 lg:grid-cols-2 3xl:grid-cols-4" />
+      <div
+        id="settings-linked-sign-in"
+        className={settingsSlotClass(cardLayoutMode, "min-w-0 lg:col-span-2 3xl:col-span-3")}
+      >
+        <LinkedSignInMethods
+          providerGridClassName={
+            cardLayoutMode === "grid"
+              ? "grid gap-3 sm:grid-cols-2 lg:grid-cols-2 3xl:grid-cols-4"
+              : "flex flex-col gap-3"
+          }
+        />
       </div>
     </div>
   )
 
   return (
     <div className="flex min-w-0 w-full max-w-full flex-col gap-6">
-      <h2 className="text-2xl font-bold text-foreground">Settings</h2>
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <h2 className="text-2xl font-bold text-foreground">Settings</h2>
+        <SettingsLayoutModeToggle mode={cardLayoutMode} onChange={setCardLayoutMode} />
+      </div>
       <SettingsSetupGuideDrawer />
       <SettingsLayout activeTab={settingsTab} onSelectTab={selectSettingsTab}>
           {settingsTab === "general" && generalSection}
