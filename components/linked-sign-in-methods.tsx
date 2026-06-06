@@ -43,7 +43,11 @@ async function readJsonError(res: Response, fallback: string) {
   return data.error ?? fallback
 }
 
-export function LinkedSignInMethods() {
+export function LinkedSignInMethods({
+  providerGridClassName = "flex flex-col gap-3",
+}: {
+  providerGridClassName?: string
+}) {
   const [methods, setMethods] = useState<SignInMethods>(EMPTY_METHODS)
   const [loading, setLoading] = useState(true)
   const [action, setAction] = useState<string | null>(null)
@@ -310,7 +314,7 @@ export function LinkedSignInMethods() {
           Loading sign-in methods...
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className={providerGridClassName}>
           {methodRow({
             icon: <Mail className="h-4 w-4" />,
             title: "Email one-time code",

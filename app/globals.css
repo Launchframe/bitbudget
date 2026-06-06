@@ -4,6 +4,7 @@
 /* Tailwind v4: breakpoints live in @theme (tailwind.config.js is not loaded unless you add @config). */
 @theme {
   --breakpoint-xs: 380px;
+  --breakpoint-tablet: 740px;
   --breakpoint-3xl: 1920px;
 }
 

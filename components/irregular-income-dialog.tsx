@@ -39,11 +39,15 @@ type Step = "details" | "distribute" | "confirm" | "success"
 
 export function IrregularIncomeDialog({
   triggerVariant = "icon",
+  triggerLabel = "Add new income",
+  triggerClassName,
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
   hideTrigger = false,
 }: {
   triggerVariant?: "icon" | "button"
+  triggerLabel?: string
+  triggerClassName?: string
   /** When set with `onOpenChange`, controls dialog visibility (e.g. open from Rebalance). */
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -266,10 +270,10 @@ export function IrregularIncomeDialog({
             variant="outline"
             size="sm"
             onClick={() => handleOpenChange(true)}
-            className="border-[#333] hover:border-[#D4AF37]/50"
+            className={triggerClassName ?? "border-[#333] hover:border-[#D4AF37]/50"}
           >
             <Landmark className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-            Add new income
+            {triggerLabel}
           </Button>
         ) : (
           <button

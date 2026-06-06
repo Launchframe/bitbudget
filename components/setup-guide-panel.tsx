@@ -337,7 +337,7 @@ export function SetupGuidePanel({
         </p>
       )}
 
-      <ul className="mt-2 flex flex-col gap-2" role="list">
+      <ul className="mt-2 grid gap-2 lg:grid-cols-2" role="list">
         {visibleRows.map((row) => (
           <SetupGuideTaskItem
             key={row.id}

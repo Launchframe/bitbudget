@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils"
 
 type AliasRow = { id: string; sourceNormalized: string; canonicalPayee: string }
 
-export function PayeeMappingsSettings() {
+export function PayeeMappingsSettings({ embedded = false }: { embedded?: boolean }) {
   const { activeTransactions, currentUserId } = useApp()
   const [aliases, setAliases] = useState<AliasRow[]>([])
   const [ignored, setIgnored] = useState<Set<string>>(() => new Set())
@@ -184,16 +184,19 @@ export function PayeeMappingsSettings() {
         </div>
       )}
 
-      <div>
-        <h3 className="text-lg font-semibold text-foreground">Payee name mappings</h3>
-        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          Imports (receipt scan, CSV, bank text) may spell the same merchant differently than your
-          manual entries. Tap a spelling to choose which one to keep — the others will map to it
-          automatically on future imports.
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h3 className="text-lg font-semibold text-foreground">Payee name mappings</h3>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            Imports (receipt scan, CSV, bank text) may spell the same merchant differently than your
+            manual entries. Tap a spelling to choose which one to keep — the others will map to it
+            automatically on future imports.
+          </p>
+        </div>
+      )}
 
       {/* Similar spellings — suggestion cards */}
+      {(loading || pendingClusters.length > 0) && (
       <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-6">
         <div className="flex items-center gap-2">
           <Link2 className="h-4 w-4 text-btc-orange" />
@@ -210,8 +213,6 @@ export function PayeeMappingsSettings() {
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading suggestions…
           </div>
-        ) : pendingClusters.length === 0 ? (
-          <p className="mt-4 text-sm text-muted-foreground">No spelling-only duplicates found.</p>
         ) : (
           <ul className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {pendingClusters.map((cluster) => (
@@ -226,10 +227,11 @@ export function PayeeMappingsSettings() {
           </ul>
         )}
       </div>
+      )}
 
       {/* Saved mappings grid */}
       <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-6">
-        <h4 className="text-sm font-semibold text-foreground">Saved mappings</h4>
+        <h4 className="text-sm font-semibold text-foreground">{embedded ? "Payee rules" : "Saved mappings"}</h4>
         <p className="mt-1 text-sm text-muted-foreground">
           When an import matches the left text, BitBudget uses the right payee. Existing transactions
           are not rewritten—only new imports and scans.
@@ -276,7 +278,7 @@ export function PayeeMappingsSettings() {
         onSubmit={(e) => void handleAddMapping(e)}
         className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-6"
       >
-        <h4 className="text-sm font-semibold text-foreground">Add mapping</h4>
+        <h4 className="text-sm font-semibold text-foreground">{embedded ? "Add a rule" : "Add mapping"}</h4>
         <p className="mt-1 text-sm text-muted-foreground">
           e.g. Receipts from <span className="text-foreground">WM SUPERCENTER</span> → show up in your budget
           as <span className="text-foreground">Walmart</span>

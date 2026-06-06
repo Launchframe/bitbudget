@@ -24,18 +24,13 @@ import {
   Building2,
   Smartphone,
   Mail,
-  Tag,
   Copy,
   Check,
   Loader2,
   CheckCircle2,
   AlertCircle,
   Download,
-  BookOpen,
-  Settings2,
-  Plug,
   MessageSquare,
-  PiggyBank,
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
@@ -46,43 +41,18 @@ import { PlaidConnectionsSection } from "@/components/plaid-connections-section"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { SettingsReferralsCard } from "@/components/settings-referrals-card"
 import { SettingsSavingsCard } from "@/components/settings-savings-card"
+import { SettingsPastGoalsCard } from "@/components/settings/settings-past-goals-card"
+import { SettingsTagsCard } from "@/components/settings/settings-tags-card"
 import { IncomeImporterCard } from "@/components/income-importer-dialog"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
 import { SettingsSetupGuideSection } from "@/components/settings-setup-guide-section"
-import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
-
-type SettingsTab = "general" | "communications" | "savings" | "integrations" | "tags" | "payees" | "data"
-
-const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
-  general: "general",
-  communications: "communications",
-  savings: "savings-tracking",
-  integrations: "integrations",
-  tags: "tags",
-  payees: "budgeting-rules",
-  data: "data-security",
-}
-
-const SETTINGS_TAB_FROM_SLUG: Record<string, SettingsTab> = {
-  general: "general",
-  communications: "communications",
-  savings: "savings",
-  "savings-tracking": "savings",
-  integrations: "integrations",
-  tags: "tags",
-  payees: "payees",
-  "payee-mappings": "payees",
-  "budgeting-rules": "payees",
-  data: "data",
-  "data-security": "data",
-}
-
-function settingsTabFromLocationHash(): SettingsTab | null {
-  if (typeof window === "undefined") return null
-  const path = window.location.hash.replace(/^#\/?/, "")
-  const slug = path.startsWith("settings/") ? path.slice("settings/".length) : null
-  return slug ? SETTINGS_TAB_FROM_SLUG[slug] ?? null : null
-}
+import { SettingsLayout } from "@/components/settings/settings-layout"
+import { SettingsSetupGuideDrawer } from "@/components/settings/settings-setup-guide-drawer"
+import {
+  SETTINGS_TAB_SLUGS,
+  settingsTabFromLocationHash,
+  type SettingsTab,
+} from "@/components/settings/settings-nav-config"
 
 export function SettingsPage() {
   const {
@@ -92,8 +62,6 @@ export function SettingsPage() {
     setBtcDisplayUnit,
     setOpportunityCostEnabled,
     setCommunicationPreference,
-    addTag,
-    deleteTag,
     refreshData,
     clearLocalTransactionCache,
     encryptForStorage,
@@ -178,8 +146,6 @@ export function SettingsPage() {
   const [receiptInboxError, setReceiptInboxError] = useState<string | null>(null)
   const [receiptInboxRetryKey, setReceiptInboxRetryKey] = useState(0)
   const [upgradeModalFeature, setUpgradeModalFeature] = useState<PremiumFeature | null>(null)
-  const [newTagName, setNewTagName] = useState("")
-  const [tagActionInProgress, setTagActionInProgress] = useState(false)
   const [copiedReceiptAddress, setCopiedReceiptAddress] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const handleImportError = useCallback((error: string) => {
@@ -299,32 +265,6 @@ export function SettingsPage() {
     }
   }
 
-  async function handleAddTag() {
-    const trimmed = newTagName.trim()
-    if (!trimmed || tagActionInProgress) return
-
-    setTagActionInProgress(true)
-    try {
-      await addTag(trimmed)
-      setNewTagName("")
-      await refreshData()
-    } finally {
-      setTagActionInProgress(false)
-    }
-  }
-
-  async function handleDeleteTag(id: string) {
-    if (tagActionInProgress) return
-
-    setTagActionInProgress(true)
-    try {
-      await deleteTag(id)
-      await refreshData()
-    } finally {
-      setTagActionInProgress(false)
-    }
-  }
-
   async function copyReceiptInboxAddress() {
     if (!receiptInboxAddress) return
     await navigator.clipboard.writeText(receiptInboxAddress)
@@ -342,38 +282,6 @@ export function SettingsPage() {
     e.target.value = ""
   }
 
-  const tabIconClass = (tab: SettingsTab) => {
-    const active = settingsTab === tab
-    if (active && tab === "savings") return "h-3.5 w-3.5 shrink-0"
-    return `h-3.5 w-3.5 shrink-0 ${active ? "text-btc-orange" : "text-muted-foreground"}`
-  }
-
-  const tabIconStyle = (tab: SettingsTab): React.CSSProperties | undefined => {
-    if (settingsTab === tab && tab === "savings") return { color: SAVINGS_GOLD_ACCENT }
-    return undefined
-  }
-
-  const tabButtonClass = (tab: SettingsTab) => {
-    const active = settingsTab === tab
-    const base =
-      "flex w-full items-center gap-2 rounded-xl px-4 py-3 text-left text-sm font-medium transition-colors"
-    if (active && tab === "savings") {
-      return `${base} bg-[#1A1A1A] border`
-    }
-    return `${base} ${
-      active
-        ? "bg-[#1A1A1A] text-[#F7931A] border border-[#F7931A]/20"
-        : "text-muted-foreground hover:text-foreground hover:bg-[#111111]"
-    }`
-  }
-
-  const tabButtonStyle = (tab: SettingsTab): React.CSSProperties | undefined => {
-    if (settingsTab === tab && tab === "savings") {
-      return { color: SAVINGS_GOLD_ACCENT, borderColor: `${SAVINGS_GOLD_ACCENT}40` }
-    }
-    return undefined
-  }
-
   const toggleCommunicationPreference = useCallback(
     (key: CommunicationPreferenceKey, enabled: boolean) => {
       void setCommunicationPreference(key, enabled)
@@ -382,9 +290,11 @@ export function SettingsPage() {
   )
 
   const communicationsSection = (
-    <>
-      <CommunicationChannelsCard />
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+    <div className="grid min-w-0 w-full max-w-full gap-6 lg:grid-cols-2 3xl:grid-cols-3">
+      <div className="min-w-0 lg:col-span-1 3xl:col-span-1">
+        <CommunicationChannelsCard />
+      </div>
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-1 3xl:col-span-2">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-[#3B82F6]/10">
             <MessageSquare className="h-5 w-5 text-[#3B82F6]" />
@@ -396,13 +306,13 @@ export function SettingsPage() {
             </p>
           </div>
         </div>
-        <div className="flex flex-col divide-y divide-[#1F1F1F] rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]">
+        <div className="flex flex-col divide-y divide-[#1F1F1F] rounded-xl border border-[#1F1F1F] bg-[#1A1A1A] 3xl:grid 3xl:grid-cols-2 3xl:divide-y-0 3xl:gap-0">
           {COMMUNICATION_PREFERENCE_DETAILS.map((preference) => {
             const checked = state.communicationPreferences[preference.key]
             return (
               <div
                 key={preference.key}
-                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between"
+                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between 3xl:border-[#1F1F1F] 3xl:border-b last:3xl:border-b-0 odd:3xl:border-r"
               >
                 <div className="pr-2">
                   <p className="font-medium text-foreground">{preference.label}</p>
@@ -418,12 +328,12 @@ export function SettingsPage() {
             )
           })}
         </div>
-        <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+        <p className="mt-4 text-xs text-muted-foreground leading-relaxed 3xl:col-span-2">
           Account security notices, including new-device access alerts and login codes, are always sent when needed.
           Unsubscribe buttons in emails update these same preferences.
         </p>
       </div>
-    </>
+    </div>
   )
 
   useEffect(() => {
@@ -438,10 +348,10 @@ export function SettingsPage() {
   }, [])
 
   const generalSection = (
-    <>
+    <div className="grid min-w-0 w-full max-w-full gap-6 tablet:grid-cols-2 lg:grid-cols-3 3xl:grid-cols-4">
       <SettingsSetupGuideSection />
       {/* Plan / Tier */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-1 3xl:col-start-3 3xl:row-start-1">
         <div className="flex items-center gap-3 mb-4">
           <div
             className={`p-2 rounded-lg ${
@@ -483,7 +393,7 @@ export function SettingsPage() {
       </div>
 
       {/* Income */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 3xl:col-start-1 3xl:row-start-1">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-[#22C55E]/10">
             <DollarSign className="h-5 w-5 text-[#22C55E]" />
@@ -525,12 +435,14 @@ export function SettingsPage() {
         )}
       </div>
 
-      <SettingsReferralsCard />
+      <div className="min-w-0 tablet:col-span-2 lg:col-span-1 3xl:col-start-4 3xl:row-start-1 3xl:row-span-2 flex flex-col gap-6">
+        <SettingsReferralsCard />
+      </div>
 
       {/* Opportunity cost + BTC display: premium-only (free users keep landing/onboarding defaults) */}
       {subscriptionTier === "premium" && (
-        <>
-          <div className="p-4 md:p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex flex-col gap-6 tablet:col-span-2 lg:col-span-3 3xl:col-span-4">
+          <div className="p-4 md:p-6 bg-[#0D0D0D] rounded-2xl min-w-0">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 rounded-lg bg-[#F7931A]/10">
                 <TrendingUp className="h-5 w-5 text-[#F7931A]" />
@@ -609,16 +521,19 @@ export function SettingsPage() {
               </p>
             </div>
           )}
-        </>
+        </div>
       )}
-    </>
+    </div>
   )
 
   const savingsSection = (
-    <>
-      <SettingsSavingsCard />
-      <IncomeImporterCard />
-    </>
+    <div className="flex flex-col gap-6 min-w-0 w-full max-w-full lg:grid lg:grid-cols-2 lg:gap-6 3xl:grid-cols-3">
+      <SettingsPastGoalsCard />
+      <div className="min-w-0 lg:col-span-1 3xl:col-span-2 flex flex-col gap-6">
+        <SettingsSavingsCard />
+        <IncomeImporterCard />
+      </div>
+    </div>
   )
 
   const upgradeCtaClass =
@@ -815,76 +730,24 @@ export function SettingsPage() {
     </>
   )
 
-  const tagsSection = (
-    <div className="p-6 bg-[#0D0D0D] rounded-2xl">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 rounded-lg bg-[#F7931A]/10">
-          <Tag className="h-5 w-5 text-[#F7931A]" />
-        </div>
-        <h3 className="text-lg font-semibold text-foreground">Tags</h3>
-      </div>
-      <p className="text-sm text-muted-foreground mb-4">
-        Create tags to organize transactions and receipts.
+  const budgetingRulesSection = (
+    <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 w-full max-w-full">
+      <h3 className="text-lg font-semibold text-foreground">Budgeting rules</h3>
+      <p className="mt-2 text-sm text-muted-foreground max-w-2xl">
+        Map payee spellings so imports stay consistent, tag transactions for filtering, and schedule
+        recurring rebalances or income distributions.
       </p>
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap gap-2">
-          {state.tags.length > 0 ? (
-            state.tags.map(tag => (
-              <span
-                key={tag.id}
-                className="inline-flex items-center gap-2 rounded-full border border-[#333] bg-[#1A1A1A] px-3 py-1.5 text-sm text-foreground"
-              >
-                <span className="truncate max-w-[12rem]">{tag.name}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleDeleteTag(tag.id)
-                  }}
-                  disabled={tagActionInProgress}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-[#2A2A2A] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  aria-label={`Delete tag ${tag.name}`}
-                >
-                  <span aria-hidden="true">×</span>
-                </button>
-              </span>
-            ))
-          ) : (
-            <p className="text-sm text-muted-foreground">No tags yet.</p>
-          )}
-        </div>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <Input
-            value={newTagName}
-            onChange={e => setNewTagName(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter") {
-                e.preventDefault()
-                void handleAddTag()
-              }
-            }}
-            placeholder="New tag"
-            className="bg-[#1A1A1A] border-[#333] text-foreground h-10"
-            aria-label="New tag name"
-          />
-          <button
-            type="button"
-            onClick={() => {
-              void handleAddTag()
-            }}
-            disabled={tagActionInProgress || !newTagName.trim()}
-            className="inline-flex items-center justify-center rounded-xl px-4 h-10 text-sm font-medium bg-[#F7931A] text-[#0D0D0D] hover:bg-[#e68818] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Add Tag
-          </button>
-        </div>
+      <div className="mt-6 flex flex-col gap-6">
+        <PayeeMappingsSettings embedded />
+        <SettingsTagsCard />
+        <RecurringRulesSettings />
       </div>
     </div>
   )
 
   const dataSection = (
-    <>
-      {/* Security Info */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+    <div className="grid min-w-0 w-full max-w-full gap-6 lg:grid-cols-2 3xl:grid-cols-3">
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-2 3xl:col-span-3">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-[#8B5CF6]/10">
             <Shield className="h-5 w-5 text-[#8B5CF6]" />
@@ -903,8 +766,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {/* Data */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-1">
         <h3 className="text-lg font-semibold text-foreground mb-3">Data Summary</h3>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -921,166 +783,121 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div id="settings-linked-sign-in">
-        <LinkedSignInMethods />
-      </div>
-
-      {/* Export — same CSV format as Transactions page (all active transactions) */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 rounded-lg bg-[#3B82F6]/10">
-            <Download className="h-5 w-5 text-[#3B82F6]" />
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl min-w-0 lg:col-span-2 3xl:col-span-3 border border-[#1F1F1F]">
+        <h3 className="text-lg font-semibold text-foreground mb-2">Own your data</h3>
+        <p className="text-sm text-muted-foreground mb-6">
+          Export, clean up duplicates, or permanently remove your data.
+        </p>
+        <div className="grid gap-6 lg:grid-cols-2 3xl:grid-cols-3">
+          <div className="min-w-0 lg:col-span-1 3xl:order-3">
+            <div className="rounded-xl border border-[#1F1F1F] bg-[#111] p-4 h-full">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-[#3B82F6]/10">
+                  <Download className="h-5 w-5 text-[#3B82F6]" />
+                </div>
+                <h4 className="text-base font-semibold text-foreground">Export transactions</h4>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Export your active transactions as a CSV. For a filtered export, use{" "}
+                <button
+                  type="button"
+                  onClick={() => navigateTo("transactions")}
+                  className="text-[#F7931A] hover:underline font-medium"
+                >
+                  Transactions
+                </button>
+                .
+              </p>
+              <button
+                type="button"
+                onClick={handleExportTransactions}
+                disabled={activeTransactions.length === 0}
+                className="flex w-full sm:w-auto items-center justify-center gap-2 py-3 px-6 bg-[#1A1A1A] text-foreground rounded-xl text-sm font-medium hover:bg-[#222] transition-colors border border-[#333] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Download className="h-4 w-4" />
+                Download
+              </button>
+            </div>
           </div>
-          <h3 className="text-lg font-semibold text-foreground">Export transactions</h3>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">
-          Export your active transactions as a CSV. For a filtered export (by date, envelope, tags, or search), use{" "}
-          <button
-            type="button"
-            onClick={() => navigateTo("transactions")}
-            className="text-[#F7931A] hover:underline font-medium"
-          >
-            Transactions
-          </button>
-          .
-        </p>
-        <p className="text-sm text-muted-foreground mb-4">
-          We recommend backing up your data regularly.
-        </p>
-        <button
-          type="button"
-          onClick={handleExportTransactions}
-          disabled={activeTransactions.length === 0}
-          className="flex items-center justify-center gap-2 py-3 px-6 bg-[#1A1A1A] text-foreground rounded-xl text-sm font-medium hover:bg-[#222] transition-colors border border-[#333] disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Download className="h-4 w-4" />
-          Download
-        </button>
-      </div>
 
-      {/* Duplicate cleanup */}
-      <DuplicateCleanupCard />
-
-      {/* Danger Zone */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl border border-red-500/20">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 rounded-lg bg-red-500/10">
-            <Trash2 className="h-5 w-5 text-red-500" />
+          <div className="min-w-0 lg:col-span-1 3xl:order-2 [&>div]:rounded-xl [&>div]:border [&>div]:border-[#1F1F1F]">
+            <DuplicateCleanupCard />
           </div>
-          <h3 className="text-lg font-semibold text-foreground">Danger Zone</h3>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">
-          Permanently delete all {dataTxnCount} transaction{dataTxnCount !== 1 ? "s" : ""} and {state.envelopes.length} envelope{state.envelopes.length !== 1 ? "s" : ""}. This cannot be undone.
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={handleClearAll}
-            onBlur={() => setConfirmDelete(false)}
-            disabled={deleting || (state.transactions.length === 0 && state.envelopes.length === 0)}
-            className={`flex items-center justify-center gap-2 py-3 px-6 rounded-xl text-sm font-medium transition-colors border disabled:opacity-50 ${
-              confirmDelete
-                ? "bg-red-600 text-white border-red-600 hover:bg-red-700"
-                : "bg-[#1A1A1A] text-red-400 border-red-500/30 hover:bg-red-500/10"
-            }`}
-          >
-            <Trash2 className="h-4 w-4" />
-            {deleting ? "Deleting..." : confirmDelete ? "Click again to confirm" : "Clear All Data"}
-          </button>
-          <button
-            onClick={async () => {
-              if (!confirmDeleteAccount) {
-                setConfirmDeleteAccount(true)
-                return
-              }
-              setDeletingAccount(true)
-              try {
-                await fetch("/api/user/delete", { method: "DELETE" })
-                logout()
-              } finally {
-                setDeletingAccount(false)
-                setConfirmDeleteAccount(false)
-              }
-            }}
-            onBlur={() => setConfirmDeleteAccount(false)}
-            disabled={deletingAccount}
-            className={`flex items-center justify-center gap-2 py-3 px-6 rounded-xl text-sm font-medium transition-colors border disabled:opacity-50 ${
-              confirmDeleteAccount
-                ? "bg-red-600 text-white border-red-600 hover:bg-red-700"
-                : "bg-[#1A1A1A] text-red-400 border-red-500/30 hover:bg-red-500/10"
-            }`}
-          >
-            <UserX className="h-4 w-4" />
-            {deletingAccount ? "Deleting..." : confirmDeleteAccount ? "Click again to confirm" : "Delete My Account"}
-          </button>
+
+          <div className="min-w-0 lg:col-span-2 3xl:col-span-1 3xl:order-1 rounded-xl border border-red-500/20 bg-[#111] p-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-lg bg-red-500/10">
+                <Trash2 className="h-5 w-5 text-red-500" />
+              </div>
+              <h4 className="text-base font-semibold text-foreground">Danger Zone</h4>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Permanently delete all {dataTxnCount} transaction{dataTxnCount !== 1 ? "s" : ""} and{" "}
+              {state.envelopes.length} envelope{state.envelopes.length !== 1 ? "s" : ""}. This cannot be undone.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={handleClearAll}
+                onBlur={() => setConfirmDelete(false)}
+                disabled={deleting || (state.transactions.length === 0 && state.envelopes.length === 0)}
+                className={`flex items-center justify-center gap-2 py-3 px-6 rounded-xl text-sm font-medium transition-colors border disabled:opacity-50 ${
+                  confirmDelete
+                    ? "bg-red-600 text-white border-red-600 hover:bg-red-700"
+                    : "bg-[#1A1A1A] text-red-400 border-red-500/30 hover:bg-red-500/10"
+                }`}
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleting ? "Deleting..." : confirmDelete ? "Click again to confirm" : "Clear All Data"}
+              </button>
+              <button
+                onClick={async () => {
+                  if (!confirmDeleteAccount) {
+                    setConfirmDeleteAccount(true)
+                    return
+                  }
+                  setDeletingAccount(true)
+                  try {
+                    await fetch("/api/user/delete", { method: "DELETE" })
+                    logout()
+                  } finally {
+                    setDeletingAccount(false)
+                    setConfirmDeleteAccount(false)
+                  }
+                }}
+                onBlur={() => setConfirmDeleteAccount(false)}
+                disabled={deletingAccount}
+                className={`flex items-center justify-center gap-2 py-3 px-6 rounded-xl text-sm font-medium transition-colors border disabled:opacity-50 ${
+                  confirmDeleteAccount
+                    ? "bg-red-600 text-white border-red-600 hover:bg-red-700"
+                    : "bg-[#1A1A1A] text-red-400 border-red-500/30 hover:bg-red-500/10"
+                }`}
+              >
+                <UserX className="h-4 w-4" />
+                {deletingAccount ? "Deleting..." : confirmDeleteAccount ? "Click again to confirm" : "Delete My Account"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-    </>
+
+      <div id="settings-linked-sign-in" className="min-w-0 lg:col-span-2 3xl:col-span-3">
+        <LinkedSignInMethods providerGridClassName="grid gap-3 sm:grid-cols-2 lg:grid-cols-2 3xl:grid-cols-4" />
+      </div>
+    </div>
   )
 
   return (
     <div className="flex min-w-0 w-full max-w-full flex-col gap-6">
       <h2 className="text-2xl font-bold text-foreground">Settings</h2>
-      <div className="grid min-w-0 w-full max-w-full gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="min-w-0 w-full max-w-full lg:sticky lg:top-6 self-start">
-          <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-2">
-            <div className="flex flex-col gap-2">
-              <button type="button" onClick={() => selectSettingsTab("general")} className={tabButtonClass("general")}>
-                <Settings2 className={tabIconClass("general")} aria-hidden />
-                <span>General</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => selectSettingsTab("communications")}
-                className={tabButtonClass("communications")}
-              >
-                <MessageSquare className={tabIconClass("communications")} aria-hidden />
-                <span>Communications</span>
-              </button>
-              <button type="button" onClick={() => selectSettingsTab("savings")} className={tabButtonClass("savings")} style={tabButtonStyle("savings")}>
-                <PiggyBank className={tabIconClass("savings")} style={tabIconStyle("savings")} aria-hidden />
-                <span>Savings tracking</span>
-              </button>
-              <button type="button" onClick={() => selectSettingsTab("integrations")} className={tabButtonClass("integrations")}>
-                <Plug className={tabIconClass("integrations")} aria-hidden />
-                <span>Integrations</span>
-              </button>
-              <button type="button" onClick={() => selectSettingsTab("tags")} className={tabButtonClass("tags")}>
-                <Tag className={tabIconClass("tags")} aria-hidden />
-                <span>Tags</span>
-              </button>
-              <button type="button" onClick={() => selectSettingsTab("payees")} className={tabButtonClass("payees")}>
-                <BookOpen className={tabIconClass("payees")} aria-hidden />
-                <span>Budgeting rules</span>
-              </button>
-              <button type="button" onClick={() => selectSettingsTab("data")} className={tabButtonClass("data")}>
-                <Shield className={tabIconClass("data")} aria-hidden />
-                <span>Data & Security</span>
-              </button>
-            </div>
-          </div>
-        </aside>
-
-        <div className="flex min-w-0 w-full max-w-full flex-col gap-6">
+      <SettingsSetupGuideDrawer />
+      <SettingsLayout activeTab={settingsTab} onSelectTab={selectSettingsTab}>
           {settingsTab === "general" && generalSection}
           {settingsTab === "communications" && communicationsSection}
           {settingsTab === "savings" && savingsSection}
           {settingsTab === "integrations" && integrationsSection}
-          {settingsTab === "tags" && tagsSection}
-          {settingsTab === "payees" && (
-            <div className="flex flex-col gap-8 min-w-0">
-              <section className="flex flex-col gap-3">
-                <h3 className="text-lg font-semibold text-foreground">Payee name aliases</h3>
-                <PayeeMappingsSettings />
-              </section>
-              <section className="flex flex-col gap-3">
-                <h3 className="text-lg font-semibold text-foreground">Recurring rules</h3>
-                <RecurringRulesSettings />
-              </section>
-            </div>
-          )}
+          {settingsTab === "payees" && budgetingRulesSection}
           {settingsTab === "data" && dataSection}
-        </div>
-      </div>
+      </SettingsLayout>
 
       <UpgradeModal
         key={upgradeModalFeature ?? "closed"}

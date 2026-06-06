@@ -49,6 +49,7 @@ import { envelopeDeleteUsageStats } from "@/lib/envelope-ledger-visibility"
 import { ENVELOPE_DELETE_GRACE_DAYS } from "@/lib/constants"
 import { AdjustEnvelopesDialog } from "@/components/adjust-envelopes-dialog"
 import { RebalanceEnvelopesDialog } from "@/components/rebalance-envelopes-dialog"
+import { consumeOpenRebalanceIntent } from "@/lib/settings-navigation-intents"
 import { EnvelopeDeficitCoverDialog } from "@/components/envelope-deficit-cover-dialog"
 
 export function EnvelopesPage() {
@@ -94,10 +95,26 @@ export function EnvelopesPage() {
     [state.transactions, recurringTransactions],
   )
   const [adjustOpen, setAdjustOpen] = useState(false)
+  const [pendingRebalanceFromSettings, setPendingRebalanceFromSettings] = useState(false)
   const [moveFundsOpen, setMoveFundsOpen] = useState(false)
   const [moveFundsSource, setMoveFundsSource] = useState<"pool" | "savings">("pool")
   const [irregularIncomeOpen, setIrregularIncomeOpen] = useState(false)
   const [showRecurringRulesPill, setShowRecurringRulesPill] = useState(false)
+
+  useEffect(() => {
+    if (consumeOpenRebalanceIntent()) {
+      setPendingRebalanceFromSettings(true)
+      setAdjustOpen(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!adjustOpen || !pendingRebalanceFromSettings) return
+    setPendingRebalanceFromSettings(false)
+    setAdjustOpen(false)
+    setMoveFundsSource("pool")
+    setMoveFundsOpen(true)
+  }, [adjustOpen, pendingRebalanceFromSettings])
 
   useEffect(() => {
     let cancelled = false
