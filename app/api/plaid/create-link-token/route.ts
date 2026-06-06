@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import { plaidClient } from "@/lib/plaid"
+import { plaidClient, plaidSecret } from "@/lib/plaid"
 import {
   premiumForbiddenResponse,
   requirePremiumOrTrialOrReferralBankLinkPending,
@@ -17,7 +17,7 @@ export async function POST() {
       "Bank sync requires premium, an active trial, or an accepted referral (link a bank to finish signup)",
     )
   }
-  if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
+  if (!process.env.PLAID_CLIENT_ID || !plaidSecret) {
     return NextResponse.json(
       { error: "Plaid is not configured" },
       { status: 503 },

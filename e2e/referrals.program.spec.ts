@@ -474,7 +474,7 @@ test.describe("Referral program (API + DB)", () => {
 test.describe("Referral bank link (Plaid sandbox)", () => {
   test.skip(
     !isPlaidSandboxConfigured(),
-    "Set PLAID_CLIENT_ID, PLAID_SECRET, and PLAID_ENV=sandbox to run connect-bank referral activation tests.",
+    "Set PLAID_CLIENT_ID, PLAID_SECRET_SANDBOX, and PLAID_ENV=sandbox to run connect-bank referral activation tests.",
   )
   test.describe.configure({ timeout: 180_000 })
 

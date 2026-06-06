@@ -6,14 +6,14 @@ const basePath =
     : PlaidEnvironments.sandbox
 
 const plaidClientId = process.env.PLAID_CLIENT_ID
-const plaidSecret = process.env.PLAID_SECRET
+const plaidSecret = process.env.PLAID_ENV === "production" ? process.env.PLAID_SECRET_PRODUCTION : process.env.PLAID_SECRET_SANDBOX
 
 // TODO: enable once Plaid is fully integrated
-// if (process.env.NODE_ENV === "production" && (!plaidClientId || !plaidSecret)) {
-//   throw new Error(
-//     "Missing required Plaid environment variables: PLAID_CLIENT_ID and/or PLAID_SECRET"
-//   )
-// }
+if (process.env.NODE_ENV === "production" && (!plaidClientId || !plaidSecret)) {
+  throw new Error(
+    "Missing required Plaid environment variables: PLAID_CLIENT_ID and/or PLAID_SECRET_SANDBOX / PLAID_SECRET_PRODUCTION"
+  )
+}
 
 const config = new Configuration({
   basePath,
