@@ -103,10 +103,15 @@ export function LinkedSignInMethods({
     }
   }
 
+  function queuePrivacyLink(link: "email" | LinkProvider) {
+    // Defer past form-submit / focus handling so the portaled overlay cannot paint above content on first mount.
+    requestAnimationFrame(() => setPendingPrivacyLink(link))
+  }
+
   async function sendEmailCode(e: React.FormEvent) {
     e.preventDefault()
     if (isNostrOnly) {
-      setPendingPrivacyLink("email")
+      queuePrivacyLink("email")
       return
     }
     await executeSendEmailCode()
@@ -175,7 +180,7 @@ export function LinkedSignInMethods({
 
   async function linkOAuth(provider: LinkProvider) {
     if (isNostrOnly) {
-      setPendingPrivacyLink(provider)
+      queuePrivacyLink(provider)
       return
     }
     await executeOAuthLink(provider)
