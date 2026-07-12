@@ -2,21 +2,24 @@
 
 import { useState, useCallback, useRef } from "react"
 import { Mic, MicOff, Loader2 } from "lucide-react"
-import { VoiceConfirmationCard } from "@/components/voice-confirmation-card"
 import { PremiumLockedLabel } from "@/components/premium-locked-label"
 import { PREMIUM_UI_COPY } from "@/lib/premium-ui-copy"
+import { useApp } from "@/lib/app-context"
+import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
 
-interface ParsedVoiceResult {
-  payee: string
-  amount: number
-  envelopeId: string | null
-  envelopeName: string | null
-  date: string
+type VoiceState = "idle" | "listening" | "processing" | "unsupported"
+
+interface VoiceDictationButtonProps {
+  locked?: boolean
+  /** Called after a successful parse opens the New Transaction dialog (e.g. close a sheet). */
+  onOpenedTransaction?: () => void
 }
 
-type VoiceState = "idle" | "listening" | "processing" | "result" | "unsupported"
-
-export function VoiceDictationButton({ locked = false }: { locked?: boolean }) {
+export function VoiceDictationButton({
+  locked = false,
+  onOpenedTransaction,
+}: VoiceDictationButtonProps) {
+  const { openNewTransaction } = useApp()
   const [voiceState, setVoiceState] = useState<VoiceState>(() => {
     if (typeof window !== "undefined" && !("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
       return "unsupported"
@@ -24,7 +27,7 @@ export function VoiceDictationButton({ locked = false }: { locked?: boolean }) {
     return "idle"
   })
   const [transcript, setTranscript] = useState("")
-  const [result, setResult] = useState<ParsedVoiceResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const recognitionRef = useRef<ReturnType<typeof createRecognition> | null>(null)
   const lastTranscriptRef = useRef("")
 
@@ -35,7 +38,7 @@ export function VoiceDictationButton({ locked = false }: { locked?: boolean }) {
     recognitionRef.current = recognition
     lastTranscriptRef.current = ""
     setTranscript("")
-    setResult(null)
+    setError(null)
     setVoiceState("listening")
 
     recognition.onresult = (event: { results: { transcript: string }[][] }) => {
@@ -57,16 +60,42 @@ export function VoiceDictationButton({ locked = false }: { locked?: boolean }) {
         const res = await fetch("/api/voice/parse", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transcript: currentTranscript }),
+          body: JSON.stringify({
+            transcript: currentTranscript,
+            today: todayTransactionCalendarDay(),
+          }),
         })
-        if (res.ok) {
-          const data = await res.json()
-          setResult(data)
-          setVoiceState("result")
-        } else {
+        if (!res.ok) {
+          setError("Could not parse that. Try again.")
           setVoiceState("idle")
+          return
         }
+        const data = (await res.json()) as {
+          payee?: string
+          amount?: number
+          envelopeId?: string | null
+          date?: string
+        }
+
+        const amount =
+          typeof data.amount === "number" && Number.isFinite(data.amount) && data.amount > 0
+            ? String(data.amount)
+            : undefined
+
+        // Open the same New Transaction form as manual entry so payee canonical
+        // matching and auto-enveloping apply. Only pass envelopeId when the
+        // parser matched one; otherwise the dialog fills it from payee history.
+        openNewTransaction({
+          ...(data.payee?.trim() ? { payee: data.payee.trim() } : {}),
+          ...(amount ? { amount } : {}),
+          ...(data.date ? { date: data.date } : {}),
+          ...(data.envelopeId ? { envelopeId: data.envelopeId } : {}),
+        })
+        setVoiceState("idle")
+        setTranscript("")
+        onOpenedTransaction?.()
       } catch {
+        setError("Something went wrong. Try again.")
         setVoiceState("idle")
       }
     }
@@ -76,16 +105,10 @@ export function VoiceDictationButton({ locked = false }: { locked?: boolean }) {
     }
 
     recognition.start()
-  }, [])
+  }, [onOpenedTransaction, openNewTransaction])
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop()
-  }, [])
-
-  const dismiss = useCallback(() => {
-    setVoiceState("idle")
-    setResult(null)
-    setTranscript("")
   }, [])
 
   if (voiceState === "unsupported") return null
@@ -143,8 +166,10 @@ export function VoiceDictationButton({ locked = false }: { locked?: boolean }) {
         </div>
       )}
 
-      {voiceState === "result" && result && (
-        <VoiceConfirmationCard result={result} onDismiss={dismiss} />
+      {error && voiceState === "idle" && (
+        <div className="mt-2 px-3 py-2 bg-[#1A1A1A] rounded-xl text-xs text-red-400">
+          {error}
+        </div>
       )}
     </>
   )

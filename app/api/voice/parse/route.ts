@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { premiumForbiddenResponse, requirePremiumOrTrial } from "@/lib/subscription"
+import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
+import { resolveVoiceTransactionDate } from "@/lib/voice-relative-dates"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
@@ -21,10 +23,16 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const { transcript } = await req.json()
+  const body = await req.json()
+  const transcript = body?.transcript
   if (!transcript || typeof transcript !== "string") {
     return NextResponse.json({ error: "transcript is required" }, { status: 400 })
   }
+
+  const clientToday =
+    typeof body?.today === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.today)
+      ? body.today
+      : todayTransactionCalendarDay()
 
   const envelopes = await prisma.envelope.findMany({
     where: { userId: session.user.id, archived: false },
@@ -36,7 +44,7 @@ export async function POST(req: NextRequest) {
     select: { payee: true },
     distinct: ["payee"],
     orderBy: { createdAt: "desc" },
-    take: 20,
+    take: 50,
   })
 
   const envelopeNames = envelopes.map((e) => e.name)
@@ -61,13 +69,16 @@ export async function POST(req: NextRequest) {
             role: "user",
             content: `Extract transaction details from: "${transcript}"
 
-Available envelopes: ${envelopeNames.join(", ")}
-Recent payees: ${payeeNames.join(", ")}
+Today's date (local calendar): ${clientToday}
+Available envelopes: ${envelopeNames.join(", ") || "(none)"}
+Recent payees: ${payeeNames.join(", ") || "(none)"}
 
 Return JSON: {"payee":"<string>","amount":<number>,"envelope":"<exact envelope name or null>","date":"<YYYY-MM-DD or null>"}
 
 Rules:
-- Match payee and envelope names fuzzily to the lists provided.
+- Match payee names fuzzily to Recent payees when possible (preserve the list's casing/spelling).
+- Match envelope names fuzzily to Available envelopes when possible.
+- If the user says "today", "yesterday", "tomorrow", or "N days ago", set date to the resolved YYYY-MM-DD relative to Today's date above.
 - If no date is mentioned, use null.
 - If no envelope matches, use null.
 - Amount should be a number (no currency symbols).`,
@@ -99,14 +110,25 @@ Rules:
       if (matched) envelopeId = matched.id
     }
 
-    const today = new Date().toISOString().split("T")[0]
+    const date = resolveVoiceTransactionDate({
+      transcript,
+      clientToday,
+      modelDate: typeof parsed.date === "string" ? parsed.date : null,
+    })
+
+    // Prefer exact casing from Recent payees when soft-equal (case-insensitive).
+    let payee = typeof parsed.payee === "string" ? parsed.payee.trim() : ""
+    if (payee) {
+      const exact = payeeNames.find((p) => p.toLowerCase() === payee.toLowerCase())
+      if (exact) payee = exact
+    }
 
     return NextResponse.json({
-      payee: parsed.payee || "",
+      payee,
       amount: typeof parsed.amount === "number" ? parsed.amount : 0,
       envelopeId,
       envelopeName: parsed.envelope || null,
-      date: parsed.date || today,
+      date,
     })
   } catch (err) {
     console.error("voice parse error:", err)
