@@ -1,8 +1,30 @@
 import { describe, expect, it } from "vitest"
 import {
+  coerceVoiceAmount,
   resolveRelativeDateFromTranscript,
   resolveVoiceTransactionDate,
 } from "@/lib/voice-relative-dates"
+
+describe("coerceVoiceAmount", () => {
+  it("accepts finite numbers", () => {
+    expect(coerceVoiceAmount(25)).toBe(25)
+    expect(coerceVoiceAmount(12.5)).toBe(12.5)
+  })
+
+  it("coerces numeric strings and strips currency noise", () => {
+    expect(coerceVoiceAmount("25")).toBe(25)
+    expect(coerceVoiceAmount("$12.50")).toBe(12.5)
+    expect(coerceVoiceAmount("1,234.56")).toBe(1234.56)
+  })
+
+  it("returns 0 for missing or invalid values", () => {
+    expect(coerceVoiceAmount(null)).toBe(0)
+    expect(coerceVoiceAmount(undefined)).toBe(0)
+    expect(coerceVoiceAmount("")).toBe(0)
+    expect(coerceVoiceAmount("abc")).toBe(0)
+    expect(coerceVoiceAmount(Number.NaN)).toBe(0)
+  })
+})
 
 describe("resolveRelativeDateFromTranscript", () => {
   const today = "2026-07-12"

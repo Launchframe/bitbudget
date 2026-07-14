@@ -2,6 +2,21 @@ import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 
+/**
+ * Coerce a model-returned amount (number or numeric string) to a finite number.
+ * Returns 0 when the value is missing or not parseable.
+ */
+export function coerceVoiceAmount(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string") {
+    const cleaned = value.trim().replace(/[$,]/g, "")
+    if (!cleaned) return 0
+    const n = Number(cleaned)
+    if (Number.isFinite(n)) return n
+  }
+  return 0
+}
+
 function addLocalCalendarDays(isoDay: string, deltaDays: number): string {
   const [y, m, d] = isoDay.split("-").map(Number)
   const dt = new Date(y!, m! - 1, d!)

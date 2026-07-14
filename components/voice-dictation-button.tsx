@@ -73,7 +73,6 @@ export function VoiceDictationButton({
         const data = (await res.json()) as {
           payee?: string
           amount?: number
-          envelopeId?: string | null
           date?: string
         }
 
@@ -83,13 +82,12 @@ export function VoiceDictationButton({
             : undefined
 
         // Open the same New Transaction form as manual entry so payee canonical
-        // matching and auto-enveloping apply. Only pass envelopeId when the
-        // parser matched one; otherwise the dialog fills it from payee history.
+        // matching and auto-enveloping apply. Omit envelopeId so the dialog can
+        // fill from payee history (passing LLM envelopeId would skip that path).
         openNewTransaction({
           ...(data.payee?.trim() ? { payee: data.payee.trim() } : {}),
           ...(amount ? { amount } : {}),
           ...(data.date ? { date: data.date } : {}),
-          ...(data.envelopeId ? { envelopeId: data.envelopeId } : {}),
         })
         setVoiceState("idle")
         setTranscript("")
@@ -133,10 +131,12 @@ export function VoiceDictationButton({
   return (
     <>
       <button
+        type="button"
         onClick={voiceState === "listening" ? stopListening : startListening}
         disabled={voiceState === "processing"}
         title="Voice Input"
-        className={`flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-4 py-2.5 rounded-xl text-sm transition-colors border ${
+        aria-label="Voice Input"
+        className={`flex items-center justify-center lg:justify-start gap-3 px-2 lg:px-4 py-2.5 rounded-xl text-sm transition-colors border w-full ${
           voiceState === "listening"
             ? "bg-red-500/20 border-red-500/50 text-red-400 animate-pulse"
             : voiceState === "processing"
