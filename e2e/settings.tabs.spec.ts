@@ -4,13 +4,13 @@ import { E2E_APP_USER_EMAIL, E2E_PREMIUM_USER_EMAIL } from "./fixtures/app-e2e-c
 import { signInAppUser } from "./helpers/app-session"
 
 test.describe("Settings tabs", () => {
-  test("tags CRUD on budgeting rules tab and export on data security", async ({ page, baseURL }) => {
+  test("tags CRUD on tags tab and export on data security", async ({ page, baseURL }) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
     await signInAppUser(page, origin, E2E_APP_USER_EMAIL)
 
     await page.goto(`${origin}/#/settings/tags`)
-    await expect(page).toHaveURL(/#\/settings\/budgeting-rules/, { timeout: 30_000 })
-    await expect(page.getByRole("heading", { name: "Budgeting rules" })).toBeVisible({ timeout: 30_000 })
+    await expect(page).toHaveURL(/#\/settings\/tags/, { timeout: 30_000 })
+    await expect(page.getByRole("heading", { name: "Tags" })).toBeVisible({ timeout: 30_000 })
     const tagName = `e2e-settings-${Date.now()}`
     await page.getByPlaceholder("New tag").fill(tagName)
     await page.getByRole("button", { name: "Add Tag" }).click()
