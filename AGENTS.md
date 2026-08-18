@@ -552,6 +552,12 @@ Production ops visibility uses **Sentry** (stack traces), **`GET /api/health`** 
 
 **When investigating production issues:** use `pnpm ops:health`, `pnpm ops:errors`, and `pnpm ops:crons` (see runbook). Admin ops dashboard: `/admin/ops`.
 
+## Parallel agents and git isolation
+
+Concurrent Cursor agents (Multitask or separate tasks) must not share one dirty working tree. **One task → one branch → one concern**; use **git worktrees** for parallel writers. Do not use `git stash` as agent handoff — commit WIP to a topic branch instead. In this repo, Real Steel reviews run in a dedicated worktree and clean it up when done. Detail: [`.cursor/rules/agent-git-hygiene.mdc`](.cursor/rules/agent-git-hygiene.mdc).
+
+Passive maintenance: `.cursor/hooks.json` runs a **dry-run** `git-prune` on session start and writes `.cursor/git-prune-status.md`. Never auto-`--apply`.
+
 ## Commit and PR Workflow
 
 ### Branches and commits
