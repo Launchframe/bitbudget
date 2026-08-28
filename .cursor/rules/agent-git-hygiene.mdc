@@ -1,0 +1,130 @@
+---
+description: Git isolation — primary clone by default, worktrees when the shared tree is dirty or contended
+alwaysApply: true
+---
+
+# Agent git hygiene
+
+Work in the **primary clone** by default. That keeps the local dev server attached and the files visible in the Cursor IDE.
+
+**One task → one branch → one concern** still applies. Parallel Cursor agents share one git object database; checkout fights and monolithic stashes are how WIP gets lost. Isolate with a **worktree** only when the primary tree is already dirty or multiple writers would clobber it.
+
+## One task → one branch → one concern
+
+| Do | Don't |
+| --- | --- |
+| Create or checkout a **topic branch** before editing | Two agents on the same branch |
+| **One feature per branch / PR** | Receipts + envelopes + Plaid in one dirty tree |
+| **Commit WIP** on the topic branch (`wip: …`) and push | Park agent handoff in `git stash` |
+| **Path-scoped stash** only when the maintainer explicitly asks | `git stash` the whole working tree |
+
+**Stash is not agent handoff.** If work must survive a context switch, it belongs on a **named branch** (local or pushed), not `stash@{n}`.
+
+> **Scope:** "Commit WIP" is not a blanket commit permission. It means an agent ending a session or handing off to another agent should commit rather than stash — still subject to the repo's pre-commit gates. It does **not** authorize autonomous commits in ordinary single-agent sessions; follow the maintainer's explicit request as usual.
+
+## Default: primary clone
+
+Stay in the primary workspace unless a fallback trigger below fires:
+
+- Create or checkout the **topic branch** in the primary clone and edit there.
+- Leave the existing **dev server** running in that tree.
+- Do **not** proactively create a sibling worktree or `move_agent_to_root` into one.
+
+| Agent / task | Workspace |
+| --- | --- |
+| Feature implementation (tree is idle for this task) | Primary clone on `feat/<topic>` |
+| Real Steel (primary idle for this PR) | Primary clone on the PR branch |
+| Read-only explore | Primary clone |
+
+## Fallback: isolate with a worktree
+
+Escalate out of the primary clone when **any** of these is true — including mid-task after a clean start:
+
+- `git status` shows **dirty files that are not this task's** (another agent's WIP, mixed concerns).
+- Checkout, merge, or rebase would **clobber** someone else's in-progress edits.
+- **Two implementing agents** would write the same working tree at the same time (Multitask, overlapping chats).
+- The primary clone is on a **different branch** that must stay checked out.
+
+Then give this writer its **own worktree directory** and **own branch**:
+
+```bash
+# From the primary clone (repo root) — worktree + env copy in one step
+./scripts/new-worktree.sh feat/<topic>
+# or track an existing PR branch:
+./scripts/new-worktree.sh feat/voice-dictation-prefill-form
+# manual (remember to copy .env.local afterward — see "Worktree env" below):
+git fetch origin && git worktree add ../bitbudget-<short-topic> -b feat/<topic> origin/main
+```
+
+`<short-topic>` must be **unique on the filesystem**. When multiple agents may work on related areas concurrently, disambiguate with an issue number or PR number (e.g. `../bitbudget-auth-123`) to avoid path collisions.
+
+**After falling back:**
+
+- Call **`move_agent_to_root` once** to the worktree so the chat’s IDE root is that tree. Cursor auto-approves **in-workspace** file edits; edits under a **sibling** worktree while the chat is rooted elsewhere prompt on **every** `Edit`/`Write`.
+- Accept one move approval if Smart Mode asks; that is cheaper than per-file approval spam.
+- Launch further `Task` passes with that same worktree as cwd.
+- Keep the **primary clone** on the branch/dev-server the other work still needs.
+- **Remove worktrees** when the task ends: `git worktree remove --force <path> && git worktree prune`.
+- Do **not** delete the PR’s remote feature branch unless the maintainer asks.
+
+## Worktree env (`.env.local`) — copy, never read
+
+A fresh `git worktree add` starts with **no** gitignored local env (`.env.local`, `.env`, `.env.*.local`). The new worktree then runs with missing DB URLs, auth secrets, and encryption-related config — symptoms include 500s on auth/session pages and **failed client crypto**.
+
+- **Always copy local env into a new worktree.** Use the helper, which `git worktree add`s and copies the env files in one step:
+
+```bash
+./scripts/new-worktree.sh <branch> [base-branch]   # base defaults to origin/main
+```
+
+- **Secrets — copy, never read.** `.env.local` and friends hold live secrets (DB passwords, `AUTH_SECRET`, encryption keys, Plaid/provider tokens). Agents and scripts may **copy** these files (`cp`) but must **never** read, `cat`, `grep`, print, log, or echo their contents, and must never paste env values into chat, commits, or PRs. The script copies with `cp` only for this reason.
+- **Restart after copying.** Next.js does not reload `.env.local`; restart the worktree dev server so it picks up the copied env.
+- If you create a worktree by hand (`git worktree add` directly), copy the env yourself afterward (`cp ../bitbudget/.env.local <worktree>/`) — do not open the file to "check" it first.
+
+## Cleanup after merge or handoff
+
+After a task is merged, abandoned, or handed back to the maintainer:
+
+1. Confirm no needed WIP remains: `git status` in the worktree (if any) and `git stash list` for topic-scoped stashes.
+2. If a fallback worktree was created, remove it from the primary clone: `git worktree remove --force ../bitbudget-<topic> && git worktree prune`. **Agents: do not run `--force` autonomously** — stop and ask the maintainer if step 1 shows any uncommitted work, or if you are uncertain the worktree is fully clean.
+3. Delete the local topic branch only after it is merged or intentionally abandoned: `git branch -d feat/<topic>` (use `-D` only with maintainer approval).
+4. Delete the remote branch if it was pushed but **never opened as a PR** (no GitHub auto-delete): `git push origin --delete feat/<topic>`. Then prune stale remote-tracking refs: `git fetch --prune origin`.
+5. Drop obsolete topic-scoped stashes once their changes are merged, committed elsewhere, or no longer needed.
+
+**Bulk prune (preferred after several merges):** from any clone/worktree of this repo:
+
+```bash
+./scripts/git-prune.sh                 # dry-run: gone remotes + safety skips
+./scripts/git-prune.sh --worktrees     # also list clean stale worktrees
+./scripts/git-prune.sh --apply --worktrees --yes   # delete (maintainer/agent with approval)
+```
+
+The script pairs with GitHub **Automatically delete head branches**. It never deletes `main`, the current branch, dirty worktrees, or open-PR heads. Dry-run is the default.
+
+**SessionStart hook (passive maintenance):** `.cursor/hooks.json` runs `.cursor/hooks/git-prune-session-start.sh` on new agent chats (dry-run only; skips background agents). It injects a short debt summary via `additional_context` / session `env`, and writes `.cursor/git-prune-status.md` (local, gitignored). If prune debt is relevant to the task, **Read** that status file or re-run `./scripts/git-prune.sh --worktrees`. Never auto-`--apply` from the hook.
+
+## Before changing branches in the primary clone
+
+1. `git status` — if dirty with **this task's** files, **commit to the topic branch**. If dirty with **someone else's** files, **fall back to a worktree** (or stop and ask); do not auto-stash to “make checkout work.”
+2. If the change belongs to a different concern, **new branch + commit** (or new worktree if the primary tree is contended), not a mixed stash on whatever branch is checked out.
+
+## Stash discipline (when stash is unavoidable)
+
+- **Message names the concern and paths:** `stash: envelope sweep — envelope-funding, envelope-card-metrics`
+- **Path-scoped:** `git stash push -m "…" -- path/to/file1 path/to/file2`
+- Never stash unrelated files (schema, receipts UI, Plaid) in one entry.
+- After merging a branch, grep `git stash list` for that topic and drop obsolete entries; stale stashes are not long-term storage.
+
+## Real Steel
+
+Default: run Real Steel in the **primary clone** on the PR branch so the review stays in the IDE tree. Fall back to a dedicated worktree (and `move_agent_to_root` once — see **Fallback** above) if the primary has other WIP or another agent is writing there. Do not rebase or commit over unrelated dirty files. The global **real-steel** skill (`~/.cursor/skills/real-steel/SKILL.md`) defines the review/pass workflow; [`.cursor/skills/real-steel/SKILL.md`](../skills/real-steel/SKILL.md) adds BitBudget completion steps.
+
+## Multitask mode
+
+Multitask is fine when each implementing agent has its **own branch**. The first writer uses the **primary clone** if that tree is idle. A second implementing agent that would share the same working directory **must fall back** to a worktree — sharing one dirty tree produces duplicate-looking stashes and clobbered edits.
+
+**Checklist before starting a second implementing agent:**
+
+- [ ] First agent has its own branch (primary clone OK if the tree was idle).
+- [ ] Second agent has a **different** branch, and a **worktree** if the primary is already in use.
+- [ ] No uncommitted mixed WIP on a shared integration branch (e.g. long-lived `feat/foo` with unrelated slices).

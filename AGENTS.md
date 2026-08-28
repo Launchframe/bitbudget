@@ -552,6 +552,12 @@ Production ops visibility uses **Sentry** (stack traces), **`GET /api/health`** 
 
 **When investigating production issues:** use `pnpm ops:health`, `pnpm ops:errors`, and `pnpm ops:crons` (see runbook). Admin ops dashboard: `/admin/ops`.
 
+## Parallel agents and git isolation
+
+Work in the **primary clone** by default (dev server + IDE). **One task → one branch → one concern**. If the working tree is dirty with another agent's files, or multiple writers would clobber the same checkout, isolate with a git worktree. Do not use `git stash` as agent handoff — commit WIP to a topic branch instead. Detail: [`.cursor/rules/agent-git-hygiene.mdc`](.cursor/rules/agent-git-hygiene.mdc).
+
+Passive maintenance: `.cursor/hooks.json` runs a **dry-run** `git-prune` on session start and writes `.cursor/git-prune-status.md`. Never auto-`--apply`.
+
 ## Commit and PR Workflow
 
 ### Branches and commits

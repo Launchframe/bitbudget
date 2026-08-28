@@ -10,6 +10,10 @@ Adversarial, sequential PR review: each model pass **reviews the branch**, **pos
 
 Read [AGENTS.md](../../../AGENTS.md) (privacy, tests, PR comment replies). Do **not** resolve review threads unless the maintainer asks.
 
+## Worktree isolation
+
+Follow [`.cursor/rules/agent-git-hygiene.mdc`](../rules/agent-git-hygiene.mdc): review in the **primary clone** by default. Fall back to `./scripts/new-worktree.sh` and `move_agent_to_root` **once** only if that tree is dirty with other WIP or another agent is writing there.
+
 ## Invocation
 
 ```
