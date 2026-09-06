@@ -43,12 +43,9 @@ export const registrationVerifySchema = z.object({
   challengeId: z.string().uuid(),
   response: registrationResponseSchema,
 }).strict()
-export const authenticationOptionsSchema = z.object({
-  network: testNetworkSchema,
-  operation: z.literal("create"),
-}).strict()
-export const authenticationVerifySchema = authenticationOptionsSchema.extend({
-  challengeId: z.string().uuid(),
-  response: authenticationResponseSchema,
-}).strict()
+const createAuthentication = z.object({ network: testNetworkSchema, operation: z.literal("create") }).strict()
+const unlockAuthentication = z.object({ network: testNetworkSchema, operation: z.literal("unlock"), walletId: z.string().uuid() }).strict()
+export const authenticationOptionsSchema = z.discriminatedUnion("operation", [createAuthentication, unlockAuthentication])
+const verification = { challengeId: z.string().uuid(), response: authenticationResponseSchema }
+export const authenticationVerifySchema = z.discriminatedUnion("operation", [createAuthentication.extend(verification).strict(), unlockAuthentication.extend(verification).strict()])
 export const walletIdSchema = z.string().uuid()

@@ -14,7 +14,7 @@ export interface GrantBinding {
 }
 
 export function validateGrantBinding(binding: GrantBinding) {
-  if (!binding.userId || !binding.profileId || !testNetworkSchema.safeParse(binding.network).success) {
+  if (!binding.userId || !binding.profileId || !["create", "sign"].includes(binding.operation) || !testNetworkSchema.safeParse(binding.network).success) {
     throw new WalletError(400, "invalid-binding")
   }
   if (binding.operation === "sign" && (!binding.walletId || !binding.lineage || !binding.digest || !/^[0-9a-f]{64}$/.test(binding.digest))) {

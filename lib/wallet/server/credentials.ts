@@ -10,10 +10,10 @@ import {
 } from "@/lib/wallet/server/config"
 import type { WalletTestNetwork } from "@/lib/wallet/server/config"
 
-function binding(userId: string, network: WalletTestNetwork, operation: "register" | "create", origin: string) {
+function binding(userId: string, network: WalletTestNetwork, operation: "register" | "create" | "unlock", origin: string, walletId: string | null = null) {
   const { rpId, origins } = requireCreationConfig()
   if (!origins.includes(origin)) throw new WalletError(403, "origin-rejected")
-  return { userId, network, operation, origin, rpId, walletId: null, lineage: null, digest: null, profileId: walletProfileId }
+  return { userId, network, operation, origin, rpId, walletId, lineage: null, digest: null, profileId: walletProfileId }
 }
 
 function requireSameOriginCeremony(encoded: string) {
@@ -83,8 +83,9 @@ export async function registrationVerify(userId: string, network: WalletTestNetw
   return { verified: true, grantId: grant.id, expiresAt: grant.expiresAt }
 }
 
-export async function authenticationOptions(userId: string, network: WalletTestNetwork, origin: string) {
-  const scope = binding(userId, network, "create", origin)
+export async function authenticationOptions(userId: string, network: WalletTestNetwork, origin: string, walletId: string | null = null) {
+  const scope = binding(userId, network, walletId ? "unlock" : "create", origin, walletId)
+  if (walletId && !await prisma.walletAccount.findFirst({ where: { id: walletId, userId, network }, select: { id: true } })) throw new WalletError(404, "wallet-not-found")
   const credentials = await prisma.walletCredential.findMany({ where: { userId, rpId: scope.rpId }, select: { credentialId: true } })
   if (!credentials.length) throw new WalletError(409, "registration-required")
   const options = await generateAuthenticationOptions({
@@ -97,8 +98,9 @@ export async function authenticationOptions(userId: string, network: WalletTestN
   return { challengeId: challenge.id, options }
 }
 
-export async function authenticationVerify(userId: string, network: WalletTestNetwork, origin: string, challengeId: string, response: AuthenticationResponseJSON) {
-  const scope = binding(userId, network, "create", origin)
+export async function authenticationVerify(userId: string, network: WalletTestNetwork, origin: string, challengeId: string, response: AuthenticationResponseJSON, walletId: string | null = null) {
+  const scope = binding(userId, network, walletId ? "unlock" : "create", origin, walletId)
+  if (walletId && !await prisma.walletAccount.findFirst({ where: { id: walletId, userId, network }, select: { id: true } })) throw new WalletError(404, "wallet-not-found")
   const challenge = await claimChallenge(challengeId, scope)
   requireSameOriginCeremony(response.response.clientDataJSON)
   const credential = await prisma.walletCredential.findFirst({ where: { userId, rpId: scope.rpId, credentialId: response.id } })
@@ -128,7 +130,7 @@ export async function authenticationVerify(userId: string, network: WalletTestNe
     })
     if (updated.count !== 1) throw new WalletError(403, "credential-rejected")
     return tx.walletGrant.create({ data: {
-      userId, network, operation: "create", walletId: null, lineage: null, digest: null, profileId: walletProfileId,
+      userId, network, operation: scope.operation, walletId, lineage: null, digest: null, profileId: walletProfileId,
       credentialId: credential.credentialId, expiresAt: new Date(Date.now() + grantLifetimeMs),
     }, select: { id: true, expiresAt: true } })
   })

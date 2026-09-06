@@ -9,6 +9,6 @@ export async function POST(request: Request) {
     const userId = await walletUser()
     const origin = requireWalletOrigin(request)
     const body = await walletBody(request, authenticationVerifySchema)
-    return authenticationVerify(userId, body.network, origin, body.challengeId, body.response)
+    return authenticationVerify(userId, body.network, origin, body.challengeId, body.response, body.operation === "unlock" ? body.walletId : null)
   })
 }

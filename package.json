@@ -27,6 +27,7 @@
     "wallet:test:regtest": "bash scripts/test-wallet-regtest.sh",
     "wallet:test:browser": "node wallet-mpc/browser-proof.mjs",
     "wallet:test:database": "node scripts/test-wallet-database.mjs",
+    "wallet:test:setup": "node scripts/test-wallet-database.mjs --browser",
     "wallet:assets": "node scripts/build-wallet-asset-manifest.mjs",
     "test:wallet": "vitest run lib/__tests__/wallet lib/__tests__/wallet-feature-host.test.tsx lib/__tests__/wallet-feature-preference.test.ts lib/__tests__/wallet-asset-cache.test.ts lib/__tests__/wallet-service-worker.test.ts",
     "test:e2e": "playwright test",

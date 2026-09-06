@@ -4,6 +4,7 @@ import {
   type DeviceShareEnvelope, type WalletPublicContext,
 } from "@/lib/wallet/client-custody"
 import { parseRecoveryPackage, type RecoveryPackage } from "@/lib/wallet/recovery-package"
+import { parseCreationDraft, type SealedCreationDraft } from "@/lib/wallet/creation-draft"
 import { BITCOIN_LINEAGES, createWalletIdentity, type WalletIdentity } from "@/lib/wallet/types"
 
 const DATABASE_VERSION = 1
@@ -24,6 +25,9 @@ export interface StoredWalletCustody {
   envelopes: WalletCustodyEnvelopes
   nextReceiveIndex: number
   nextChangeIndex: number
+  pendingCreation: SealedCreationDraft | null
+  encryptedName: string | null
+  recoveryVerifiedAt: string | null
 }
 
 export interface AddressIndexReservation {
@@ -58,7 +62,13 @@ function parseEnvelopes(value: unknown, context: WalletPublicContext): WalletCus
 }
 
 function parseStoredWallet(value: unknown, accountId: string, walletId: string): StoredWalletCustody {
-  exactObject(value, ["version", "revision", "identity", "context", "envelopes", "nextReceiveIndex", "nextChangeIndex"])
+  const metadata = ["pendingCreation", "encryptedName", "recoveryVerifiedAt"].filter(key => value && typeof value === "object" && Object.hasOwn(value, key))
+  exactObject(value, ["version", "revision", "identity", "context", "envelopes", "nextReceiveIndex", "nextChangeIndex", ...metadata])
+  const pendingCreation = value.pendingCreation == null ? null : parseCreationDraft(value.pendingCreation)
+  const encryptedName = value.encryptedName == null ? null : value.encryptedName
+  if (encryptedName !== null && (typeof encryptedName !== "string" || encryptedName.length > 4096 || !/^[0-9a-f]{24}:(?:[0-9a-f]{2}){16,}$/.test(encryptedName))) throw new Error("Invalid encrypted wallet name")
+  const recoveryVerifiedAt = value.recoveryVerifiedAt == null ? null : value.recoveryVerifiedAt
+  if (recoveryVerifiedAt !== null && (typeof recoveryVerifiedAt !== "string" || !Number.isFinite(Date.parse(recoveryVerifiedAt)))) throw new Error("Invalid recovery verification date")
   if (value.version !== 1 || !Number.isSafeInteger(value.revision) || (value.revision as number) < 1) {
     throw new Error("Unsupported wallet storage version")
   }
@@ -80,6 +90,7 @@ function parseStoredWallet(value: unknown, accountId: string, walletId: string):
     identity: createWalletIdentity(walletId, context.network), context,
     envelopes: parseEnvelopes(value.envelopes, context),
     nextReceiveIndex: value.nextReceiveIndex as number, nextChangeIndex: value.nextChangeIndex as number,
+    pendingCreation, encryptedName, recoveryVerifiedAt,
   }
 }
 
@@ -89,8 +100,10 @@ function incrementRevision(revision: number): number {
 }
 
 export interface WalletCustodyStore {
-  createWallet(input: { context: WalletPublicContext; envelopes: WalletCustodyEnvelopes }): Promise<StoredWalletCustody>
+  createWallet(input: { context: WalletPublicContext; envelopes: WalletCustodyEnvelopes; pendingCreation?: SealedCreationDraft; encryptedName?: string }): Promise<StoredWalletCustody>
   getWallet(walletId: string): Promise<StoredWalletCustody | null>
+  completeCreation(walletId: string, expectedRevision: number): Promise<StoredWalletCustody>
+  recordRecoveryVerification(walletId: string, expectedRevision: number, verifiedAt: string): Promise<StoredWalletCustody>
   replaceEnvelopes(walletId: string, expectedRevision: number, envelopes: WalletCustodyEnvelopes): Promise<StoredWalletCustody>
   reserveAddressIndices(walletId: string, branch: "receive" | "change", count?: number): Promise<AddressIndexReservation>
   close(): void
@@ -161,18 +174,39 @@ export async function openWalletCustodyStore(accountId: string, factory: IDBFact
       const context = parseWalletPublicContext(input.context)
       if (context.accountId !== accountId) throw new Error("Wallet account mismatch")
       const envelopes = parseEnvelopes(input.envelopes, context)
+      const pendingCreation = input.pendingCreation ? parseCreationDraft(input.pendingCreation) : null
+      const encryptedName = input.encryptedName ?? null
       return transaction(context.walletId, "readwrite", (store, key, current) => {
         if (current) throw new Error("Wallet already exists; custody cannot be reset")
         const record: StoredWalletCustody = {
           version: 1, revision: 1, identity: createWalletIdentity(context.walletId, context.network),
           context, envelopes, nextReceiveIndex: 0, nextChangeIndex: 0,
+          pendingCreation, encryptedName, recoveryVerifiedAt: null,
         }
+        parseStoredWallet(record, accountId, context.walletId)
         store.add(record, key)
         return record
       })
     },
     async getWallet(walletId) {
       return transaction(walletId, "readonly", (_store, _key, current) => current)
+    },
+    async completeCreation(walletId, expectedRevision) {
+      return transaction(walletId, "readwrite", (store, key, current) => {
+        if (!current || current.revision !== expectedRevision) throw new Error("Wallet revision conflict")
+        const updated = { ...current, pendingCreation: null, revision: incrementRevision(current.revision) }
+        store.put(updated, key)
+        return updated
+      })
+    },
+    async recordRecoveryVerification(walletId, expectedRevision, verifiedAt) {
+      if (!Number.isFinite(Date.parse(verifiedAt))) throw new Error("Invalid recovery verification date")
+      return transaction(walletId, "readwrite", (store, key, current) => {
+        if (!current || current.pendingCreation || current.revision !== expectedRevision) throw new Error("Wallet revision conflict")
+        const updated = { ...current, recoveryVerifiedAt: new Date(verifiedAt).toISOString(), revision: incrementRevision(current.revision) }
+        store.put(updated, key)
+        return updated
+      })
     },
     async replaceEnvelopes(walletId, expectedRevision, envelopes) {
       if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw new Error("Invalid wallet revision")

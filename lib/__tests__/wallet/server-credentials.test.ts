@@ -8,6 +8,7 @@ const db = vi.hoisted(() => ({
   walletCredential: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
   walletChallenge: { create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
   walletGrant: { create: vi.fn() },
+  walletAccount: { findFirst: vi.fn() },
 }))
 vi.mock("@/lib/db", () => ({ prisma: { ...db, $transaction: async (action: (tx: typeof db) => unknown) => action(db) } }))
 const origin = "https://wallet.example.test"
@@ -61,13 +62,14 @@ async function registrationFixture() {
   return { keys, response, challengeId, challenge }
 }
 
-async function authenticationFixture() {
+async function authenticationFixture(walletId: string | null = null) {
   const fixture = await registrationFixture()
   await registrationVerify(user, "regtest", origin, fixture.challengeId, fixture.response)
   const credential = { ...db.walletCredential.create.mock.calls[0][0].data, id: "credential-row", revision: 0 }
   db.walletCredential.findFirst.mockResolvedValue(credential)
   db.walletCredential.findMany.mockResolvedValue([{ credentialId: credential.credentialId }])
-  const { options, challengeId } = await authenticationOptions(user, "regtest", origin)
+  if (walletId) db.walletAccount.findFirst.mockResolvedValue({ id: walletId })
+  const { options, challengeId } = await authenticationOptions(user, "regtest", origin, walletId)
   const calls = db.walletChallenge.create.mock.calls
   db.walletChallenge.findFirst.mockResolvedValue({ ...calls[calls.length - 1][0].data, id: challengeId })
   const clientData = Buffer.from(JSON.stringify({ type: "webauthn.get", challenge: options.challenge, origin, crossOrigin: false }))
@@ -97,6 +99,16 @@ describe("verified wallet WebAuthn ceremonies", () => {
     const { response, challengeId } = await authenticationFixture()
     expect(await authenticationVerify(user, "regtest", origin, challengeId, response)).toMatchObject({ verified: true })
     expect(db.walletCredential.updateMany).toHaveBeenCalledWith({ where: expect.objectContaining({ userId: user, counter: BigInt(0), revision: 0 }), data: expect.objectContaining({ counter: BigInt(1), revision: { increment: 1 } }) })
+  })
+
+  it("binds device-unlock assertions to the wallet without minting another creation grant", async () => {
+    const walletId = "wallet-being-unlocked"
+    const { response, challengeId } = await authenticationFixture(walletId)
+    await authenticationVerify(user, "regtest", origin, challengeId, response, walletId)
+    expect(db.walletChallenge.findFirst).toHaveBeenLastCalledWith({ where: expect.objectContaining({ userId: user, walletId, operation: "unlock", network: "regtest" }) })
+    expect(db.walletGrant.create).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ operation: "unlock", walletId }) }))
+    db.walletAccount.findFirst.mockResolvedValue(null)
+    await expect(authenticationOptions(user, "regtest", origin, "another-wallet")).rejects.toThrow("wallet-not-found")
   })
 
   it("rejects tampered signatures rather than trusting a credential ID", async () => {

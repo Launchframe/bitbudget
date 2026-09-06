@@ -6,6 +6,9 @@ import { registrationOptions, registrationVerify } from "@/lib/wallet/server/cre
 import { loadWalletMpc } from "@/lib/wallet/server/mpc"
 import { startProvisioning, finishProvisioning } from "@/lib/wallet/server/provisioning"
 import { listWallets, walletStatus } from "@/lib/wallet/server/wallets"
+import { recoveryOptions, recoveryVerify } from "@/lib/wallet/server/recovery"
+import { createRecoveryPackage, decryptRecoveryPackage, serializeRecoveryPackage } from "@/lib/wallet/recovery-package"
+import type { ShareCustodyContext } from "@/lib/wallet/client-custody"
 
 const origin = "https://wallet.example.test"
 const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex")
@@ -86,5 +89,27 @@ it("persists verified registration, idempotent real DKG and one co-signer under 
   expect((await listWallets(userId)).wallets[0].lineages).toEqual(["sha256d", "blake2b"])
   expect((await listWallets(userId)).wallets[0].signingAvailable).toBe(false)
   expect(await prisma.transaction.count({ where: { userId } })).toBe(0)
+  const context: ShareCustodyContext = { accountId: userId, walletId: record.id, network: "regtest", participantId: "3", role: "C", shareFormat: "frost-secp256k1-tr-v3", groupPublicKeyHex: hex(aShare.output_key()), publicPackageHex: hex(aShare.public_package()), policy: { threshold: 2, participants: 3 }, derivationContext: "base-output-v1" }
+  const secretC = cShare.export_secret_share()
+  const encryptedBackup = await createRecoveryPackage({ share: secretC, context, password: "synthetic fixture recovery password" })
+  secretC.fill(0)
+  const file = serializeRecoveryPackage(encryptedBackup)
+  const restored = await decryptRecoveryPackage({ envelope: file, expectedContext: context, password: "synthetic fixture recovery password" })
+  const restoredC = core.WasmWalletShare.import_secret_share(3, restored.share, aShare.public_package())
+  restored.share.fill(0)
+  const options = await recoveryOptions(userId, record.id, origin, { backupHash: createHash("sha256").update(file).digest("hex") })
+  const digest = Buffer.from(options.digest, "hex")
+  const an = aShare.commit_digest_low_level(digest, 3), cn = restoredC.commit_digest_low_level(digest, 1)
+  const ac = an.commitment(), cc = cn.commitment()
+  const session = new core.WasmSigningSession(digest, 1, ac, 3, cc)
+  const proof = { challengeId: options.challengeId, aCommitmentHex: hex(ac), cCommitmentHex: hex(cc), aSignatureHex: hex(an.sign(aShare, session)), cSignatureHex: hex(cn.sign(restoredC, session)) }
+  await expect(recoveryVerify(userId, record.id, origin, { ...proof, cSignatureHex: "00".repeat(32) })).rejects.toThrow("recovery-proof-rejected")
+  expect((await walletStatus(userId, record.id)).wallet.status).toBe("recovery-required")
+  const verified = await recoveryVerify(userId, record.id, origin, proof)
+  expect(verified.status).toBe("ready")
+  expect(verified.signingAvailable).toBe(false)
+  await expect(recoveryVerify(userId, record.id, origin, proof)).rejects.toThrow("challenge-rejected")
+  expect((await walletStatus(userId, record.id)).wallet.recoveryVerifiedAt).not.toBeNull()
+  restoredC.free(); session.free()
   aShare.free(); cShare.free(); aToB.fill(0); cToB.fill(0); aToC.fill(0); cToA.fill(0)
 })

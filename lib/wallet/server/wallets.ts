@@ -1,18 +1,27 @@
 import { prisma } from "@/lib/db"
-import { testNetworkSchema, WalletError } from "@/lib/wallet/server/config"
+import { requireCreationConfig, testNetworkSchema, WalletError } from "@/lib/wallet/server/config"
+import { loadWalletMpc } from "@/lib/wallet/server/mpc"
 
-const summarySelect = { id: true, network: true, status: true, createdAt: true, updatedAt: true } as const
+const summarySelect = { id: true, network: true, status: true, recoveryVerifiedAt: true, createdAt: true, updatedAt: true } as const
 
-function summary(wallet: { id: string; network: string; status: string; createdAt: Date; updatedAt: Date }) {
+function summary(wallet: { id: string; network: string; status: string; recoveryVerifiedAt: Date | null; createdAt: Date; updatedAt: Date }) {
   if (!testNetworkSchema.safeParse(wallet.network).success) throw new WalletError(403, "network-rejected")
-  return { ...wallet, lineages: ["sha256d", "blake2b"], signingAvailable: false, creationAvailable: false }
+  return { ...wallet, lineages: ["sha256d", "blake2b"], signingAvailable: false }
 }
 
 export async function listWallets(userId: string) {
   const wallets = await prisma.walletAccount.findMany({
     where: { userId, network: { in: [...testNetworkSchema.options] } }, select: summarySelect, orderBy: { createdAt: "asc" },
   })
-  return { wallets: wallets.map(summary), creationAvailable: false, unavailableReason: "creation-unavailable" }
+  try {
+    const { rpId } = requireCreationConfig()
+    const network = testNetworkSchema.parse(process.env.WALLET_NETWORK ?? "signet")
+    await loadWalletMpc()
+    const registered = await prisma.walletCredential.count({ where: { userId, rpId } })
+    return { wallets: wallets.map(summary), creationAvailable: true, network, hasCredential: registered > 0 }
+  } catch {
+    return { wallets: wallets.map(summary), creationAvailable: false, unavailableReason: "creation-unavailable" }
+  }
 }
 
 export async function walletStatus(userId: string, walletId: string) {

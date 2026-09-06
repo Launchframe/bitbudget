@@ -32,7 +32,7 @@ function run(command, args, capture = false) {
 }
 
 try {
-  if (process.argv.slice(2).some(argument => argument !== "--full-unit-suite")) throw new Error("Only --full-unit-suite is supported")
+  if (process.argv.slice(2).some(argument => !["--full-unit-suite", "--browser"].includes(argument))) throw new Error("Only --full-unit-suite and --browser are supported")
   if (Number(process.versions.node.split(".")[0]) < 22) throw new Error("Node 22 is required")
   run("docker", ["info"], true)
   run("docker", ["buildx", "imagetools", "inspect", image], true)
@@ -59,16 +59,24 @@ try {
   env.DATABASE_URL_UNPOOLED = env.DATABASE_URL
   env.WALLET_TEST_DATABASE_URL = env.DATABASE_URL
   temporary = await mkdtemp(path.join(tmpdir(), "bitbudget-wallet-schema-"))
-  const baseSchema = path.join(temporary, "base.prisma")
   const sqlFile = path.join(temporary, "wallet.sql")
-  await writeFile(baseSchema, run("git", ["show", "HEAD:prisma/schema.prisma"], true))
-  const sql = run("pnpm", ["exec", "prisma", "migrate", "diff", "--from-schema-datamodel", baseSchema, "--to-schema-datamodel", "prisma/schema.prisma", "--script"], true)
+  run("pnpm", ["exec", "prisma", "migrate", "deploy"])
+  const sql = run("pnpm", ["exec", "prisma", "migrate", "diff", "--from-schema-datasource", "prisma/schema.prisma", "--to-schema-datamodel", "prisma/schema.prisma", "--script"], true)
   if (/^\s*(?:DROP|TRUNCATE|DELETE\s+FROM)\b/im.test(sql)) throw new Error("Fixture schema delta unexpectedly contains destructive SQL")
   await writeFile(sqlFile, sql)
-  run("pnpm", ["exec", "prisma", "migrate", "deploy"])
   run("pnpm", ["exec", "prisma", "db", "execute", "--file", sqlFile, "--schema", "prisma/schema.prisma"])
   run("pnpm", ["exec", "vitest", "run", "--config", "scripts/wallet-database-vitest.config.mts"])
   if (process.argv.includes("--full-unit-suite")) run("pnpm", ["exec", "vitest", "run"])
+  if (process.argv.includes("--browser")) {
+    env.WALLET_TEST_INTERRUPT_DKG = "false"
+    env.WALLET_TEST_UNSUPPORTED_PRF = "false"
+    run("node", ["scripts/wallet-setup.browser.mjs"])
+    env.WALLET_TEST_INTERRUPT_DKG = "true"
+    run("node", ["scripts/wallet-setup.browser.mjs"])
+    env.WALLET_TEST_INTERRUPT_DKG = "false"
+    env.WALLET_TEST_UNSUPPORTED_PRF = "true"
+    run("node", ["scripts/wallet-setup.browser.mjs"])
+  }
   console.log("Isolated wallet PostgreSQL integration passed; existing databases and environment files were untouched.")
 } catch (error) {
   console.error(error instanceof Error ? error.message : "Isolated wallet database fixture failed")

@@ -659,6 +659,8 @@ model WalletAccount {
   status              String   @default("provisioning")
   outputKey           Bytes?
   publicPackage       Bytes?
+  recoveryVerifiedAt  DateTime?
+  recoveryFileHash    String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   cosigner            WalletCosigner?
@@ -693,6 +695,7 @@ model WalletChallenge {
   profileId           String
   digest              String?
   challenge           String   @unique
+  payloadHash         String?
   userHandle          String?
   origin              String
   rpId                String

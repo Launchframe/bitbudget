@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { wrapDeviceShare, type ShareCustodyContext } from "@/lib/wallet/client-custody"
 import { createRecoveryPackage } from "@/lib/wallet/recovery-package"
 import { openWalletCustodyStore, type WalletCustodyStore } from "@/lib/wallet/wallet-idb"
+import { sealCreationDraft } from "@/lib/wallet/creation-draft"
+import { encryptField } from "@/lib/crypto"
 
 let factory: IDBFactory
 const stores: WalletCustodyStore[] = []
@@ -86,6 +88,34 @@ describe("account-scoped custody storage", () => {
     await expect(second.replaceEnvelopes("wallet-1", current!.revision, input.envelopes)).rejects.toThrow("Wallet revision conflict")
     expect((await second.reserveAddressIndices("wallet-1", "receive")).startIndex).toBe(2)
     expect((await second.reserveAddressIndices("wallet-1", "change")).startIndex).toBe(0)
+  })
+
+  it("persists only an encrypted name and retry body, and cannot mark recovery while DKG is pending", async () => {
+    const store = await open()
+    const input = await fixture()
+    const key = crypto.getRandomValues(new Uint8Array(32))
+    const encryptedName = await encryptField("Private wallet label", key)
+    const pendingCreation = await sealCreationDraft({ aToBHex: "secret-contribution" }, key, { accountId: "alice", walletId: "wallet-1", credentialId: "credential-a", network: "regtest" })
+    const created = await store.createWallet({ ...input, encryptedName, pendingCreation })
+    expect(JSON.stringify(created)).not.toContain("Private wallet label")
+    expect(JSON.stringify(created)).not.toContain("secret-contribution")
+    await expect(store.recordRecoveryVerification("wallet-1", created.revision, new Date().toISOString())).rejects.toThrow("Wallet revision conflict")
+    const completed = await store.completeCreation("wallet-1", created.revision)
+    expect(completed.pendingCreation).toBeNull()
+    expect(completed.context).toEqual(created.context)
+    expect(completed.envelopes).toEqual(created.envelopes)
+    const verified = await store.recordRecoveryVerification("wallet-1", completed.revision, "2026-09-06T00:00:00.000Z")
+    expect(verified.recoveryVerifiedAt).toBe("2026-09-06T00:00:00.000Z")
+    key.fill(0)
+  })
+
+  it("rejects plaintext or asymmetric transaction-encryption labels rather than saving the wrong format", async () => {
+    const store = await open()
+    const input = await fixture()
+    for (const encryptedName of ["Private wallet", "asym:v1:abc", `${"00".repeat(12)}:${"0".repeat(33)}`]) {
+      await expect(store.createWallet({ ...input, encryptedName })).rejects.toThrow("Invalid encrypted wallet name")
+    }
+    expect(await store.getWallet("wallet-1")).toBeNull()
   })
 
   it("rejects mismatched envelope context and invalid reservation sizes", async () => {
