@@ -49,7 +49,6 @@ import { SettingsSavingsCard } from "@/components/settings-savings-card"
 import { IncomeImporterCard } from "@/components/income-importer-dialog"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
 import { SettingsSetupGuideSection } from "@/components/settings-setup-guide-section"
-import { BitcoinWalletsCard } from "@/components/bitcoin-wallets-card"
 import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 type SettingsTab = "general" | "communications" | "savings" | "integrations" | "tags" | "payees" | "data"
 
@@ -758,7 +757,13 @@ export function SettingsPage() {
       </div>
 
       {/* Bitcoin wallets — only shown for OC-enabled users; entirely client-side */}
-      <BitcoinWalletsCard />
+      {state.opportunityCostEnabled ? (
+        <section className="rounded-2xl border border-[#333] bg-[#0D0D0D] p-4 sm:p-6">
+          <h3 className="font-semibold">Bitcoin wallets</h3>
+          <p className="mt-2 text-sm text-muted-foreground">Open the wallet workspace to manage external wallet tracking. Wallet tools load only when you open them.</p>
+          <button type="button" onClick={() => navigateTo("wallet")} className="mt-4 w-full rounded-xl bg-[#F7931A] px-4 py-2 text-sm font-semibold text-black sm:w-auto">Open wallet</button>
+        </section>
+      ) : null}
 
       {/* CSV Import */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">

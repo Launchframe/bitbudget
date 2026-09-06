@@ -1,0 +1,12 @@
+*
+!Dockerfile
+!Cargo.toml
+!Cargo.lock
+!src/
+!src/*.rs
+!src/unified-vectors.json
+!build-in-container.sh
+!wasm-smoke.mjs
+!README.md
+!regtest.mjs
+!wasm-protocol.mjs

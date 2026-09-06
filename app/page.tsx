@@ -32,6 +32,7 @@ import { PremiumRenewalUiHost } from "@/components/premium-renewal-ui-host"
 import { SurveySheetHost } from "@/components/survey-sheet"
 import { WalkthroughOverlay } from "@/components/walkthrough-overlay"
 import { AchievementCelebrationHost } from "@/components/achievement-celebration-host"
+import { WalletFeatureHost } from "@/components/wallet-feature-host"
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -243,7 +244,9 @@ export default function Dashboard() {
                     <PremiumRenewalUiHost />
                     <TrialWelcomeBanner />
                     <TransactionLoadingIndicator />
-                    <PageContent />
+                    <WalletFeatureHost>
+                      <PageContent />
+                    </WalletFeatureHost>
                   </div>
                 </main>
               </div>

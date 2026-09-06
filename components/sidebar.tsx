@@ -16,6 +16,7 @@ const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "envelopes", label: "ENVELOPES", icon: Wallet },
   { id: "analytics", label: "ANALYTICS", icon: BarChart3 },
   { id: "btc-price", label: "BTC", icon: Bitcoin },
+  { id: "wallet", label: "WALLET", icon: Wallet },
   { id: "researcher", label: "RESEARCHER", icon: Search },
   { id: "funds", label: "FUNDS", icon: Landmark },
 ]
@@ -28,7 +29,7 @@ export function Sidebar() {
   return (
     <aside className="sticky top-24 h-[calc(100vh-8rem)] w-16 lg:w-64 bg-[#0D0D0D] rounded-2xl hidden md:flex flex-col py-8 px-3 lg:px-8 overflow-y-auto">
       <nav className="flex flex-col gap-8" data-walkthrough="app-nav">
-        {navItems.filter(item => item.id !== "btc-price" || state.opportunityCostEnabled).map((item) => {
+        {navItems.filter(item => (item.id !== "btc-price" && item.id !== "wallet") || state.opportunityCostEnabled).map((item) => {
           const isActive = currentPage === item.id || (item.id === "envelopes" && (currentPage === "envelope-detail" || currentPage === "envelope-allocations"))
           const isPlaceholder = item.id === "researcher" || item.id === "funds"
           const Icon = item.icon

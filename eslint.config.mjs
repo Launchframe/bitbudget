@@ -11,5 +11,7 @@ export default defineConfig([
     "build/**",
     "next-env.d.ts",
     "node_modules/**",
+    "wallet-mpc/pkg/**",
+    "wallet-mpc/target/**",
   ]),
 ])

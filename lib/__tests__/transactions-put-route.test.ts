@@ -43,8 +43,8 @@ describe("PUT /api/transactions satsAmount", () => {
       createdAt: new Date("2026-01-15T00:00:00.000Z"),
       updatedAt: new Date("2026-01-15T00:00:00.000Z"),
     } as never)
-    vi.mocked(prisma.transaction.update).mockImplementation(async ({ data }) =>
-      ({
+    vi.mocked(prisma.transaction.update).mockImplementation(({ data }) =>
+      Promise.resolve({
         id: txnId,
         userId,
         date: data.date ?? new Date("2026-01-15T00:00:00.000Z"),

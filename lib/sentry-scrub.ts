@@ -1,11 +1,14 @@
-const SENSITIVE_KEY = /email|password|token|secret|encrypted|privacy|nsec|npub|authorization|cookie|payee|notes|encryptedprivacykey|privacykeysalt|crons_secret|cron_secret/i
+const SENSITIVE_KEY = /email|password|token|secret|encrypted|privacy|nsec|npub|authorization|cookie|payee|notes|encryptedprivacykey|privacykeysalt|crons_secret|cron_secret|share|credential|prf|scripthash|descriptor|[xyzuvt]pub|psbt|transcript|broadcasthex|[abc]to[abc]hex|publicpackage|outputkey|indexer|rpcurl|nodeurl|attestation|clientdatajson|authenticatordata|signature/i
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi
 const NSEC_RE = /\bnsec1[a-z0-9]+\b/gi
 const NPUB_RE = /\bnpub1[a-z0-9]+\b/gi
-const HEX64_RE = /\b[0-9a-f]{64}\b/gi
+const HEX64_RE = /\b[0-9a-f]{64,}\b/gi
+const WALLET_PUBLIC_KEY_RE = /\b(?:[xyzuvt]pub)[1-9A-HJ-NP-Za-km-z]{60,}\b/g
+const WALLET_ADDRESS_RE = /\b(?:(?:bc1|tb1|bcrt1)[a-z0-9]{20,90}|[13mn2][1-9A-HJ-NP-Za-km-z]{25,34})\b/gi
+const WALLET_SOCKET_RE = /\b(?:wss?|tcp|tls|ssl):\/\/[^\s"'<>]+/gi
 const BEARER_RE = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi
 const SENSITIVE_TEXT_PAIR_RE =
-  /(["']?)(email|password|passphrase|pin|token|secret|encryptedPrivacyKey|privacyKeySalt|authorization|cookie|nsec|npub|payee|notes|accessToken|refreshToken)\1(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,}&\]]+)/gi
+  /(["']?)(email|password|passphrase|pin|token|secret|encryptedPrivacyKey|privacyKeySalt|authorization|cookie|nsec|npub|payee|notes|accessToken|refreshToken|[a-z]*share[a-z]*|credentialId|prfOutput|prf|scripthash|descriptor|psbt|[abc]BroadcastHex|[abc]To[abc]Hex|publicPackageHex|indexerUrl|rpcUrl|nodeUrl|attestationObject|clientDataJSON|authenticatorData|signature)\1(\s*[:=]\s*)("[^"]*"|'[^']*'|\[[^\]]*\]|[^\s,}&\]]+)/gi
 
 function redactString(value: string): string {
   return value
@@ -14,6 +17,9 @@ function redactString(value: string): string {
     .replace(EMAIL_RE, "[redacted-email]")
     .replace(NSEC_RE, "[redacted-nsec]")
     .replace(NPUB_RE, "[redacted-npub]")
+    .replace(WALLET_PUBLIC_KEY_RE, "[redacted-wallet-key]")
+    .replace(WALLET_ADDRESS_RE, "[redacted-wallet-address]")
+    .replace(WALLET_SOCKET_RE, "[redacted-wallet-endpoint]")
     .replace(HEX64_RE, "[redacted-hex]")
 }
 

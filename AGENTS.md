@@ -677,6 +677,17 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - When test-coverage gaps are identified for new shared logic, write the missing unit and e2e tests in the same session rather than deferring (if the user asks to write tests, implement them — do not stop at a coverage summary).
 - Onboarding and similar money inputs should normalize on blur or when changing steps (strip meaningless leading zeros, coerce empty to zero) so values like `000100000` cannot persist after navigating forward and back.
 
+## Wallet implementation boundaries
+
+- **One dual-lineage wallet:** no SHA256d/BLAKE2b choice or indexer step during custody setup. Optional Wallet → Security → Connections copy: “Connect a Blake2b-compatible transaction indexer to watch and spend on that side of the fork.” Connecting must not rotate keys, create a second wallet, or require a new backup.
+- **Load only on demand:** `WalletFeatureHost` is the lightweight boundary. Never import wallet runtime, xpub UI, WASM or signer dependencies into the global context or navigation. Remembered activation is account/device scoped; vanilla mode and an unresolved account cannot activate it. Monitoring is separate from signing authorization.
+- **No pretend readiness:** native/WASM proof tests are not application-wallet completion. Provisioning stops at `recovery-required` until real recovery verification is integrated. Do not expose fundable addresses or claim signing/indexer verification from a stub, successful HTTP response, or server banner.
+- **FROST v3 TapTweak:** the pinned library applies its Taproot tweak during DKG. `output_key()` is already the output key; do not apply a second tweak. Exported DKG state is plaintext secret material until wrapped with authenticated account/wallet/network/stage/transcript context. Signing nonce objects remain single-use and nonserializable.
+- **Replay output boundary:** the pinned Knots RDTS rule rejects script size **greater than 83**, not equal to it. A canonical 81-byte payload gives the minimal 84-byte data-output script. Verified selected split-input ancestry can avoid an automatic marker; absence from an indexer is not proof. Preserve explicit user metadata, and track temporary RDTS expiry separately from permanent split evidence.
+- **Wallet verification:** Node 22; `pnpm test:wallet` for scoped TypeScript tests, `pnpm wallet-mpc:build` for the isolated Docker WASM build, `pnpm wallet:test:core`, `pnpm wallet:test:regtest`, and `pnpm wallet:test:browser`. Generated `wallet-mpc/pkg/` is required before compiling API imports; it is ignored build output, not checked-in source.
+- **Database integration:** `pnpm wallet:test:database` creates and removes its own loopback-only PostgreSQL container with synthetic credentials, applies committed migrations plus the working wallet schema delta only there, and runs the real database/DKG test. It never migrates the database from local env files. This temporary fixture is not a committed release migration.
+- **Targeted Vitest:** use `pnpm exec vitest run <path>` or `pnpm test:wallet`; `pnpm test -- <path>` can pass a literal separator and run the whole suite instead. Compile-only checking uses `pnpm exec next build`; `pnpm build` also deploys migrations.
+
 ## Learned Workspace Facts
 
 - Local dev pins Node 22 via `.nvmrc`; run `nvm use` before `pnpm` when the shell reports Node 18 or below (Playwright and the app require Node ≥ 20).

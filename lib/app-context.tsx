@@ -81,8 +81,7 @@ import { filterTransactionsForActiveLedger } from "@/lib/envelope-ledger-visibil
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { transactionSyncUserMessage } from "@/lib/transaction-sync-user-message"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
-import { clearWallets } from "@/lib/wallets/xpub-store"
-import { clearWalletDb } from "@/lib/wallets/xpub-cache"
+import { clearWallets, clearWalletDb } from "@/lib/wallet-watch-cleanup"
 
 export type PageId =
   | "dashboard"
@@ -97,6 +96,7 @@ export type PageId =
   | "profile"
   | "settings"
   | "review-inbox"
+  | "wallet"
 
 function pageToHash(page: PageId, envelopeId?: string | null): string {
   if (page === "envelope-detail" && envelopeId) return `#/envelope/${envelopeId}`
@@ -115,7 +115,7 @@ function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
 
   if (path.startsWith("settings/")) return { page: "settings" }
 
-  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox"]
+  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox", "wallet"]
   if (validPages.includes(path as PageId)) return { page: path as PageId }
 
   return { page: "dashboard" }
