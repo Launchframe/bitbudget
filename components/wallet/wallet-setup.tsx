@@ -129,12 +129,17 @@ export default function WalletSetup({ userId, network, hasCredential, resumeWall
     setPassword(""); setConfirmation(""); setBusy(true); setError(""); setStep("creating"); setProgress("Confirm on your device")
     abort.current = new AbortController()
     let prf: Uint8Array<ArrayBuffer> | undefined
+    let privacyKey: Uint8Array<ArrayBuffer> | undefined
     try {
       const encryptedName = await encryptName(name.trim())
       const credential = await walletPasskey(network, hasCredential, abort.current.signal)
       prf = credential.prfOutput
       if (!alive.current) return
-      const result = createdSchema.parse(await worker().run({ type: "create", input: { userId, network, credentialId: credential.credentialId, prf, grantId: credential.grantId, password: recoveryPassword, encryptedName } }, event => {
+      const unlocked = getPrivacyKey()
+      if (!unlocked) throw new WalletClientError("privacy-key-unavailable")
+      privacyKey = Uint8Array.from(unlocked)
+      unlocked.fill(0)
+      const result = createdSchema.parse(await worker().run({ type: "create", input: { userId, network, credentialId: credential.credentialId, prf, privacyKey, grantId: credential.grantId, password: recoveryPassword, encryptedName } }, event => {
         if (!alive.current) return
         setProgress(({ creating: "Creating your wallet", securing: "Encrypting your device and recovery shares", saved: "Device share saved", finishing: "Saving the co-signer share" })[event.stage])
         if (event.stage === "saved" && event.walletId) { savedId.current = event.walletId; setWalletId(event.walletId); setPending(true) }
@@ -143,7 +148,7 @@ export default function WalletSetup({ userId, network, hasCredential, resumeWall
       setWalletId(result.walletId); savedId.current = result.walletId; setRecoveryFile(result.recoveryFile); setPending(false); setStep("recovery"); onChanged()
     } catch (error) {
       if (alive.current) { showError(error); setStep(savedId.current ? "recovery" : "security"); onChanged() }
-    } finally { if (prf?.byteLength) prf.fill(0); if (alive.current) setBusy(false) }
+    } finally { if (prf?.byteLength) prf.fill(0); if (privacyKey?.byteLength) privacyKey.fill(0); if (alive.current) setBusy(false) }
   }
 
   async function resume() {
@@ -184,7 +189,7 @@ export default function WalletSetup({ userId, network, hasCredential, resumeWall
     finally { if (prf?.byteLength) prf.fill(0); if (alive.current) setBusy(false) }
   }
 
-  return <section className="min-w-0 rounded-2xl border border-[#F7931A]/25 bg-[#0D0D0D] p-4 sm:p-6" data-wallet-setup="true">
+  return <section className="min-w-0 rounded-2xl border border-[#F7931A]/25 bg-[#0D0D0D] p-4 sm:p-6" data-wallet-setup="true" data-wallet-asset-group="bitbudget-wallet-assets:signer:v1">
     <div className="mb-5 flex items-center justify-between gap-3"><span className="text-xs uppercase tracking-wide text-[#F7931A]">{network} · test coins only</span><Button variant="ghost" disabled={busy} onClick={() => step === "success" ? onClose() : setConfirmClose(true)}>Close</Button></div>
     <ShareIllustration />
     {step === "intro" ? <div className="mt-5 space-y-4">

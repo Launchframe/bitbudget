@@ -22,21 +22,26 @@ async function recoveryWallet(userId: string, walletId: string) {
   return wallet
 }
 
+function recoveryDigest(userId: string, walletId: string, wallet: { network: string; publicPackage: Uint8Array | null; derivationContext: string }, backupHash: string, nonce: string) {
+  return createHash("sha256").update(JSON.stringify([
+    wallet.derivationContext === "base-output-v1" ? "BitBudget/verified-recovery/v1" : "BitBudget/verified-recovery/v2", userId, walletId, wallet.network, walletProfileId,
+    createHash("sha256").update(wallet.publicPackage!).digest("hex"), backupHash, nonce,
+    ...(wallet.derivationContext === "base-output-v1" ? [] : [wallet.derivationContext]),
+  ])).digest("hex")
+}
+
 export async function recoveryOptions(userId: string, walletId: string, origin: string, input: z.infer<typeof recoveryOptionsSchema>) {
   const { rpId, origins } = requireCreationConfig()
   if (!origins.includes(origin)) throw new WalletError(403, "origin-rejected")
   const { backupHash } = recoveryOptionsSchema.parse(input)
   const wallet = await recoveryWallet(userId, walletId)
   const nonce = randomBytes(32).toString("base64url")
-  const digest = createHash("sha256").update(JSON.stringify([
-    "BitBudget/verified-recovery/v1", userId, walletId, wallet.network, walletProfileId,
-    createHash("sha256").update(wallet.publicPackage!).digest("hex"), backupHash, nonce,
-  ])).digest("hex")
+  const digest = recoveryDigest(userId, walletId, wallet, backupHash, nonce)
   const challenge = await prisma.walletChallenge.create({ data: {
     userId, walletId, network: wallet.network, operation: "verify-recovery", profileId: walletProfileId,
     origin, rpId, digest, payloadHash: backupHash, challenge: nonce, expiresAt: new Date(Date.now() + challengeLifetimeMs),
   }, select: { id: true, expiresAt: true } })
-  return { challengeId: challenge.id, digest, nonce, expiresAt: challenge.expiresAt }
+  return { challengeId: challenge.id, digest, nonce, derivationContext: wallet.derivationContext, expiresAt: challenge.expiresAt }
 }
 
 export async function recoveryVerify(userId: string, walletId: string, origin: string, raw: z.infer<typeof recoveryVerifySchema>) {
@@ -49,7 +54,7 @@ export async function recoveryVerify(userId: string, walletId: string, origin: s
     origin, rpId, consumedAt: null, expiresAt: { gt: new Date() },
   }
   const challenge = await prisma.walletChallenge.findFirst({ where: scope })
-  if (!challenge?.digest || !hashHex.safeParse(challenge.digest).success || !challenge.payloadHash) throw new WalletError(403, "challenge-rejected")
+  if (!challenge?.digest || !hashHex.safeParse(challenge.digest).success || !challenge.payloadHash || challenge.digest !== recoveryDigest(userId, walletId, wallet, challenge.payloadHash, challenge.challenge)) throw new WalletError(403, "challenge-rejected")
   const core = await loadWalletMpc()
   let session
   try {
@@ -66,7 +71,7 @@ export async function recoveryVerify(userId: string, walletId: string, origin: s
     const claimed = await tx.walletChallenge.updateMany({ where: { ...scope, expiresAt: { gt: verifiedAt } }, data: { consumedAt: verifiedAt } })
     if (claimed.count !== 1) throw new WalletError(403, "challenge-rejected")
     const updated = await tx.walletAccount.updateMany({
-      where: { id: walletId, userId, network: wallet.network, status: { in: ["recovery-required", "ready"] }, publicPackage: wallet.publicPackage },
+      where: { id: walletId, userId, network: wallet.network, status: { in: ["recovery-required", "ready"] }, publicPackage: wallet.publicPackage, derivationContext: wallet.derivationContext },
       data: { status: "ready", recoveryVerifiedAt: verifiedAt, recoveryFileHash: challenge.payloadHash },
     })
     if (updated.count !== 1) throw new WalletError(409, "wallet-state-changed")

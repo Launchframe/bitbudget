@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { createRecoveryPackage, decryptRecoveryPackage, parseRecoveryPackage, serializeRecoveryPackage, verifyRecoveryPackage } from "@/lib/wallet/recovery-package"
 import type { ShareCustodyContext } from "@/lib/wallet/client-custody"
 import { loadWalletMpc } from "@/lib/wallet/server/mpc"
+import { derivationContext } from "@/lib/wallet/derivation"
 
 async function fixture() {
   const core = await loadWalletMpc()
@@ -33,6 +34,26 @@ async function fixture() {
 const password = "synthetic recovery password only"
 
 describe("password-encrypted recovery C", () => {
+  it("keeps the address derivation seed inside a versioned encrypted payload and wipes validator copies", async () => {
+    const { context, secret } = await fixture()
+    const seed = crypto.getRandomValues(new Uint8Array(32))
+    const bound = { ...context, derivationContext: derivationContext(seed) }
+    const envelope = await createRecoveryPackage({ share: secret, context: bound, password, derivationSeed: seed })
+    expect(envelope.version).toBe(2)
+    expect(serializeRecoveryPackage(envelope)).not.toContain(Buffer.from(seed).toString("hex"))
+    const decoded = await decryptRecoveryPackage({ envelope, expectedContext: bound, password })
+    expect(decoded.share).toEqual(secret)
+    expect(decoded.derivationSeed).toEqual(seed)
+    decoded.share.fill(0); decoded.derivationSeed?.fill(0)
+    let borrowed: Uint8Array | undefined
+    await verifyRecoveryPackage({ envelope, expectedContext: bound, password, validateShare: async ({ derivationSeed }) => { borrowed = derivationSeed; return true } })
+    expect(borrowed?.every(value => value === 0)).toBe(true)
+    expect(() => parseRecoveryPackage({ ...envelope, version: 1 })).toThrow()
+    await expect(createRecoveryPackage({ share: secret, context: bound, password })).rejects.toThrow()
+    await expect(createRecoveryPackage({ share: secret, context: bound, password, derivationSeed: crypto.getRandomValues(new Uint8Array(32)) })).rejects.toThrow()
+    seed.fill(0); secret.fill(0)
+  })
+
   it("verifies an actual FROST share only after decryption and core validation, then wipes validator bytes", async () => {
     const { core, context, secret, publicPackage } = await fixture()
     const envelope = await createRecoveryPackage({ share: secret, context, password })

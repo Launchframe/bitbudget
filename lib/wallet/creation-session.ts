@@ -6,17 +6,19 @@ import { wrapDeviceShare, unwrapDeviceShare, walletPublicContext, type ShareCust
 import { createRecoveryPackage, decryptRecoveryPackage, serializeRecoveryPackage } from "@/lib/wallet/recovery-package"
 import { openWalletCustodyStore, type StoredWalletCustody, type WalletCustodyStore } from "@/lib/wallet/wallet-idb"
 import { sealCreationDraft, openCreationDraft } from "@/lib/wallet/creation-draft"
+import { derivationContext, deriveAddressTweak, deriveWalletAddress } from "@/lib/wallet/derivation"
+import { sealWalletWatchSeed } from "@/lib/wallet/watch-custody"
 
 const hex = z.string().min(2).max(16384).regex(/^(?:[0-9a-f]{2})+$/)
 const hash = z.string().regex(/^[0-9a-f]{64}$/)
 const startedSchema = z.object({ walletId: z.string().uuid(), status: z.literal("round2"), bBroadcastHex: hex, bToAHex: hex, bToCHex: hex, transcriptHash: hash })
-const completionSchema = z.object({ aToBHex: hex, cToBHex: hex, publicPackageHex: hex, transcriptHash: hash }).strict()
+const completionSchema = z.object({ aToBHex: hex, cToBHex: hex, publicPackageHex: hex, transcriptHash: hash, derivationContext: z.string().regex(/^(?:base-output-v1|taptweak-hmac-sha256-v1:[0-9a-f]{64})$/).optional() }).strict()
 const finishedSchema = z.object({ walletId: z.string().uuid(), status: z.enum(["recovery-required", "ready"]), signingAvailable: z.literal(false) })
 const challengeSchema = z.object({ challengeId: z.string().uuid(), digest: hash, nonce: z.string().regex(/^[A-Za-z0-9_-]{43}$/), expiresAt: z.string().datetime() })
 const verifiedSchema = z.object({ walletId: z.string().uuid(), status: z.literal("ready"), recoveryVerifiedAt: z.string().datetime(), signingAvailable: z.literal(false) })
 
 export interface CreationIdentity { userId: string; credentialId: string; prf: Uint8Array<ArrayBuffer> }
-export interface CreationInput extends CreationIdentity { network: "signet" | "testnet4" | "regtest"; grantId: string; password: string; encryptedName: string }
+export interface CreationInput extends CreationIdentity { network: "signet" | "testnet4" | "regtest"; grantId: string; password: string; encryptedName: string; privacyKey: Uint8Array<ArrayBuffer> }
 export type CreationProgress = { stage: "creating" | "securing" | "saved" | "finishing"; walletId?: string }
 
 function initializeCore() {
@@ -49,6 +51,7 @@ async function finishSaved(identity: CreationIdentity, record: StoredWalletCusto
   if (record.envelopes.deviceShare?.credentialId !== identity.credentialId) throw new WalletClientError("credential-rejected")
   if (!record.pendingCreation) return record
   const body = completionSchema.parse(await openCreationDraft(record.pendingCreation, identity.prf, binding(identity, record.identity.id, record.identity.network)))
+  if ((body.derivationContext ?? "base-output-v1") !== record.context.derivationContext) throw new WalletClientError("wallet-response-mismatch")
   const result = finishedSchema.parse(await walletRequest(`/api/wallets/${record.identity.id}/dkg`, body))
   if (result.walletId !== record.identity.id) throw new WalletClientError("wallet-response-mismatch")
   const store = await openWalletCustodyStore(identity.userId)
@@ -56,10 +59,10 @@ async function finishSaved(identity: CreationIdentity, record: StoredWalletCusto
 }
 
 export async function createBrowserWallet(input: CreationInput, progress: (event: CreationProgress) => void) {
-  const buffers: Uint8Array[] = [input.prf]
+  const buffers: Uint8Array[] = [input.prf, input.privacyKey]
   const owned = resources()
   try {
-    if (!input.userId || !input.credentialId || input.prf.length !== 32 || input.password.length < 12 || input.password.length > 1024 || !/^[0-9a-f]{24}:(?:[0-9a-f]{2}){16,}$/.test(input.encryptedName) || input.encryptedName.length > 4096 || !["regtest", "signet", "testnet4"].includes(input.network)) throw new WalletClientError("invalid-creation-input")
+    if (!input.userId || !input.credentialId || input.prf.length !== 32 || input.privacyKey.length !== 32 || input.password.length < 12 || input.password.length > 1024 || !/^[0-9a-f]{24}:(?:[0-9a-f]{2}){16,}$/.test(input.encryptedName) || input.encryptedName.length > 4096 || !["regtest", "signet", "testnet4"].includes(input.network)) throw new WalletClientError("invalid-creation-input")
     try { await initializeCore() } catch { throw new WalletClientError("wallet-core-load-failed") }
     progress({ stage: "creating" })
     const a = owned.keep(new core.WasmDkgRound1(1))
@@ -78,21 +81,24 @@ export async function createBrowserWallet(input: CreationInput, progress: (event
     const shareC = owned.keep(owned.consume(c2, () => c2.finish(1, aToC, 2, bToC)))
     const publicPackage = shareA.public_package()
     if (!equal(publicPackage, shareC.public_package()) || !equal(shareA.output_key(), shareC.output_key())) throw new WalletClientError("dkg-public-package-mismatch")
+    const watchSeed = crypto.getRandomValues(new Uint8Array(32))
+    buffers.push(watchSeed)
     const context: ShareCustodyContext = {
       accountId: input.userId, walletId: started.walletId, network: input.network,
       participantId: "1", role: "A", shareFormat: "frost-secp256k1-tr-v3", groupPublicKeyHex: bytesToHex(shareA.output_key()), publicPackageHex: bytesToHex(publicPackage),
-      policy: { threshold: 2, participants: 3 }, derivationContext: "base-output-v1",
+      policy: { threshold: 2, participants: 3 }, derivationContext: derivationContext(watchSeed),
     }
     const secretA = shareA.export_secret_share(), secretC = shareC.export_secret_share()
     buffers.push(secretA, secretC)
     progress({ stage: "securing", walletId: started.walletId })
     const deviceShare = await wrapDeviceShare({ share: secretA, context, credentialId: input.credentialId, prfOutput: input.prf })
-    const recoveryShare = await createRecoveryPackage({ share: secretC, context: { ...context, participantId: "3", role: "C" }, password: input.password })
-    const pendingCreation = await sealCreationDraft({ aToBHex: bytesToHex(aToB), cToBHex: bytesToHex(cToB), publicPackageHex: bytesToHex(publicPackage), transcriptHash: started.transcriptHash }, input.prf, binding(input, started.walletId, input.network))
+    const recoveryShare = await createRecoveryPackage({ share: secretC, context: { ...context, participantId: "3", role: "C" }, password: input.password, derivationSeed: watchSeed })
+    const watchEnvelope = await sealWalletWatchSeed(watchSeed, input.privacyKey, walletPublicContext(context))
+    const pendingCreation = await sealCreationDraft({ aToBHex: bytesToHex(aToB), cToBHex: bytesToHex(cToB), publicPackageHex: bytesToHex(publicPackage), transcriptHash: started.transcriptHash, derivationContext: context.derivationContext }, input.prf, binding(input, started.walletId, input.network))
     const store = await openWalletCustodyStore(input.userId)
     let record
     try {
-      record = await store.createWallet({ context: walletPublicContext(context), envelopes: { deviceShare, recoveryShare, optionalDeviceExport: null }, pendingCreation, encryptedName: input.encryptedName })
+      record = await store.createWallet({ context: walletPublicContext(context), envelopes: { deviceShare, recoveryShare, optionalDeviceExport: null }, pendingCreation, encryptedName: input.encryptedName, watchEnvelope })
     } finally { store.close() }
     progress({ stage: "saved", walletId: record.identity.id })
     progress({ stage: "finishing", walletId: record.identity.id })
@@ -127,15 +133,23 @@ export async function verifyBrowserRecovery(input: CreationIdentity & { walletId
     const record = await finishSaved(input, saved)
     const recovered = await decryptRecoveryPackage({ envelope: input.file, expectedContext: record.envelopes.recoveryShare.context, password: input.password })
     buffers.push(recovered.share)
+    if (recovered.derivationSeed) buffers.push(recovered.derivationSeed)
     const secretA = await unwrapDeviceShare({ envelope: record.envelopes.deviceShare, expectedContext: record.envelopes.deviceShare!.context, credentialId: input.credentialId, prfOutput: input.prf })
     buffers.push(secretA)
     const pub = hexToBytes(record.context.publicPackageHex)
     const a = owned.keep(core.WasmWalletShare.import_secret_share(1, secretA, pub))
     const c = owned.keep(core.WasmWalletShare.import_secret_share(3, recovered.share, pub))
     if (!equal(a.output_key(), c.output_key()) || bytesToHex(c.output_key()) !== record.context.groupPublicKeyHex) throw new WalletClientError("recovery-proof-rejected")
+    if (recovered.derivationSeed) {
+      const tweak = deriveAddressTweak(recovered.derivationSeed, record.context, "receive", 0)
+      const derivedA = owned.keep(a.derive_child(tweak)), derivedC = owned.keep(c.derive_child(tweak))
+      const expected = deriveWalletAddress(recovered.derivationSeed, record.context, "receive", 0)
+      if (!equal(derivedA.public_package(), derivedC.public_package()) || bytesToHex(derivedC.output_key()) !== expected.outputKeyHex) throw new WalletClientError("recovery-proof-rejected")
+    }
     const backupHash = await sha256Hex(utf8ToHex(input.file))
     const challenge = challengeSchema.parse(await walletRequest(`/api/wallets/${input.walletId}/recovery/options`, { backupHash }))
-    const expected = await sha256Hex(utf8ToHex(JSON.stringify(["BitBudget/verified-recovery/v1", input.userId, input.walletId, record.identity.network, "dual-lineage-v1", await sha256Hex(record.context.publicPackageHex), backupHash, challenge.nonce])))
+    const base = record.context.derivationContext === "base-output-v1"
+    const expected = await sha256Hex(utf8ToHex(JSON.stringify([base ? "BitBudget/verified-recovery/v1" : "BitBudget/verified-recovery/v2", input.userId, input.walletId, record.identity.network, "dual-lineage-v1", await sha256Hex(record.context.publicPackageHex), backupHash, challenge.nonce, ...(base ? [] : [record.context.derivationContext])])))
     if (expected !== challenge.digest || Date.parse(challenge.expiresAt) <= Date.now()) throw new WalletClientError("recovery-challenge-mismatch")
     const digest = hexToBytes(challenge.digest)
     const an = owned.keep(a.commit_digest_low_level(digest, 3)), cn = owned.keep(c.commit_digest_low_level(digest, 1))

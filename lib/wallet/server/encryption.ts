@@ -39,10 +39,13 @@ export function unwrapCosignerShare(envelope: Uint8Array, binding: CosignerBindi
     decipher.setAAD(aad(binding))
     decipher.setAuthTag(envelope.subarray(13, 29))
     const partial = decipher.update(envelope.subarray(29))
+    let final: Buffer | undefined
     try {
-      return Buffer.concat([partial, decipher.final()])
+      final = decipher.final()
+      return Buffer.concat([partial, final])
     } finally {
       partial.fill(0)
+      final?.fill(0)
     }
   } catch {
     throw new WalletError(503, "cosigner-unavailable")

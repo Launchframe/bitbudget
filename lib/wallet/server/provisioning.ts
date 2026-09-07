@@ -20,6 +20,7 @@ export const finishProvisioningSchema = z.object({
   cToBHex: contributionHex,
   publicPackageHex: z.string().min(2).max(16384).regex(/^(?:[0-9a-f]{2})+$/),
   transcriptHash: hashHex,
+  derivationContext: z.string().regex(/^(?:base-output-v1|taptweak-hmac-sha256-v1:[0-9a-f]{64})$/).optional(),
 }).strict()
 
 const responseSchema = z.object({
@@ -88,7 +89,8 @@ export async function finishProvisioning(userId: string, walletId: string, rawIn
   const session = await prisma.walletProvisioning.findFirst({ where: { walletId, wallet: { userId } }, include: { wallet: true } })
   if (!session) throw new WalletError(404, "wallet-not-found")
   const network: WalletTestNetwork = testNetworkSchema.parse(session.wallet.network)
-  const completionHash = hash([input.transcriptHash, input.publicPackageHex, input.aToBHex, input.cToBHex])
+  const derivationContext = input.derivationContext ?? "base-output-v1"
+  const completionHash = hash([input.transcriptHash, input.publicPackageHex, input.aToBHex, input.cToBHex, ...(derivationContext === "base-output-v1" ? [] : [derivationContext])])
   if (session.status === "completed") {
     if (session.completionHash !== completionHash) throw new WalletError(409, "dkg-request-changed")
     return { walletId, status: "recovery-required" as const, signingAvailable: false }
@@ -113,7 +115,7 @@ export async function finishProvisioning(userId: string, walletId: string, rawIn
     if (updated.count !== 1) throw new WalletError(409, "dkg-state-changed")
     const wallet = await tx.walletAccount.updateMany({
       where: { id: walletId, userId, network, status: "provisioning" },
-      data: { status: "recovery-required", publicPackage: Buffer.from(result.publicPackage), outputKey: Buffer.from(result.outputKey) },
+      data: { status: "recovery-required", publicPackage: Buffer.from(result.publicPackage), outputKey: Buffer.from(result.outputKey), derivationContext },
     })
     if (wallet.count !== 1) throw new WalletError(409, "dkg-state-changed")
     await tx.walletCosigner.create({ data: { walletId, encryptedShare: result.encryptedShare } })

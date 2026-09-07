@@ -124,6 +124,8 @@ try {
   const contents = await readFile(await file.path(), "utf8")
   expect(contents.includes(password)).toBe(false)
   expect(JSON.parse(contents).context.role).toBe("C")
+  expect(JSON.parse(contents).version).toBe(2)
+  expect(JSON.parse(contents).context.derivationContext).toBe((await prisma.walletAccount.findUniqueOrThrow({ where: { id: record.id } })).derivationContext)
   await page.getByLabel("Reopen the saved recovery file").setInputFiles({ name: file.suggestedFilename(), mimeType: "application/json", buffer: Buffer.from(contents) })
   await page.getByLabel("Recovery password", { exact: true }).fill("deliberately wrong recovery password")
   await page.getByRole("button", { name: "Verify recovery file", exact: true }).click()
@@ -141,13 +143,29 @@ try {
   expect(counts.results).toBeGreaterThanOrEqual(3)
   for (const body of requests) {
     expect(body.includes(password)).toBe(false)
-    expect(/"(?:prf|prfOutput|shareA|shareC|password|seedHex)"/.test(body)).toBe(false)
+    expect(/"(?:prf|prfOutput|shareA|shareC|password|seedHex|privacyKey|derivationSeed|watchSeed)"/.test(body)).toBe(false)
   }
   await page.getByRole("button", { name: "Open wallet", exact: true }).click()
   await page.reload()
   await expect(page.getByRole("heading", { name: "Natively verified wallet", exact: true })).toBeVisible({ timeout: 60000 })
   await expect(page.getByText("Recovery verified · signing locked", { exact: true })).toBeVisible()
   expect(await prisma.walletAccount.count({ where: { userId: user.id } })).toBe(1)
+  const watchRecovered = await page.evaluate(async ({ userId, walletId, privacyKey }) => {
+    const bytes = hex => Uint8Array.from(hex.match(/../g), value => parseInt(value, 16))
+    const hash = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", value)), value => value.toString(16).padStart(2, "0")).join("")
+    const name = `bitbudget-wallet-custody-v1-${await hash(new TextEncoder().encode(userId))}`
+    const db = await new Promise((resolve, reject) => { const request = indexedDB.open(name); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(new Error("Wallet store unavailable")) })
+    try {
+      const record = await new Promise((resolve, reject) => { const request = db.transaction("wallets").objectStore("wallets").get([userId, walletId]); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(new Error("Wallet record unavailable")) })
+      const envelope = record.watchEnvelope
+      const aad = new TextEncoder().encode(JSON.stringify(["BitBudget/watch-seed/v1", record.context]))
+      const material = await crypto.subtle.importKey("raw", bytes(privacyKey), "HKDF", false, ["deriveKey"])
+      const key = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: bytes(envelope.saltHex), info: aad }, material, { name: "AES-GCM", length: 256 }, false, ["decrypt"])
+      const seed = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes(envelope.ivHex), additionalData: aad }, key, bytes(envelope.ciphertextHex)))
+      try { return seed.length === 32 && record.context.derivationContext === `taptweak-hmac-sha256-v1:${await hash(seed)}` } finally { seed.fill(0) }
+    } finally { db.close() }
+  }, { userId: user.id, walletId: record.id, privacyKey: privacyKey.toString("hex") })
+  expect(watchRecovered).toBe(true)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   console.log(JSON.stringify({ result: "passed", browser: await browser.version(), actualWebAuthn: counts, creation: "real browser worker WASM + authenticated Next APIs + PostgreSQL", recovery: "download, failed password, re-import, actual A+C proof, reload", walletCount: 1, indexerConfigured: false, interruptedDkg, viewport: interrupt ? 320 : 390 }))
   }

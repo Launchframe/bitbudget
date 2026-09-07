@@ -5,6 +5,7 @@ import {
 } from "@/lib/wallet/client-custody"
 import { parseRecoveryPackage, type RecoveryPackage } from "@/lib/wallet/recovery-package"
 import { parseCreationDraft, type SealedCreationDraft } from "@/lib/wallet/creation-draft"
+import { parseWalletWatchEnvelope, type WalletWatchEnvelope } from "@/lib/wallet/watch-custody"
 import { BITCOIN_LINEAGES, createWalletIdentity, type WalletIdentity } from "@/lib/wallet/types"
 
 const DATABASE_VERSION = 1
@@ -28,6 +29,7 @@ export interface StoredWalletCustody {
   pendingCreation: SealedCreationDraft | null
   encryptedName: string | null
   recoveryVerifiedAt: string | null
+  watchEnvelope: WalletWatchEnvelope | null
 }
 
 export interface AddressIndexReservation {
@@ -62,7 +64,7 @@ function parseEnvelopes(value: unknown, context: WalletPublicContext): WalletCus
 }
 
 function parseStoredWallet(value: unknown, accountId: string, walletId: string): StoredWalletCustody {
-  const metadata = ["pendingCreation", "encryptedName", "recoveryVerifiedAt"].filter(key => value && typeof value === "object" && Object.hasOwn(value, key))
+  const metadata = ["pendingCreation", "encryptedName", "recoveryVerifiedAt", "watchEnvelope"].filter(key => value && typeof value === "object" && Object.hasOwn(value, key))
   exactObject(value, ["version", "revision", "identity", "context", "envelopes", "nextReceiveIndex", "nextChangeIndex", ...metadata])
   const pendingCreation = value.pendingCreation == null ? null : parseCreationDraft(value.pendingCreation)
   const encryptedName = value.encryptedName == null ? null : value.encryptedName
@@ -73,6 +75,8 @@ function parseStoredWallet(value: unknown, accountId: string, walletId: string):
     throw new Error("Unsupported wallet storage version")
   }
   const context = parseWalletPublicContext(value.context)
+  const watchEnvelope = value.watchEnvelope == null ? null : parseWalletWatchEnvelope(value.watchEnvelope)
+  if (watchEnvelope && JSON.stringify(watchEnvelope.context) !== JSON.stringify(context)) throw new Error("Wallet watch context mismatch")
   if (context.accountId !== accountId || context.walletId !== walletId) throw new Error("Wallet account mismatch")
   exactObject(value.identity, ["id", "network", "lineages"])
   if (value.identity.id !== walletId || value.identity.network !== context.network ||
@@ -90,7 +94,7 @@ function parseStoredWallet(value: unknown, accountId: string, walletId: string):
     identity: createWalletIdentity(walletId, context.network), context,
     envelopes: parseEnvelopes(value.envelopes, context),
     nextReceiveIndex: value.nextReceiveIndex as number, nextChangeIndex: value.nextChangeIndex as number,
-    pendingCreation, encryptedName, recoveryVerifiedAt,
+    pendingCreation, encryptedName, recoveryVerifiedAt, watchEnvelope,
   }
 }
 
@@ -100,7 +104,7 @@ function incrementRevision(revision: number): number {
 }
 
 export interface WalletCustodyStore {
-  createWallet(input: { context: WalletPublicContext; envelopes: WalletCustodyEnvelopes; pendingCreation?: SealedCreationDraft; encryptedName?: string }): Promise<StoredWalletCustody>
+  createWallet(input: { context: WalletPublicContext; envelopes: WalletCustodyEnvelopes; pendingCreation?: SealedCreationDraft; encryptedName?: string; watchEnvelope?: WalletWatchEnvelope }): Promise<StoredWalletCustody>
   getWallet(walletId: string): Promise<StoredWalletCustody | null>
   completeCreation(walletId: string, expectedRevision: number): Promise<StoredWalletCustody>
   recordRecoveryVerification(walletId: string, expectedRevision: number, verifiedAt: string): Promise<StoredWalletCustody>
@@ -176,12 +180,13 @@ export async function openWalletCustodyStore(accountId: string, factory: IDBFact
       const envelopes = parseEnvelopes(input.envelopes, context)
       const pendingCreation = input.pendingCreation ? parseCreationDraft(input.pendingCreation) : null
       const encryptedName = input.encryptedName ?? null
+      const watchEnvelope = input.watchEnvelope ? parseWalletWatchEnvelope(input.watchEnvelope) : null
       return transaction(context.walletId, "readwrite", (store, key, current) => {
         if (current) throw new Error("Wallet already exists; custody cannot be reset")
         const record: StoredWalletCustody = {
           version: 1, revision: 1, identity: createWalletIdentity(context.walletId, context.network),
           context, envelopes, nextReceiveIndex: 0, nextChangeIndex: 0,
-          pendingCreation, encryptedName, recoveryVerifiedAt: null,
+          pendingCreation, encryptedName, recoveryVerifiedAt: null, watchEnvelope,
         }
         parseStoredWallet(record, accountId, context.walletId)
         store.add(record, key)

@@ -27,7 +27,9 @@ export class CreationWorkerClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => this.dispose("wallet-operation-timeout"), 180_000)
       this.pending = { id, resolve, reject, progress, timer }
-      try { this.worker!.postMessage({ ...command, id }, [command.input.prf.buffer]) }
+      const transfer = [command.input.prf.buffer]
+      if (command.type === "create") transfer.push(command.input.privacyKey.buffer)
+      try { this.worker!.postMessage({ ...command, id }, transfer) }
       catch { this.dispose("wallet-worker-unavailable") }
     })
   }

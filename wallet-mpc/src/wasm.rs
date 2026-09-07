@@ -130,6 +130,12 @@ pub struct WasmWalletShare(WalletShare);
 
 #[wasm_bindgen]
 impl WasmWalletShare {
+    pub fn derive_child(&self, merkle_root: &[u8]) -> JsResult<WasmWalletShare> {
+        Ok(Self(
+            self.0.derive_child(&digest(merkle_root)?).map_err(js)?,
+        ))
+    }
+
     pub fn participant(&self) -> u16 {
         self.0.participant() as u16
     }
@@ -237,6 +243,25 @@ impl WasmSigningSession {
             .map_err(js)?
             .to_vec())
     }
+}
+
+#[wasm_bindgen]
+pub fn derive_public_package(public: &[u8], merkle_root: &[u8]) -> JsResult<Vec<u8>> {
+    PublicPackage::deserialize(public)
+        .map_err(js)?
+        .derive_child(&digest(merkle_root)?)
+        .map_err(js)?
+        .serialize()
+        .map_err(js)
+}
+
+#[wasm_bindgen]
+pub fn public_package_output_key(public: &[u8]) -> JsResult<Vec<u8>> {
+    Ok(PublicPackage::deserialize(public)
+        .map_err(js)?
+        .output_key()
+        .map_err(js)?
+        .to_vec())
 }
 
 #[wasm_bindgen]

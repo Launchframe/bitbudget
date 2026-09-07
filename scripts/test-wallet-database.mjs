@@ -32,7 +32,7 @@ function run(command, args, capture = false) {
 }
 
 try {
-  if (process.argv.slice(2).some(argument => !["--full-unit-suite", "--browser"].includes(argument))) throw new Error("Only --full-unit-suite and --browser are supported")
+  if (process.argv.slice(2).some(argument => !["--full-unit-suite", "--browser", "--cache-browser"].includes(argument))) throw new Error("Only --full-unit-suite, --browser and --cache-browser are supported")
   if (Number(process.versions.node.split(".")[0]) < 22) throw new Error("Node 22 is required")
   run("docker", ["info"], true)
   run("docker", ["buildx", "imagetools", "inspect", image], true)
@@ -67,6 +67,7 @@ try {
   run("pnpm", ["exec", "prisma", "db", "execute", "--file", sqlFile, "--schema", "prisma/schema.prisma"])
   run("pnpm", ["exec", "vitest", "run", "--config", "scripts/wallet-database-vitest.config.mts"])
   if (process.argv.includes("--full-unit-suite")) run("pnpm", ["exec", "vitest", "run"])
+  if (process.argv.includes("--cache-browser")) run("node", ["scripts/wallet-cache.browser.mjs"])
   if (process.argv.includes("--browser")) {
     env.WALLET_TEST_INTERRUPT_DKG = "false"
     env.WALLET_TEST_UNSUPPORTED_PRF = "false"

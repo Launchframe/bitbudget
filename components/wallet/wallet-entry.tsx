@@ -6,6 +6,7 @@ import { ArrowRight, Download, Fingerprint, ShieldCheck, Wallet, LockKeyhole, Pl
 import { z } from "zod"
 import { useApp } from "@/lib/app-context"
 import { walletRequest } from "@/lib/wallet/client-http"
+import { cacheWalletAssets } from "@/lib/wallet-asset-cache"
 import { openWalletCustodyStore } from "@/lib/wallet/wallet-idb"
 import { decryptField } from "@/lib/crypto"
 import { Switch } from "@/components/ui/switch"
@@ -17,16 +18,16 @@ import {
 } from "@/lib/wallet-feature-preference"
 
 const ExternalWallets = dynamic(
-  () => import("@/components/bitcoin-wallets-card").then(module => module.BitcoinWalletsCard),
+  () => cacheWalletAssets("advanced", { enabled: true, reason: "demand" }).then(() => import("@/components/bitcoin-wallets-card")).then(module => module.BitcoinWalletsCard),
   { ssr: false, loading: () => <p role="status" className="text-sm text-muted-foreground">Loading external wallet tools…</p> },
 )
 
-const PublicDataTools = dynamic(() => import("@/components/wallet/public-data-tools"), {
+const PublicDataTools = dynamic(() => cacheWalletAssets("advanced", { enabled: true, reason: "demand" }).then(() => import("@/components/wallet/public-data-tools")), {
   ssr: false,
   loading: () => <p role="status" className="text-sm text-muted-foreground">Loading local data tools…</p>,
 })
 
-const WalletSetup = dynamic(() => import("@/components/wallet/wallet-setup"), {
+const WalletSetup = dynamic(() => cacheWalletAssets("signer", { enabled: true, reason: "demand" }).then(() => import("@/components/wallet/wallet-setup")), {
   ssr: false,
   loading: () => <p role="status" className="text-sm text-muted-foreground">Loading wallet setup…</p>,
 })
@@ -87,7 +88,7 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
   if (!visible) return null
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-5" data-wallet-feature="entry">
+    <div className="flex w-full min-w-0 flex-col gap-5" data-wallet-feature="entry" data-wallet-asset-group="bitbudget-wallet-assets:monitor:v1">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm text-[#F7931A]"><Wallet className="h-4 w-4" aria-hidden /> BitBudget Wallet</div>

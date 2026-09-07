@@ -13,6 +13,7 @@ scope.onmessage = event => {
   const command = event.data
   if (busy) {
     command.input?.prf?.fill(0)
+    if (command.type === "create") command.input?.privacyKey?.fill(0)
     scope.postMessage({ id: command.id, type: "error", code: "wallet-operation-in-progress" })
     return
   }
@@ -27,11 +28,12 @@ scope.onmessage = event => {
             ? await verifyBrowserRecovery(command.input)
             : null
       if (!result) throw new WalletClientError("invalid-wallet-request")
-      scope.postMessage({ id: command.id, type: "result", result })
+      scope.postMessage({ id: command.id, type: "result", result, assetGroup: "bitbudget-wallet-assets:signer:worker:v1" })
     } catch (error) {
       scope.postMessage({ id: command.id, type: "error", code: error instanceof WalletClientError ? error.code : command.type === "verify" ? "recovery-verification-failed" : "wallet-creation-failed" })
     } finally {
       command.input?.prf?.fill(0)
+      if (command.type === "create") command.input?.privacyKey?.fill(0)
       busy = false
     }
   })()

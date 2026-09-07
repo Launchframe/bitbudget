@@ -280,7 +280,7 @@ export function BitcoinWalletsCard() {
   }
 
   return (
-    <div className={cardClass}>
+    <div className={cardClass} data-wallet-asset-group="bitbudget-wallet-assets:advanced:v1">
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="p-2 rounded-lg bg-[#F7931A]/10 shrink-0">

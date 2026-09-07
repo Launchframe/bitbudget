@@ -41,32 +41,38 @@ assert.equal((await rpc("getnetworkinfo")).version, 290000);
 assert.equal((await rpc("getnetworkinfo")).connections, 0);
 await init({ module_or_path: await readFile(new URL("./pkg/wallet_mpc_bg.wasm", import.meta.url)) });
 const shares = createWallet();
-const outputKey = hex(shares.get(1).output_key());
-const outputScript = `5120${outputKey}`;
-const descriptor = await rpc("getdescriptorinfo", [`rawtr(${outputKey})`]);
-const [address] = await rpc("deriveaddresses", [descriptor.descriptor]);
-assert.ok(address.startsWith("bcrt1p"));
-assert.equal((await rpc("validateaddress", [address])).scriptPubKey, outputScript);
+const variants = [{ name: "root", shares }];
+for (const value of [1, 2]) {
+  const tweak = new Uint8Array(32).fill(value);
+  variants.push({ name: `child-${value}`, shares: new Map([...shares].map(([id, share]) => [id, share.derive_child(tweak)])) });
+}
 await rpc("createwallet", ["miner"]);
 const miningAddress = await rpc("getnewaddress", ["mining", "bech32"], true);
 await rpc("generatetoaddress", [101, miningAddress]);
 const cases = [];
-for (const pair of [[1, 2], [1, 3], [2, 3]]) {
-  for (const hashType of [0, 1]) {
-    const fundingTxid = await rpc("sendtoaddress", [address, 0.01], true);
-    const decoded = await rpc("decoderawtransaction", [(await rpc("gettransaction", [fundingTxid], true)).hex]);
-    const matches = decoded.vout.filter((output) => output.scriptPubKey.hex === outputScript && output.value === 0.01);
-    assert.equal(matches.length, 1);
-    cases.push({ pair, hashType, fundingTxid, vout: matches[0].n });
+for (const variant of variants) {
+  const outputKey = hex(variant.shares.get(1).output_key());
+  const outputScript = `5120${outputKey}`;
+  const descriptor = await rpc("getdescriptorinfo", [`rawtr(${outputKey})`]);
+  const [address] = await rpc("deriveaddresses", [descriptor.descriptor]);
+  assert.ok(address.startsWith("bcrt1p"));
+  assert.equal((await rpc("validateaddress", [address])).scriptPubKey, outputScript);
+  for (const pair of [[1, 2], [1, 3], [2, 3]]) {
+    for (const hashType of [0, 1]) {
+      const fundingTxid = await rpc("sendtoaddress", [address, 0.01], true);
+      const decoded = await rpc("decoderawtransaction", [(await rpc("gettransaction", [fundingTxid], true)).hex]);
+      const matches = decoded.vout.filter((output) => output.scriptPubKey.hex === outputScript && output.value === 0.01);
+      assert.equal(matches.length, 1);
+      cases.push({ pair, hashType, fundingTxid, vout: matches[0].n, outputScript, variant });
+    }
   }
 }
-assert.equal(new Set(cases.map((item) => `${item.fundingTxid}:${item.vout}`)).size, 6);
+assert.equal(new Set(cases.map((item) => `${item.fundingTxid}:${item.vout}`)).size, 18);
 await rpc("generatetoaddress", [1, miningAddress]);
 const accepted = [];
 const rejected = [];
 const amountBytes = Buffer.alloc(8);
 amountBytes.writeBigUInt64LE(1000000n);
-const spentOutputs = Buffer.concat([Buffer.from([1]), amountBytes, Buffer.from([34]), Buffer.from(outputScript, "hex")]);
 async function reject(raw, name) {
   const [result] = await rpc("testmempoolaccept", [[raw]]);
   assert.equal(result.allowed, false, `${name} unexpectedly accepted`);
@@ -75,17 +81,18 @@ async function reject(raw, name) {
   rejected.push({ name, reason });
 }
 for (const item of cases) {
-  const label = `${item.pair.map((id) => "ABC"[id - 1]).join("+")}/0x0${item.hashType}`;
+  const label = `${item.variant.name}/${item.pair.map((id) => "ABC"[id - 1]).join("+")}/0x0${item.hashType}`;
+  const spentOutputs = Buffer.concat([Buffer.from([1]), amountBytes, Buffer.from([34]), Buffer.from(item.outputScript, "hex")]);
   const unspent = await rpc("gettxout", [item.fundingTxid, item.vout]);
   assert.ok(unspent.confirmations >= 1);
-  assert.equal(unspent.scriptPubKey.hex, outputScript);
+  assert.equal(unspent.scriptPubKey.hex, item.outputScript);
   assert.equal(unspent.value, 0.01);
   const recipient = await rpc("getnewaddress", ["recipient", "bech32"], true);
   const changedRecipient = await rpc("getnewaddress", ["changed-recipient", "bech32"], true);
   const inputs = [{ txid: item.fundingTxid, vout: item.vout, sequence: 0xfffffffd }];
   const raw = await rpc("createrawtransaction", [inputs, [{ [recipient]: 0.00999 }], 0, true]);
   const digest = bitcoin_keypath_sighash(fromHex(raw), spentOutputs, 0, item.hashType);
-  const { signature, partials } = signPair(shares, item.pair, digest);
+  const { signature, partials } = signPair(item.variant.shares, item.pair, digest);
   const finalRaw = hex(finalize_bitcoin_keypath(fromHex(raw), 0, signature, item.hashType));
   const decoded = await rpc("decoderawtransaction", [finalRaw]);
   assert.equal(decoded.vin[0].txid, item.fundingTxid);
@@ -121,7 +128,7 @@ const wrongPair = new WasmSigningSession(digest, 1, a.commitment(), 3, c.commitm
 mustThrow(() => a.sign(shares.get(1), wrongPair), "A+B nonce accepted an A+C session");
 c.free();
 wrongPair.free();
-for (const share of shares.values()) share.free();
-assert.equal(accepted.length, 6);
-assert.equal(rejected.length, 24);
+for (const variant of variants) for (const share of variant.shares.values()) share.free();
+assert.equal(accepted.length, 18);
+assert.equal(rejected.length, 72);
 console.log(JSON.stringify({ result: "passed", chain: "regtest", node_version: 290000, wallet_count: 1, accepted, rejected, wrong_pair_session: "rejected by WASM before signing", application_flow: "not tested" }));

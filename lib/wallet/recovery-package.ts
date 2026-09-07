@@ -1,4 +1,5 @@
 import { hexToUint8, uint8ToHex } from "@/lib/crypto"
+import { PRIVATE_DERIVATION_PREFIX, derivationSeedHash, verifyDerivationSeed } from "@/lib/wallet/derivation"
 import {
   MAX_ENCRYPTED_BYTES, assertShareBytes, custodyBytes, custodyContextMatches, custodyHex,
   exactObject, parseShareCustodyContext, type ShareCustodyContext,
@@ -8,7 +9,7 @@ export const RECOVERY_PBKDF2_ITERATIONS = 600_000
 export const MAX_RECOVERY_FILE_CHARACTERS = 750_000
 
 export interface RecoveryPackage {
-  version: 1
+  version: 1 | 2
   kind: "password-share"
   purpose: "required-recovery-C" | "optional-device-A-export"
   algorithm: "AES-256-GCM"
@@ -22,11 +23,13 @@ export interface DecryptedRecoveryShare {
   status: "decrypted-unverified"
   context: ShareCustodyContext
   share: Uint8Array
+  derivationSeed?: Uint8Array
 }
 
 export type RecoveryShareValidator = (input: {
   share: Uint8Array
   context: ShareCustodyContext
+  derivationSeed?: Uint8Array
 }) => Promise<boolean>
 
 export function parseRecoveryPackage(value: unknown): RecoveryPackage {
@@ -39,10 +42,13 @@ export function parseRecoveryPackage(value: unknown): RecoveryPackage {
     }
   }
   exactObject(value, ["version", "kind", "purpose", "algorithm", "kdf", "context", "ivHex", "ciphertextHex"])
-  if (value.version !== 1 || value.kind !== "password-share" || value.algorithm !== "AES-256-GCM") {
+  if ((value.version !== 1 && value.version !== 2) || value.kind !== "password-share" || value.algorithm !== "AES-256-GCM") {
     throw new Error("Unsupported recovery package")
   }
   const context = parseShareCustodyContext(value.context)
+  if (value.version === 2) {
+    if (!derivationSeedHash(context.derivationContext)) throw new Error("Recovery derivation seed is required")
+  } else if (context.derivationContext.startsWith(PRIVATE_DERIVATION_PREFIX)) throw new Error("Recovery derivation seed is required")
   const purpose = context.role === "C" ? "required-recovery-C" : "optional-device-A-export"
   if (value.purpose !== purpose) throw new Error("Recovery share role mismatch")
   exactObject(value.kdf, ["name", "hash", "iterations", "saltHex"])
@@ -53,7 +59,7 @@ export function parseRecoveryPackage(value: unknown): RecoveryPackage {
   custodyHex(value.ivHex, 12)
   custodyHex(value.ciphertextHex, 21, MAX_ENCRYPTED_BYTES)
   return {
-    version: 1, kind: "password-share", purpose, algorithm: "AES-256-GCM",
+    version: value.version, kind: "password-share", purpose, algorithm: "AES-256-GCM",
     kdf: { name: "PBKDF2", hash: "SHA-256", iterations: RECOVERY_PBKDF2_ITERATIONS, saltHex: value.kdf.saltHex },
     context, ivHex: value.ivHex, ciphertextHex: value.ciphertextHex,
   }
@@ -85,12 +91,17 @@ async function recoveryKey(password: string, saltHex: string): Promise<CryptoKey
   }
 }
 
-function encodePayload(context: ShareCustodyContext, share: Uint8Array): Uint8Array {
+function encodePayload(context: ShareCustodyContext, share: Uint8Array, seed?: Uint8Array): Uint8Array {
   const metadata = new TextEncoder().encode(JSON.stringify(context))
-  const payload = new Uint8Array(4 + metadata.byteLength + share.byteLength)
+  const payload = new Uint8Array(4 + metadata.byteLength + share.byteLength + (seed ? 36 : 0))
   new DataView(payload.buffer).setUint32(0, metadata.byteLength)
   payload.set(metadata, 4)
-  payload.set(share, 4 + metadata.byteLength)
+  const offset = 4 + metadata.byteLength
+  if (seed) {
+    new DataView(payload.buffer).setUint32(offset, share.byteLength)
+    payload.set(share, offset + 4)
+    payload.set(seed, offset + 4 + share.byteLength)
+  } else payload.set(share, offset)
   return payload
 }
 
@@ -98,12 +109,15 @@ export async function createRecoveryPackage(input: {
   share: Uint8Array
   context: ShareCustodyContext
   password: string
+  derivationSeed?: Uint8Array
 }): Promise<RecoveryPackage> {
   assertShareBytes(input.share)
   validatePassword(input.password)
   const context = parseShareCustodyContext(input.context)
+  if (input.derivationSeed) verifyDerivationSeed(input.derivationSeed, context.derivationContext)
+  else if (context.derivationContext.startsWith(PRIVATE_DERIVATION_PREFIX)) throw new Error("Recovery derivation seed is required")
   const envelope: Omit<RecoveryPackage, "ciphertextHex"> = {
-    version: 1, kind: "password-share",
+    version: input.derivationSeed ? 2 : 1, kind: "password-share",
     purpose: context.role === "C" ? "required-recovery-C" : "optional-device-A-export",
     algorithm: "AES-256-GCM",
     kdf: {
@@ -112,7 +126,7 @@ export async function createRecoveryPackage(input: {
     },
     context, ivHex: uint8ToHex(crypto.getRandomValues(new Uint8Array(12))),
   }
-  const payload = encodePayload(context, input.share)
+  const payload = encodePayload(context, input.share, input.derivationSeed)
   const plaintext = custodyBytes(payload)
   payload.fill(0)
   try {
@@ -152,9 +166,19 @@ export async function decryptRecoveryPackage(input: {
     const publicMetadata = new TextDecoder("utf-8", { fatal: true }).decode(plaintext.subarray(4, 4 + metadataLength))
     const context = parseShareCustodyContext(JSON.parse(publicMetadata))
     custodyContextMatches(context, envelope.context)
-    const shareView = plaintext.subarray(4 + metadataLength)
+    const offset = 4 + metadataLength
+    let shareView = plaintext.subarray(offset)
+    let seedView: Uint8Array | undefined
+    if (envelope.version === 2) {
+      if (plaintext.length < offset + 37) throw new Error("Invalid recovery payload")
+      const shareLength = new DataView(plaintext.buffer).getUint32(offset)
+      if (shareLength < 1 || plaintext.length !== offset + 4 + shareLength + 32) throw new Error("Invalid recovery payload")
+      shareView = plaintext.subarray(offset + 4, offset + 4 + shareLength)
+      seedView = plaintext.subarray(offset + 4 + shareLength)
+      verifyDerivationSeed(seedView, context.derivationContext)
+    }
     assertShareBytes(shareView)
-    return { status: "decrypted-unverified", context, share: shareView.slice() }
+    return { status: "decrypted-unverified", context, share: shareView.slice(), ...(seedView ? { derivationSeed: seedView.slice() } : {}) }
   } catch {
     throw new Error("Unable to decrypt recovery share")
   } finally {
@@ -172,7 +196,7 @@ export async function verifyRecoveryPackage(input: {
   const decrypted = await decryptRecoveryPackage(input)
   const context = parseShareCustodyContext(decrypted.context)
   try {
-    if (await input.validateShare({ share: decrypted.share, context: decrypted.context }) !== true) {
+    if (await input.validateShare({ share: decrypted.share, context: decrypted.context, derivationSeed: decrypted.derivationSeed }) !== true) {
       throw new Error("Core share validation failed")
     }
     return { status: "verified", context }
@@ -180,5 +204,6 @@ export async function verifyRecoveryPackage(input: {
     throw new Error("Core share validation failed")
   } finally {
     decrypted.share.fill(0)
+    decrypted.derivationSeed?.fill(0)
   }
 }

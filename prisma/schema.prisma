@@ -661,6 +661,7 @@ model WalletAccount {
   publicPackage       Bytes?
   recoveryVerifiedAt  DateTime?
   recoveryFileHash    String?
+  derivationContext   String   @default("base-output-v1")
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   cosigner            WalletCosigner?

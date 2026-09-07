@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { createContext, runInContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { buildWalletAssetManifest, parseClientReferenceManifest, walletModuleGroup } from "../../scripts/build-wallet-asset-manifest.mjs"
+import { buildWalletAssetManifest, parseClientReferenceManifest, parseTurbopackChunk, walletModuleGroup } from "../../scripts/build-wallet-asset-manifest.mjs"
 
 const origin = "https://budget.test"
 const manifestUrl = `${origin}/wallet-asset-manifest.json`
@@ -25,6 +25,18 @@ const makeManifest = (assets = [asset()]) => {
     groups: { monitor: { complete: false, assets }, signer: { complete: false, assets: [] }, blake2b: { complete: false, assets: [] }, advanced: { complete: false, assets: [] } },
   }
   return { ...payload, version: sha256(JSON.stringify(payload)) }
+}
+
+function completeManifest(assets = [asset()]) {
+  const manifest = makeManifest(assets)
+  manifest.schema = 2
+  manifest.discovery = "turbopack-module-graph"
+  for (const entry of Object.values(manifest.groups)) {
+    entry.complete = entry.assets.length > 0
+    for (const asset of entry.assets) asset.modules = ["turbopack:1"]
+  }
+  const { schema, discovery, buildId, groups } = manifest
+  return { schema, discovery, buildId, groups, version: sha256(JSON.stringify({ schema, discovery, buildId, groups })) }
 }
 
 function responseAt(url: string, body: string, init: ResponseInit = {}, type = "basic", redirected = false): Response {
@@ -67,7 +79,7 @@ function harness(manifest = makeManifest(), store: CacheStore = new Map()) {
       }
     }),
   }
-  const clients = { matchAll: vi.fn(async () => [{ id: "wallet-client", url: `${origin}/` }, { id: "vanilla-client", url: `${origin}/` }]), openWindow: vi.fn() }
+  const clients = { matchAll: vi.fn(async () => [{ id: "wallet-client", url: `${origin}/` }, { id: "vanilla-client", url: `${origin}/` }]), get: vi.fn(async (id: string) => id === "worker-client" ? { id, type: "worker", url: `blob:${origin}/worker` } : { id, type: "window", url: `${origin}/` }), openWindow: vi.fn() }
   const notification = vi.fn()
   const context = createContext({
     self: { location: { origin }, clients, registration: { showNotification: notification }, addEventListener: (type: string, callback: (event: Record<string, unknown>) => void) => handlers.set(type, callback) },
@@ -276,6 +288,36 @@ describe("wallet service worker cache boundary", () => {
     expect(entries.size).toBe(0)
   })
 
+  it("caches complete JS/WASM groups and permits worker cache reads only while a window has demanded them", async () => {
+    const wasmPath = "/_next/static/media/wallet_mpc_bg.01234567.wasm"
+    const bytes = "\u0000asm\u0001\u0000\u0000\u0000"
+    const wasm = { ...asset(wasmPath, bytes), mime: "application/wasm" }
+    const manifest = completeManifest([asset(), wasm])
+    const worker = harness(manifest)
+    worker.responses.set(`${origin}${wasmPath}`, responseAt(`${origin}${wasmPath}`, bytes, { headers: { "content-type": "application/wasm", "cache-control": "public, immutable" } }))
+    expect(await worker.message()).toEqual({ status: "cached", group: "monitor", cachedAssets: 2 })
+    worker.responses.clear()
+    worker.fetch.mockClear()
+    expect(await (await worker.request(`${origin}${wasmPath}`, {}, "worker-client")).text()).toBe(bytes)
+    expect(worker.fetch).not.toHaveBeenCalled()
+    await expect(worker.request(`${origin}${wasmPath}`, {}, "vanilla-client")).rejects.toThrow("offline")
+    worker.clients.matchAll.mockResolvedValue([{ id: "vanilla-client", url: `${origin}/` }])
+    await expect(worker.request(`${origin}${wasmPath}`, {}, "worker-client")).rejects.toThrow("offline")
+  })
+
+  it("preserves a prior build while another live tab still uses it", async () => {
+    const old = completeManifest()
+    const worker = harness(old)
+    await worker.message(undefined, { source: { id: "vanilla-client" } })
+    const next = completeManifest([asset(secondPath)])
+    worker.responses.set(manifestUrl, responseAt(manifestUrl, JSON.stringify(next), { headers: { "content-type": "application/json" } }))
+    await worker.message()
+    expect(worker.store.size).toBe(2)
+    worker.responses.clear()
+    expect(await (await worker.request(`${origin}${assetPath}`, {}, "vanilla-client")).text()).toBe(code)
+    expect(await (await worker.request(`${origin}${secondPath}`)).text()).toBe(code)
+  })
+
   it("preserves push and notification-click behavior", () => {
     const worker = harness()
     const waitUntil = vi.fn()
@@ -303,7 +345,60 @@ async function buildFixture(modules: Record<string, { chunks: string[] }>) {
   return root
 }
 
+async function completeBuildFixture() {
+  const root = await buildFixture({ "[project]/app/page.tsx": { chunks: [secondPath] } })
+  await writeFile(path.join(root, ".next/build-manifest.json"), JSON.stringify({ rootMainFiles: [secondPath.slice("/_next/".length)], polyfillFiles: [] }))
+  const signer = "/_next/static/chunks/aabbccddeeff0011.js"
+  const wasm = "/_next/static/media/wallet_mpc_bg.01234567.wasm"
+  const push = (body: string) => `(globalThis.TURBOPACK||(globalThis.TURBOPACK=[])).push([null,${body}]);`
+  await writeFile(path.join(root, ".next/static/chunks/0123456789abcdef.js"), push('1,e=>{e.i(4);e.A(20);e.v("bitbudget-wallet-assets:monitor:v1")},4,e=>{function unrelated(e){e.i(99999)};e.v(4)}'))
+  await writeFile(path.join(root, ".next/static/chunks/fedcba9876543210.js"), push(`5,e=>{e.v(5)},20,e=>{e.v(t=>Promise.all(["${signer.slice("/_next/".length)}"].map(url=>e.l(url))).then(()=>t(2)))}`))
+  await writeFile(path.join(root, ".next/static/chunks/aabbccddeeff0011.js"), push(`2,e=>{e.i(3);e.i(5);e.v("bitbudget-wallet-assets:signer:v1")},3,e=>{e.v("${wasm}")},6,e=>{e.i(3);e.i(5);e.v("bitbudget-wallet-assets:signer:worker:v1")}`))
+  await mkdir(path.join(root, ".next/static/media"))
+  await writeFile(path.join(root, ".next/static/media/wallet_mpc_bg.01234567.wasm"), Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]))
+  return { root, signer, wasm, push }
+}
+
 describe("production graph artifact manifest generator", () => {
+  it("discovers lazy group roots, transitive modules, shared worker dependencies and WASM without executing code", async () => {
+    const { root, signer, wasm } = await completeBuildFixture()
+    const manifest = await buildWalletAssetManifest(root)
+    expect(manifest.schema).toBe(2)
+    expect(manifest.groups.monitor.complete).toBe(true)
+    expect(manifest.groups.monitor.assets.map((asset: { url: string }) => asset.url)).toEqual([assetPath])
+    expect(manifest.groups.signer.assets.map((asset: { url: string }) => asset.url).sort()).toEqual([signer, secondPath, wasm].sort())
+    expect(manifest.groups.signer.assets.find((asset: { url: string }) => asset.url === wasm)).toMatchObject({ mime: "application/wasm" })
+    expect(manifest.groups.blake2b.complete).toBe(false)
+    expect(Reflect.get(globalThis, "walletCodeLoaded")).toBeUndefined()
+  })
+
+  it("recognizes coalesced exports and chooses the isolated copy of duplicate module factories", async () => {
+    const parsed = parseTurbopackChunk('(globalThis.TURBOPACK||(globalThis.TURBOPACK=[])).push([null,1,e=>{e.s(["value",()=>42],9)}]);')
+    expect(parsed[0].ids).toEqual([1, 9])
+    const { root, push } = await completeBuildFixture()
+    const file = path.join(root, ".next/static/chunks/aabbccddeeff0011.js")
+    await writeFile(file, `${readFileSync(file, "utf8")}\n${push('4,e=>{e.v(4)}')}`)
+    const manifest = await buildWalletAssetManifest(root)
+    expect(manifest.groups.monitor.assets.map((asset: { url: string }) => asset.url)).toEqual([assetPath])
+  })
+
+  it("resolves lexical bindings rather than mistaking shadowed variables for runtime imports", () => {
+    const parsed = parseTurbopackChunk('(globalThis.TURBOPACK||(globalThis.TURBOPACK=[])).push([null,1,e=>{e.i(2);function f(e){e.i(100)};for(let e of [])e.i(200)}]);')
+    expect([...parsed[0].imports]).toEqual([2])
+    expect(parsed[0].unresolved).toBe(false)
+  })
+
+  it("fails closed when wallet roots become eager, statically coupled, or reference missing modules", async () => {
+    const eager = await completeBuildFixture()
+    await writeFile(path.join(eager.root, ".next/server/app/page_client-reference-manifest.js"), `globalThis.__RSC_MANIFEST = globalThis.__RSC_MANIFEST || {};globalThis.__RSC_MANIFEST["/page"] = ${JSON.stringify({ clientModules: { app: { chunks: [assetPath] } } })}`)
+    await expect(buildWalletAssetManifest(eager.root)).rejects.toThrow("eager")
+    for (const dependency of [2, 99999]) {
+      const { root, push } = await completeBuildFixture()
+      await writeFile(path.join(root, ".next/static/chunks/0123456789abcdef.js"), push(`1,e=>{e.i(${dependency});e.v("bitbudget-wallet-assets:monitor:v1")}`))
+      await expect(buildWalletAssetManifest(root)).rejects.toThrow(dependency === 2 ? "statically coupled" : "Missing emitted module")
+    }
+  })
+
   it("derives exact file URLs and SHA256 from observed Next client-module records, not guessed chunks", async () => {
     const root = await buildFixture({ "[project]/lib/wallet/monitor-entry.ts": { chunks: [assetPath] } })
     const manifest = await buildWalletAssetManifest(root)

@@ -1,12 +1,14 @@
+import { createHash } from "node:crypto"
 import { prisma } from "@/lib/db"
 import { requireCreationConfig, testNetworkSchema, WalletError } from "@/lib/wallet/server/config"
 import { loadWalletMpc } from "@/lib/wallet/server/mpc"
 
-const summarySelect = { id: true, network: true, status: true, recoveryVerifiedAt: true, createdAt: true, updatedAt: true } as const
+const summarySelect = { id: true, network: true, status: true, recoveryVerifiedAt: true, derivationContext: true, publicPackage: true, createdAt: true, updatedAt: true } as const
 
-function summary(wallet: { id: string; network: string; status: string; recoveryVerifiedAt: Date | null; createdAt: Date; updatedAt: Date }) {
+function summary(wallet: { id: string; network: string; status: string; recoveryVerifiedAt: Date | null; derivationContext: string; publicPackage: Uint8Array | null; createdAt: Date; updatedAt: Date }) {
   if (!testNetworkSchema.safeParse(wallet.network).success) throw new WalletError(403, "network-rejected")
-  return { ...wallet, lineages: ["sha256d", "blake2b"], signingAvailable: false }
+  const { publicPackage, ...metadata } = wallet
+  return { ...metadata, publicPackageHash: publicPackage ? createHash("sha256").update(publicPackage).digest("hex") : null, lineages: ["sha256d", "blake2b"], signingAvailable: false }
 }
 
 export async function listWallets(userId: string) {

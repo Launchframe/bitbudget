@@ -59,7 +59,7 @@ export default function PublicDataTools() {
   }
 
   return (
-    <section className="min-w-0 rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:p-6" aria-labelledby="public-data-title">
+    <section className="min-w-0 rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:p-6" aria-labelledby="public-data-title" data-wallet-asset-group="bitbudget-wallet-assets:advanced:v1">
       <h2 id="public-data-title" className="text-lg font-semibold">Public data tools</h2>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Convert text to bytes or calculate a SHA-256 fingerprint entirely in your browser. Nothing here is uploaded, saved or broadcast.</p>
       <p className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-200">If embedded in a transaction, this data is public and permanent. A fingerprint is not encryption; predictable inputs can still be guessed.</p>

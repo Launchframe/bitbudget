@@ -2,7 +2,7 @@
 
 export type WalletAssetGroup = "monitor" | "signer" | "blake2b" | "advanced"
 export type WalletAssetCacheResult = {
-  status: "disabled" | "unavailable" | "partial"
+  status: "disabled" | "unavailable" | "partial" | "cached"
   group: WalletAssetGroup
   cachedAssets: number
 }
@@ -37,9 +37,9 @@ export async function cacheWalletAssets(
       channel.port1.onmessageerror = () => finish(unavailable)
       channel.port1.onmessage = (event: MessageEvent<unknown>) => {
         const result = event.data as Partial<WalletAssetCacheResult> | null
-        if (result?.group === group && result.status === "partial" && Number.isSafeInteger(result.cachedAssets) &&
+        if (result?.group === group && (result.status === "partial" || result.status === "cached") && Number.isSafeInteger(result.cachedAssets) &&
           result.cachedAssets! > 0 && result.cachedAssets! <= 64) {
-          finish({ status: "partial", group, cachedAssets: result.cachedAssets! })
+          finish({ status: result.status, group, cachedAssets: result.cachedAssets! })
         } else {
           finish(unavailable)
         }

@@ -2,10 +2,10 @@
 const WALLET_MANIFEST_URL = new URL("/wallet-asset-manifest.json", self.location.origin).href
 const WALLET_CACHE_PREFIX = "bitbudget-wallet-assets-v1-"
 const WALLET_GROUPS = ["monitor", "signer", "blake2b", "advanced"]
-const WALLET_ASSET_URL = /^\/_next\/static\/chunks\/[a-f0-9]{16,64}\.js$/
+const WALLET_ASSET_URL = /^\/_next\/static\/(?:chunks\/(?:turbopack-)?[a-f0-9]{16,64}\.(?:js|css)|media\/[a-zA-Z0-9_-]+\.[a-f0-9]{8,64}\.(?:wasm|woff2|svg|png|webp))$/
 const WALLET_MAX_ASSET_BYTES = 4 * 1024 * 1024
 const WALLET_MAX_TOTAL_BYTES = 16 * 1024 * 1024
-let walletManifest = null
+const walletManifests = new Map()
 let walletMessageQueue = Promise.resolve()
 const walletGrants = new Map()
 
@@ -57,7 +57,8 @@ function walletPublicResponse(response, url, mime) {
 async function walletVerifyAsset(response, asset) {
   try {
     const url = new URL(asset.url, self.location.origin).href
-    if (!walletPublicResponse(response, url, ["application/javascript", "text/javascript"]) ||
+    const mime = asset.mime === "application/javascript" ? ["application/javascript", "text/javascript"] : [asset.mime]
+    if (!walletPublicResponse(response, url, mime) ||
       !/(?:^|,)\s*immutable\s*(?:,|$)/i.test(response.headers.get("cache-control") || "")) throw new Error("response")
     const bytes = await walletReadBytes(response.clone(), asset.bytes)
     if (bytes.length !== asset.bytes || await walletSha256(bytes) !== asset.sha256) throw new Error("integrity")
@@ -70,25 +71,31 @@ async function walletVerifyAsset(response, asset) {
 async function walletLoadManifest(signal) {
   const response = await fetch(WALLET_MANIFEST_URL, { credentials: "omit", cache: "no-store", redirect: "error", mode: "same-origin", signal })
   if (response.status !== 200 || response.type !== "basic" || response.redirected || response.url !== WALLET_MANIFEST_URL ||
-    (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase() !== "application/json") throw new Error("manifest")
+    response.headers.has("set-cookie") || (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase() !== "application/json") throw new Error("manifest")
   const manifest = JSON.parse(new TextDecoder().decode(await walletReadBytes(response, 65536)))
-  if (manifest.schema !== 1 || manifest.discovery !== "partial-client-reference-graph" ||
+  const complete = manifest.schema === 2 && manifest.discovery === "turbopack-module-graph"
+  if ((!complete && (manifest.schema !== 1 || manifest.discovery !== "partial-client-reference-graph")) ||
     !/^[A-Za-z0-9_-]{1,128}$/.test(manifest.buildId) || !/^[a-f0-9]{64}$/.test(manifest.version) ||
     !manifest.groups || Object.keys(manifest.groups).sort().join(",") !== [...WALLET_GROUPS].sort().join(",")) throw new Error("manifest")
-  const urls = new Set()
+  const urls = new Map()
   let total = 0
   for (const group of WALLET_GROUPS) {
     const entry = manifest.groups[group]
-    if (!entry || entry.complete !== false || !Array.isArray(entry.assets)) throw new Error("group")
+    if (!entry || typeof entry.complete !== "boolean" || (!complete && entry.complete) || !Array.isArray(entry.assets) ||
+      (complete && entry.complete !== (entry.assets.length > 0))) throw new Error("group")
+    const seen = new Set()
     for (const asset of entry.assets) {
-      if (!asset || typeof asset.url !== "string" || !WALLET_ASSET_URL.test(asset.url) || urls.has(asset.url) ||
-        !/^[a-f0-9]{64}$/.test(asset.sha256) || !Number.isSafeInteger(asset.bytes) || asset.bytes <= 0 ||
-        asset.bytes > WALLET_MAX_ASSET_BYTES || asset.mime !== "application/javascript" ||
+      if (!asset || typeof asset.url !== "string" || !WALLET_ASSET_URL.test(asset.url) || seen.has(asset.url) ||
+        !/^[a-f0-9]{64}$/.test(asset.sha256) || !Number.isSafeInteger(asset.bytes) || asset.bytes <= 0 || asset.bytes > WALLET_MAX_ASSET_BYTES ||
+        asset.mime !== ({ js: "application/javascript", css: "text/css", wasm: "application/wasm", woff2: "font/woff2", svg: "image/svg+xml", png: "image/png", webp: "image/webp" })[asset.url.split(".").at(-1)] ||
         !Array.isArray(asset.modules) || asset.modules.length === 0 || asset.modules.length > 64 ||
-        asset.modules.some((moduleId) => typeof moduleId !== "string" || moduleId.length > 512 ||
-          !new RegExp(`^\\[project\\]/lib/wallet/${group}(?:/[^<>]+|(?:-entry)?\\.[cm]?[jt]sx?)(?: <module evaluation>)?$`).test(moduleId))) throw new Error("asset")
-      urls.add(asset.url)
-      total += asset.bytes
+        asset.modules.some((moduleId) => typeof moduleId !== "string" || moduleId.length > 512 || (complete ? !/^turbopack:\d{1,16}$/.test(moduleId) :
+          !new RegExp(`^\\[project\\]/lib/wallet/${group}(?:/[^<>]+|(?:-entry)?\\.[cm]?[jt]sx?)(?: <module evaluation>)?$`).test(moduleId)))) throw new Error("asset")
+      const previous = urls.get(asset.url)
+      if (previous && (!complete || previous.sha256 !== asset.sha256 || previous.bytes !== asset.bytes || previous.mime !== asset.mime)) throw new Error("duplicate")
+      seen.add(asset.url)
+      if (!previous) total += asset.bytes
+      urls.set(asset.url, asset)
     }
   }
   if (!urls.size || urls.size > 64 || total > WALLET_MAX_TOTAL_BYTES) throw new Error("budget")
@@ -111,6 +118,8 @@ async function walletHandleMessage(event) {
     const manifest = await walletLoadManifest(signal)
     const assets = manifest.groups[data.group].assets
     if (!assets.length || (!walletGrants.has(client.id) && walletGrants.size >= 128)) throw new Error("unavailable")
+    const referenced = new Set([...walletGrants.values()].flatMap(groups => [...groups.values()]))
+    if (!referenced.has(manifest.version) && referenced.size >= 4) throw new Error("versions")
     const name = WALLET_CACHE_PREFIX + manifest.version
     const pending = []
     const existingNames = await caches.keys()
@@ -143,14 +152,15 @@ async function walletHandleMessage(event) {
       if (!existing) await caches.delete(name)
       throw error
     }
+    walletManifests.set(manifest.version, manifest)
+    if (!walletGrants.has(client.id)) walletGrants.set(client.id, new Map())
+    walletGrants.get(client.id).set(data.group, manifest.version)
+    const active = new Set([...walletGrants.values()].flatMap(groups => [...groups.values()]))
     for (const oldName of await caches.keys()) {
-      if (oldName !== name && /^bitbudget-wallet-assets-v1-[a-f0-9]{64}$/.test(oldName)) await caches.delete(oldName)
+      if (/^bitbudget-wallet-assets-v1-[a-f0-9]{64}$/.test(oldName) && !active.has(oldName.slice(WALLET_CACHE_PREFIX.length))) await caches.delete(oldName)
     }
-    if (walletManifest?.version !== manifest.version) walletGrants.clear()
-    walletManifest = manifest
-    if (!walletGrants.has(client.id)) walletGrants.set(client.id, new Set())
-    walletGrants.get(client.id).add(data.group)
-    event.ports[0].postMessage({ status: "partial", group: data.group, cachedAssets: assets.length })
+    for (const version of walletManifests.keys()) if (!active.has(version)) walletManifests.delete(version)
+    event.ports[0].postMessage({ status: manifest.groups[data.group].complete ? "cached" : "partial", group: data.group, cachedAssets: assets.length })
   } catch {
     event.ports[0].postMessage({ status: "unavailable", group: data.group, cachedAssets: 0 })
   }
@@ -163,31 +173,37 @@ self.addEventListener("message", (event) => {
 
 async function walletFetch(event) {
   const request = event.request
-  const grants = walletGrants.get(event.clientId)
-  const manifest = walletManifest
-  if (manifest && grants && request.method === "GET" && ["", "script"].includes(request.destination) &&
-    request.mode !== "navigate" && !["authorization", "range", "rsc", "next-router-state-tree", "next-router-prefetch"].some((name) => request.headers.has(name)) &&
-    !/text\/html|text\/x-component/i.test(request.headers.get("accept") || "")) {
-    for (const group of grants) {
-      const asset = manifest.groups[group].assets.find((candidate) => new URL(candidate.url, self.location.origin).href === request.url)
-      if (!asset) continue
-      try {
-        const name = WALLET_CACHE_PREFIX + manifest.version
-        if (!(await caches.keys()).includes(name)) break
-        const cache = await caches.open(name)
-        const response = await cache.match(request.url)
-        if (response) {
-          try {
-            await walletVerifyAsset(response, asset)
-            return response
-          } catch {
-            await cache.delete(request.url)
-          }
-        }
-      } catch {
-        break
+  if (request.method !== "GET" || !["", "script", "style", "font", "image", "worker", "sharedworker"].includes(request.destination) ||
+    request.mode === "navigate" || ["authorization", "range", "rsc", "next-router-state-tree", "next-router-prefetch"].some(name => request.headers.has(name)) ||
+    /text\/html|text\/x-component/i.test(request.headers.get("accept") || "") || !WALLET_ASSET_URL.test(new URL(request.url).pathname)) return fetch(request)
+  let grants = walletGrants.get(event.clientId)
+  if (!grants && walletGrants.size && self.clients.get) {
+    try {
+      const client = await self.clients.get(event.clientId)
+      if (client && ["worker", "sharedworker"].includes(client.type) && new URL(client.url).origin === self.location.origin) {
+        const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: false })
+        grants = [...walletGrants].filter(([id]) => windows.some(window => window.id === id)).flatMap(([, groups]) => [...groups])
       }
-    }
+    } catch {}
+  }
+  for (const [group, version] of grants ?? []) {
+    const manifest = walletManifests.get(version)
+    const asset = manifest?.groups[group].assets.find(candidate => new URL(candidate.url, self.location.origin).href === request.url)
+    if (!asset) continue
+    try {
+      const name = WALLET_CACHE_PREFIX + version
+      if (!(await caches.keys()).includes(name)) continue
+      const cache = await caches.open(name)
+      const response = await cache.match(request.url)
+      if (response) {
+        try {
+          await walletVerifyAsset(response, asset)
+          return response
+        } catch {
+          await cache.delete(request.url)
+        }
+      }
+    } catch {}
   }
   return fetch(request)
 }

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use bitcoin::hashes::{Hash, HashEngine, sha256};
+use frost::keys::Tweak;
 use frost_secp256k1_tr as frost;
 use rand_core::OsRng;
 use zeroize::Zeroizing;
@@ -175,6 +176,13 @@ impl DkgRound2 {
 pub struct PublicPackage(frost::keys::PublicKeyPackage);
 
 impl PublicPackage {
+    pub fn derive_child(&self, merkle_root: &[u8; 32]) -> Result<Self> {
+        let child = Self(self.0.clone().tweak(Some(merkle_root)));
+        child.output_key()?;
+        child.serialize()?;
+        Ok(child)
+    }
+
     pub fn serialize(&self) -> Result<Vec<u8>> {
         Ok(self.0.serialize()?)
     }
@@ -212,6 +220,14 @@ pub struct WalletShare {
 }
 
 impl WalletShare {
+    pub fn derive_child(&self, merkle_root: &[u8; 32]) -> Result<Self> {
+        Ok(Self {
+            participant: self.participant,
+            key: self.key.clone().tweak(Some(merkle_root)),
+            public: self.public.derive_child(merkle_root)?,
+        })
+    }
+
     pub fn participant(&self) -> Participant {
         self.participant
     }

@@ -8,6 +8,8 @@ transaction_history.csv
 
 # next.js
 /.next/
+/public/wallet-asset-manifest.json
+/public/wallet-asset-manifest.json.tmp
 /out/
 /.worktrees/
 

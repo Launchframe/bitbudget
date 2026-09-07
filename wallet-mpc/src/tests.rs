@@ -108,6 +108,62 @@ fn transaction() -> (Transaction, Vec<TxOut>) {
 }
 
 #[test]
+fn child_packages_preserve_roots_and_all_pairs_sign() {
+    use bitcoin::key::TapTweak;
+
+    let roots = dkg();
+    let public = roots[&Participant::A].public_package();
+    let encoded = public.serialize().unwrap();
+    let mut outputs = std::collections::BTreeSet::new();
+    for merkle_root in [[1; 32], [2; 32], [255; 32]] {
+        let child_public = public.derive_child(&merkle_root).unwrap();
+        let child: BTreeMap<_, _> = roots
+            .iter()
+            .map(|(id, share)| (*id, share.derive_child(&merkle_root).unwrap()))
+            .collect();
+        let root_key =
+            bitcoin::secp256k1::XOnlyPublicKey::from_slice(&public.output_key().unwrap()).unwrap();
+        let expected = root_key
+            .tap_tweak(
+                &bitcoin::secp256k1::Secp256k1::verification_only(),
+                Some(bitcoin::taproot::TapNodeHash::from_byte_array(merkle_root)),
+            )
+            .0
+            .to_x_only_public_key()
+            .serialize();
+        assert_eq!(child_public.output_key().unwrap(), expected);
+        assert!(outputs.insert(expected));
+        for share in child.values() {
+            assert_eq!(
+                share.public_package().serialize().unwrap(),
+                child_public.serialize().unwrap()
+            );
+        }
+        for pair in [
+            [Participant::A, Participant::B],
+            [Participant::A, Participant::C],
+            [Participant::B, Participant::C],
+        ] {
+            let digest = [42; 32];
+            let (session, parts) = signing(&child, pair, digest);
+            let signature = session.aggregate(&child_public, parts).unwrap();
+            verify_independent(&child_public, digest, signature);
+            assert!(public.verify(&digest, &signature).is_err());
+            assert!(
+                public
+                    .derive_child(&[3; 32])
+                    .unwrap()
+                    .verify(&digest, &signature)
+                    .is_err()
+            );
+            let nonce = roots[&pair[0]].commit(digest, pair).unwrap();
+            assert!(nonce.sign(&child[&pair[0]], &session).is_err());
+        }
+        assert_eq!(public.serialize().unwrap(), encoded);
+    }
+}
+
+#[test]
 fn durable_dkg_state_roundtrips_and_rejects_wrong_context() {
     let starts: Vec<_> = IDS
         .into_iter()
