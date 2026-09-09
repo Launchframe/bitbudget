@@ -4,6 +4,7 @@ transaction_history.csv
 
 # dependencies
 /node_modules
+/wallet-bridge/node_modules/
 /.pnpm-store
 
 # next.js
@@ -15,6 +16,7 @@ transaction_history.csv
 
 # production
 /build
+/bitbudget-electrum-bridge-*.tgz
 
 # agents
 docs/plans

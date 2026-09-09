@@ -1,0 +1,23 @@
+name: bitbudget-wallet-tor
+services:
+  tor:
+    image: bitbudget-wallet-tor:local
+    build:
+      context: .
+      dockerfile: Tor.Dockerfile
+    ports:
+      - "127.0.0.1:9050:9050"
+    volumes:
+      - tor-state:/var/lib/tor
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16777216
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    restart: "no"
+volumes:
+  tor-state:

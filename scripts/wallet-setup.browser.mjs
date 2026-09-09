@@ -94,6 +94,9 @@ try {
   await page.getByRole("button", { name: "Create wallet with passkey" }).click()
   if (unsupported) {
     await expect(page.locator('[data-wallet-error-code="passkey-encryption-unavailable"]')).toBeVisible({ timeout: 60000 })
+    await expect(page.getByLabel("Recovery password (at least 12 characters)", { exact: true })).toHaveValue(password)
+    await expect(page.getByLabel("Confirm recovery password", { exact: true })).toHaveValue(password)
+    await expect(page.getByRole("button", { name: "Create wallet with passkey" })).toBeEnabled()
     expect(await prisma.walletAccount.count({ where: { userId: user.id } })).toBe(0)
     expect(await prisma.walletCredential.count({ where: { userId: user.id } })).toBe(0)
     const native = await page.evaluate(() => window.__walletPrfProof)

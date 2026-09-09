@@ -6,6 +6,7 @@ const RESERVED_ROOT_SEGMENTS = new Set([
   "welcome",
   "landing",
   "privacy",
+  "faq",
   "onboarding",
   "admin",
   "whitepapers",
@@ -25,6 +26,8 @@ export default auth((req) => {
     pathname.startsWith("/landing") ||
     pathname.startsWith("/welcome") ||
     pathname.startsWith("/privacy") ||
+    pathname === "/faq" ||
+    pathname.startsWith("/faq/") ||
     pathname === "/ref" ||
     pathname.startsWith("/ref/")
   const isPublicOfferSlug =

@@ -30,6 +30,7 @@ export interface ElectrumClientOptions {
   maxMessageBytes?: number
   maxPendingRequests?: number
   enableRegtestBroadcast?: boolean
+  allowLoopbackDevelopment?: boolean
 }
 
 export interface ElectrumProbe {
@@ -74,8 +75,9 @@ export class ElectrumClient {
   private listeners = new Map<ElectrumNotificationMethod, Set<(params: readonly unknown[]) => void>>()
 
   constructor(options: ElectrumClientOptions) {
-    this.connection = parseConnectionUrl(options.url)
-    if (this.connection.transport !== "wss") throw new ElectrumError("unsupported-transport")
+    const developmentOrigin = options.allowLoopbackDevelopment && typeof window !== "undefined" ? window.location.origin : undefined
+    this.connection = parseConnectionUrl(options.url, { developmentOrigin })
+    if (this.connection.transport !== "wss" && this.connection.transport !== "ws") throw new ElectrumError("unsupported-transport")
     this.factory = options.webSocketFactory ?? ((url) => {
       if (typeof window === "undefined" || typeof WebSocket === "undefined") throw new ElectrumError("browser-only")
       return new WebSocket(url)

@@ -3,6 +3,17 @@ import { z } from "zod"
 import { WalletClientError, walletRequest } from "@/lib/wallet/client-http"
 
 const PRF_INPUT = new TextEncoder().encode("BitBudget/device-share/prf/v1")
+const arrayBufferByteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!
+
+function bufferLength(value: unknown): number | null {
+  try { return arrayBufferByteLength.call(value) as number } catch { return null }
+}
+export class PasskeyEncryptionError extends WalletClientError {
+  constructor(readonly reason: "browser-unavailable" | "not-supported" | "missing-output" | "invalid-output") {
+    super("passkey-encryption-unavailable")
+  }
+}
+
 const grantSchema = z.object({ verified: z.literal(true), grantId: z.string().uuid() })
 const optionsEnvelope = z.object({ challengeId: z.string().uuid(), options: z.record(z.unknown()) })
 
@@ -13,6 +24,7 @@ export function decodeCredentialBytes(value: string): Uint8Array<ArrayBuffer> {
 }
 
 function encode(bytes: ArrayBuffer): string {
+  if (bufferLength(bytes) === null) throw new WalletClientError("invalid-credential")
   return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 }
 
@@ -20,11 +32,11 @@ export function extractPrf(credential: PublicKeyCredential): Uint8Array<ArrayBuf
   const extensions = credential.getClientExtensionResults() as AuthenticationExtensionsClientOutputs & {
     prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } }
   }
-  if (extensions.prf?.enabled === false) throw new WalletClientError("passkey-encryption-unavailable")
+  if (extensions.prf?.enabled === false) throw new PasskeyEncryptionError("not-supported")
   const first = extensions.prf?.results?.first
   if (first === undefined) return null
-  if (!(first instanceof ArrayBuffer) || first.byteLength !== 32) throw new WalletClientError("passkey-encryption-unavailable")
-  const result = new Uint8Array(first.slice(0))
+  if (bufferLength(first) !== 32) throw new PasskeyEncryptionError("invalid-output")
+  const result = new Uint8Array(first).slice()
   new Uint8Array(first).fill(0)
   return result
 }
@@ -34,11 +46,11 @@ export function credentialJson(credential: PublicKeyCredential, registration: bo
   const common = { id: credential.id, rawId: credential.id, type: "public-key" as const, clientExtensionResults: {} }
   if (registration) {
     const response = credential.response as AuthenticatorAttestationResponse
-    if (!(response.attestationObject instanceof ArrayBuffer)) throw new WalletClientError("invalid-credential")
+    if (bufferLength(response.attestationObject) === null) throw new WalletClientError("invalid-credential")
     return { ...common, response: { clientDataJSON: encode(response.clientDataJSON), attestationObject: encode(response.attestationObject) } }
   }
   const response = credential.response as AuthenticatorAssertionResponse
-  if (!(response.signature instanceof ArrayBuffer) || !(response.authenticatorData instanceof ArrayBuffer)) throw new WalletClientError("invalid-credential")
+  if (bufferLength(response.signature) === null || bufferLength(response.authenticatorData) === null) throw new WalletClientError("invalid-credential")
   return { ...common, response: {
     clientDataJSON: encode(response.clientDataJSON), authenticatorData: encode(response.authenticatorData), signature: encode(response.signature),
     ...(response.userHandle ? { userHandle: encode(response.userHandle) } : {}),
@@ -53,7 +65,7 @@ export async function walletPasskey(network: "signet" | "testnet4" | "regtest", 
   if (walletId && !hasCredential) throw new WalletClientError("credential-rejected")
   const operation = walletId ? { network, operation: "unlock", walletId } : { network, operation: "create" }
   if (typeof window === "undefined" || !window.isSecureContext || typeof PublicKeyCredential === "undefined" || !navigator.credentials?.create || !navigator.credentials?.get) {
-    throw new WalletClientError("passkey-encryption-unavailable")
+    throw new PasskeyEncryptionError("browser-unavailable")
   }
   let prf: Uint8Array<ArrayBuffer> | null = null
   try {
@@ -69,7 +81,7 @@ export async function walletPasskey(network: "signet" | "testnet4" | "regtest", 
       }, signal }) as PublicKeyCredential | null
       if (!credential) throw new WalletClientError("setup-cancelled")
       const prfEnabled = (credential.getClientExtensionResults() as { prf?: { enabled?: boolean; results?: unknown } }).prf
-      if (!prfEnabled || (prfEnabled.enabled !== true && !prfEnabled.results)) throw new WalletClientError("passkey-encryption-unavailable")
+      if (!prfEnabled || (prfEnabled.enabled !== true && !prfEnabled.results)) throw new PasskeyEncryptionError("not-supported")
       prf = extractPrf(credential)
       const grant = grantSchema.parse(await walletRequest("/api/wallets/credentials/registration/verify", { network, challengeId: envelope.challengeId, response: credentialJson(credential, true) }, signal))
       if (prf) return { credentialId: credential.id, prfOutput: prf, grantId: grant.grantId }
@@ -83,13 +95,13 @@ export async function walletPasskey(network: "signet" | "testnet4" | "regtest", 
     }, signal }) as PublicKeyCredential | null
     if (!credential) throw new WalletClientError("setup-cancelled")
     prf = extractPrf(credential)
-    if (!prf) throw new WalletClientError("passkey-encryption-unavailable")
+    if (!prf) throw new PasskeyEncryptionError("missing-output")
     const grant = grantSchema.parse(await walletRequest("/api/wallets/credentials/authentication/verify", { ...operation, challengeId: envelope.challengeId, response: credentialJson(credential, false) }, signal))
     return { credentialId: credential.id, prfOutput: prf, grantId: grant.grantId }
   } catch (error) {
     prf?.fill(0)
     if (error instanceof WalletClientError) throw error
     if (error instanceof DOMException && ["NotAllowedError", "AbortError"].includes(error.name)) throw new WalletClientError("setup-cancelled")
-    throw new WalletClientError("passkey-encryption-unavailable")
+    throw new WalletClientError("passkey-ceremony-failed")
   }
 }

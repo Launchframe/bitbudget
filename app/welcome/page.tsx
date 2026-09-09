@@ -130,6 +130,7 @@ export default function WelcomePage() {
             Open-source budgeting app. Your data is encrypted end-to-end.
           </p>
           <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-4">
+            <Link href="/faq" prefetch={false} className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors">FAQ</Link>
             <Link
               href="/privacy"
               className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"

@@ -1,14 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react"
+import Link from "next/link"
 import { z } from "zod"
-import { CheckCircle2, Download, Fingerprint, ShieldCheck, ArrowRight } from "lucide-react"
+import { CheckCircle2, Download, Fingerprint, ShieldCheck, ArrowRight, Eye, EyeOff } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { walletPasskey } from "@/lib/wallet/browser-passkey"
+import { PasskeyEncryptionError, walletPasskey } from "@/lib/wallet/browser-passkey"
 import { WalletClientError } from "@/lib/wallet/client-http"
 import { CreationWorkerClient } from "@/lib/wallet/creation-worker-client"
 import { openWalletCustodyStore } from "@/lib/wallet/wallet-idb"
@@ -18,6 +19,17 @@ import { decryptField, encryptField } from "@/lib/crypto"
 const createdSchema = z.object({ walletId: z.string().uuid(), recoveryFile: z.string().max(MAX_RECOVERY_FILE_CHARACTERS) })
 const verifiedSchema = z.object({ walletId: z.string().uuid(), verifiedAt: z.string().datetime() })
 type Step = "intro" | "security" | "creating" | "recovery" | "success"
+
+function WalletPasswordInput({ id, revealLabel, disabled, ...props }: Omit<ComponentProps<typeof Input>, "type" | "className"> & { id: string; revealLabel: string }) {
+  const [revealed, setRevealed] = useState(false)
+  const action = `${revealed ? "Hide" : "Show"} ${revealLabel}`
+  return <div className="relative mt-2">
+    <Input {...props} id={id} type={revealed ? "text" : "password"} disabled={disabled} className="pr-10" />
+    <Button type="button" variant="ghost" size="icon" disabled={disabled} aria-label={action} aria-controls={id} title={action} onClick={() => setRevealed(value => !value)} className="absolute right-0 top-0 size-9 text-muted-foreground hover:text-foreground">
+      {revealed ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+    </Button>
+  </div>
+}
 
 function ShareIllustration() {
   return <svg viewBox="0 0 360 126" role="img" aria-label="Device, co-signer and recovery: any two shares can authorize a spend" className="mx-auto h-32 w-full max-w-lg text-[#F7931A]">
@@ -30,7 +42,9 @@ function ShareIllustration() {
 
 function errorMessage(error: unknown) {
   const code = error instanceof WalletClientError ? error.code : "wallet-creation-failed"
-  if (code === "passkey-encryption-unavailable") return "This device or passkey cannot protect the wallet with passkey encryption. Try a compatible browser such as Brave on a supported device. A browser name alone does not guarantee support."
+  if (error instanceof PasskeyEncryptionError && error.reason === "browser-unavailable") return "Passkeys are unavailable in this browser or on this connection. Use an updated browser and a secure connection, or localhost for local setup."
+  if (code === "passkey-encryption-unavailable") return "The selected passkey did not provide the encryption this wallet needs. A passkey that works for sign-in may not support wallet encryption. Try saving the passkey with your device instead of a password manager extension, where supported. You may need to temporarily turn off the extension’s passkey handling. Setup will not use weaker protection instead."
+  if (code === "passkey-ceremony-failed") return "Device verification could not finish. Please try again."
   if (code === "privacy-key-unavailable") return "Unlock your BitBudget privacy key before creating a wallet. No wallet keys have been created."
   if (code === "setup-cancelled") return "Device verification was cancelled. You can try again when you’re ready."
   if (code === "credential-already-registered") return "A wallet passkey is already registered. Return to the wallet and try again using that passkey."
@@ -66,6 +80,7 @@ export default function WalletSetup({ userId, network, hasCredential, resumeWall
   const [progress, setProgress] = useState("")
   const [error, setError] = useState("")
   const [errorCode, setErrorCode] = useState("")
+  const [errorDetail, setErrorDetail] = useState("")
   const [confirmClose, setConfirmClose] = useState(false)
   const client = useRef<CreationWorkerClient | null>(null)
   const abort = useRef<AbortController | null>(null)
@@ -119,6 +134,7 @@ export default function WalletSetup({ userId, network, hasCredential, resumeWall
   function showError(error: unknown) {
     setError(errorMessage(error))
     setErrorCode(error instanceof WalletClientError ? error.code : "wallet-operation-failed")
+    setErrorDetail(error instanceof PasskeyEncryptionError ? error.reason : "")
   }
 
   function worker() { return client.current ??= new CreationWorkerClient() }
@@ -147,7 +163,10 @@ export default function WalletSetup({ userId, network, hasCredential, resumeWall
       if (!alive.current) return
       setWalletId(result.walletId); savedId.current = result.walletId; setRecoveryFile(result.recoveryFile); setPending(false); setStep("recovery"); onChanged()
     } catch (error) {
-      if (alive.current) { showError(error); setStep(savedId.current ? "recovery" : "security"); onChanged() }
+      if (alive.current) {
+        if (!savedId.current) { setPassword(recoveryPassword); setConfirmation(recoveryPassword) }
+        showError(error); setStep(savedId.current ? "recovery" : "security"); onChanged()
+      }
     } finally { if (prf?.byteLength) prf.fill(0); if (privacyKey?.byteLength) privacyKey.fill(0); if (alive.current) setBusy(false) }
   }
 
@@ -192,6 +211,7 @@ export default function WalletSetup({ userId, network, hasCredential, resumeWall
   return <section className="min-w-0 rounded-2xl border border-[#F7931A]/25 bg-[#0D0D0D] p-4 sm:p-6" data-wallet-setup="true" data-wallet-asset-group="bitbudget-wallet-assets:signer:v1">
     <div className="mb-5 flex items-center justify-between gap-3"><span className="text-xs uppercase tracking-wide text-[#F7931A]">{network} · test coins only</span><Button variant="ghost" disabled={busy} onClick={() => step === "success" ? onClose() : setConfirmClose(true)}>Close</Button></div>
     <ShareIllustration />
+    <p className="mt-4 text-sm"><Link href="/faq#passkey-compatibility" target="_blank" rel="noopener noreferrer" prefetch={false} className="text-[#F7931A] underline underline-offset-4">Passkey compatibility and wallet FAQ (opens in a new tab)</Link></p>
     {step === "intro" ? <div className="mt-5 space-y-4">
       <h2 className="text-2xl font-semibold">Your Bitcoin, with a recovery plan</h2>
       <p className="text-sm leading-relaxed text-muted-foreground">Any two of three shares can authorize a spend. Your device holds one, BitBudget holds a separate co-signing share, and you keep a password-protected recovery file.</p>
@@ -203,8 +223,8 @@ export default function WalletSetup({ userId, network, hasCredential, resumeWall
       <h2 className="text-xl font-semibold">Protect your wallet</h2>
       <div><Label htmlFor="wallet-name">Wallet name</Label><Input id="wallet-name" value={name} maxLength={60} onChange={event => { nameTouched.current = true; setName(event.target.value) }} className="mt-2" /></div>
       <p className="text-sm text-muted-foreground">Choose a recovery password before creating keys so your recovery share is encrypted immediately. Keep it separately from the downloaded file.</p>
-      <div><Label htmlFor="wallet-recovery-password">Recovery password (at least 12 characters)</Label><Input id="wallet-recovery-password" type="password" autoComplete="new-password" value={password} maxLength={1024} onChange={event => setPassword(event.target.value)} className="mt-2" /></div>
-      <div><Label htmlFor="wallet-recovery-confirm">Confirm recovery password</Label><Input id="wallet-recovery-confirm" type="password" autoComplete="new-password" value={confirmation} maxLength={1024} onChange={event => setConfirmation(event.target.value)} className="mt-2" /></div>
+      <div><Label htmlFor="wallet-recovery-password">Recovery password (at least 12 characters)</Label><WalletPasswordInput id="wallet-recovery-password" revealLabel="recovery password" autoComplete="new-password" value={password} maxLength={1024} onChange={event => setPassword(event.target.value)} /></div>
+      <div><Label htmlFor="wallet-recovery-confirm">Confirm recovery password</Label><WalletPasswordInput id="wallet-recovery-confirm" revealLabel="recovery password confirmation" autoComplete="new-password" value={confirmation} maxLength={1024} onChange={event => setConfirmation(event.target.value)} /></div>
       <p className="text-xs text-muted-foreground">Your device may ask for verification more than once. Unsupported passkey encryption will stop setup; there is no password-only device fallback.</p>
       <Button onClick={() => { void create() }} disabled={busy || !name.trim() || password.length < 12 || password !== confirmation} className="w-full bg-[#F7931A] text-black sm:w-auto"><Fingerprint className="mr-2 h-4 w-4" />Create wallet with passkey</Button>
     </div> : null}
@@ -218,13 +238,13 @@ export default function WalletSetup({ userId, network, hasCredential, resumeWall
           const selected = event.target.files?.[0] ?? null
           if (selected && selected.size > MAX_RECOVERY_FILE_CHARACTERS) { setError("That file is too large to be a wallet recovery file."); setFile(null) } else { setFile(selected); setError("") }
         }} /></div>
-        <div><Label htmlFor="wallet-verify-password">Recovery password</Label><Input id="wallet-verify-password" type="password" autoComplete="current-password" disabled={busy} value={password} maxLength={1024} onChange={event => setPassword(event.target.value)} className="mt-2" /></div>
+        <div><Label htmlFor="wallet-verify-password">Recovery password</Label><WalletPasswordInput id="wallet-verify-password" revealLabel="recovery password" autoComplete="current-password" disabled={busy} value={password} maxLength={1024} onChange={event => setPassword(event.target.value)} /></div>
         <Button onClick={() => { void verify() }} disabled={busy || !file || password.length < 12} className="w-full bg-[#F7931A] text-black sm:w-auto">{busy ? "Verifying recovery…" : "Verify recovery file"}</Button>
       </>}
       <p className="text-xs text-muted-foreground">Downloading alone does not finish setup. Verification checks the recovered share and proves it works with your protected device share.</p>
     </div> : null}
     {step === "success" ? <div className="mt-5 space-y-4 text-center"><CheckCircle2 className="mx-auto h-12 w-12 text-green-500" /><h2 className="text-2xl font-semibold">Wallet created. Recovery verified.</h2><p className="text-sm text-muted-foreground">Your device share and encrypted recovery file were verified together. Keep the file and its password safe.</p><p className="text-sm text-amber-200">This test-network preview does not enable sending or fundable receive addresses yet.</p><Button onClick={onClose} className="bg-[#F7931A] text-black">Open wallet</Button></div> : null}
-    {error ? <p role="alert" data-wallet-error-code={errorCode} className="mt-4 rounded-xl border border-red-500/25 bg-red-500/5 p-3 text-sm text-red-300">{error}</p> : null}
+    {error ? <div role="alert" data-wallet-error-code={errorCode} data-wallet-error-detail={errorDetail || undefined} className="mt-4 rounded-xl border border-red-500/25 bg-red-500/5 p-3 text-sm text-red-300"><p>{error}</p>{errorDetail ? <p className="mt-2 text-xs">Support code: {errorDetail}</p> : null}</div> : null}
     <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Leave wallet setup?</AlertDialogTitle><AlertDialogDescription>{walletId ? "Your protected shares remain on this device. You can return to complete recovery verification. No wallet data will be deleted." : "Your recovery password is not saved. You will need to enter it again when you return."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Stay here</AlertDialogCancel><AlertDialogAction onClick={onClose}>Leave setup</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </section>
 }

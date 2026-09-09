@@ -10,6 +10,7 @@ import { cacheWalletAssets } from "@/lib/wallet-asset-cache"
 import { openWalletCustodyStore } from "@/lib/wallet/wallet-idb"
 import { decryptField } from "@/lib/crypto"
 import { Switch } from "@/components/ui/switch"
+import ElectrumConnectionTest from "@/components/wallet/electrum-connection-test"
 import {
   getWalletFeaturePreference,
   initializeWalletFeaturePreference,
@@ -31,7 +32,18 @@ const WalletSetup = dynamic(() => cacheWalletAssets("signer", { enabled: true, r
   ssr: false,
   loading: () => <p role="status" className="text-sm text-muted-foreground">Loading wallet setup…</p>,
 })
+const readinessMessages = {
+  "node-runtime": "The wallet server requires Node.js 22 or newer.",
+  "webauthn-config": "Configure WALLET_WEBAUTHN_RP_ID and WALLET_WEBAUTHN_ORIGINS for this deployment.",
+  "webauthn-origin": "This browser URL is not an allowed wallet passkey origin. Use the configured origin, not a preview proxy.",
+  "cosigner-key": "WALLET_COSIGNER_ENCRYPTION_KEY is missing or invalid. It must be a persistent 32-byte base64 secret, not your RPC password. Do not replace an existing key.",
+  "network-config": "WALLET_NETWORK must be signet, testnet4 or regtest. Mainnet wallet creation is not enabled yet.",
+  "wallet-schema": "Wallet tables or columns are missing from the configured database. A reviewed wallet migration is required before setup.",
+  "database": "The wallet database could not be queried. Check server database connectivity and permissions.",
+  "wasm": "The wallet cryptographic build could not load. Build wallet-mpc before building the application.",
+}
 const capabilitiesSchema = z.object({
+  issues: z.array(z.enum(["node-runtime", "webauthn-config", "webauthn-origin", "cosigner-key", "network-config", "wallet-schema", "database", "wasm"])).optional(),
   creationAvailable: z.boolean(), network: z.enum(["signet", "testnet4", "regtest"]).optional(), hasCredential: z.boolean().optional(),
   wallets: z.array(z.object({ id: z.string().uuid(), network: z.enum(["signet", "testnet4", "regtest"]), status: z.string(), signingAvailable: z.boolean(), recoveryVerifiedAt: z.string().nullable().optional() })),
 })
@@ -88,8 +100,8 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
   if (!visible) return null
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-5" data-wallet-feature="entry" data-wallet-asset-group="bitbudget-wallet-assets:monitor:v1">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className={`grid w-full min-w-0 grid-cols-1 items-start gap-5 ${view === "setup" ? "lg:grid-cols-2" : ""}`} data-wallet-feature="entry" data-wallet-asset-group="bitbudget-wallet-assets:monitor:v1">
+      <header className="col-span-full flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm text-[#F7931A]"><Wallet className="h-4 w-4" aria-hidden /> BitBudget Wallet</div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Your wallet. Both sides of the fork.</h1>
@@ -97,7 +109,7 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
         <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs text-amber-200">Research preview</span>
       </header>
 
-      <nav aria-label="Wallet views" className={`flex flex-wrap gap-2 ${view === "setup" ? "hidden" : ""}`}>
+      <nav aria-label="Wallet views" className={`col-span-full flex flex-wrap gap-2 ${view === "setup" ? "hidden" : ""}`}>
         <button type="button" aria-pressed={view === "overview"} onClick={() => setView("overview")} className={`rounded-full border px-4 py-2 text-sm ${view === "overview" ? "border-[#F7931A] text-[#F7931A]" : "border-border text-muted-foreground"}`}>Overview</button>
         <button type="button" aria-pressed={view === "external"} onClick={() => setView("external")} className={`rounded-full border px-4 py-2 text-sm ${view === "external" ? "border-[#F7931A] text-[#F7931A]" : "border-border text-muted-foreground"}`}>External wallet tracking</button>
         <button type="button" aria-pressed={view === "tools"} onClick={() => setView("tools")} className={`rounded-full border px-4 py-2 text-sm ${view === "tools" ? "border-[#F7931A] text-[#F7931A]" : "border-border text-muted-foreground"}`}>Public data tools</button>
@@ -118,7 +130,12 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
 
           <div>
             <button type="button" disabled={!capabilities?.creationAvailable} onClick={() => { setResumeWalletId(undefined); setView("setup") }} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#F7931A] px-5 py-3 text-sm font-semibold text-black disabled:opacity-50 sm:w-auto"><Plus className="h-4 w-4" aria-hidden />{capabilities?.wallets.length ? "Create another wallet" : "Create wallet"}</button>
-            {serviceError || capabilities?.creationAvailable === false ? <p role="status" className="mt-2 text-sm text-amber-200">Wallet creation is unavailable on this server. Its wallet configuration, build and database must be ready before setup.</p> : !capabilities ? <p role="status" className="mt-2 text-sm text-muted-foreground">Checking wallet availability…</p> : null}
+            {serviceError || capabilities?.creationAvailable === false ? <div role="status" className="mt-2 space-y-2 text-sm text-amber-200">
+              <p>Wallet creation is unavailable on this server. Its wallet configuration, build and database must be ready before setup.</p>
+              {capabilities?.issues?.length ? <ul className="list-disc space-y-1 pl-5">{capabilities.issues.map(issue => <li key={issue}>{readinessMessages[issue]}</li>)}</ul> : null}
+              <p className="text-muted-foreground">An Electrum connection does not satisfy these custody prerequisites. No database or environment settings are changed by this check.</p>
+              <button type="button" onClick={() => setRefresh(value => value + 1)} className="rounded-lg border border-border px-3 py-2 text-foreground">Recheck wallet setup</button>
+            </div> : !capabilities ? <p role="status" className="mt-2 text-sm text-muted-foreground">Checking wallet availability…</p> : null}
           </div>
           {capabilities?.wallets.length ? <section className="space-y-3" aria-label="Your wallets">{capabilities.wallets.map((wallet, index) => <div key={wallet.id} className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-[#0D0D0D] p-4">
             <div className="min-w-0"><h2 className="truncate font-semibold">{names[wallet.id] ?? `Wallet ${index + 1}`}</h2><p className="mt-1 text-xs text-muted-foreground">{wallet.network} · one wallet, both lineages</p><p className={`mt-2 text-sm ${wallet.status === "ready" ? "text-green-400" : "text-amber-200"}`}>{wallet.status === "ready" ? "Recovery verified · signing locked" : "Recovery setup incomplete"}</p></div>
@@ -139,19 +156,22 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Security</p>
             <h2 id="wallet-connections-title" className="mt-1 font-semibold">Connections</h2>
             <p className="mt-2 text-sm text-muted-foreground">Connect a Blake2b-compatible transaction indexer to watch and spend on that side of the fork.</p>
-            <p className="mt-3 text-sm text-amber-200">Not connected. Indexer verification is not available in this build.</p>
+            <p className="mt-3 text-sm text-amber-200">Wallet indexer integration is not enabled yet. You can test an Electrum bridge without enabling spending.</p>
+            <ElectrumConnectionTest />
           </section>
         </>
       )}
 
-      <section className="flex flex-col gap-4 rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-        <div className="min-w-0">
-          <label htmlFor="wallet-remember" className="font-medium">Remember this wallet workspace</label>
-          <p className="mt-1 text-sm text-muted-foreground">Keep the workspace enabled for this account on this browser. This never unlocks signing or sends a transaction.</p>
-          {preferenceError ? <p role="alert" className="mt-2 text-sm text-red-300">Your browser could not save this preference.</p> : null}
-        </div>
-        <Switch id="wallet-remember" checked={remembered} onCheckedChange={enabled => setPreferenceError(!setWalletFeaturePreference(userId, enabled))} />
-      </section>
+      <aside aria-label="Wallet workspace options" className="flex min-w-0 flex-col gap-5">
+        <section className="flex flex-col gap-4 rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="min-w-0">
+            <label htmlFor="wallet-remember" className="font-medium">Remember this wallet workspace</label>
+            <p className="mt-1 text-sm text-muted-foreground">Keep the workspace enabled for this account on this browser. This never unlocks signing or sends a transaction.</p>
+            {preferenceError ? <p role="alert" className="mt-2 text-sm text-red-300">Your browser could not save this preference.</p> : null}
+          </div>
+          <Switch id="wallet-remember" checked={remembered} onCheckedChange={enabled => setPreferenceError(!setWalletFeaturePreference(userId, enabled))} />
+        </section>
+      </aside>
 
       {view !== "external" && view !== "setup" ? <button type="button" onClick={() => setView("external")} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#F7931A] px-5 py-3 text-sm font-semibold text-black sm:w-fit">Open external wallet tracking <ArrowRight className="h-4 w-4" aria-hidden /></button> : null}
     </div>

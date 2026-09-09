@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { ElectrumClient, type ElectrumReadMethod, type ElectrumSocket } from "@/lib/wallet/chain/electrum-client"
+import { ELECTRUM_READ_METHODS, ElectrumClient, type ElectrumReadMethod, type ElectrumSocket } from "@/lib/wallet/chain/electrum-client"
+
+import { READ_METHODS } from "@/wallet-bridge/protocol.mjs"
 
 class FakeSocket extends EventTarget {
   readyState = 0
@@ -25,9 +27,25 @@ function setup(options: Partial<ConstructorParameters<typeof ElectrumClient>[0]>
   return { client, sockets, factory }
 }
 const tick = async () => { await Promise.resolve(); await Promise.resolve() }
-afterEach(() => { clients.splice(0).forEach(client => client.dispose()); vi.useRealTimers() })
+afterEach(() => { clients.splice(0).forEach(client => client.dispose()); vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 
 describe("Electrum browser transport", () => {
+  it("keeps the packaged bridge read-method allowlist in sync without enabling broadcasting", () => {
+    expect([...READ_METHODS].sort()).toEqual([...ELECTRUM_READ_METHODS].sort())
+    expect(READ_METHODS).not.toContain("blockchain.transaction.broadcast")
+  })
+  it("requires explicit local-development opt-in and the actual local browser origin for WS", () => {
+    const url = "ws://127.0.0.1:50004/electrum"
+    expect(() => setup({ url, allowLoopbackDevelopment: true })).toThrow()
+    vi.stubGlobal("window", { location: { origin: "http://localhost:3001" } })
+    expect(setup({ url, allowLoopbackDevelopment: true }).client.connection.transport).toBe("ws")
+    expect(() => setup({ url })).toThrow()
+    vi.stubGlobal("window", { location: { origin: "https://budget.example" } })
+    expect(() => setup({ url, allowLoopbackDevelopment: true })).toThrow()
+    vi.stubEnv("NODE_ENV", "production")
+    vi.stubGlobal("window", { location: { origin: "http://localhost:3001" } })
+    expect(() => setup({ url, allowLoopbackDevelopment: true })).toThrow()
+  })
   it.each(["tcp://node.example:50001", "tls://node.example:50002", "ssl://node.example:50002", "https://node.example"])("does not pretend %s is browser WebSocket", url => {
     const factory = vi.fn()
     expect(() => new ElectrumClient({ url, webSocketFactory: factory })).toThrow("unsupported-transport")

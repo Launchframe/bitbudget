@@ -1,4 +1,5 @@
 import { createHash, generateKeyPairSync, randomBytes } from "node:crypto"
+import { spawnSync } from "node:child_process"
 import { isoCBOR } from "@simplewebauthn/server/helpers"
 import { afterAll, beforeAll, expect, it } from "vitest"
 import { prisma } from "@/lib/db"
@@ -112,4 +113,8 @@ it("persists verified registration, idempotent real DKG and one co-signer under 
   expect((await walletStatus(userId, record.id)).wallet.recoveryVerifiedAt).not.toBeNull()
   restoredC.free(); session.free()
   aShare.free(); cShare.free(); aToB.fill(0); cToB.fill(0); aToC.fill(0); cToA.fill(0)
+  const beforeRepeat = await prisma.walletAccount.findUniqueOrThrow({ where: { id: record.id }, include: { cosigner: true, provisioning: true } })
+  const repeated = spawnSync("pnpm", ["exec", "prisma", "db", "execute", "--file", "prisma/migrations/20260906230000_wallet_custody/migration.sql", "--schema", "prisma/schema.prisma"], { env: process.env, encoding: "utf8", stdio: "pipe" })
+  expect(repeated.status).toBe(0)
+  expect(await prisma.walletAccount.findUniqueOrThrow({ where: { id: record.id }, include: { cosigner: true, provisioning: true } })).toEqual(beforeRepeat)
 })

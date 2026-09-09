@@ -1,8 +1,19 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ConnectionUrlError, parseConnectionUrl } from "@/lib/wallet/chain/connection-url"
 
+afterEach(() => vi.unstubAllEnvs())
+
 describe("browser indexer connection URLs", () => {
+  it("permits explicit loopback WS only from a local HTTP development origin", () => {
+    const options = { developmentOrigin: "http://localhost:3001" }
+    expect(parseConnectionUrl("ws://127.0.0.1:50004/electrum", options)).toMatchObject({ transport: "ws", browserSupport: "direct" })
+    expect(() => parseConnectionUrl("ws://127.0.0.1:50004/electrum")).toThrow()
+    expect(() => parseConnectionUrl("ws://10.0.0.190:50004/electrum", options)).toThrow()
+    expect(() => parseConnectionUrl("ws://127.0.0.1:50004/electrum", { developmentOrigin: "https://budget.example" })).toThrow()
+    vi.stubEnv("NODE_ENV", "production")
+    expect(() => parseConnectionUrl("ws://127.0.0.1:50004/electrum", options)).toThrow()
+  })
   it("accepts explicit HTTPS and WSS including IPv6 and bounded ports", () => {
     expect(parseConnectionUrl("https://indexer.example/api/")).toMatchObject({ kind: "esplora", url: "https://indexer.example/api", port: 443, browserSupport: "direct" })
     expect(parseConnectionUrl("wss://[2001:db8::1]:65535/electrum")).toMatchObject({ kind: "electrum", hostname: "[2001:db8::1]", port: 65535, browserSupport: "direct" })

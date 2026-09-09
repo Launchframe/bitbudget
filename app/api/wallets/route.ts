@@ -5,8 +5,8 @@ import { listWallets } from "@/lib/wallet/server/wallets"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-export async function GET() {
-  return walletRoute(async () => listWallets(await walletUser()))
+export async function GET(request: Request) {
+  return walletRoute(async () => listWallets(await walletUser(), new URL(request.url).origin))
 }
 
 export async function POST(request: Request) {

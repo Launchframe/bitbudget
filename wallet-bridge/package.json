@@ -1,0 +1,32 @@
+{
+  "name": "bitbudget-electrum-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only, TLS-verified Electrum WebSocket bridge with user-local routing policy",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.mts",
+      "import": "./index.mjs"
+    }
+  },
+  "types": "./index.d.mts",
+  "bin": {
+    "bitbudget-electrum-bridge": "./server.mjs"
+  },
+  "files": ["index.mjs", "index.d.mts", "bridge.mjs", "protocol.mjs", "policy.mjs", "upstream-config.mjs", "server.mjs"],
+  "packageManager": "pnpm@10.28.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test bridge.test.mjs policy.test.mjs",
+    "test:socks": "node --test bridge.socks.test.mjs",
+    "test:package": "node --test package.test.mjs"
+  },
+  "dependencies": {
+    "socks": "2.8.9",
+    "ws": "8.21.3"
+  }
+}
