@@ -50,6 +50,8 @@ import {
   setCachedPrivacyKeyHex,
 } from "@/lib/privacy-key-storage"
 import { clearAllDrafts } from "@/lib/draft-storage"
+import { clearShoppingCache } from "@/lib/shopping-cache"
+import { clearPendingShoppingInvite } from "@/lib/shopping-invite-handoff"
 import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 import {
   type ApiTransactionRow,
@@ -263,6 +265,11 @@ interface AppContextValue {
   refreshData: () => Promise<void>
   clearLocalTransactionCache: () => Promise<void>
   encryptForStorage: (plaintext: string) => Promise<string>
+  /**
+   * Run a callback with the in-memory privacy key while unlocked.
+   * Returns null when the session is locked. Do not persist the key.
+   */
+  withPrivacyKey: <T>(fn: (key: Uint8Array) => T | Promise<T>) => Promise<T | null>
   /**
    * Build a per-import HMAC dedupe-key computer from the cached privacy-key seed,
    * or null if the session is locked. Create one per import and reuse across chunks.
@@ -1563,6 +1570,12 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     return encryptFieldAsymmetric(plaintext, publicKeyRef.current)
   }, [])
 
+  const withPrivacyKey = useCallback(async <T,>(fn: (key: Uint8Array) => T | Promise<T>): Promise<T | null> => {
+    const key = privacyKeyRef.current
+    if (!key) return null
+    return fn(key)
+  }, [])
+
   const makeImportDedupeKeyComputer = useCallback((): DedupeKeyComputer | null => {
     const key = privacyKeyRef.current
     if (!key) return null
@@ -1592,6 +1605,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       sessionStorage.removeItem("bitbudget-survey-shown")
       sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
       clearAllDrafts()
+      clearPendingShoppingInvite()
     } catch {
       /* ignore */
     }
@@ -1616,7 +1630,10 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     setTxnLoadPhase("init")
     setRecurringTransactions([])
     void (async () => {
-      if (uid) await clearDb(uid).catch(() => {})
+      if (uid) {
+        await clearDb(uid).catch(() => {})
+        await clearShoppingCache(uid).catch(() => {})
+      }
       signOut({ callbackUrl: "/auth" })
     })()
   }, [])
@@ -1836,6 +1853,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         refreshData,
         clearLocalTransactionCache,
         encryptForStorage,
+        withPrivacyKey,
         makeImportDedupeKeyComputer,
         logout,
         isAdmin: userRole === "admin",
