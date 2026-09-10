@@ -280,4 +280,14 @@ mismatch (before the grant is burned), legacy-derivation refusal, and the
 burn-before-sign order. `spend-builder.test.ts` covers coin selection, fee,
 dust absorption and serialisation round-trips. No real signet spend has been
 executed by the agent; the Send tab should be treated as unverified end-to-end
-until a maintainer runs one on signet with the CI-built WASM.
+until a maintainer runs one on signet with a locally built WASM.
+
+**Correction to A11/B11 "CI builds the WASM":** it does not. Both GitHub
+workflows (`lint.yml`, `test.yml`) are `workflow_dispatch` only and neither
+builds `wallet-mpc/pkg`; the only automatic check on these PRs is the Vercel
+preview build, which fails on **#36 and #127 alike** with
+`Module not found: '@/wallet-mpc/pkg/wallet_mpc.js'` (pre-existing, not
+introduced by this slice — `creation-session.ts` and `server/mpc.ts` fail the
+same way). Until the WASM artifact is produced in the build step, the
+WASM-dependent modules are verified only by a maintainer running
+`pnpm wallet-mpc:build && pnpm wallet:test:core` locally.
