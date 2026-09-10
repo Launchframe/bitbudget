@@ -41,6 +41,7 @@ export const CASH_INFLOW_SOURCES = new Set([
   // deliberately *not* in MONTHLY_INCOME_SOURCES: they move balances but are
   // not treated as income (many are transfers from the user's own exchange).
   "onchain_xpub",
+  "onchain_wallet",
 ])
 
 function usdToSats(usd: number, btcPrice: number): number {

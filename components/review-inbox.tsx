@@ -67,6 +67,7 @@ const sourceIcons: Record<TransactionSource, React.ElementType> = {
   envelope_transfer_in: ArrowDownToLine,
   envelope_transfer_out: ArrowUpFromLine,
   onchain_xpub: Bitcoin,
+  onchain_wallet: Bitcoin,
 }
 
 const sourceLabels: Record<TransactionSource, string> = {
@@ -91,6 +92,7 @@ const sourceLabels: Record<TransactionSource, string> = {
   envelope_transfer_in: "Transfer in",
   envelope_transfer_out: "Transfer out",
   onchain_xpub: "Bitcoin wallet",
+  onchain_wallet: "BitBudget wallet",
 }
 
 export function ReviewInbox() {

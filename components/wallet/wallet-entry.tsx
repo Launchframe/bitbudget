@@ -32,6 +32,10 @@ const WalletSetup = dynamic(() => cacheWalletAssets("signer", { enabled: true, r
   ssr: false,
   loading: () => <p role="status" className="text-sm text-muted-foreground">Loading wallet setup…</p>,
 })
+const WalletWorkspace = dynamic(() => cacheWalletAssets("advanced", { enabled: true, reason: "demand" }).then(() => import("@/components/wallet/wallet-workspace")), {
+  ssr: false,
+  loading: () => <p role="status" className="text-sm text-muted-foreground">Opening wallet…</p>,
+})
 const readinessMessages = {
   "node-runtime": "The wallet server requires Node.js 22 or newer.",
   "webauthn-config": "Configure WALLET_WEBAUTHN_RP_ID and WALLET_WEBAUTHN_ORIGINS for this deployment.",
@@ -56,7 +60,8 @@ const explanations = [
 ]
 
 export default function WalletEntry({ userId, visible }: { userId: string; visible: boolean }) {
-  const [view, setView] = useState<"overview" | "external" | "tools" | "setup">("overview")
+  const [view, setView] = useState<"overview" | "external" | "tools" | "setup" | "workspace">("overview")
+  const [openWalletId, setOpenWalletId] = useState<string | null>(null)
   const [preferenceError, setPreferenceError] = useState(false)
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null)
   const [serviceError, setServiceError] = useState(false)
@@ -99,9 +104,13 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
 
   if (!visible) return null
 
+  // If the wallet disappears (deleted elsewhere, capabilities refreshed) the hub renders instead.
+  const openWallet = view === "workspace" && openWalletId ? capabilities?.wallets.find(wallet => wallet.id === openWalletId) : undefined
+  const inWorkspace = Boolean(openWallet)
+
   return (
     <div className={`grid w-full min-w-0 grid-cols-1 items-start gap-5 ${view === "setup" ? "lg:grid-cols-2" : ""}`} data-wallet-feature="entry" data-wallet-asset-group="bitbudget-wallet-assets:monitor:v1">
-      <header className="col-span-full flex flex-wrap items-center justify-between gap-3">
+      <header className={`col-span-full flex flex-wrap items-center justify-between gap-3 ${inWorkspace ? "hidden" : ""}`}>
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm text-[#F7931A]"><Wallet className="h-4 w-4" aria-hidden /> BitBudget Wallet</div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Your wallet. Both sides of the fork.</h1>
@@ -109,13 +118,15 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
         <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs text-amber-200">Research preview</span>
       </header>
 
-      <nav aria-label="Wallet views" className={`col-span-full flex flex-wrap gap-2 ${view === "setup" ? "hidden" : ""}`}>
+      {openWallet ? <WalletWorkspace userId={userId} wallet={openWallet} name={names[openWallet.id] ?? `Wallet ${capabilities!.wallets.indexOf(openWallet) + 1}`} onBack={() => { setView("overview"); setOpenWalletId(null); setRefresh(value => value + 1) }} /> : null}
+
+      <nav aria-label="Wallet views" className={`col-span-full flex flex-wrap gap-2 ${view === "setup" || inWorkspace ? "hidden" : ""}`}>
         <button type="button" aria-pressed={view === "overview"} onClick={() => setView("overview")} className={`rounded-full border px-4 py-2 text-sm ${view === "overview" ? "border-[#F7931A] text-[#F7931A]" : "border-border text-muted-foreground"}`}>Overview</button>
         <button type="button" aria-pressed={view === "external"} onClick={() => setView("external")} className={`rounded-full border px-4 py-2 text-sm ${view === "external" ? "border-[#F7931A] text-[#F7931A]" : "border-border text-muted-foreground"}`}>External wallet tracking</button>
         <button type="button" aria-pressed={view === "tools"} onClick={() => setView("tools")} className={`rounded-full border px-4 py-2 text-sm ${view === "tools" ? "border-[#F7931A] text-[#F7931A]" : "border-border text-muted-foreground"}`}>Public data tools</button>
       </nav>
 
-      {view === "setup" && capabilities?.network ? <WalletSetup userId={userId} network={capabilities.wallets.find(wallet => wallet.id === resumeWalletId)?.network ?? capabilities.network} hasCredential={capabilities.hasCredential === true} resumeWalletId={resumeWalletId} onChanged={() => setRefresh(value => value + 1)} onClose={() => { setView("overview"); setResumeWalletId(undefined); setRefresh(value => value + 1) }} /> : view === "external" ? <ExternalWallets /> : view === "tools" ? <PublicDataTools /> : (
+      {inWorkspace ? null : view === "setup" && capabilities?.network ? <WalletSetup userId={userId} network={capabilities.wallets.find(wallet => wallet.id === resumeWalletId)?.network ?? capabilities.network} hasCredential={capabilities.hasCredential === true} resumeWalletId={resumeWalletId} onChanged={() => setRefresh(value => value + 1)} onClose={() => { setView("overview"); setResumeWalletId(undefined); setRefresh(value => value + 1) }} /> : view === "external" ? <ExternalWallets /> : view === "tools" ? <PublicDataTools /> : (
         <>
           <section className="overflow-hidden rounded-2xl border border-[#F7931A]/20 bg-[#0D0D0D] p-4 sm:p-6">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
@@ -123,7 +134,7 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
               <div className="min-w-0">
                 <h2 className="text-xl font-semibold">Your bitcoin, inside your budget.</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Track a wallet you already own and its spending and receiving flow straight into your envelopes and Savings. Or create a BitBudget wallet that uses any two of three shares to spend, with no seed phrase to lose.</p>
-                <p role="status" className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-200">BitBudget wallets are a test-network preview: create and verify one with a passkey and recovery file. Sending and fundable receive addresses are not enabled yet.</p>
+                <p role="status" className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-200">BitBudget wallets run on a test network for now: create one with a passkey and recovery file, receive test coins, send them, and watch it all land in your budget. Mainnet comes after this preview.</p>
               </div>
             </div>
           </section>
@@ -156,8 +167,9 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
             </div> : !capabilities ? <p role="status" className="mt-2 text-sm text-muted-foreground">Checking wallet availability…</p> : null}
           </div>
           {capabilities?.wallets.length ? <section className="space-y-3" aria-label="Your wallets">{capabilities.wallets.map((wallet, index) => <div key={wallet.id} className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-[#0D0D0D] p-4">
-            <div className="min-w-0"><h2 className="truncate font-semibold">{names[wallet.id] ?? `Wallet ${index + 1}`}</h2><p className="mt-1 text-xs text-muted-foreground">{wallet.network} · one wallet, both lineages</p><p className={`mt-2 text-sm ${wallet.status === "ready" ? "text-green-400" : "text-amber-200"}`}>{wallet.status === "ready" ? "Recovery verified · signing locked" : "Recovery setup incomplete"}</p></div>
-            {wallet.status !== "ready" ? <button type="button" disabled={!capabilities.creationAvailable || capabilities.custodyAllowed === false} onClick={() => { setResumeWalletId(wallet.id); setView("setup") }} className="rounded-xl border border-border px-4 py-2 text-sm">Continue setup</button> : null}
+            <div className="min-w-0"><h2 className="truncate font-semibold">{names[wallet.id] ?? `Wallet ${index + 1}`}</h2><p className="mt-1 text-xs text-muted-foreground">{wallet.network} · one wallet, both lineages</p><p className={`mt-2 text-sm ${wallet.status === "ready" ? "text-green-400" : "text-amber-200"}`}>{wallet.status === "ready" ? "Recovery verified" : "Recovery setup incomplete"}</p></div>
+            {wallet.status !== "ready" ? <button type="button" disabled={!capabilities.creationAvailable || capabilities.custodyAllowed === false} onClick={() => { setResumeWalletId(wallet.id); setView("setup") }} className="rounded-xl border border-border px-4 py-2 text-sm">Continue setup</button>
+              : <button type="button" onClick={() => { setOpenWalletId(wallet.id); setView("workspace") }} className="inline-flex items-center gap-2 rounded-xl bg-[#F7931A] px-4 py-2 text-sm font-semibold text-black">Open wallet <ArrowRight className="h-4 w-4" aria-hidden /></button>}
           </div>)}</section> : null}
 
           <div className="grid gap-3 md:grid-cols-3">
@@ -180,7 +192,7 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
         </>
       )}
 
-      <aside aria-label="Wallet workspace options" className="flex min-w-0 flex-col gap-5">
+      <aside aria-label="Wallet workspace options" className={`flex min-w-0 flex-col gap-5 ${inWorkspace ? "hidden" : ""}`}>
         <section className="flex flex-col gap-4 rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div className="min-w-0">
             <label htmlFor="wallet-remember" className="font-medium">Remember this wallet workspace</label>

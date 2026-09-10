@@ -29,6 +29,7 @@ export type TransactionSource =
   | "envelope_transfer_in"
   | "envelope_transfer_out"
   | "onchain_xpub"
+  | "onchain_wallet"
 
 export const TRANSACTION_SOURCES: readonly TransactionSource[] = [
   "manual",
@@ -52,6 +53,7 @@ export const TRANSACTION_SOURCES: readonly TransactionSource[] = [
   "envelope_transfer_in",
   "envelope_transfer_out",
   "onchain_xpub",
+  "onchain_wallet",
 ] as const
 
 export function isTransactionSource(value: unknown): value is TransactionSource {

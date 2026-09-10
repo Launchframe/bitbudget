@@ -3,12 +3,14 @@ import { custodyTierAllowed, requireCustodyTier } from "@/lib/wallet/server/tier
 import { listWallets } from "@/lib/wallet/server/wallets"
 import { walletSchemaColumns } from "@/lib/wallet/server/readiness"
 import { POST } from "@/app/api/wallets/route"
+import { POST as signPost } from "@/app/api/wallets/[walletId]/sign/route"
 import { WalletError } from "@/lib/wallet/server/config"
 
 const mocks = vi.hoisted(() => ({
   premiumOrTrial: vi.fn(),
-  query: vi.fn(), list: vi.fn(), credentials: vi.fn(), core: vi.fn(), auth: vi.fn(), start: vi.fn(),
+  query: vi.fn(), list: vi.fn(), credentials: vi.fn(), core: vi.fn(), auth: vi.fn(), start: vi.fn(), cosign: vi.fn(),
 }))
+vi.mock("@/lib/wallet/server/signing", () => ({ cosignSpend: mocks.cosign }))
 vi.mock("@/lib/subscription", () => ({ requirePremiumOrTrial: mocks.premiumOrTrial }))
 vi.mock("@/lib/db", () => ({ prisma: { $queryRaw: mocks.query, walletAccount: { findMany: mocks.list }, walletCredential: { count: mocks.credentials } } }))
 vi.mock("@/lib/wallet/server/mpc", () => ({ loadWalletMpc: mocks.core }))
@@ -63,5 +65,19 @@ describe("custody tier gate", () => {
     expect(response.status).toBe(403)
     expect(await response.json()).toEqual({ error: { code: "tier-required" } })
     expect(mocks.start).not.toHaveBeenCalled()
+  })
+
+  it("rejects co-signing for accounts that lost premium after wallet creation", async () => {
+    mocks.premiumOrTrial.mockResolvedValue(false)
+    const walletId = "2f3e8f0a-2d7d-4b52-9a49-4a6d2f8f0c11"
+    const body = JSON.stringify({ lineage: "sha256d", unsignedTxHex: "00", spentOutputsHex: "00", inputs: [{ merkleRootHex: "aa".repeat(32) }], grantId: "b8b699c4-161d-43cf-b414-581b92632bb4", aCommitmentsHex: ["00"] })
+    const request = new Request(`${origin}/api/wallets/${walletId}/sign`, {
+      method: "POST", body,
+      headers: { origin, "content-type": "application/json", "content-length": String(body.length) },
+    })
+    const response = await signPost(request, { params: Promise.resolve({ walletId }) })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: { code: "tier-required" } })
+    expect(mocks.cosign).not.toHaveBeenCalled()
   })
 })
