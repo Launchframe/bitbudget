@@ -9,6 +9,7 @@ import type { StoredWalletCustody } from "@/lib/wallet/wallet-idb"
 import type { EsploraClient } from "@/lib/wallets/esplora-client"
 import { buildUnsignedTransaction, type SpendPlan } from "@/lib/wallet/spend-builder"
 import { spendCommitResponseSchema, spendRequestDigest, type SpendRequest } from "@/lib/wallet/spend-request"
+import { revalidateSpendEvidence, verifySpendEvidence, type SpendEvidence } from "@/lib/wallet/spend-evidence"
 
 /**
  * Device (participant 1) side of a spend. See `lib/wallet/server/signing.ts`
@@ -30,12 +31,19 @@ export interface ExecuteSpendInput {
   client: EsploraClient
   signal?: AbortSignal
   onStage?: (stage: SpendStage) => void
+  /**
+   * Set to false only in tests that stub the indexer; production callers
+   * always re-check every input against the explorer before the passkey
+   * prompt and again right before broadcast.
+   */
+  verifyEvidence?: boolean
 }
 
 export interface ExecuteSpendResult {
   txid: string
   rawTxHex: string
   digest: string
+  evidence: SpendEvidence | null
 }
 
 const SIGHASH_DEFAULT = 0
@@ -66,6 +74,9 @@ export async function executeSpend(input: ExecuteSpendInput): Promise<ExecuteSpe
   const buffers: Uint8Array[] = []
   try {
     input.onStage?.("preparing")
+    // Ownership/amount/unspent evidence from the user's indexer, before anyone is asked to approve.
+    let evidence: SpendEvidence | null = null
+    if (input.verifyEvidence !== false) evidence = await verifySpendEvidence(plan, input.client)
     await initializeCore()
     const unsigned = buildUnsignedTransaction(plan)
 
@@ -131,10 +142,12 @@ export async function executeSpend(input: ExecuteSpendInput): Promise<ExecuteSpe
     }
 
     input.onStage?.("broadcasting")
+    // If the tip moved while the user was approving, make sure the coins are still ours to spend.
+    if (evidence) evidence = await revalidateSpendEvidence(evidence, input.client)
     const rawTxHex = bytesToHex(signedTx)
     const txid = await input.client.broadcastTx(rawTxHex)
     input.onStage?.("done")
-    return { txid, rawTxHex, digest }
+    return { txid, rawTxHex, digest, evidence }
   } finally {
     for (const buffer of buffers) buffer.fill(0)
     owned.close()

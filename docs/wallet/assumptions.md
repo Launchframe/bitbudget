@@ -236,12 +236,37 @@ co-signer but never blocks recovery or export.
   A share is revoked by rotating the group key. Not built; the Security tab
   says recovery currently means "import the recovery file into a wallet that
   supports it".
-- **Evidence validator for `evaluateTransactionIsolation`:** not started.
+- **Lineage-isolation evidence for `evaluateTransactionIsolation`:** still
+  policy-only. The single-lineage coin evidence check shipped instead (B12);
+  a Blake2b-side indexer is a prerequisite for the isolation validator and
+  none is connected yet.
 - **Encrypted watch bundle API:** see B3.
 - **Passphrase gate on server co-sign:** the maintainer's decision is recorded;
   this slice gates co-signing on the passkey grant only. Adding the
   passphrase (and wrapping Share A when a backup passkey exists) fits behind
   the same `operation: "sign"` grant without protocol changes.
+
+### B12. Coin evidence is re-checked before approval and again before broadcast
+`lib/wallet/spend-evidence.ts` runs inside `executeSpend` before the passkey
+prompt: for every planned input it asks the user's explorer whether the
+outpoint is still unspent for that address, requires a confirmation (the
+planner only spends confirmed coins), then fetches the **raw previous
+transaction** and decodes vout locally so the amount and scriptPubKey come
+from transaction bytes rather than an index entry. The chain tip is recorded;
+right before broadcast the tip is re-read and, if it moved or the evidence is
+older than ten minutes, the unspent check runs again. Any failure refuses the
+spend with a specific code (`input-spent`, `amount-mismatch`,
+`script-mismatch`, `unconfirmed-input`, `evidence-stale`,
+`indexer-unavailable`) and plain-language copy in the Send tab; nothing
+degrades to a warning. The `verifyEvidence: false` switch exists only for
+WASM test harnesses that stub the indexer.
+
+What this is not: it trusts the single configured explorer (a lying explorer
+can still hide a spend), and it says nothing about lineage isolation. The
+server co-signer does not independently consult an indexer — it verifies
+structure and script ownership only (B5). A server-side indexer for
+independent amount/ancestry verification is the natural follow-up and would
+need its own env configuration.
 
 ### B11. Verification environment for this slice
 Same constraints as A11: `wallet-mpc/pkg/` is absent locally (Docker down,

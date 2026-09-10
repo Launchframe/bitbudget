@@ -40,6 +40,16 @@ const clientErrorCopy: Record<string, string> = {
   "wallet-service-unavailable": "Wallet service is unavailable right now.",
 }
 
+const evidenceErrorCopy: Record<string, string> = {
+  "indexer-unavailable": "Could not reach your explorer to double-check these coins. Nothing was sent.",
+  "input-spent": "One of these coins was already spent. Sync and prepare the send again.",
+  "input-missing": "Your explorer does not know one of these coins. Sync and prepare the send again.",
+  "amount-mismatch": "Your explorer reports a different amount for one of these coins. Sync and prepare the send again.",
+  "script-mismatch": "One of these coins is not paid to this wallet. Sync and prepare the send again.",
+  "unconfirmed-input": "One of these coins is still unconfirmed. Wait for a confirmation and try again.",
+  "evidence-stale": "The chain moved while you were approving. Prepare the send again.",
+}
+
 function stageToStep(stage: SpendStage | null): SigningStep | null {
   switch (stage) {
     case null:
@@ -180,7 +190,8 @@ export function WalletSendPane({
     } catch (err) {
       if (!alive.current) return
       const code = err instanceof Error ? err.message : ""
-      setSendError(clientErrorCopy[code] ?? (err instanceof Error && err.message ? err.message : "Sending failed. Nothing was broadcast."))
+      const evidenceCode = err instanceof Error && err.name === "SpendEvidenceError" ? code.split(":")[0]! : ""
+      setSendError(evidenceErrorCopy[evidenceCode] ?? clientErrorCopy[code] ?? (err instanceof Error && err.message ? err.message : "Sending failed. Nothing was broadcast."))
       setStage(null)
     } finally {
       key.fill(0)
