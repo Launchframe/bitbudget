@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react"
 import dynamic from "next/dynamic"
-import { ArrowRight, Download, Fingerprint, ShieldCheck, Wallet, LockKeyhole, Plus } from "lucide-react"
+import { ArrowRight, Download, Eye, Fingerprint, ShieldCheck, Wallet, LockKeyhole, Plus, Sparkles } from "lucide-react"
 import { z } from "zod"
 import { useApp } from "@/lib/app-context"
 import { walletRequest } from "@/lib/wallet/client-http"
@@ -44,7 +44,7 @@ const readinessMessages = {
 }
 const capabilitiesSchema = z.object({
   issues: z.array(z.enum(["node-runtime", "webauthn-config", "webauthn-origin", "cosigner-key", "network-config", "wallet-schema", "database", "wasm"])).optional(),
-  creationAvailable: z.boolean(), network: z.enum(["signet", "testnet4", "regtest"]).optional(), hasCredential: z.boolean().optional(),
+  creationAvailable: z.boolean(), custodyAllowed: z.boolean().optional(), network: z.enum(["signet", "testnet4", "regtest"]).optional(), hasCredential: z.boolean().optional(),
   wallets: z.array(z.object({ id: z.string().uuid(), network: z.enum(["signet", "testnet4", "regtest"]), status: z.string(), signingAvailable: z.boolean(), recoveryVerifiedAt: z.string().nullable().optional() })),
 })
 type Capabilities = z.infer<typeof capabilitiesSchema>
@@ -121,15 +121,33 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
               <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl bg-[#F7931A]/10"><LockKeyhole className="h-12 w-12 text-[#F7931A]" aria-hidden /></div>
               <div className="min-w-0">
-                <h2 className="text-xl font-semibold">Two shares to spend. One wallet to manage.</h2>
-                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">The wallet is designed to use any two of three shares. Connecting an indexer later adds that side’s activity to the same wallet; it does not create new keys.</p>
-                <p role="status" className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-200">Create and verify a test-network wallet with a passkey and recovery file. Sending and fundable receive addresses are not enabled in this preview. Existing external wallet tracking remains separate.</p>
+                <h2 className="text-xl font-semibold">Your bitcoin, inside your budget.</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Track a wallet you already own and its spending and receiving flow straight into your envelopes and Savings. Or create a BitBudget wallet that uses any two of three shares to spend, with no seed phrase to lose.</p>
+                <p role="status" className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-200">BitBudget wallets are a test-network preview: create and verify one with a passkey and recovery file. Sending and fundable receive addresses are not enabled yet.</p>
               </div>
             </div>
           </section>
 
+          <div className="grid gap-3 md:grid-cols-2" aria-label="Wallet options">
+            <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:p-5">
+              <Eye className="mb-3 h-6 w-6 text-[#F7931A]" aria-hidden />
+              <h2 className="font-semibold">Track a wallet you already have</h2>
+              <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">Paste a public key (xpub). Spending shows up in an envelope you choose; receiving grows Savings. Your key never leaves this device. Included with every account.</p>
+              <button type="button" onClick={() => setView("external")} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#F7931A] px-4 py-2.5 text-sm font-semibold text-[#F7931A] sm:w-fit">Open wallet tracking <ArrowRight className="h-4 w-4" aria-hidden /></button>
+            </section>
+            <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:p-5">
+              <Sparkles className="mb-3 h-6 w-6 text-[#F7931A]" aria-hidden />
+              <h2 className="font-semibold">Create a BitBudget wallet</h2>
+              <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">A wallet protected by your device, a separate co-signer, and a recovery file. No seed phrase. Part of BitBudget Premium and the free trial.</p>
+              {capabilities?.custodyAllowed === false ? (
+                <p role="status" className="mt-4 rounded-xl border border-border bg-[#1A1A1A] p-3 text-sm text-muted-foreground">Creating a wallet is part of Premium. Wallet tracking above stays free, and any wallet you already created here stays yours.</p>
+              ) : (
+                <button type="button" disabled={!capabilities?.creationAvailable} onClick={() => { setResumeWalletId(undefined); setView("setup") }} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#F7931A] px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50 sm:w-fit"><Plus className="h-4 w-4" aria-hidden />{capabilities?.wallets.length ? "Create another wallet" : "Create wallet"}</button>
+              )}
+            </section>
+          </div>
+
           <div>
-            <button type="button" disabled={!capabilities?.creationAvailable} onClick={() => { setResumeWalletId(undefined); setView("setup") }} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#F7931A] px-5 py-3 text-sm font-semibold text-black disabled:opacity-50 sm:w-auto"><Plus className="h-4 w-4" aria-hidden />{capabilities?.wallets.length ? "Create another wallet" : "Create wallet"}</button>
             {serviceError || capabilities?.creationAvailable === false ? <div role="status" className="mt-2 space-y-2 text-sm text-amber-200">
               <p>Wallet creation is unavailable on this server. Its wallet configuration, build and database must be ready before setup.</p>
               {capabilities?.issues?.length ? <ul className="list-disc space-y-1 pl-5">{capabilities.issues.map(issue => <li key={issue}>{readinessMessages[issue]}</li>)}</ul> : null}
@@ -139,7 +157,7 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
           </div>
           {capabilities?.wallets.length ? <section className="space-y-3" aria-label="Your wallets">{capabilities.wallets.map((wallet, index) => <div key={wallet.id} className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-[#0D0D0D] p-4">
             <div className="min-w-0"><h2 className="truncate font-semibold">{names[wallet.id] ?? `Wallet ${index + 1}`}</h2><p className="mt-1 text-xs text-muted-foreground">{wallet.network} · one wallet, both lineages</p><p className={`mt-2 text-sm ${wallet.status === "ready" ? "text-green-400" : "text-amber-200"}`}>{wallet.status === "ready" ? "Recovery verified · signing locked" : "Recovery setup incomplete"}</p></div>
-            {wallet.status !== "ready" ? <button type="button" disabled={!capabilities.creationAvailable} onClick={() => { setResumeWalletId(wallet.id); setView("setup") }} className="rounded-xl border border-border px-4 py-2 text-sm">Continue setup</button> : null}
+            {wallet.status !== "ready" ? <button type="button" disabled={!capabilities.creationAvailable || capabilities.custodyAllowed === false} onClick={() => { setResumeWalletId(wallet.id); setView("setup") }} className="rounded-xl border border-border px-4 py-2 text-sm">Continue setup</button> : null}
           </div>)}</section> : null}
 
           <div className="grid gap-3 md:grid-cols-3">
@@ -172,8 +190,6 @@ export default function WalletEntry({ userId, visible }: { userId: string; visib
           <Switch id="wallet-remember" checked={remembered} onCheckedChange={enabled => setPreferenceError(!setWalletFeaturePreference(userId, enabled))} />
         </section>
       </aside>
-
-      {view !== "external" && view !== "setup" ? <button type="button" onClick={() => setView("external")} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#F7931A] px-5 py-3 text-sm font-semibold text-black sm:w-fit">Open external wallet tracking <ArrowRight className="h-4 w-4" aria-hidden /></button> : null}
     </div>
   )
 }

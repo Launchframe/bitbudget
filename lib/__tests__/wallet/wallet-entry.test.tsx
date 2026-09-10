@@ -52,6 +52,30 @@ describe("wallet workspace layout", () => {
     const layout = view.getByRole("complementary", { name: "Wallet workspace options" }).parentElement!
     expect(layout).not.toHaveClass("lg:grid-cols-2")
   })
+})
+
+describe("wallet hub tiers", () => {
+  it("always offers wallet tracking and offers creation when the account tier allows it", async () => {
+    vi.spyOn(http, "walletRequest").mockResolvedValue({ creationAvailable: true, custodyAllowed: true, network: "regtest", hasCredential: false, wallets: [] })
+    const view = render(<WalletEntry userId="tier-fixture" visible />)
+    await act(async () => {})
+    expect(view.getByRole("button", { name: /Open wallet tracking/ })).toBeEnabled()
+    expect(view.getByRole("button", { name: "Create wallet" })).toBeEnabled()
+  })
+
+  it("keeps tracking free and replaces creation with an upgrade note for free accounts", async () => {
+    vi.spyOn(http, "walletRequest").mockResolvedValue({
+      creationAvailable: true, custodyAllowed: false, network: "regtest", hasCredential: false,
+      wallets: [{ id: "6f4f2b1a-0b1e-4c7e-9a1d-2f3e4d5c6b7a", network: "regtest", status: "recovery-required", signingAvailable: false, recoveryVerifiedAt: null }],
+    })
+    const view = render(<WalletEntry userId="tier-fixture" visible />)
+    await act(async () => {})
+    expect(view.getByRole("button", { name: /Open wallet tracking/ })).toBeEnabled()
+    expect(view.queryByRole("button", { name: /Create (another )?wallet/ })).toBeNull()
+    expect(view.getByText(/Creating a wallet is part of Premium/)).toBeInTheDocument()
+    // An unfinished wallet is still listed (recovery is never hidden), but setup cannot continue on a free tier.
+    expect(view.getByRole("button", { name: "Continue setup" })).toBeDisabled()
+  })
 
   it.skipIf(process.env.WALLET_LAYOUT_BROWSER !== "true")("lays out the rendered setup with real app CSS at mobile and desktop widths", async () => {
     const view = await setupWorkspace()
