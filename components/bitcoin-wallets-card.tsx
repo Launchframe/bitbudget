@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Bitcoin, Loader2, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react"
+import { Bitcoin, Loader2, Pencil, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -33,20 +33,25 @@ import { useBtcPrices } from "@/lib/btc-price-context"
 import {
   DEFAULT_EXPLORER_URL,
   DEFAULT_GAP_LIMIT,
+  DEFAULT_RECEIVE_MODE,
   buildStoredWallet,
   isAllowedExplorerBase,
   loadWallets,
   saveWallets,
   type StoredWallet,
   type WalletKind,
+  type WalletReceiveMode,
 } from "@/lib/wallets/xpub-store"
 import {
   deleteWalletData,
   getImportedTxidsForWallet,
   getMeta,
+  getUsedAddressesForOtherWallets,
 } from "@/lib/wallets/xpub-cache"
 import { EsploraClient } from "@/lib/wallets/esplora-client"
 import { runSync, type SyncProgress } from "@/lib/wallets/xpub-sync"
+import { findSavingsEnvelope } from "@/lib/savings-ui-metrics"
+import type { Envelope } from "@/lib/data"
 
 type AddStep = "warning" | "form"
 
@@ -79,14 +84,25 @@ function formatLastSync(iso: string | null): string {
   return d.toLocaleString()
 }
 
+/** Plain-language summary of where a wallet's activity lands in the budget. */
+function describeRouting(wallet: StoredWallet, envelopes: readonly Envelope[]): string {
+  const spend = envelopes.find((e) => e.id === wallet.defaultEnvelopeId)?.name
+  const spendLabel = spend ? `Spending → ${spend}` : "Spending → choose an envelope"
+  const receiveLabel = wallet.receiveMode === "savings"
+    ? "Receiving → Savings"
+    : spend ? `Receiving → ${spend}` : "Receiving → choose an envelope"
+  return `${spendLabel} · ${receiveLabel}`
+}
+
 export function BitcoinWalletsCard() {
-  const { state, currentUserId, getPrivacyKey, addTransaction, deleteTransaction, encryption } = useApp()
+  const { state, currentUserId, getPrivacyKey, addTransaction, deleteTransaction, encryption, discretionaryEnvelopes } = useApp()
   const { getPriceOnDate } = useBtcPrices()
 
   const [wallets, setWallets] = useState<StoredWallet[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
+  const [syncAllBusy, setSyncAllBusy] = useState(false)
 
   const [addOpen, setAddOpen] = useState(false)
   const [addStep, setAddStep] = useState<AddStep>("warning")
@@ -98,8 +114,11 @@ export function BitcoinWalletsCard() {
   const [formExplorer, setFormExplorer] = useState(DEFAULT_EXPLORER_URL)
   const [formGapLimit, setFormGapLimit] = useState(DEFAULT_GAP_LIMIT)
   const [formDefaultEnvelopeId, setFormDefaultEnvelopeId] = useState<string>("")
+  const [formReceiveMode, setFormReceiveMode] = useState<WalletReceiveMode>(DEFAULT_RECEIVE_MODE)
   const [formError, setFormError] = useState<string | null>(null)
   const [formBusy, setFormBusy] = useState(false)
+
+  const savingsEnvelopeId = findSavingsEnvelope(state.envelopes)?.id ?? null
 
   const detectedKind = useMemo<WalletKind | null>(() => {
     const trimmed = formXpub.trim()
@@ -156,6 +175,7 @@ export function BitcoinWalletsCard() {
     setFormExplorer(DEFAULT_EXPLORER_URL)
     setFormGapLimit(DEFAULT_GAP_LIMIT)
     setFormDefaultEnvelopeId("")
+    setFormReceiveMode(DEFAULT_RECEIVE_MODE)
     setFormError(null)
     setAddStep("warning")
     setWarningAcknowledged(false)
@@ -166,6 +186,7 @@ export function BitcoinWalletsCard() {
     setFormError(null)
     if (!formXpub.trim()) return setFormError("Please paste an xpub, ypub, or zpub.")
     if (!formNickname.trim()) return setFormError("Please give this wallet a nickname.")
+    if (!formDefaultEnvelopeId) return setFormError("Choose the envelope this wallet's spending comes from.")
     let kind: WalletKind
     try {
       const parsed = parseExtendedKey(formXpub.trim())
@@ -190,7 +211,8 @@ export function BitcoinWalletsCard() {
         kind,
         explorerBaseUrl: formExplorer,
         gapLimit: gap,
-        defaultEnvelopeId: formDefaultEnvelopeId || null,
+        defaultEnvelopeId: formDefaultEnvelopeId,
+        receiveMode: formReceiveMode,
       })
       const next = [...wallets, wallet]
       await saveWallets(currentUserId, key, next)
@@ -225,55 +247,118 @@ export function BitcoinWalletsCard() {
     setWallets(next)
   }
 
-  const handleSync = useCallback(async (wallet: StoredWallet) => {
+  const handleUpdate = useCallback(async (
+    wallet: StoredWallet,
+    patch: Pick<StoredWallet, "defaultEnvelopeId" | "receiveMode" | "explorerBaseUrl" | "nickname">,
+  ) => {
     if (!currentUserId) return
-    const fallbackEnv = wallet.defaultEnvelopeId
-      ?? state.envelopes.find((e) => !e.archived)?.id
-      ?? null
-    if (!fallbackEnv) {
-      setSyncStates((s) => ({
-        ...s,
-        [wallet.id]: { status: "error", error: "Create at least one envelope first." },
-      }))
-      return
+    const key = getPrivacyKey()
+    if (!key) throw new Error("Unlock BitBudget first.")
+    const explorerCheck = isAllowedExplorerBase(patch.explorerBaseUrl.trim())
+    if (!explorerCheck.ok) throw new Error(explorerCheck.reason)
+    if (!patch.nickname.trim()) throw new Error("Please give this wallet a nickname.")
+    if (!patch.defaultEnvelopeId) throw new Error("Choose the envelope this wallet's spending comes from.")
+    const updated: StoredWallet = { ...wallet, ...patch, nickname: patch.nickname.trim() }
+    const next = wallets.map((w) => (w.id === wallet.id ? updated : w))
+    await saveWallets(currentUserId, key, next)
+    setWallets(next)
+  }, [currentUserId, getPrivacyKey, wallets])
+
+  /**
+   * One sync pass for one wallet. `importTransactions: false` only refreshes
+   * the wallet's address cache (used as pass 1 of "Sync all").
+   */
+  const syncOne = useCallback(async (
+    wallet: StoredWallet,
+    importTransactions: boolean,
+  ): Promise<number> => {
+    if (!currentUserId) return 0
+    if (importTransactions && !savingsEnvelopeId) {
+      throw new Error("Your Savings envelope is still being set up. Try again in a moment.")
     }
+    if (importTransactions && !wallet.defaultEnvelopeId) {
+      throw new Error("Choose an envelope for this wallet before syncing.")
+    }
+    const client = new EsploraClient({ baseUrl: wallet.explorerBaseUrl })
+    const meta = await getMeta(currentUserId, wallet.id)
+    const resumeFrom = meta
+      ? {
+          externalIndex: Math.max(0, meta.externalScanHigh - wallet.gapLimit),
+          changeIndex: Math.max(0, meta.changeScanHigh - wallet.gapLimit),
+        }
+      : undefined
+    const otherWalletAddresses = await getUsedAddressesForOtherWallets(currentUserId, wallet.id)
+    const res = await runSync({
+      userId: currentUserId,
+      wallet,
+      savingsEnvelopeId: savingsEnvelopeId ?? "",
+      client,
+      resumeFrom,
+      otherWalletAddresses,
+      importTransactions,
+      getPriceOnDate,
+      saveTransaction: (txn) => addTransaction(txn),
+      onProgress: (p) =>
+        setSyncStates((s) => ({ ...s, [wallet.id]: { status: "running", progress: p } })),
+    })
+    return res.txsImported
+  }, [addTransaction, currentUserId, getPriceOnDate, savingsEnvelopeId])
+
+  const markSynced = useCallback(async (ids: string[]) => {
+    if (!currentUserId) return
+    const now = new Date().toISOString()
+    const nextList = wallets.map((w) => (ids.includes(w.id) ? { ...w, lastSyncAt: now } : w))
+    const key = getPrivacyKey()
+    if (key) await saveWallets(currentUserId, key, nextList)
+    setWallets(nextList)
+  }, [currentUserId, getPrivacyKey, wallets])
+
+  const handleSync = useCallback(async (wallet: StoredWallet) => {
     setSyncStates((s) => ({ ...s, [wallet.id]: { status: "running" } }))
     try {
-      const client = new EsploraClient({ baseUrl: wallet.explorerBaseUrl })
-      const meta = await getMeta(currentUserId, wallet.id)
-      const resumeFrom = meta
-        ? {
-            externalIndex: Math.max(0, meta.externalScanHigh - wallet.gapLimit),
-            changeIndex: Math.max(0, meta.changeScanHigh - wallet.gapLimit),
-          }
-        : undefined
-      const res = await runSync({
-        userId: currentUserId,
-        wallet,
-        fallbackEnvelopeId: fallbackEnv,
-        client,
-        resumeFrom,
-        getPriceOnDate,
-        saveTransaction: (txn) => addTransaction(txn),
-        onProgress: (p) =>
-          setSyncStates((s) => ({ ...s, [wallet.id]: { status: "running", progress: p } })),
-      })
-      const updated: StoredWallet = { ...wallet, lastSyncAt: new Date().toISOString() }
-      const nextList = wallets.map((w) => (w.id === wallet.id ? updated : w))
-      const key = getPrivacyKey()
-      if (key) await saveWallets(currentUserId, key, nextList)
-      setWallets(nextList)
-      setSyncStates((s) => ({
-        ...s,
-        [wallet.id]: { status: "ok", imported: res.txsImported },
-      }))
+      const imported = await syncOne(wallet, true)
+      await markSynced([wallet.id])
+      setSyncStates((s) => ({ ...s, [wallet.id]: { status: "ok", imported } }))
     } catch (e) {
       setSyncStates((s) => ({
         ...s,
         [wallet.id]: { status: "error", error: (e as Error).message },
       }))
     }
-  }, [addTransaction, currentUserId, getPrivacyKey, getPriceOnDate, state.envelopes, wallets])
+  }, [markSynced, syncOne])
+
+  /**
+   * Two passes so a transfer between two of the user's wallets is recognised
+   * no matter which wallet is scanned first: pass 1 refreshes every wallet's
+   * address cache; pass 2 classifies with all addresses known.
+   */
+  const handleSyncAll = useCallback(async () => {
+    if (wallets.length === 0) return
+    setSyncAllBusy(true)
+    setSyncStates(Object.fromEntries(wallets.map((w) => [w.id, { status: "running" as const }])))
+    const okIds: string[] = []
+    try {
+      for (const w of wallets) {
+        try {
+          await syncOne(w, false)
+        } catch (e) {
+          setSyncStates((s) => ({ ...s, [w.id]: { status: "error", error: (e as Error).message } }))
+        }
+      }
+      for (const w of wallets) {
+        try {
+          const imported = await syncOne(w, true)
+          okIds.push(w.id)
+          setSyncStates((s) => ({ ...s, [w.id]: { status: "ok", imported } }))
+        } catch (e) {
+          setSyncStates((s) => ({ ...s, [w.id]: { status: "error", error: (e as Error).message } }))
+        }
+      }
+      if (okIds.length > 0) await markSynced(okIds)
+    } finally {
+      setSyncAllBusy(false)
+    }
+  }, [markSynced, syncOne, wallets])
 
   if (!state.opportunityCostEnabled) {
     return null
@@ -289,18 +374,32 @@ export function BitcoinWalletsCard() {
           <div className="flex-1 min-w-0">
             <h3 className="text-lg font-semibold text-foreground">Bitcoin wallets</h3>
             <p className="text-sm text-muted-foreground">
-              Track on-chain spending from one or more wallets via their public xpub. Your xpub never
+              Track spending and receiving from one or more wallets via their public xpub. Spending shows
+              up in the envelope you choose; receiving grows Savings or that envelope. Your xpub never
               leaves this device.
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => { resetAddForm(); setAddOpen(true) }}
-          className={`${primaryBtnClass} w-full sm:w-auto shrink-0`}
-        >
-          <Plus className="h-4 w-4" /> Add wallet
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+          {wallets.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => void handleSyncAll()}
+              disabled={syncAllBusy}
+              className={`${secondaryBtnClass} w-full sm:w-auto`}
+            >
+              {syncAllBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Sync all
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => { resetAddForm(); setAddOpen(true) }}
+            className={`${primaryBtnClass} w-full sm:w-auto`}
+          >
+            <Plus className="h-4 w-4" /> Add wallet
+          </button>
+        </div>
       </div>
 
       {loadError && (
@@ -327,6 +426,9 @@ export function BitcoinWalletsCard() {
                     <span className="uppercase tracking-wider">{w.kind}</span> · {maskXpub(w.xpub)} · {formatLastSync(w.lastSyncAt)}
                   </p>
                   <p className="text-xs text-muted-foreground/70 truncate">Explorer: {w.explorerBaseUrl}</p>
+                  <p className={`text-xs mt-1 ${w.defaultEnvelopeId ? "text-muted-foreground" : "text-amber-300"}`}>
+                    {describeRouting(w, state.envelopes)}
+                  </p>
                   {sync?.status === "running" && (
                     <p className="text-xs text-[#F7931A] mt-1">
                       Syncing… {sync.progress?.scannedAddresses ?? 0} addresses scanned, {sync.progress?.txsFound ?? 0} txs found
@@ -351,6 +453,11 @@ export function BitcoinWalletsCard() {
                       : <RefreshCw className="h-3.5 w-3.5" />}
                     Sync now
                   </button>
+                  <EditWalletButton
+                    wallet={w}
+                    envelopes={discretionaryEnvelopes}
+                    onSave={(patch) => handleUpdate(w, patch)}
+                  />
                   <RemoveWalletButton wallet={w} onConfirm={(also) => void handleRemove(w, also)} />
                 </div>
               </div>
@@ -477,20 +584,21 @@ export function BitcoinWalletsCard() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="xpub-default-envelope">Default envelope</Label>
-                    <select
+                    <Label htmlFor="xpub-default-envelope">Spending envelope</Label>
+                    <EnvelopeSelect
                       id="xpub-default-envelope"
                       value={formDefaultEnvelopeId}
-                      onChange={(e) => setFormDefaultEnvelopeId(e.target.value)}
-                      className="w-full h-10 rounded-md border border-[#333] bg-[#1A1A1A] px-3 text-sm text-foreground"
-                    >
-                      <option value="">First available envelope</option>
-                      {state.envelopes.filter((e) => !e.archived).map((e) => (
-                        <option key={e.id} value={e.id}>{e.name}</option>
-                      ))}
-                    </select>
+                      onChange={setFormDefaultEnvelopeId}
+                      envelopes={discretionaryEnvelopes}
+                    />
                   </div>
                 </div>
+                <ReceiveModeField
+                  idPrefix="xpub-add"
+                  value={formReceiveMode}
+                  onChange={setFormReceiveMode}
+                  envelopeName={discretionaryEnvelopes.find((e) => e.id === formDefaultEnvelopeId)?.name}
+                />
                 {formError && (
                   <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-300">{formError}</div>
                 )}
@@ -509,6 +617,176 @@ export function BitcoinWalletsCard() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+function EnvelopeSelect({
+  id,
+  value,
+  onChange,
+  envelopes,
+}: {
+  id: string
+  value: string
+  onChange: (id: string) => void
+  envelopes: readonly Envelope[]
+}) {
+  return (
+    <select
+      id={id}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full h-10 rounded-md border border-[#333] bg-[#1A1A1A] px-3 text-sm text-foreground"
+    >
+      <option value="">Choose an envelope…</option>
+      {envelopes.map((e) => (
+        <option key={e.id} value={e.id}>{e.name}</option>
+      ))}
+    </select>
+  )
+}
+
+function ReceiveModeField({
+  idPrefix,
+  value,
+  onChange,
+  envelopeName,
+}: {
+  idPrefix: string
+  value: WalletReceiveMode
+  onChange: (mode: WalletReceiveMode) => void
+  envelopeName?: string
+}) {
+  const optionClass = (active: boolean) =>
+    `flex items-start gap-3 rounded-xl border p-3 text-left text-sm transition-colors ${
+      active ? "border-[#F7931A] bg-[#F7931A]/5" : "border-[#333] bg-[#1A1A1A] hover:border-[#555]"
+    }`
+  return (
+    <fieldset className="grid gap-2">
+      <legend className="text-sm font-medium text-foreground mb-1">When this wallet receives bitcoin</legend>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={value === "savings"}
+        id={`${idPrefix}-receive-savings`}
+        onClick={() => onChange("savings")}
+        className={optionClass(value === "savings")}
+      >
+        <span className="mt-0.5 h-4 w-4 shrink-0 rounded-full border border-current flex items-center justify-center">
+          {value === "savings" ? <span className="h-2 w-2 rounded-full bg-[#F7931A]" /> : null}
+        </span>
+        <span>
+          <span className="font-medium text-foreground">Add it to Savings</span>
+          <span className="block text-xs text-muted-foreground">Works like other money coming in: it grows Savings and refills your envelopes on the 1st.</span>
+        </span>
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={value === "envelope"}
+        id={`${idPrefix}-receive-envelope`}
+        onClick={() => onChange("envelope")}
+        className={optionClass(value === "envelope")}
+      >
+        <span className="mt-0.5 h-4 w-4 shrink-0 rounded-full border border-current flex items-center justify-center">
+          {value === "envelope" ? <span className="h-2 w-2 rounded-full bg-[#F7931A]" /> : null}
+        </span>
+        <span>
+          <span className="font-medium text-foreground">Add it to {envelopeName ? `“${envelopeName}”` : "the spending envelope"}</span>
+          <span className="block text-xs text-muted-foreground">Keeps this wallet&apos;s money in one envelope, in and out.</span>
+        </span>
+      </button>
+    </fieldset>
+  )
+}
+
+function EditWalletButton({
+  wallet,
+  envelopes,
+  onSave,
+}: {
+  wallet: StoredWallet
+  envelopes: readonly Envelope[]
+  onSave: (patch: Pick<StoredWallet, "defaultEnvelopeId" | "receiveMode" | "explorerBaseUrl" | "nickname">) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [nickname, setNickname] = useState(wallet.nickname)
+  const [envelopeId, setEnvelopeId] = useState(wallet.defaultEnvelopeId ?? "")
+  const [receiveMode, setReceiveMode] = useState<WalletReceiveMode>(wallet.receiveMode)
+  const [explorer, setExplorer] = useState(wallet.explorerBaseUrl)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const openDialog = () => {
+    setNickname(wallet.nickname)
+    setEnvelopeId(wallet.defaultEnvelopeId ?? "")
+    setReceiveMode(wallet.receiveMode)
+    setExplorer(wallet.explorerBaseUrl)
+    setError(null)
+    setOpen(true)
+  }
+
+  const save = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await onSave({ nickname, defaultEnvelopeId: envelopeId || null, receiveMode, explorerBaseUrl: explorer })
+      setOpen(false)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <button type="button" onClick={openDialog} className={secondaryBtnClass} aria-label={`Edit ${wallet.nickname}`}>
+        <Pencil className="h-3.5 w-3.5" /> Edit
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="border-[#333] bg-[#0D0D0D] text-foreground max-w-[min(96vw,32rem)]">
+          <DialogHeader>
+            <DialogTitle>Edit “{wallet.nickname}”</DialogTitle>
+            <DialogDescription>
+              Change where this wallet&apos;s activity shows up in your budget. Already-imported transactions are not moved.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div>
+              <Label htmlFor={`edit-${wallet.id}-nickname`}>Nickname</Label>
+              <Input id={`edit-${wallet.id}-nickname`} value={nickname} onChange={(e) => setNickname(e.target.value)} />
+            </div>
+            <div>
+              <Label htmlFor={`edit-${wallet.id}-envelope`}>Spending envelope</Label>
+              <EnvelopeSelect id={`edit-${wallet.id}-envelope`} value={envelopeId} onChange={setEnvelopeId} envelopes={envelopes} />
+            </div>
+            <ReceiveModeField
+              idPrefix={`edit-${wallet.id}`}
+              value={receiveMode}
+              onChange={setReceiveMode}
+              envelopeName={envelopes.find((e) => e.id === envelopeId)?.name}
+            />
+            <div>
+              <Label htmlFor={`edit-${wallet.id}-explorer`}>Block explorer URL</Label>
+              <Input id={`edit-${wallet.id}-explorer`} value={explorer} onChange={(e) => setExplorer(e.target.value)} />
+            </div>
+            {error && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-300">{error}</div>
+            )}
+          </div>
+          <DialogFooter>
+            <button type="button" onClick={() => setOpen(false)} className="rounded-xl border border-[#333] bg-[#1A1A1A] px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-[#222]">
+              Cancel
+            </button>
+            <button type="button" disabled={busy} onClick={() => void save()} className={primaryBtnClass}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Save changes
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

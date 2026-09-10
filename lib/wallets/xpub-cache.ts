@@ -20,7 +20,12 @@
 import { openDB, type IDBPDatabase } from "idb"
 
 const DB_PREFIX = "bitbudget-wallets-"
-const DB_VERSION = 1
+/**
+ * v1: addresses / txids / meta stores.
+ * v2: `txids.txid` index so the same on-chain tx is never imported twice when
+ *     it touches more than one of the user's watched wallets.
+ */
+const DB_VERSION = 2
 
 export type AddressChain = 0 | 1 // 0 = external (receive), 1 = change
 
@@ -72,7 +77,7 @@ interface WalletsDb {
   txids: {
     key: string
     value: CachedTxId
-    indexes: { walletId: string }
+    indexes: { walletId: string; txid: string }
   }
   meta: {
     key: string
@@ -96,7 +101,7 @@ export async function openWalletDb(userId: string): Promise<IDBPDatabase<Wallets
   if (typeof indexedDB === "undefined") return null
   try {
     return await openDB<WalletsDb>(dbName(userId), DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, _oldVersion, _newVersion, tx) {
         if (!db.objectStoreNames.contains("addresses")) {
           const store = db.createObjectStore("addresses", { keyPath: "key" })
           store.createIndex("walletId", "walletId")
@@ -104,6 +109,10 @@ export async function openWalletDb(userId: string): Promise<IDBPDatabase<Wallets
         if (!db.objectStoreNames.contains("txids")) {
           const store = db.createObjectStore("txids", { keyPath: "key" })
           store.createIndex("walletId", "walletId")
+        }
+        const txids = tx.objectStore("txids")
+        if (!txids.indexNames.contains("txid")) {
+          txids.createIndex("txid", "txid")
         }
         if (!db.objectStoreNames.contains("meta")) {
           db.createObjectStore("meta", { keyPath: "walletId" })
@@ -170,6 +179,45 @@ export async function hasImportedTxid(
   try {
     const row = await db.get("txids", txidKey(walletId, txid))
     return Boolean(row)
+  } finally {
+    db.close()
+  }
+}
+
+/**
+ * True when *any* of the user's watched wallets has already recorded `txid`.
+ * A tx that moves coins between two of the user's own wallets is observed by
+ * both; only the first sync to see it may produce a ledger row.
+ */
+export async function hasImportedTxidAnyWallet(userId: string, txid: string): Promise<boolean> {
+  const db = await openWalletDb(userId)
+  if (!db) return false
+  try {
+    const key = await db.getKeyFromIndex("txids", "txid", txid)
+    return key !== undefined
+  } finally {
+    db.close()
+  }
+}
+
+/**
+ * Used addresses cached for every wallet except `excludeWalletId`. Feeding
+ * these into a sync as "mine" lets transfers between the user's own wallets
+ * net out as self-transfers instead of posting an expense and a credit.
+ */
+export async function getUsedAddressesForOtherWallets(
+  userId: string,
+  excludeWalletId: string,
+): Promise<Set<string>> {
+  const db = await openWalletDb(userId)
+  const out = new Set<string>()
+  if (!db) return out
+  try {
+    const rows = await db.getAll("addresses")
+    for (const row of rows) {
+      if (row.walletId !== excludeWalletId && row.used) out.add(row.address)
+    }
+    return out
   } finally {
     db.close()
   }

@@ -3,6 +3,7 @@ import { webcrypto } from "node:crypto"
 import { beforeAll, beforeEach, describe, expect, it } from "vitest"
 import {
   STORAGE_KEY_PREFIX,
+  WALLETS_BLOB_VERSION,
   buildStoredWallet,
   clearWallets,
   hasStoredWallets,
@@ -11,7 +12,7 @@ import {
   saveWallets,
   type StoredWallet,
 } from "@/lib/wallets/xpub-store"
-import { generatePrivacyKey } from "@/lib/crypto"
+import { decryptField, encryptField, generatePrivacyKey } from "@/lib/crypto"
 
 beforeAll(() => {
   if (!globalThis.crypto) {
@@ -30,6 +31,7 @@ const sampleWallet = (over: Partial<StoredWallet> = {}): StoredWallet => ({
   kind: "bip44",
   gapLimit: 20,
   defaultEnvelopeId: null,
+  receiveMode: "savings",
   explorerBaseUrl: "https://mempool.space",
   addedAt: "2026-05-09T00:00:00.000Z",
   lastSyncAt: null,
@@ -103,6 +105,32 @@ describe("xpub-store: round-trip", () => {
     const [w] = await loadWallets("user-1", key)
     expect(w!.explorerBaseUrl).toBe("https://mempool.space")
   })
+
+  it("upgrades v1 blobs (no receiveMode) to Savings on read and rewrites as v2", async () => {
+    const key = generatePrivacyKey()
+    const { receiveMode: _dropped, ...v1Wallet } = sampleWallet({ id: "legacy" })
+    void _dropped
+    const v1Blob = JSON.stringify({ version: 1, wallets: [v1Wallet] })
+    window.localStorage.setItem(`${STORAGE_KEY_PREFIX}user-1`, await encryptField(v1Blob, key))
+
+    const [loaded] = await loadWallets("user-1", key)
+    expect(loaded!.receiveMode).toBe("savings")
+    expect(loaded!.defaultEnvelopeId).toBeNull()
+
+    await saveWallets("user-1", key, [loaded!])
+    const raw = window.localStorage.getItem(`${STORAGE_KEY_PREFIX}user-1`)!
+    const rewritten = JSON.parse(await decryptField(raw, key)) as { version: number; wallets: StoredWallet[] }
+    expect(rewritten.version).toBe(WALLETS_BLOB_VERSION)
+    expect(rewritten.wallets[0]!.receiveMode).toBe("savings")
+  })
+
+  it("drops unknown receiveMode values back to the default", async () => {
+    const key = generatePrivacyKey()
+    const bad = { ...sampleWallet({ id: "bad" }), receiveMode: "moon" as unknown as StoredWallet["receiveMode"] }
+    await saveWallets("user-1", key, [bad])
+    const [w] = await loadWallets("user-1", key)
+    expect(w!.receiveMode).toBe("savings")
+  })
 })
 
 describe("buildStoredWallet", () => {
@@ -120,6 +148,7 @@ describe("buildStoredWallet", () => {
     expect(w.kind).toBe("bip84")
     expect(w.gapLimit).toBe(20)
     expect(w.defaultEnvelopeId).toBeNull()
+    expect(w.receiveMode).toBe("savings")
     expect(w.explorerBaseUrl).toBe("https://mempool.space")
     expect(w.addedAt).toBe("2026-05-09T12:00:00.000Z")
     expect(w.lastSyncAt).toBeNull()

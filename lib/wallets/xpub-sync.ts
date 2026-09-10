@@ -26,6 +26,7 @@ import {
   addressKey,
   getAddressesForWallet,
   hasImportedTxid,
+  hasImportedTxidAnyWallet,
   putAddresses,
   putMeta,
   recordImportedTxid,
@@ -54,11 +55,32 @@ export interface BuildPayloadInput {
   /** Block height of confirmation. */
   blockHeight: number
   /** Wallet metadata for payee labeling and envelope routing. */
-  wallet: Pick<StoredWallet, "id" | "nickname" | "defaultEnvelopeId">
-  /** Fallback envelope id when wallet has no default. */
-  fallbackEnvelopeId: string
+  wallet: LedgerRoutingWallet
+  /** System Savings envelope id — destination for credits when `receiveMode === "savings"`. */
+  savingsEnvelopeId: string
   /** USD/BTC price at the tx date (used to convert sats → USD). */
   btcPriceOnDate: number
+}
+
+export type LedgerRoutingWallet = Pick<StoredWallet, "id" | "nickname" | "defaultEnvelopeId" | "receiveMode">
+
+/**
+ * Which envelope an on-chain row lands in.
+ *  - spends always debit the wallet's chosen envelope;
+ *  - receives credit Savings (default) or the wallet's envelope, per `receiveMode`.
+ * Throws when the wallet has no envelope chosen and one is required, so the
+ * caller surfaces "choose an envelope" instead of guessing.
+ */
+export function resolveLedgerEnvelopeId(
+  wallet: Pick<StoredWallet, "defaultEnvelopeId" | "receiveMode">,
+  type: Transaction["type"],
+  savingsEnvelopeId: string,
+): string {
+  if (type === "credit" && wallet.receiveMode === "savings") return savingsEnvelopeId
+  if (!wallet.defaultEnvelopeId) {
+    throw new Error("Choose an envelope for this wallet before syncing.")
+  }
+  return wallet.defaultEnvelopeId
 }
 
 export interface BuildPayloadResult extends Omit<Transaction, "id"> {
@@ -90,12 +112,13 @@ export function buildTransactionPayload(input: BuildPayloadInput): BuildPayloadR
   const usd = btc * input.btcPriceOnDate
   const date = unixSecondsToIsoDate(input.blockTime)
   const isCredit = input.netSats > 0
+  const type: Transaction["type"] = isCredit ? "credit" : "expense"
   return {
     date,
     payee: `Bitcoin: ${input.wallet.nickname}`,
     amount: usd,
-    type: isCredit ? "credit" : "expense",
-    envelopeId: input.wallet.defaultEnvelopeId ?? input.fallbackEnvelopeId,
+    type,
+    envelopeId: resolveLedgerEnvelopeId(input.wallet, type, input.savingsEnvelopeId),
     tags: [],
     notes: `On-chain tx ${input.txid}`,
     satsAmount: sats,
@@ -255,7 +278,8 @@ function buildMyAddressSet(
 export interface RunSyncOptions {
   userId: string
   wallet: StoredWallet
-  fallbackEnvelopeId: string
+  /** System Savings envelope id; receives land here when `wallet.receiveMode === "savings"`. */
+  savingsEnvelopeId: string
   /** Esplora client built against the user-configured `wallet.explorerBaseUrl`. */
   client: EsploraClient
   /** USD price for a given YYYY-MM-DD; typically `useBtcPrices().getPriceOnDate`. */
@@ -266,6 +290,18 @@ export interface RunSyncOptions {
   onProgress?: ProgressCallback
   /** Where to resume scanning (defaults to 0/0 — full backfill on first run). */
   resumeFrom?: { externalIndex: number; changeIndex: number } | null
+  /**
+   * Used addresses belonging to the user's *other* watched wallets. Treated as
+   * "mine" during classification so transfers between the user's own wallets
+   * net out as self-transfers. Typically `getUsedAddressesForOtherWallets()`.
+   */
+  otherWalletAddresses?: ReadonlySet<string>
+  /**
+   * When `false`, scan and cache addresses but do not classify or write ledger
+   * rows. Used as the first pass of "Sync all" so every wallet's addresses are
+   * known before any wallet classifies its transactions.
+   */
+  importTransactions?: boolean
 }
 
 export interface RunSyncResult {
@@ -282,7 +318,12 @@ export interface RunSyncResult {
  * same cache state will skip already-imported txids.
  */
 export async function runSync(opts: RunSyncOptions): Promise<RunSyncResult> {
-  const { userId, wallet, client, fallbackEnvelopeId, saveTransaction, onProgress } = opts
+  const { userId, wallet, client, savingsEnvelopeId, saveTransaction, onProgress } = opts
+  const importTransactions = opts.importTransactions ?? true
+  if (importTransactions && !wallet.defaultEnvelopeId) {
+    // Fail before any network call: the user must pick where spends go.
+    throw new Error("Choose an envelope for this wallet before syncing.")
+  }
   const parsed = parseExtendedKey(wallet.xpub)
   if (parsed.kind !== wallet.kind) {
     throw new Error(
@@ -319,6 +360,7 @@ export async function runSync(opts: RunSyncOptions): Promise<RunSyncResult> {
   const previouslyCached = await getAddressesForWallet(userId, wallet.id)
   await refreshCachedUsedAddressTxs(previouslyCached, collected, client, txMap)
   const myAddresses = buildMyAddressSet(collected, previouslyCached)
+  for (const address of opts.otherWalletAddresses ?? []) myAddresses.add(address)
 
   let tipHeight: number | null = null
   try {
@@ -336,6 +378,11 @@ export async function runSync(opts: RunSyncOptions): Promise<RunSyncResult> {
     lastTipHeight: tipHeight,
   })
 
+  if (!importTransactions) {
+    onProgress?.({ walletId: wallet.id, scannedAddresses: scanned, txsFound: txMap.size, txsImported: 0, phase: "done" })
+    return { scannedAddresses: scanned, txsFound: txMap.size, txsImported: 0, externalScanHigh, changeScanHigh, tipHeight }
+  }
+
   onProgress?.({
     walletId: wallet.id,
     scannedAddresses: scanned,
@@ -351,6 +398,19 @@ export async function runSync(opts: RunSyncOptions): Promise<RunSyncResult> {
   let imported = 0
   for (const tx of txs) {
     if (await hasImportedTxid(userId, wallet.id, tx.txid)) continue
+    // Another of the user's wallets already produced (or deliberately skipped)
+    // this tx. Record it for this wallet too so removal cleanup stays scoped,
+    // but never write a second ledger row.
+    if (await hasImportedTxidAnyWallet(userId, tx.txid)) {
+      await recordImportedTxid(userId, {
+        walletId: wallet.id,
+        txid: tx.txid,
+        bitbudgetTxnId: null,
+        blockHeight: tx.status.block_height ?? null,
+        importedAt: new Date().toISOString(),
+      } satisfies Omit<CachedTxId, "key">)
+      continue
+    }
     // Pure self-transfers (consolidation, change-only) are recorded as
     // imported so we don't reconsider them, but no BitBudget transaction is
     // created. The wallet only loses the network fee in these cases; v1
@@ -394,7 +454,7 @@ export async function runSync(opts: RunSyncOptions): Promise<RunSyncResult> {
       txid: tx.txid,
       blockHeight,
       wallet,
-      fallbackEnvelopeId,
+      savingsEnvelopeId,
       btcPriceOnDate: price,
     })
 

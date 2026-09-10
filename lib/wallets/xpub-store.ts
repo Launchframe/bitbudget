@@ -24,11 +24,25 @@
 import { decryptField, encryptField } from "@/lib/crypto"
 import { normalizeExplorerBaseUrl } from "@/lib/wallets/esplora-client"
 
-export const WALLETS_BLOB_VERSION = 1
+/**
+ * v1 → v2: added `receiveMode`. v1 records are upgraded on read with
+ * `receiveMode: "savings"` (pay-yourself-first default).
+ */
+export const WALLETS_BLOB_VERSION = 2
 export const STORAGE_KEY_PREFIX = "bitbudget-wallets-"
 
 /** BIP version-byte-derived wallet kind. We support the three common ones. */
 export type WalletKind = "bip44" | "bip49" | "bip84"
+
+/**
+ * Where on-chain receives (credits) land in the budget ledger.
+ *  - `savings`  — credit the system Savings envelope (default; matches how
+ *                 other external income enters the ledger).
+ *  - `envelope` — credit `defaultEnvelopeId` directly.
+ * Spends always debit `defaultEnvelopeId`.
+ */
+export type WalletReceiveMode = "savings" | "envelope"
+export const DEFAULT_RECEIVE_MODE: WalletReceiveMode = "savings"
 
 export const DEFAULT_GAP_LIMIT = 20
 export const DEFAULT_EXPLORER_URL = "https://mempool.space"
@@ -44,8 +58,14 @@ export interface StoredWallet {
   kind: WalletKind
   /** BIP44 gap-limit; used by the sync engine to decide when to stop scanning. */
   gapLimit: number
-  /** Default envelope for transactions imported from this wallet. Null = first active envelope. */
+  /**
+   * Envelope debited by on-chain spends, and credited by receives when
+   * `receiveMode === "envelope"`. Null means the user has not chosen one yet;
+   * sync refuses to import until it is set (no silent "first envelope" guess).
+   */
   defaultEnvelopeId: string | null
+  /** Destination for on-chain receives. See {@link WalletReceiveMode}. */
+  receiveMode: WalletReceiveMode
   /** User-chosen Esplora-compatible base URL (no trailing slash). */
   explorerBaseUrl: string
   /** ISO timestamp the wallet was added. */
@@ -94,9 +114,16 @@ function sanitizeExplorerBase(url: string): string {
   return normalizeExplorerBaseUrl(url)
 }
 
-function normalizeWallet(w: StoredWallet): StoredWallet {
+function isReceiveMode(value: unknown): value is WalletReceiveMode {
+  return value === "savings" || value === "envelope"
+}
+
+/** Accepts v1 records (no `receiveMode`) and upgrades them in memory. */
+function normalizeWallet(w: StoredWallet | Omit<StoredWallet, "receiveMode">): StoredWallet {
+  const receiveMode = "receiveMode" in w && isReceiveMode(w.receiveMode) ? w.receiveMode : DEFAULT_RECEIVE_MODE
   return {
     ...w,
+    receiveMode,
     explorerBaseUrl: sanitizeExplorerBase(w.explorerBaseUrl),
   }
 }
@@ -170,6 +197,7 @@ export interface AddWalletInput {
   xpub: string
   kind: WalletKind
   defaultEnvelopeId?: string | null
+  receiveMode?: WalletReceiveMode
   explorerBaseUrl?: string
   gapLimit?: number
 }
@@ -190,6 +218,7 @@ export function buildStoredWallet(input: AddWalletInput, now: Date = new Date())
     kind: input.kind,
     gapLimit: input.gapLimit ?? DEFAULT_GAP_LIMIT,
     defaultEnvelopeId: input.defaultEnvelopeId ?? null,
+    receiveMode: input.receiveMode ?? DEFAULT_RECEIVE_MODE,
     explorerBaseUrl: input.explorerBaseUrl ?? DEFAULT_EXPLORER_URL,
     addedAt: now.toISOString(),
     lastSyncAt: null,

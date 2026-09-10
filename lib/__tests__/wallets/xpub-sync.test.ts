@@ -7,6 +7,7 @@ import {
   buildTransactionPayload,
   isPureSelfTransfer,
   netSatsForTx,
+  resolveLedgerEnvelopeId,
   runSync,
   unixSecondsToIsoDate,
 } from "@/lib/wallets/xpub-sync"
@@ -15,7 +16,9 @@ import {
   getAddressesForWallet,
   getImportedTxidsForWallet,
   getMeta,
+  getUsedAddressesForOtherWallets,
   hasImportedTxid,
+  hasImportedTxidAnyWallet,
 } from "@/lib/wallets/xpub-cache"
 import { deriveAddress, parseExtendedKey } from "@/lib/wallets/xpub-derive"
 import { buildStoredWallet } from "@/lib/wallets/xpub-store"
@@ -123,8 +126,27 @@ describe("isPureSelfTransfer", () => {
   })
 })
 
+describe("resolveLedgerEnvelopeId", () => {
+  it("routes spends to the wallet envelope regardless of receive mode", () => {
+    expect(resolveLedgerEnvelopeId({ defaultEnvelopeId: "env-a", receiveMode: "savings" }, "expense", "env-sav")).toBe("env-a")
+    expect(resolveLedgerEnvelopeId({ defaultEnvelopeId: "env-a", receiveMode: "envelope" }, "expense", "env-sav")).toBe("env-a")
+  })
+
+  it("routes receives to Savings by default and to the wallet envelope when asked", () => {
+    expect(resolveLedgerEnvelopeId({ defaultEnvelopeId: "env-a", receiveMode: "savings" }, "credit", "env-sav")).toBe("env-sav")
+    expect(resolveLedgerEnvelopeId({ defaultEnvelopeId: "env-a", receiveMode: "envelope" }, "credit", "env-sav")).toBe("env-a")
+  })
+
+  it("never guesses an envelope: throws when one is required but unset", () => {
+    expect(() => resolveLedgerEnvelopeId({ defaultEnvelopeId: null, receiveMode: "savings" }, "expense", "env-sav")).toThrow(/Choose an envelope/)
+    expect(() => resolveLedgerEnvelopeId({ defaultEnvelopeId: null, receiveMode: "envelope" }, "credit", "env-sav")).toThrow(/Choose an envelope/)
+    // Savings receives do not need a wallet envelope.
+    expect(resolveLedgerEnvelopeId({ defaultEnvelopeId: null, receiveMode: "savings" }, "credit", "env-sav")).toBe("env-sav")
+  })
+})
+
 describe("buildTransactionPayload", () => {
-  const wallet = { id: "w1", nickname: "Cold", defaultEnvelopeId: "env-bitcoin" }
+  const wallet = { id: "w1", nickname: "Cold", defaultEnvelopeId: "env-bitcoin", receiveMode: "savings" as const }
 
   it("builds an expense for a negative net delta", () => {
     const p = buildTransactionPayload({
@@ -133,7 +155,7 @@ describe("buildTransactionPayload", () => {
       txid: "abc",
       blockHeight: 800001,
       wallet,
-      fallbackEnvelopeId: "env-fallback",
+      savingsEnvelopeId: "env-savings",
       btcPriceOnDate: 70000,
     })
     expect(p.type).toBe("expense")
@@ -148,19 +170,33 @@ describe("buildTransactionPayload", () => {
     expect(p.tags).toEqual([])
   })
 
-  it("builds a credit for a positive net delta and falls back to fallback envelope", () => {
+  it("builds a credit into Savings when receiveMode is savings", () => {
     const p = buildTransactionPayload({
       netSats: 50_000,
       blockTime: 1711929600,
       txid: "def",
       blockHeight: 800001,
-      wallet: { id: "w1", nickname: "Hot", defaultEnvelopeId: null },
-      fallbackEnvelopeId: "env-fallback",
+      wallet: { id: "w1", nickname: "Hot", defaultEnvelopeId: "env-bitcoin", receiveMode: "savings" },
+      savingsEnvelopeId: "env-savings",
       btcPriceOnDate: 60000,
     })
     expect(p.type).toBe("credit")
-    expect(p.envelopeId).toBe("env-fallback")
+    expect(p.envelopeId).toBe("env-savings")
     expect(p.payee).toBe("Bitcoin: Hot")
+  })
+
+  it("builds a credit into the wallet envelope when receiveMode is envelope", () => {
+    const p = buildTransactionPayload({
+      netSats: 50_000,
+      blockTime: 1711929600,
+      txid: "def",
+      blockHeight: 800001,
+      wallet: { id: "w1", nickname: "Hot", defaultEnvelopeId: "env-bitcoin", receiveMode: "envelope" },
+      savingsEnvelopeId: "env-savings",
+      btcPriceOnDate: 60000,
+    })
+    expect(p.type).toBe("credit")
+    expect(p.envelopeId).toBe("env-bitcoin")
   })
 
   it("throws on a zero-delta input (should be filtered upstream)", () => {
@@ -168,7 +204,7 @@ describe("buildTransactionPayload", () => {
       buildTransactionPayload({
         netSats: 0,
         blockTime: 1, txid: "z", blockHeight: 0,
-        wallet, fallbackEnvelopeId: "f", btcPriceOnDate: 1,
+        wallet, savingsEnvelopeId: "f", btcPriceOnDate: 1,
       }),
     ).toThrow()
   })
@@ -353,7 +389,7 @@ describe("runSync (mocked Esplora, BIP84 vector)", () => {
     const res = await runSync({
       userId: USER,
       wallet,
-      fallbackEnvelopeId: "env-fallback",
+      savingsEnvelopeId: "env-savings",
       client,
       getPriceOnDate: () => 70000,
       saveTransaction: saveTransaction as never,
@@ -371,7 +407,10 @@ describe("runSync (mocked Esplora, BIP84 vector)", () => {
     expect(inbound!.type).toBe("credit")
     expect(inbound!.satsAmount).toBe(50_000)
     expect(inbound!.source).toBe("onchain_xpub")
+    // Default receive mode: receives grow Savings; spends debit the wallet envelope.
+    expect(inbound!.envelopeId).toBe("env-savings")
     expect(outbound!.type).toBe("expense")
+    expect(outbound!.envelopeId).toBe("env-bitcoin")
     expect(outbound!.satsAmount).toBe(30_500) // 49500 spent − 19000 returned
 
     // Self-transfer is recorded in the dedup cache so we don't reconsider it.
@@ -405,7 +444,7 @@ describe("runSync (mocked Esplora, BIP84 vector)", () => {
       baseUrl: wallet.explorerBaseUrl, fetchImpl: mock1.fetchImpl, minRequestSpacingMs: 0,
     })
     await runSync({
-      userId: USER, wallet, fallbackEnvelopeId: "env-fb", client: client1,
+      userId: USER, wallet, savingsEnvelopeId: "env-savings", client: client1,
       getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never,
     })
     expect(savedPayloads.length).toBe(1)
@@ -442,7 +481,7 @@ describe("runSync (mocked Esplora, BIP84 vector)", () => {
       changeIndex: Math.max(0, meta!.changeScanHigh - wallet.gapLimit),
     }
     const r2 = await runSync({
-      userId: USER, wallet, fallbackEnvelopeId: "env-fb", client: client2,
+      userId: USER, wallet, savingsEnvelopeId: "env-savings", client: client2,
       resumeFrom,
       getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never,
     })
@@ -472,7 +511,7 @@ describe("runSync (mocked Esplora, BIP84 vector)", () => {
       baseUrl: wallet.explorerBaseUrl, fetchImpl: mock.fetchImpl, minRequestSpacingMs: 0,
     })
     const r1 = await runSync({
-      userId: USER, wallet, fallbackEnvelopeId: "env-fb", client,
+      userId: USER, wallet, savingsEnvelopeId: "env-savings", client,
       getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never,
     })
     const meta = await getMeta(USER, wallet.id)
@@ -482,7 +521,7 @@ describe("runSync (mocked Esplora, BIP84 vector)", () => {
       changeIndex: Math.max(0, meta!.changeScanHigh - wallet.gapLimit),
     }
     const r2 = await runSync({
-      userId: USER, wallet, fallbackEnvelopeId: "env-fb", client,
+      userId: USER, wallet, savingsEnvelopeId: "env-savings", client,
       resumeFrom,
       getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never,
     })
@@ -490,6 +529,98 @@ describe("runSync (mocked Esplora, BIP84 vector)", () => {
     expect(r2.txsImported).toBe(0)
     expect(r2.scannedAddresses).toBeLessThan(r1.scannedAddresses)
     expect(savedPayloads.length).toBe(1)
+  })
+})
+
+// ─── Multi-wallet accounting ─────────────────────────────────────────
+
+describe("runSync across two watched wallets", () => {
+  const XPUB44 =
+    "xpub6CUGRUonZSQ4TWtTMmzXdrXDtypWKiKrhko4egpiMZbpiaQL2jkwSB1icqYh2cfDfVxdx4df189oLKnC5fSwqPfgyP3hooxujYzAu3fDVmz"
+  const walletA = buildStoredWallet({
+    nickname: "A", xpub: ZPUB, kind: "bip84", explorerBaseUrl: "https://mempool.space",
+    defaultEnvelopeId: "env-a", gapLimit: 3,
+  })
+  const walletB = buildStoredWallet({
+    nickname: "B", xpub: XPUB44, kind: "bip44", explorerBaseUrl: "https://mempool.space",
+    defaultEnvelopeId: "env-b", gapLimit: 3,
+  })
+  const B_R0 = deriveAddress(parseExtendedKey(XPUB44), 0, 0)
+
+  type Saved = { type: "expense" | "credit"; notes?: string | null; envelopeId: string }
+  let saved: Saved[] = []
+  const saveTransaction = async (txn: Saved) => { saved.push(txn); return `srv_${saved.length}` }
+  afterEach(() => { saved = [] })
+
+  const fund: MockTx = {
+    txid: "TX_FUND", vin: [{ addr: "external", value: 50_000 }], vout: [{ addr: ADDR_R0, value: 50_000 }],
+    blockTime: 1711929600, blockHeight: 800050,
+  }
+  const move: MockTx = {
+    txid: "TX_MOVE", vin: [{ addr: ADDR_R0, value: 50_000 }], vout: [{ addr: B_R0, value: 49_500 }],
+    blockTime: 1711930000, blockHeight: 800051,
+  }
+  const mock = () => buildMockEsplora({
+    byAddressTxs: new Map<string, MockTx[]>([[ADDR_R0, [fund, move]], [B_R0, [move]]]),
+  })
+  const clientFor = (fetchImpl: FetchLike) =>
+    new EsploraClient({ baseUrl: "https://mempool.space", fetchImpl, minRequestSpacingMs: 0 })
+
+  it("two-pass sync nets a transfer between the user's wallets to a self-transfer", async () => {
+    const m = mock()
+    const client = clientFor(m.fetchImpl)
+    const base = { userId: USER, savingsEnvelopeId: "env-savings", client, getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never }
+
+    // Pass 1: addresses only.
+    await runSync({ ...base, wallet: walletA, importTransactions: false })
+    await runSync({ ...base, wallet: walletB, importTransactions: false })
+    expect(saved).toHaveLength(0)
+    expect((await getUsedAddressesForOtherWallets(USER, walletA.id)).has(B_R0)).toBe(true)
+
+    // Pass 2: classify with every wallet's addresses known.
+    await runSync({ ...base, wallet: walletA, otherWalletAddresses: await getUsedAddressesForOtherWallets(USER, walletA.id) })
+    await runSync({ ...base, wallet: walletB, otherWalletAddresses: await getUsedAddressesForOtherWallets(USER, walletB.id) })
+
+    expect(saved.map((s) => s.type)).toEqual(["credit"])
+    expect(saved[0]!.notes).toContain("TX_FUND")
+    expect(saved[0]!.envelopeId).toBe("env-savings")
+    expect(await hasImportedTxidAnyWallet(USER, "TX_MOVE")).toBe(true)
+    // Both wallets remember the tx so removing either cleans up its own cache.
+    expect(await hasImportedTxid(USER, walletA.id, "TX_MOVE")).toBe(true)
+    expect(await hasImportedTxid(USER, walletB.id, "TX_MOVE")).toBe(true)
+  })
+
+  it("single-wallet sync order can misclassify a move as spend, but never double-posts it", async () => {
+    const m = mock()
+    const client = clientFor(m.fetchImpl)
+    const base = { userId: USER, savingsEnvelopeId: "env-savings", client, getPriceOnDate: () => 70000, saveTransaction: saveTransaction as never }
+
+    // A is synced before B exists in the cache: the move looks like an external spend.
+    await runSync({ ...base, wallet: walletA, otherWalletAddresses: await getUsedAddressesForOtherWallets(USER, walletA.id) })
+    expect(saved.map((s) => `${s.type}:${s.notes}`)).toEqual([
+      "credit:On-chain tx TX_FUND",
+      "expense:On-chain tx TX_MOVE",
+    ])
+
+    // B then sees the same tx: user-level dedup prevents a second (credit) row.
+    await runSync({ ...base, wallet: walletB, otherWalletAddresses: await getUsedAddressesForOtherWallets(USER, walletB.id) })
+    expect(saved).toHaveLength(2)
+    expect(await hasImportedTxid(USER, walletB.id, "TX_MOVE")).toBe(true)
+  })
+
+  it("refuses to import when the wallet has no spending envelope, before any network call", async () => {
+    const m = mock()
+    const orphan = { ...walletA, id: "wlt_orphan", defaultEnvelopeId: null }
+    await expect(runSync({
+      userId: USER, wallet: orphan, savingsEnvelopeId: "env-savings", client: clientFor(m.fetchImpl),
+      getPriceOnDate: () => 1, saveTransaction: saveTransaction as never,
+    })).rejects.toThrow(/Choose an envelope/)
+    expect(m.calls).toHaveLength(0)
+    // Scan-only passes are still allowed so the address cache can warm up.
+    await expect(runSync({
+      userId: USER, wallet: orphan, savingsEnvelopeId: "env-savings", client: clientFor(m.fetchImpl),
+      getPriceOnDate: () => 1, saveTransaction: saveTransaction as never, importTransactions: false,
+    })).resolves.toMatchObject({ txsImported: 0 })
   })
 })
 
@@ -503,6 +634,7 @@ describe("PRIVACY: sync only contacts the configured explorer", () => {
       kind: "bip84",
       explorerBaseUrl: "https://mempool.space",
       gapLimit: 3,
+      defaultEnvelopeId: "env-priv",
     })
     const mock = buildMockEsplora({
       byAddressTxs: new Map<string, MockTx[]>([
@@ -536,7 +668,7 @@ describe("PRIVACY: sync only contacts the configured explorer", () => {
       baseUrl: wallet.explorerBaseUrl, fetchImpl: mock.fetchImpl, minRequestSpacingMs: 0,
     })
     await runSync({
-      userId: USER, wallet, fallbackEnvelopeId: "env-fb", client,
+      userId: USER, wallet, savingsEnvelopeId: "env-savings", client,
       getPriceOnDate: () => 70000, saveTransaction,
     })
 
