@@ -45,7 +45,22 @@ export const registrationVerifySchema = z.object({
 }).strict()
 const createAuthentication = z.object({ network: testNetworkSchema, operation: z.literal("create") }).strict()
 const unlockAuthentication = z.object({ network: testNetworkSchema, operation: z.literal("unlock"), walletId: z.string().uuid() }).strict()
-export const authenticationOptionsSchema = z.discriminatedUnion("operation", [createAuthentication, unlockAuthentication])
+/**
+ * A signing grant is bound to one spend request digest and one lineage. The
+ * digest covers the unsigned transaction, spent outputs and per-input tweaks
+ * (see `lib/wallet/spend-request.ts`), so the passkey approval the user gives
+ * authorizes exactly that transaction and nothing else.
+ */
+const signAuthentication = z.object({
+  network: testNetworkSchema, operation: z.literal("sign"), walletId: z.string().uuid(),
+  lineage: z.enum(["sha256d", "blake2b"]), digest: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict()
+export const authenticationOptionsSchema = z.discriminatedUnion("operation", [createAuthentication, unlockAuthentication, signAuthentication])
 const verification = { challengeId: z.string().uuid(), response: authenticationResponseSchema }
-export const authenticationVerifySchema = z.discriminatedUnion("operation", [createAuthentication.extend(verification).strict(), unlockAuthentication.extend(verification).strict()])
+export const authenticationVerifySchema = z.discriminatedUnion("operation", [
+  createAuthentication.extend(verification).strict(),
+  unlockAuthentication.extend(verification).strict(),
+  signAuthentication.extend(verification).strict(),
+])
+export type AuthenticationOperation = z.infer<typeof authenticationOptionsSchema>
 export const walletIdSchema = z.string().uuid()

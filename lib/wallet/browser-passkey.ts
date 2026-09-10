@@ -61,9 +61,21 @@ function extensions(): AuthenticationExtensionsClientInputs {
   return { prf: { eval: { first: PRF_INPUT.slice().buffer } } } as AuthenticationExtensionsClientInputs
 }
 
-export async function walletPasskey(network: "signet" | "testnet4" | "regtest", hasCredential: boolean, signal?: AbortSignal, walletId?: string) {
+export interface PasskeySigningScope { lineage: "sha256d" | "blake2b"; digest: string }
+
+/**
+ * Run the passkey ceremony and return the PRF output plus a server grant.
+ *  - no `walletId`: register (first time) or authenticate for wallet creation
+ *  - `walletId`: authenticate to unlock an existing wallet (recovery, resume)
+ *  - `walletId` + `sign`: authenticate to co-sign one spend request; the grant
+ *    is bound to `sign.digest` so approval covers exactly that transaction.
+ */
+export async function walletPasskey(network: "signet" | "testnet4" | "regtest", hasCredential: boolean, signal?: AbortSignal, walletId?: string, sign?: PasskeySigningScope) {
   if (walletId && !hasCredential) throw new WalletClientError("credential-rejected")
-  const operation = walletId ? { network, operation: "unlock", walletId } : { network, operation: "create" }
+  if (sign && (!walletId || !/^[0-9a-f]{64}$/.test(sign.digest))) throw new WalletClientError("invalid-signing-scope")
+  const operation = sign && walletId
+    ? { network, operation: "sign", walletId, lineage: sign.lineage, digest: sign.digest }
+    : walletId ? { network, operation: "unlock", walletId } : { network, operation: "create" }
   if (typeof window === "undefined" || !window.isSecureContext || typeof PublicKeyCredential === "undefined" || !navigator.credentials?.create || !navigator.credentials?.get) {
     throw new PasskeyEncryptionError("browser-unavailable")
   }
