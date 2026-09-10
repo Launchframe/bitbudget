@@ -16,6 +16,12 @@ interface RiskDisclosureModalProps {
   onClose: () => void
 }
 
+/**
+ * Shown when the browser reports no user-verifying platform authenticator.
+ * Copy must match what the code actually does: the device share is wrapped
+ * with a key derived from the passkey's PRF output, so a weaker authenticator
+ * means weaker protection for that share, not for the whole wallet.
+ */
 export function RiskDisclosureModal({ open, onClose }: RiskDisclosureModalProps) {
   return (
     <AlertDialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
@@ -23,36 +29,26 @@ export function RiskDisclosureModal({ open, onClose }: RiskDisclosureModalProps)
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2 text-[#F7931A]">
             <ShieldAlert className="h-5 w-5 shrink-0" aria-hidden />
-            Software-Protected: What This Means
+            Software-protected: what this means
           </AlertDialogTitle>
           <AlertDialogDescription asChild>
             <div className="space-y-3 text-sm text-muted-foreground text-left">
               <p>
-                Your device does not have a dedicated Secure Enclave or StrongBox chip available to
-                this browser. Your wallet&apos;s key share is still encrypted (AES-GCM, 256-bit) but
-                the encryption key lives in browser storage rather than hardware-isolated memory.
+                This browser did not report a built-in authenticator that checks it is you (face, fingerprint, or device PIN). Your device share is still encrypted with a key that only your passkey can produce, but the passkey you used may live in software rather than in a security chip.
               </p>
-              <p className="font-medium text-foreground">Practical implications:</p>
+              <p className="font-medium text-foreground">What that changes:</p>
               <ul className="list-disc pl-5 space-y-1">
-                <li>Malware with full browser access could extract the key material.</li>
-                <li>The passphrase option adds meaningful protection — use it.</li>
-                <li>
-                  For high-value amounts, use a hardware wallet (Ledger, Coldcard) and only store
-                  the xpub here for transaction tracking.
-                </li>
+                <li>Malware with full control of this device has a better chance of using your passkey without you noticing.</li>
+                <li>Your other two shares are unaffected. One share alone still cannot spend.</li>
+                <li>For larger amounts, use a passkey stored in your phone or a security key, or keep savings in a hardware wallet and track it here instead.</li>
               </ul>
-              <p className="font-medium text-[#F7931A]">This is a research preview.</p>
-              <p>
-                Do not store funds you cannot afford to lose. The MPC signing protocol that
-                distributes risk across multiple share holders is not yet fully implemented.
-              </p>
+              <p className="font-medium text-[#F7931A]">This wallet is a test-network preview.</p>
+              <p>Do not rely on it for money you cannot afford to lose until mainnet is enabled.</p>
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onClose} className="w-full">
-            I understand
-          </AlertDialogCancel>
+          <AlertDialogCancel onClick={onClose} className="w-full">I understand</AlertDialogCancel>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
