@@ -121,3 +121,138 @@ so the four suites that import it (`server-dkg`, `server-provisioning`,
 other wallet suites (482 tests) pass. CI builds the WASM. One pre-existing
 `tsc` error in `lib/wallet/server/dkg.ts` is a consequence of the missing
 generated types and is not introduced by this slice.
+
+## Slice: PR #127 full wallet on top of the accounting layer (2026-09-10)
+
+### B1. Custody wallets are just another `WatchSource`
+`runSync()` in `lib/wallets/xpub-sync.ts` now accepts a `WatchSource`
+(`{ id, nickname, gapLimit, defaultEnvelopeId, receiveMode, explorerBaseUrl,
+ledgerSource, deriveAddress(chain, index) }`) instead of only a `StoredWallet`.
+Xpub wallets are adapted by `xpubWatchSource()`; custody wallets by
+`openCustodyWatchSource()` (`lib/wallet/watch-source.ts`), which derives
+addresses from the sealed watch seed and zeroes it on `dispose()`. Reasoning:
+scanning, self-transfer netting, cross-wallet txid dedup, ledger routing and
+the receive-mode setting are identical for both tiers; duplicating them was
+the main reason #127 drifted from #36. Custody cache ids are namespaced
+`custody:<walletId>` so they cannot collide with xpub ids.
+
+### B2. New `TransactionSource` `"onchain_wallet"`
+Rows imported from a BitBudget wallet carry `source: "onchain_wallet"`; xpub
+rows keep `"onchain_xpub"`. Both are sat-native (`SAT_NATIVE_SOURCES` in the
+transactions POST route), both count as cash inflows, neither counts as
+Monthly Income (see A4). Review inbox label: "BitBudget wallet". Distinguishing
+the two lets analytics and support tell "you spent from your wallet" from
+"a wallet you only watch moved coins" without decrypting anything.
+
+### B3. Wallet ledger settings are device-local and encrypted, not server-synced yet
+`lib/wallet/ledger-settings.ts` stores `{ defaultEnvelopeId, receiveMode,
+explorerBaseUrl, gapLimit, lastSyncAt }` per wallet in `localStorage`, encrypted
+with the privacy key (`encryptField`/`decryptField`). The plan called for an
+encrypted watch bundle synced via the server; that API is **not** in this slice.
+Consequence: a user who opens the wallet on a second device must re-pick the
+envelope and explorer there until the bundle sync lands. The watch seed
+itself already lives in the recovery file and the custody IndexedDB record,
+so nothing custodial depends on this.
+
+### B4. Default explorer per network
+mainnet `https://mempool.space`, signet `/signet`, testnet `/testnet`,
+testnet4 `/testnet4`, regtest `http://127.0.0.1:3002`. The user can override
+with any `https://` origin (or `http://` loopback). The explorer sees the
+wallet's addresses; the Security tab says so. `mempool.space` is the default
+because the existing xpub layer already uses it and it serves every network
+the wallet supports.
+
+### B5. Single-round-trip FROST co-sign protocol, device commits first
+Serverless functions cannot hold FROST round-1 nonce state between requests,
+so the protocol is:
+1. browser plans and serialises the unsigned tx (`lib/wallet/spend-builder.ts`);
+2. browser computes `spendRequestDigest` (`lib/wallet/spend-request.ts`), a
+   domain-separated SHA-256 over account, wallet, network, lineage,
+   sha256(tx), sha256(spent outputs) and every per-input tweak;
+3. passkey authentication with `operation: "sign"` bound to `{ walletId,
+   lineage, digest }` issues a single-use grant;
+4. browser generates participant-1 nonces/commitments per input and POSTs
+   `{ request, grantId, aCommitmentsHex[] }` to `/api/wallets/[id]/sign`;
+5. server recomputes the digest, requires the matching grant, checks every
+   spent `scriptPubKey` equals `5120 || tweaked child key`, **burns the grant and
+   the device commitments** (`WalletNonceUse`), then generates its own nonces
+   and returns `{ bCommitmentHex, bSignatureHex }` per input;
+6. browser rebuilds each session with both commitments, signs, aggregates,
+   verifies the Schnorr signature, finalises the witness and broadcasts via
+   the user's explorer.
+
+Nonces are never persisted on either side. Reusing existing `WalletGrant` /
+`WalletNonceUse` tables means **no schema migration** for this slice. Known
+trade-off: the server learns the device commitments before revealing its own
+(the browser never sees B's commitment before committing), which is the
+correct direction for a co-signer that must not be tricked into signing with
+an adaptively chosen counterpart nonce.
+
+### B6. Spend limits and coin selection
+`MAX_SPEND_INPUTS = 40` keeps the worst-case commit body under the 32 KiB
+wallet API limit. Coin selection (`selectCoins`): confirmed coins first;
+prefer spending change-branch coins alone when they cover the amount (they
+are already linked to prior spends, so this avoids merging fresh receive
+addresses with change); otherwise largest-first. Change below 330 sats (P2TR
+dust) is absorbed into the fee and shown as such. Fee rate is clamped to
+1–2000 sat/vB; a fee above 50% of the amount **and** above 10 000 sats is a
+`fee-too-high` planning error. The fee estimate comes from the explorer
+(`/api/fee-estimates`, target 3 blocks, fallback 2 sat/vB). None of these
+constants are user-configurable yet.
+
+### B7. Change address reservation happens at confirm, not preview
+Preview derives the *next* change address without reserving it; Confirm
+reserves it via `reserveAddressIndices(walletId, "change", 1)` and aborts if
+the reserved index differs from the previewed one (another tab reserved in
+between). Change outputs are system-labelled and shown with an orange
+"Change" pill in Receive/Activity. Toxic-change coin selection (B6) is the
+first pass at the maintainer's toxic-change-aware requirement; there is no
+per-coin freeze UI yet.
+
+### B8. Signing is sha256d-only in the UI for now
+The send pane always passes `lineage: "sha256d"`. The dual-lineage machinery
+(`blake2b` lineage, replay-output markers, indexer connection) stays intact
+underneath, but the Send tab does not expose a lineage choice until a
+Blake2b-side indexer is actually connected; a placeholder toggle would be
+pretend readiness.
+
+### B9. Tier gate covers the co-sign path too
+`requireCustodyTier` now guards `POST /api/wallets/[id]/sign` and the passkey
+authentication options/verify routes **only when `operation === "sign"`**.
+Unlock/export authentication, status, recovery and `GET /api/wallets` remain
+ungated (A7): a lapsed subscription blocks new spends through BitBudget's
+co-signer but never blocks recovery or export.
+
+### B10. Deferred from this slice, with reasons
+- **Backup cross-platform passkey / platform-first enrolment / passkey
+  replace flow (P0):** needs a second `WalletCredential` per wallet and a
+  re-wrap of Share A for the new PRF output. Not started; the existing single
+  PRF credential path is unchanged. Product decision (platform first, plain-
+  English degraded-security opt-in) stands as the target.
+- **B+C lost-device recovery and new-device enrolment:** requires a server flow
+  that re-shares to a fresh device without ever holding two shares at once.
+  Design intent: the recovery file (C) plus a fresh passkey on the new device
+  run a *re-DKG* with the server (B) as the second honest participant; the old
+  A share is revoked by rotating the group key. Not built; the Security tab
+  says recovery currently means "import the recovery file into a wallet that
+  supports it".
+- **Evidence validator for `evaluateTransactionIsolation`:** not started.
+- **Encrypted watch bundle API:** see B3.
+- **Passphrase gate on server co-sign:** the maintainer's decision is recorded;
+  this slice gates co-signing on the passkey grant only. Adding the
+  passphrase (and wrapping Share A when a backup passkey exists) fits behind
+  the same `operation: "sign"` grant without protocol changes.
+
+### B11. Verification environment for this slice
+Same constraints as A11: `wallet-mpc/pkg/` is absent locally (Docker down,
+Apple clang lacks a wasm32 target; the agent did not start Docker on its own).
+Everything that imports the WASM core (`lib/wallet/spend-session.ts`,
+`lib/wallet/server/signing.ts`, `server/dkg.ts`) type-checks with the core as
+`any` and is exercised only in CI. `lib/__tests__/wallet/spend-signing.test.ts`
+mocks the core's public-package derivation with the real HMAC tweak math and
+covers digest binding, schema limits, grant⇄digest rejection, spent-output
+mismatch (before the grant is burned), legacy-derivation refusal, and the
+burn-before-sign order. `spend-builder.test.ts` covers coin selection, fee,
+dust absorption and serialisation round-trips. No real signet spend has been
+executed by the agent; the Send tab should be treated as unverified end-to-end
+until a maintainer runs one on signet with the CI-built WASM.
