@@ -60,8 +60,15 @@ export interface EsploraTx {
   status: EsploraTxStatus
 }
 
+export interface EsploraUtxo {
+  txid: string
+  vout: number
+  value: number
+  status: EsploraTxStatus
+}
+
 export interface FetchLike {
-  (input: string, init?: { signal?: AbortSignal }): Promise<{
+  (input: string, init?: { signal?: AbortSignal; method?: string; body?: string; headers?: Record<string, string> }): Promise<{
     ok: boolean
     status: number
     text: () => Promise<string>
@@ -137,10 +144,13 @@ export class EsploraClient {
     }
   }
 
-  private async req(path: string): Promise<Response | { ok: boolean; status: number; text: () => Promise<string>; json: () => Promise<unknown> }> {
+  private async req(
+    path: string,
+    init?: { method?: string; body?: string; headers?: Record<string, string> },
+  ): Promise<Response | { ok: boolean; status: number; text: () => Promise<string>; json: () => Promise<unknown> }> {
     if (this.signal?.aborted) throw new Error("Aborted")
     const url = joinUrl(this.baseUrl, path)
-    const res = await this.fetchImpl(url, this.signal ? { signal: this.signal } : undefined)
+    const res = await this.fetchImpl(url, init || this.signal ? { ...init, signal: this.signal } : undefined)
     if (!res.ok) {
       let body = ""
       try {
@@ -193,5 +203,58 @@ export class EsploraClient {
       lastSeen = batch[batch.length - 1]!.txid
     }
     return all
+  }
+
+  /** Unspent outputs (confirmed and mempool) paying `address`. */
+  async getAddressUtxos(address: string): Promise<EsploraUtxo[]> {
+    return this.runThrottled(async () => {
+      const res = await this.req(`/api/address/${address}/utxo`)
+      const body = (await res.json()) as unknown
+      if (!Array.isArray(body)) throw new EsploraError(res.status, "UTXO response was not a list")
+      return body as EsploraUtxo[]
+    })
+  }
+
+  /** Raw transaction bytes as hex. Needed to build Taproot sighashes for spent prevouts. */
+  async getTxHex(txid: string): Promise<string> {
+    return this.runThrottled(async () => {
+      const res = await this.req(`/api/tx/${txid}/hex`)
+      const hex = (await res.text()).trim()
+      if (!/^(?:[0-9a-f]{2})+$/i.test(hex)) throw new EsploraError(res.status, "Transaction hex was malformed")
+      return hex.toLowerCase()
+    })
+  }
+
+  /**
+   * Fee estimates keyed by confirmation target (blocks) → sat/vB. Esplora and
+   * mempool.space both serve this shape. Missing or unparsable data resolves to
+   * an empty map; callers fall back to a conservative default.
+   */
+  async getFeeEstimates(): Promise<Record<string, number>> {
+    return this.runThrottled(async () => {
+      const res = await this.req("/api/fee-estimates")
+      const body = (await res.json()) as unknown
+      if (!body || typeof body !== "object") return {}
+      const out: Record<string, number> = {}
+      for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
+        if (typeof v === "number" && Number.isFinite(v) && v > 0) out[k] = v
+      }
+      return out
+    })
+  }
+
+  /**
+   * Broadcast a fully signed transaction. Returns the txid the explorer
+   * reports. Broadcast is client-only by design: BitBudget's server never sees
+   * or relays raw transactions.
+   */
+  async broadcastTx(rawHex: string): Promise<string> {
+    if (!/^(?:[0-9a-f]{2})+$/i.test(rawHex)) throw new Error("Refusing to broadcast malformed transaction hex")
+    return this.runThrottled(async () => {
+      const res = await this.req("/api/tx", { method: "POST", body: rawHex, headers: { "Content-Type": "text/plain" } })
+      const txid = (await res.text()).trim()
+      if (!/^[0-9a-f]{64}$/i.test(txid)) throw new EsploraError(res.status, `Explorer did not return a txid: ${txid.slice(0, 80)}`)
+      return txid.toLowerCase()
+    })
   }
 }

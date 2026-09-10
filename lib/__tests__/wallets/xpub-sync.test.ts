@@ -10,6 +10,8 @@ import {
   resolveLedgerEnvelopeId,
   runSync,
   unixSecondsToIsoDate,
+  xpubWatchSource,
+  type WatchSource,
 } from "@/lib/wallets/xpub-sync"
 import {
   clearWalletDb,
@@ -625,6 +627,63 @@ describe("runSync across two watched wallets", () => {
 })
 
 // ─── Privacy regression test ─────────────────────────────────────────
+
+describe("runSync with a generic WatchSource (custody wallet shape)", () => {
+  const saved: Array<{ source?: string; envelopeId: string; type: string; satsAmount?: number | null }> = []
+  afterEach(() => { saved.length = 0 })
+
+  const source: WatchSource = {
+    id: "custody:wallet-1",
+    nickname: "My BitBudget wallet",
+    gapLimit: 3,
+    defaultEnvelopeId: "env-spend",
+    receiveMode: "envelope",
+    explorerBaseUrl: "https://mempool.space/signet",
+    ledgerSource: "onchain_wallet",
+    deriveAddress: (chain, index) => `tb1p-fake-${chain}-${index}`,
+  }
+
+  it("scans via the supplied deriver and labels rows with the source's ledgerSource", async () => {
+    const mock = buildMockEsplora({
+      byAddressTxs: new Map<string, MockTx[]>([
+        ["tb1p-fake-0-0", [{
+          txid: "TX_CUSTODY_IN",
+          vin: [{ addr: "external", value: 12_000 }],
+          vout: [{ addr: "tb1p-fake-0-0", value: 12_000 }],
+          blockTime: 1711929600,
+          blockHeight: 100,
+        }]],
+      ]),
+    })
+    const client = new EsploraClient({ baseUrl: source.explorerBaseUrl, fetchImpl: mock.fetchImpl, minRequestSpacingMs: 0 })
+    const res = await runSync({
+      userId: USER,
+      wallet: source,
+      savingsEnvelopeId: "env-savings",
+      client,
+      getPriceOnDate: () => 60_000,
+      saveTransaction: (async (t: typeof saved[number]) => { saved.push(t); return "srv_1" }) as never,
+    })
+    expect(res.txsImported).toBe(1)
+    expect(saved[0]!.source).toBe("onchain_wallet")
+    expect(saved[0]!.type).toBe("credit")
+    // receiveMode "envelope" routes the receive to the wallet envelope, not Savings.
+    expect(saved[0]!.envelopeId).toBe("env-spend")
+    expect(saved[0]!.satsAmount).toBe(12_000)
+    // Cache rows are namespaced by the source id, so custody and xpub wallets never collide.
+    const rows = await getAddressesForWallet(USER, source.id)
+    expect(rows.every((r) => r.walletId === "custody:wallet-1")).toBe(true)
+    expect(mock.calls.every((u) => u.startsWith("https://mempool.space/signet/api/"))).toBe(true)
+  })
+
+  it("xpubWatchSource derives the same addresses as deriveAddress()", () => {
+    const wallet = buildStoredWallet({ nickname: "x", xpub: ZPUB, kind: "bip84", explorerBaseUrl: "https://mempool.space", defaultEnvelopeId: "e", gapLimit: 5 })
+    const ws = xpubWatchSource(wallet)
+    expect(ws.ledgerSource).toBe("onchain_xpub")
+    expect(ws.deriveAddress(0, 0)).toBe(ADDR_R0)
+    expect(ws.deriveAddress(1, 0)).toBe(ADDR_C0)
+  })
+})
 
 describe("PRIVACY: sync only contacts the configured explorer", () => {
   it("never sends the xpub or any derived address to BitBudget API or any other host", async () => {

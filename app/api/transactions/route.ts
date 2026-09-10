@@ -65,7 +65,7 @@ function jsonTxnRow(t: {
 const TXN_TYPES = new Set(["expense", "credit"])
 
 /** Sources where `satsAmount` is authoritative and must not be recomputed from USD on edit. */
-const SAT_NATIVE_SOURCES = new Set<string>(["onchain_xpub"])
+const SAT_NATIVE_SOURCES = new Set<string>(["onchain_xpub", "onchain_wallet"])
 
 export async function GET(req: NextRequest) {
   const session = await auth()

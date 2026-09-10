@@ -33,7 +33,51 @@ import {
 } from "@/lib/wallets/xpub-cache"
 import { deriveAddress, parseExtendedKey } from "@/lib/wallets/xpub-derive"
 import type { StoredWallet } from "@/lib/wallets/xpub-store"
-import type { Transaction } from "@/lib/data"
+import type { Transaction, TransactionSource } from "@/lib/data"
+
+/**
+ * Anything the sync engine can watch. A pasted xpub and a BitBudget custody
+ * wallet both derive addresses deterministically; only the derivation and the
+ * ledger `source` label differ. Everything downstream (gap-limit scan, cache,
+ * classification, envelope routing) is shared.
+ */
+export interface WatchSource {
+  /** Local-only id (xpub wallet id or custody wallet id). Never sent to the server. */
+  id: string
+  nickname: string
+  gapLimit: number
+  defaultEnvelopeId: string | null
+  receiveMode: StoredWallet["receiveMode"]
+  explorerBaseUrl: string
+  /** `Transaction.source` for rows produced from this source. */
+  ledgerSource: Extract<TransactionSource, "onchain_xpub" | "onchain_wallet">
+  /** Derive the address at `chain`/`index`. Must be pure and deterministic. */
+  deriveAddress(chain: AddressChain, index: number): string
+}
+
+/** Adapt a stored xpub wallet to the generic watch interface. */
+export function xpubWatchSource(wallet: StoredWallet): WatchSource {
+  const parsed = parseExtendedKey(wallet.xpub)
+  if (parsed.kind !== wallet.kind) {
+    throw new Error(
+      `Wallet was saved as ${wallet.kind} but the xpub now parses as ${parsed.kind}; refusing to scan with mismatched kind.`,
+    )
+  }
+  return {
+    id: wallet.id,
+    nickname: wallet.nickname,
+    gapLimit: wallet.gapLimit,
+    defaultEnvelopeId: wallet.defaultEnvelopeId,
+    receiveMode: wallet.receiveMode,
+    explorerBaseUrl: wallet.explorerBaseUrl,
+    ledgerSource: "onchain_xpub",
+    deriveAddress: (chain, index) => deriveAddress(parsed, chain, index),
+  }
+}
+
+function isWatchSource(value: StoredWallet | WatchSource): value is WatchSource {
+  return typeof (value as WatchSource).deriveAddress === "function"
+}
 
 export interface SyncProgress {
   walletId: string
@@ -62,7 +106,8 @@ export interface BuildPayloadInput {
   btcPriceOnDate: number
 }
 
-export type LedgerRoutingWallet = Pick<StoredWallet, "id" | "nickname" | "defaultEnvelopeId" | "receiveMode">
+export type LedgerRoutingWallet = Pick<StoredWallet, "id" | "nickname" | "defaultEnvelopeId" | "receiveMode"> &
+  Partial<Pick<WatchSource, "ledgerSource">>
 
 /**
  * Which envelope an on-chain row lands in.
@@ -122,7 +167,7 @@ export function buildTransactionPayload(input: BuildPayloadInput): BuildPayloadR
     tags: [],
     notes: `On-chain tx ${input.txid}`,
     satsAmount: sats,
-    source: "onchain_xpub",
+    source: input.wallet.ledgerSource ?? "onchain_xpub",
     txid: input.txid,
     blockHeight: input.blockHeight,
   }
@@ -173,7 +218,7 @@ export function isPureSelfTransfer(tx: EsploraTx, myAddresses: Set<string>): boo
  * are seen. Updates `txMap` in place with any txs observed.
  */
 async function scanChain(
-  parsed: ReturnType<typeof parseExtendedKey>,
+  source: WatchSource,
   chain: AddressChain,
   gapLimit: number,
   client: EsploraClient,
@@ -186,7 +231,7 @@ async function scanChain(
   let consecutiveUnused = 0
   let i = startIndex
   while (consecutiveUnused < gapLimit) {
-    const address = deriveAddress(parsed, chain, i)
+    const address = source.deriveAddress(chain, i)
     let info: EsploraAddressInfo
     try {
       info = await client.getAddressInfo(address)
@@ -277,7 +322,8 @@ function buildMyAddressSet(
 
 export interface RunSyncOptions {
   userId: string
-  wallet: StoredWallet
+  /** A stored xpub wallet, or any {@link WatchSource} (e.g. a BitBudget custody wallet). */
+  wallet: StoredWallet | WatchSource
   /** System Savings envelope id; receives land here when `wallet.receiveMode === "savings"`. */
   savingsEnvelopeId: string
   /** Esplora client built against the user-configured `wallet.explorerBaseUrl`. */
@@ -318,18 +364,13 @@ export interface RunSyncResult {
  * same cache state will skip already-imported txids.
  */
 export async function runSync(opts: RunSyncOptions): Promise<RunSyncResult> {
-  const { userId, wallet, client, savingsEnvelopeId, saveTransaction, onProgress } = opts
+  const { userId, client, savingsEnvelopeId, saveTransaction, onProgress } = opts
   const importTransactions = opts.importTransactions ?? true
-  if (importTransactions && !wallet.defaultEnvelopeId) {
+  if (importTransactions && !opts.wallet.defaultEnvelopeId) {
     // Fail before any network call: the user must pick where spends go.
     throw new Error("Choose an envelope for this wallet before syncing.")
   }
-  const parsed = parseExtendedKey(wallet.xpub)
-  if (parsed.kind !== wallet.kind) {
-    throw new Error(
-      `Wallet was saved as ${wallet.kind} but the xpub now parses as ${parsed.kind}; refusing to scan with mismatched kind.`,
-    )
-  }
+  const wallet: WatchSource = isWatchSource(opts.wallet) ? opts.wallet : xpubWatchSource(opts.wallet)
 
   const collected: CachedAddress[] = []
   const txMap = new Map<string, EsploraTx>()
@@ -351,10 +392,10 @@ export async function runSync(opts: RunSyncOptions): Promise<RunSyncResult> {
   const changeStart = opts.resumeFrom?.changeIndex ?? 0
 
   const externalScanHigh = await scanChain(
-    parsed, 0, wallet.gapLimit, client, externalStart, collected, txMap, wallet.id, tick,
+    wallet, 0, wallet.gapLimit, client, externalStart, collected, txMap, wallet.id, tick,
   )
   const changeScanHigh = await scanChain(
-    parsed, 1, wallet.gapLimit, client, changeStart, collected, txMap, wallet.id, tick,
+    wallet, 1, wallet.gapLimit, client, changeStart, collected, txMap, wallet.id, tick,
   )
 
   const previouslyCached = await getAddressesForWallet(userId, wallet.id)
