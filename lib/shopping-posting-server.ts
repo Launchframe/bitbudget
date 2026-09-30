@@ -23,6 +23,18 @@ export interface ShoppingPostingEntryInput {
   envelopeId: string
 }
 
+export async function listCallerPostings(params: {
+  userId: string
+  groupId: string
+}): Promise<Array<{ eventId: string; entryKey: string; status: string }>> {
+  await requireActiveMember(params.groupId, params.userId)
+  return prisma.shoppingPosting.findMany({
+    where: { userId: params.userId, groupId: params.groupId },
+    select: { eventId: true, entryKey: true, status: true },
+    orderBy: { createdAt: "asc" },
+  })
+}
+
 export async function applyShoppingPostings(params: {
   userId: string
   groupId: string

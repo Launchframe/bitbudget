@@ -31,6 +31,7 @@ import {
 } from "@/lib/shopping-view"
 import { useShoppingState } from "@/lib/use-shopping-state"
 import { amountOwed, reduceShoppingTab } from "@/lib/shopping-ledger"
+import { ShoppingBudgetCard } from "@/components/shopping-budget-card"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -180,6 +181,8 @@ export function ShoppingGroupDetail() {
               </span>
             </div>
           </div>
+
+          <ShoppingBudgetCard view={view} />
 
           <div className="min-w-0 overflow-x-auto border-b border-border">
             <div className="flex min-w-max gap-6" role="tablist" aria-label="Group sections">

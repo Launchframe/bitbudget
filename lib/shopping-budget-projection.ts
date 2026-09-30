@@ -244,6 +244,43 @@ export function projectMemberBudget(params: {
   return out
 }
 
+export function shoppingEntryLabel(kind: ShoppingEntryKind): string {
+  switch (kind) {
+    case "own_expense":
+      return "Your share"
+    case "advance_out":
+      return "You covered someone else"
+    case "advance_recovery":
+      return "They paid you back"
+    case "repayment_expense":
+      return "You paid them back"
+    case "prepaid_out":
+      return "Extra you paid ahead"
+    case "prepaid_in":
+      return "Extra they paid you"
+    case "prepaid_apply":
+      return "Applied a previous payment"
+    case "correction":
+      return "Correction"
+    default: {
+      const _never: never = kind
+      return _never
+    }
+  }
+}
+
+export function shoppingEntryPayee(input: {
+  eventType?: string
+  merchant?: string | null
+}): string {
+  if (input.eventType === "receipt_finalized") {
+    const merchant = input.merchant?.trim()
+    return merchant || "Shared purchase"
+  }
+  if (input.eventType === "repayment") return "Shared repayment"
+  return "Shared shopping"
+}
+
 export function kindToTransactionSource(kind: ShoppingEntryKind): string {
   switch (kind) {
     case "own_expense":

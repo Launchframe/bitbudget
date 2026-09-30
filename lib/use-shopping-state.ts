@@ -273,6 +273,54 @@ export function useShoppingState() {
     [postShopping],
   )
 
+  const fetchPreference = useCallback(async (groupId: string) => {
+    const res = await shoppingFetch(`/api/shopping/groups/${groupId}/preferences`)
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string
+      enabled?: boolean
+      enabledAtSequence?: number | null
+      catchUpApproved?: boolean
+      envelopeId?: string | null
+      preferenceVersion?: number
+    }
+    if (!res.ok || data.preferenceVersion == null) {
+      throw new Error(data.error || "Could not load budget settings")
+    }
+    return {
+      enabled: data.enabled === true,
+      enabledAtSequence: data.enabledAtSequence ?? null,
+      catchUpApproved: data.catchUpApproved === true,
+      envelopeId: data.envelopeId ?? null,
+      preferenceVersion: data.preferenceVersion,
+    }
+  }, [])
+
+  const savePreference = useCallback(
+    async (groupId: string, body: Record<string, unknown>) => {
+      return postShopping(`/api/shopping/groups/${groupId}/preferences`, body, "PUT")
+    },
+    [postShopping],
+  )
+
+  const applyPostings = useCallback(
+    async (groupId: string, body: Record<string, unknown>) => {
+      return postShopping(`/api/shopping/groups/${groupId}/postings`, body)
+    },
+    [postShopping],
+  )
+
+  const listPostings = useCallback(async (groupId: string) => {
+    const res = await shoppingFetch(`/api/shopping/groups/${groupId}/postings`)
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string
+      postings?: Array<{ eventId: string; entryKey: string; status: string }>
+    }
+    if (!res.ok || !Array.isArray(data.postings)) {
+      throw new Error(data.error || "Could not load budget rows")
+    }
+    return data.postings
+  }, [])
+
   return {
     groups: unlocked ? groups : [],
     loading,
@@ -295,6 +343,10 @@ export function useShoppingState() {
     createReceiptDraft,
     finalizeReceipt,
     recordPayment,
+    fetchPreference,
+    savePreference,
+    applyPostings,
+    listPostings,
     clearPendingInvite: () => {
       clearPendingShoppingInvite()
       setPendingInvite(null)
