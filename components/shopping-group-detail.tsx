@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   Check,
   Copy,
-  FileText,
   LockKeyhole,
   Plus,
   Receipt,
@@ -18,7 +17,7 @@ import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
 import { shoppingInviteUrl } from "@/lib/shopping-invites"
 import { centsToUsdLabel, dollarsToCents, newShoppingObjectId } from "@/lib/shopping-payloads"
 import { decryptClaimantAlias, prepareApproveMember, prepareDefaultList, prepareEventPayload, prepareReceiptDraft, prepareRequest } from "@/lib/shopping-prepare"
-import { splitCentsByWeights } from "@/lib/shopping-split-math"
+import { planSharedReceiptShares, ReceiptPlanError } from "@/lib/shopping-receipt-plan"
 import { SHOPPING_PAYLOAD_SCHEMA_VERSION } from "@/lib/shopping-types"
 import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
 import {
@@ -32,6 +31,7 @@ import {
 import { useShoppingState } from "@/lib/use-shopping-state"
 import { amountOwed, reduceShoppingTab } from "@/lib/shopping-ledger"
 import { ShoppingBudgetCard } from "@/components/shopping-budget-card"
+import { ShoppingReceiptDialog, type ReceiptDraftLine } from "@/components/shopping-receipt-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -242,10 +242,21 @@ export function ShoppingGroupDetail() {
         />
       )}
       {view && dialog === "receipt" && (
-        <ReceiptDialog
+        <ShoppingReceiptDialog
           busy={busy}
+          requests={view.requests
+            .filter((request) => !request.checkedOff)
+            .map((request) => ({
+              id: request.id,
+              memberId: request.requesterMemberId,
+              description: request.description,
+              requestedQuantity: request.requestedQuantity,
+              purchasedQuantity: request.purchasedQuantity,
+              unit: request.unit,
+            }))}
+          members={view.members.map((member) => ({ id: member.id, alias: member.alias }))}
           onClose={() => setDialog(null)}
-          onSave={(merchant, amount) => void addReceipt(merchant, amount)}
+          onSave={(merchant, totalCents, lines) => void addReceipt(merchant, totalCents, lines)}
         />
       )}
       {view && dialog === "payment" && (
@@ -449,11 +460,23 @@ export function ShoppingGroupDetail() {
     }
   }
 
-  async function addReceipt(merchant: string, amountRaw: string) {
+  async function addReceipt(merchant: string, totalCents: number, lines: ReceiptDraftLine[]) {
     if (!view) return
-    const totalCents = dollarsToCents(amountRaw)
-    if (totalCents == null || totalCents <= 0) {
-      setLoadError("Enter a valid amount")
+    const active = view.members.filter((member) => member.status === "active")
+    let shares: Array<{ memberId: string; cents: number }>
+    try {
+      shares = planSharedReceiptShares({
+        totalCents,
+        memberIds: active.map((member) => member.id),
+        lines: lines.map((line) => {
+          if (!line.requestId) return { cents: line.cents, memberIds: active.map((member) => member.id) }
+          const request = view.requests.find((item) => item.id === line.requestId)
+          if (!request) throw new ReceiptPlanError("That item is no longer on the list")
+          return { cents: line.cents, memberIds: [request.requesterMemberId] }
+        }),
+      })
+    } catch (err) {
+      setLoadError(err instanceof ReceiptPlanError ? err.message : "Could not split this receipt")
       return
     }
     setBusy(true)
@@ -476,11 +499,6 @@ export function ShoppingGroupDetail() {
         encryptedPayload,
         keyVersion: view.keyVersion,
       })
-      const active = view.members.filter((m) => m.status === "active")
-      const shares = splitCentsByWeights(
-        totalCents,
-        active.map((m) => ({ id: m.id, weight: 10_000 })),
-      )
       const operationId = newShoppingObjectId()
       const eventPayload = {
         schemaVersion: SHOPPING_PAYLOAD_SCHEMA_VERSION,
@@ -490,7 +508,7 @@ export function ShoppingGroupDetail() {
         postedOn: todayTransactionCalendarDay(),
         currency: "USD" as const,
         totalCents,
-        shares: shares.map((s) => ({ memberId: s.id, cents: s.cents })),
+        shares,
       }
       const encryptedEvent = await prepareEventPayload({
         groupId: view.groupId,
@@ -507,8 +525,36 @@ export function ShoppingGroupDetail() {
         keyVersion: view.keyVersion,
         operationId,
         payerMemberId: view.me.id,
-        affectedMemberIds: active.map((m) => m.id),
+        affectedMemberIds: shares.map((share) => share.memberId),
       })
+      for (const requestId of new Set(lines.flatMap((line) => (line.requestId ? [line.requestId] : [])))) {
+        const request = view.requests.find((item) => item.id === requestId)
+        if (!request || request.checkedOff) continue
+        const encryptedRequest = await prepareRequest({
+          groupId: view.groupId,
+          groupKey: view.groupKey,
+          keyVersion: view.keyVersion,
+          revision: request.revision + 1,
+          requestId: request.id,
+          description: request.description,
+          notes: request.notes,
+          unit: request.unit,
+          requestedQuantity: request.requestedQuantity,
+          purchasedQuantity: request.requestedQuantity,
+          checkedOff: true,
+        })
+        await queueCheckoff({
+          id: newShoppingObjectId(),
+          groupId: view.groupId,
+          kind: "request_checkoff",
+          objectId: request.id,
+          expectedRevision: request.revision,
+          encryptedPayload: encryptedRequest,
+          keyVersion: view.keyVersion,
+          queuedAt: new Date().toISOString(),
+        })
+      }
+      await flushOutbox()
       setDialog(null)
       await load()
     } catch (err) {
@@ -904,49 +950,6 @@ function RequestDialog({
           </Button>
           <Button type="button" disabled={busy || !description.trim()} onClick={() => onSave(description, notes)}>
             Add to list
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function ReceiptDialog({
-  busy,
-  onClose,
-  onSave,
-}: {
-  busy: boolean
-  onClose: () => void
-  onSave: (merchant: string, amount: string) => void
-}) {
-  const [merchant, setMerchant] = useState("")
-  const [amount, setAmount] = useState("")
-  return (
-    <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl">
-        <DialogHeader className="pr-10 text-left">
-          <DialogTitle>Add a shared receipt</DialogTitle>
-          <DialogDescription>Split evenly among current members. No money is transferred.</DialogDescription>
-        </DialogHeader>
-        <label className="flex flex-col gap-2 text-sm font-medium">
-          Store
-          <Input value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="e.g. Trader Joe’s" />
-        </label>
-        <label className="flex flex-col gap-2 text-sm font-medium">
-          Total
-          <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="$0.00" inputMode="decimal" />
-        </label>
-        <div className="flex items-start gap-3 rounded-xl bg-primary/5 p-3 text-xs leading-5 text-muted-foreground">
-          <FileText className="mt-0.5 size-4 shrink-0 text-primary" />
-          Cloud scan is optional and not required here. You can enter the total yourself.
-        </div>
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="button" disabled={busy || !merchant.trim() || !amount.trim()} onClick={() => onSave(merchant, amount)}>
-            Save and split
           </Button>
         </DialogFooter>
       </DialogContent>
