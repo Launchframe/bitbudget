@@ -1006,7 +1006,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
   const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => {
     const targetPage = page === "envelopes" && opts?.openAllocations ? "envelope-allocations" : page
     setCurrentPage(targetPage)
-    if (targetPage === "envelope-detail" && envelopeId) {
+    if ((targetPage === "envelope-detail" || targetPage === "shopping-group") && envelopeId) {
       setSelectedEnvelopeId(envelopeId)
     } else {
       setSelectedEnvelopeId(null)
@@ -1036,7 +1036,9 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       // and the history entry for that navigation is never written.
       isPopstate.current = true
       setCurrentPage(page)
-      setSelectedEnvelopeId(page === "envelope-detail" && envelopeId ? envelopeId : null)
+      setSelectedEnvelopeId(
+        (page === "envelope-detail" || page === "shopping-group") && envelopeId ? envelopeId : null,
+      )
       // Clear any envelope filter when going back to a page that isn't transactions.
       if (page !== "transactions") setTransactionEnvelopeFilter(new Set())
       // Reset immediately — navigateTo is never invoked inside this handler so it

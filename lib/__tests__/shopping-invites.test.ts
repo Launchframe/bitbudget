@@ -28,6 +28,14 @@ describe("shopping invites", () => {
     expect(parseInviteFragment("not valid")).toBeNull()
   })
 
+  it("appends the owner public key after the token when sharing", () => {
+    const token = "abcdefghijklmnopqrstuv"
+    const pk = "a".repeat(64)
+    expect(shoppingInviteUrl("https://app.bitbudget.example", token, pk)).toBe(
+      `https://app.bitbudget.example/shopping-invite#${token}.${pk}`,
+    )
+  })
+
   it("generates a short verification code", () => {
     const code = generateRequestVerificationCode()
     expect(isRequestVerificationCode(code)).toBe(true)

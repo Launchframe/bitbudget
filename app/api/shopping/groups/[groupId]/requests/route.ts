@@ -23,6 +23,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ groupId: strin
       requesterMemberId,
       encryptedPayload,
       keyVersion,
+      id: typeof parsed.body.id === "string" ? parsed.body.id : undefined,
     })
     return shoppingJson({
       id: request.id,

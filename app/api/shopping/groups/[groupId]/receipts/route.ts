@@ -27,6 +27,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ groupId: strin
       keyVersion,
       listId: typeof parsed.body.listId === "string" ? parsed.body.listId : null,
       frozenRequestSnapshot: frozen,
+      receiptId: typeof parsed.body.id === "string" ? parsed.body.id : undefined,
     })
     return shoppingJson({
       id: receipt.id,

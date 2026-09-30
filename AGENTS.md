@@ -174,7 +174,7 @@ BitBudget **cannot** read other apps’ notifications from the web app. Users on
 
 Encrypted small-group grocery lists, receipt splits, a pairwise tab, and opt-in private budget posting. Product UI is a follow-up; hooks and APIs are in place.
 
-- **Crypto:** Group content key is created on the owner’s unlocked client and wrapped to each member’s X25519 `User.publicKey`. Shared payloads use `lib/shopping-crypto.ts` (`sg1:` AES-GCM + AAD). Reject plaintext. Never log group keys, aliases, or receipt lines.
+- **Crypto:** Group content key is created on the owner’s unlocked client and wrapped to each member’s X25519 `User.publicKey`. Shared payloads use `lib/shopping-crypto.ts` (`sg1:` AES-GCM + AAD). Group metadata is `{ name, description? }` (description optional). Reject plaintext. Never log group keys, aliases, or receipt lines.
 - **Invites:** Token lives in the URL fragment (`/shopping-invite#<token>`). Server stores only the hash. Claim is an authenticated POST; no group data until an owner approves and wraps the key. Compare fingerprints out of band.
 - **Access:** Session + active membership. Never authorize from a body `userId`. Private preferences and postings are caller-owned and never returned to other members.
 - **Money:** Tabs are derived from append-only encrypted events (`lib/shopping-ledger.ts`). Private rows use shopping `TX_SOURCE_*` constants. Advances are cash movement, not personal spend; recoveries are not income. Generic transaction POST/PUT/import cannot create or mutate shopping-managed sources.

@@ -18,6 +18,7 @@ import {
   SHOPPING_MAX_REQUESTS_PER_LIST,
   SHOPPING_MAX_EVENTS_PAGE,
   isShoppingEventType,
+  isNonEmptyId,
   type ShoppingEventType,
 } from "@/lib/shopping-types"
 
@@ -71,7 +72,7 @@ export async function listGroupsForUser(userId: string) {
   const memberships = await prisma.shoppingMember.findMany({
     where: { userId, status: "active" },
     include: {
-      group: true,
+      group: { include: { members: { select: { status: true } } } },
       keys: { orderBy: { keyVersion: "desc" } },
     },
     orderBy: { updatedAt: "desc" },
@@ -84,6 +85,7 @@ export async function listGroupsForUser(userId: string) {
     lifecycle: m.group.lifecycle,
     encryptedMetadata: m.group.encryptedMetadata,
     updatedAt: m.group.updatedAt.toISOString(),
+    activeMemberCount: m.group.members.filter((mem) => mem.status === "active").length,
     myMember: {
       id: m.id,
       localId: m.localId,
@@ -107,6 +109,7 @@ export async function createGroup(params: {
   wrappedKey: string
   pinnedKeyFingerprint: string
   localId: string
+  id?: string
 }) {
   assertCiphertext(params.encryptedMetadata, "Group name")
   assertCiphertext(params.encryptedAlias, "Your name in this group")
@@ -116,9 +119,13 @@ export async function createGroup(params: {
   if (!/^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/.test(params.pinnedKeyFingerprint)) {
     throw new ShoppingHttpError("Invalid key fingerprint", 400)
   }
+  if (params.id && !isNonEmptyId(params.id)) {
+    throw new ShoppingHttpError("Invalid group id", 400)
+  }
   return prisma.$transaction(async (tx) => {
     const group = await tx.shoppingGroup.create({
       data: {
+        ...(params.id ? { id: params.id } : {}),
         ownerId: params.userId,
         encryptedMetadata: params.encryptedMetadata,
         keyVersion: 1,
@@ -672,11 +679,15 @@ export async function createList(params: {
   userId: string
   encryptedPayload: string
   keyVersion: number
+  id?: string
 }) {
   const me = await requireActiveMember(params.groupId, params.userId)
   assertWritableGroup(me.group.lifecycle)
   if (params.keyVersion !== me.group.keyVersion) {
     throw new ShoppingHttpError("This device has an old group key. Refresh and try again.", 409)
+  }
+  if (params.id && !isNonEmptyId(params.id)) {
+    throw new ShoppingHttpError("Invalid list id", 400)
   }
   assertCiphertext(params.encryptedPayload, "List")
   const count = await prisma.shoppingList.count({
@@ -687,6 +698,7 @@ export async function createList(params: {
   }
   return prisma.shoppingList.create({
     data: {
+      ...(params.id ? { id: params.id } : {}),
       groupId: params.groupId,
       encryptedPayload: params.encryptedPayload,
       keyVersion: params.keyVersion,
@@ -736,6 +748,7 @@ export async function createRequest(params: {
   requesterMemberId: string
   encryptedPayload: string
   keyVersion: number
+  id?: string
 }) {
   const me = await requireActiveMember(params.groupId, params.userId)
   assertWritableGroup(me.group.lifecycle)
@@ -751,6 +764,9 @@ export async function createRequest(params: {
   })
   if (!requester) throw new ShoppingHttpError("Requester is not in this group", 400)
   assertCiphertext(params.encryptedPayload, "Item")
+  if (params.id && !isNonEmptyId(params.id)) {
+    throw new ShoppingHttpError("Invalid item id", 400)
+  }
   const count = await prisma.shoppingRequest.count({
     where: { listId: params.listId, tombstone: false },
   })
@@ -759,6 +775,7 @@ export async function createRequest(params: {
   }
   return prisma.shoppingRequest.create({
     data: {
+      ...(params.id ? { id: params.id } : {}),
       groupId: params.groupId,
       listId: params.listId,
       requesterMemberId: params.requesterMemberId,
@@ -836,6 +853,9 @@ export async function upsertReceiptDraft(params: {
   if (!payer) throw new ShoppingHttpError("Payer is not in this group", 400)
   assertCiphertext(params.encryptedPayload, "Receipt")
   if (params.frozenRequestSnapshot) assertCiphertext(params.frozenRequestSnapshot, "Receipt snapshot")
+  if (params.receiptId && !isNonEmptyId(params.receiptId)) {
+    throw new ShoppingHttpError("Invalid receipt id", 400)
+  }
   if (!params.receiptId) {
     return prisma.shoppingReceipt.create({
       data: {
@@ -854,7 +874,25 @@ export async function upsertReceiptDraft(params: {
   const existing = await prisma.shoppingReceipt.findFirst({
     where: { id: params.receiptId, groupId: params.groupId },
   })
-  if (!existing) throw new ShoppingHttpError("Receipt not found", 404)
+  if (!existing) {
+    if (params.expectedRevision != null) {
+      throw new ShoppingHttpError("Receipt not found", 404)
+    }
+    return prisma.shoppingReceipt.create({
+      data: {
+        id: params.receiptId,
+        groupId: params.groupId,
+        listId: params.listId ?? null,
+        payerMemberId: params.payerMemberId,
+        encryptedPayload: params.encryptedPayload,
+        keyVersion: params.keyVersion,
+        revision: 1,
+        status: "draft",
+        frozenRequestSnapshot: params.frozenRequestSnapshot ?? null,
+        createdByMemberId: me.id,
+      },
+    })
+  }
   if (existing.status === "finalized") {
     throw new ShoppingHttpError("This receipt is already finalized", 409)
   }

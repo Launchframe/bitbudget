@@ -81,6 +81,8 @@ export interface ShoppingAad {
 export interface ShoppingGroupMetadataPayload {
   schemaVersion: typeof SHOPPING_PAYLOAD_SCHEMA_VERSION
   name: string
+  /** Optional shared note. Encrypted with the group name; never stored in plaintext. */
+  description?: string
 }
 
 export interface ShoppingMemberAliasPayload {
@@ -213,6 +215,7 @@ export const SHOPPING_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 export const SHOPPING_MAX_INVITES_PER_HOUR = 10
 export const SHOPPING_MAX_ALIAS_CHARS = 80
 export const SHOPPING_MAX_NAME_CHARS = 80
+export const SHOPPING_MAX_DESCRIPTION_CHARS = 280
 
 export function isShoppingRecordType(value: unknown): value is ShoppingRecordType {
   return typeof value === "string" && (SHOPPING_RECORD_TYPES as readonly string[]).includes(value)

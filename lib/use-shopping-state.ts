@@ -15,6 +15,7 @@ import {
 import { generateRequestVerificationCode } from "@/lib/shopping-invites"
 import { canQueueOffline, type ShoppingOutboxItem } from "@/lib/shopping-sync"
 import { encryptFieldAsymmetric, hexToPublicKey } from "@/lib/crypto"
+import type { ShoppingGroupSnapshot } from "@/lib/shopping-view"
 
 export interface ShoppingGroupSummary {
   id: string
@@ -24,6 +25,7 @@ export interface ShoppingGroupSummary {
   lifecycle: string
   encryptedMetadata: string
   updatedAt: string
+  activeMemberCount?: number
   myMember: {
     id: string
     localId: string
@@ -136,19 +138,20 @@ export function useShoppingState() {
     async (encryptedClaimantAlias: string, verificationCode?: string) => {
       const pending = loadPendingShoppingInvite()
       if (!pending) return { ok: false as const, error: "Invite is missing" }
+      const code = verificationCode ?? generateRequestVerificationCode()
       const res = await shoppingFetch("/api/shopping/invitations/claim", {
         method: "POST",
         body: JSON.stringify({
           token: pending.token,
           encryptedClaimantAlias,
-          verificationCode: verificationCode ?? generateRequestVerificationCode(),
+          verificationCode: code,
         }),
       })
       const body = (await res.json().catch(() => ({}))) as { error?: string }
       if (!res.ok) return { ok: false as const, error: body.error || "Could not send join request" }
       clearPendingShoppingInvite()
       setPendingInvite(null)
-      return { ok: true as const }
+      return { ok: true as const, verificationCode: code }
     },
     [],
   )
@@ -168,7 +171,7 @@ export function useShoppingState() {
       const body = (await res.json().catch(() => ({}))) as { error?: string }
       throw new Error(body.error || "Could not load this group")
     }
-    return res.json() as Promise<Record<string, unknown>>
+    return res.json() as Promise<ShoppingGroupSnapshot>
   }, [])
 
   const createGroup = useCallback(async (body: Record<string, unknown>) => {
@@ -179,8 +182,96 @@ export function useShoppingState() {
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error((data as { error?: string }).error || "Could not create group")
     await refreshGroups()
-    return data
+    return data as { id: string; memberId: string; localId: string }
   }, [refreshGroups])
+
+  const postShopping = useCallback(async (url: string, body: Record<string, unknown>, method = "POST") => {
+    const res = await shoppingFetch(url, { method, body: JSON.stringify(body) })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error((data as { error?: string }).error || "Could not save")
+    return data as Record<string, unknown>
+  }, [])
+
+  const createList = useCallback(
+    async (groupId: string, body: Record<string, unknown>) => {
+      return postShopping(`/api/shopping/groups/${groupId}/lists`, body)
+    },
+    [postShopping],
+  )
+
+  const createRequest = useCallback(
+    async (groupId: string, body: Record<string, unknown>) => {
+      return postShopping(`/api/shopping/groups/${groupId}/requests`, body)
+    },
+    [postShopping],
+  )
+
+  const updateRequest = useCallback(
+    async (groupId: string, requestId: string, body: Record<string, unknown>) => {
+      return postShopping(`/api/shopping/groups/${groupId}/requests/${requestId}`, body, "PATCH")
+    },
+    [postShopping],
+  )
+
+  const fetchClaimantKey = useCallback(async (groupId: string, inviteId: string) => {
+    const res = await shoppingFetch(`/api/shopping/groups/${groupId}/invites/${inviteId}/claimant-key`)
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string
+      publicKey?: string
+      fingerprint?: string
+      encryptedClaimantAlias?: string | null
+      verificationCode?: string | null
+    }
+    if (!res.ok || !data.publicKey || !data.fingerprint) {
+      throw new Error(data.error || "Could not load this request")
+    }
+    return {
+      publicKey: data.publicKey,
+      fingerprint: data.fingerprint,
+      encryptedClaimantAlias: data.encryptedClaimantAlias ?? null,
+      verificationCode: data.verificationCode ?? null,
+    }
+  }, [])
+
+  const respondToInvite = useCallback(
+    async (groupId: string, inviteId: string, body: Record<string, unknown>) => {
+      return postShopping(`/api/shopping/groups/${groupId}/invites/${inviteId}`, body)
+    },
+    [postShopping],
+  )
+
+  const createInvite = useCallback(
+    async (groupId: string) => {
+      return postShopping(`/api/shopping/groups/${groupId}/invites`, {}) as Promise<{
+        id: string
+        token: string
+        ownerPublicKey: string | null
+        expiresAt: string
+      }>
+    },
+    [postShopping],
+  )
+
+  const createReceiptDraft = useCallback(
+    async (groupId: string, body: Record<string, unknown>) => {
+      return postShopping(`/api/shopping/groups/${groupId}/receipts`, body)
+    },
+    [postShopping],
+  )
+
+  const finalizeReceipt = useCallback(
+    async (groupId: string, receiptId: string, body: Record<string, unknown>) => {
+      return postShopping(`/api/shopping/groups/${groupId}/receipts/${receiptId}`, body)
+    },
+    [postShopping],
+  )
+
+  const recordPayment = useCallback(
+    async (groupId: string, body: Record<string, unknown>) => {
+      return postShopping(`/api/shopping/groups/${groupId}/payments`, body)
+    },
+    [postShopping],
+  )
 
   return {
     groups: unlocked ? groups : [],
@@ -195,6 +286,15 @@ export function useShoppingState() {
     encryptAliasToOwner,
     fetchGroup,
     createGroup,
+    createList,
+    createRequest,
+    updateRequest,
+    createInvite,
+    fetchClaimantKey,
+    respondToInvite,
+    createReceiptDraft,
+    finalizeReceipt,
+    recordPayment,
     clearPendingInvite: () => {
       clearPendingShoppingInvite()
       setPendingInvite(null)

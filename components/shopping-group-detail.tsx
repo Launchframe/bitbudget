@@ -1,21 +1,1142 @@
 "use client"
 
-import { useState } from "react"
-import { ArrowLeft, Check, ChevronDown, Copy, FileText, LockKeyhole, MoreHorizontal, Plus, Receipt, Send, ShoppingBasket, UserPlus, X } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import {
+  ArrowLeft,
+  Check,
+  Copy,
+  FileText,
+  LockKeyhole,
+  Plus,
+  Receipt,
+  Send,
+  ShoppingBasket,
+  UserPlus,
+} from "lucide-react"
 import { useApp } from "@/lib/app-context"
+import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
+import { shoppingInviteUrl } from "@/lib/shopping-invites"
+import { centsToUsdLabel, dollarsToCents, newShoppingObjectId } from "@/lib/shopping-payloads"
+import { decryptClaimantAlias, prepareApproveMember, prepareDefaultList, prepareEventPayload, prepareReceiptDraft, prepareRequest } from "@/lib/shopping-prepare"
+import { splitCentsByWeights } from "@/lib/shopping-split-math"
+import { SHOPPING_PAYLOAD_SCHEMA_VERSION } from "@/lib/shopping-types"
+import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
+import {
+  decryptGroupSnapshot,
+  memberAlias,
+  tabSummaryForMember,
+  type DecryptedGroupView,
+  type DecryptedRequest,
+  type ShoppingSnapshotInvite,
+} from "@/lib/shopping-view"
+import { useShoppingState } from "@/lib/use-shopping-state"
+import { amountOwed, reduceShoppingTab } from "@/lib/shopping-ledger"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 
-const requests = [{ person: "You", initials: "Y", items: [{ label: "Oat milk", qty: "2 cartons", note: "Unsweetened if possible", done: false }, { label: "Bananas", qty: "1 bunch", note: "", done: true }] }, { person: "Maya", initials: "M", items: [{ label: "Pasta shells", qty: "2 boxes", note: "", done: false }, { label: "Sparkling water", qty: "1 case", note: "Lime flavor", done: false }] }, { person: "Jordan", initials: "J", items: [{ label: "Dish soap", qty: "1 bottle", note: "The refill size", done: false }] }]
+type DetailTab = "Requests" | "Receipts" | "Tab" | "Members"
+type DetailDialog = "request" | "receipt" | "payment" | "invite" | null
 
-export function ShoppingGroupDetail() { const { navigateTo } = useApp(); const [tab, setTab] = useState("Requests"); const [checked, setChecked] = useState<Record<string, boolean>>({ "You-Bananas": true }); const [dialog, setDialog] = useState<"request" | "receipt" | "payment" | "invite" | null>(null)
- const toggle = (key: string) => setChecked(current => ({ ...current, [key]: !current[key] }))
- return <section className="flex flex-col gap-6 pb-10"><button onClick={() => navigateTo("shopping")} className="flex w-fit items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground"><ArrowLeft className="size-4" />All shopping groups</button><div className="flex flex-col gap-5 rounded-2xl border border-border/70 bg-card p-6 md:p-8"><div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between"><div className="flex items-start gap-4"><div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary"><ShoppingBasket className="size-6" /></div><div><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-semibold">Household groceries</h1><span className="rounded-full bg-chart-2/15 px-2.5 py-1 text-[11px] font-medium text-chart-2">Active trip</span></div><p className="mt-1 text-sm text-muted-foreground">Weekly staples and shared errands · Updated 12 min ago</p><div className="mt-4 flex -space-x-2">{["Y", "M", "J"].map(initial => <span key={initial} className="flex size-8 items-center justify-center rounded-full border-2 border-card bg-secondary text-xs font-semibold">{initial}</span>)}<button onClick={() => setDialog("invite")} className="flex size-8 items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground" aria-label="Invite member"><Plus className="size-4" /></button></div></div></div><button onClick={() => setDialog("invite")} className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-accent"><UserPlus className="size-4" />Invite</button></div><div className="flex items-center justify-between rounded-xl bg-secondary/50 px-4 py-3 text-sm"><span className="flex items-center gap-2 text-muted-foreground"><LockKeyhole className="size-4 text-primary" />Only 3 invited members can see this group</span><button className="text-primary hover:underline">Privacy</button></div></div><div className="flex overflow-x-auto border-b border-border"><div className="flex min-w-max gap-6">{["Requests", "Receipts", "Tab", "Members"].map(item => <button key={item} onClick={() => setTab(item)} className={`border-b-2 px-1 pb-3 text-sm font-medium transition ${tab === item ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{item}{item === "Requests" && <span className="ml-2 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">7</span>}</button>)}</div></div>{tab === "Requests" && <RequestsTab checked={checked} toggle={toggle} onAdd={() => setDialog("request")} />}{tab === "Receipts" && <ReceiptsTab onAdd={() => setDialog("receipt")} />}{tab === "Tab" && <TabTab onPayment={() => setDialog("payment")} />}{tab === "Members" && <MembersTab onInvite={() => setDialog("invite")} />}{dialog && <Dialog type={dialog} onClose={() => setDialog(null)} />}</section> }
+export function ShoppingGroupDetail() {
+  const { selectedEnvelopeId, navigateTo, withPrivacyKey } = useApp()
+  const {
+    unlocked,
+    fetchGroup,
+    queueCheckoff,
+    flushOutbox,
+    createList,
+    createRequest,
+    createInvite,
+    fetchClaimantKey,
+    respondToInvite,
+    createReceiptDraft,
+    finalizeReceipt,
+    recordPayment,
+  } = useShoppingState()
+  const [view, setView] = useState<DecryptedGroupView | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [tab, setTab] = useState<DetailTab>("Requests")
+  const [dialog, setDialog] = useState<DetailDialog>(null)
+  const [busy, setBusy] = useState(false)
+  const [review, setReview] = useState<{
+    inviteId: string
+    alias: string
+    fingerprint: string
+    verificationCode: string | null
+    publicKey: string
+  } | null>(null)
 
-function RequestsTab({ checked, toggle, onAdd }: { checked: Record<string, boolean>; toggle: (key: string) => void; onAdd: () => void }) { return <div className="flex flex-col gap-5"><div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-mono text-[11px] uppercase tracking-[0.16em] text-primary">Current trip</p><p className="mt-1 font-medium">Week of September 9 <ChevronDown className="ml-1 inline size-4 text-muted-foreground" /></p></div><div className="text-left sm:text-right"><p className="text-sm font-medium">3 of 7 purchased</p><p className="text-xs text-muted-foreground">Next shop: whenever you’re ready</p></div></div>{requests.map(section => <div key={section.person} className="overflow-hidden rounded-2xl border border-border/70 bg-card"><div className="flex items-center gap-3 border-b border-border/60 bg-secondary/30 px-4 py-3"><span className="flex size-8 items-center justify-center rounded-full bg-secondary text-xs font-semibold">{section.initials}</span><div><p className="text-sm font-semibold">Requests by {section.person}</p><p className="text-xs text-muted-foreground">{section.items.length} items</p></div><MoreHorizontal className="ml-auto size-4 text-muted-foreground" /></div><div className="flex flex-col">{section.items.map(item => { const key = `${section.person}-${item.label}`; const done = checked[key] ?? item.done; return <div key={item.label} className={`flex items-start gap-3 border-b border-border/50 px-4 py-4 last:border-0 ${done ? "opacity-55" : ""}`}><button onClick={() => toggle(key)} aria-label={`${done ? "Uncheck" : "Check off"} ${item.label}`} className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition ${done ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50 hover:border-primary"}`}>{done && <Check className="size-3.5" />}</button><div className="min-w-0 flex-1"><p className={`font-medium ${done ? "line-through" : ""}`}>{item.label}</p><p className="mt-0.5 text-xs text-muted-foreground">{item.qty}{item.note && ` · ${item.note}`}</p></div>{done ? <span className="rounded-full bg-chart-2/15 px-2 py-1 text-[10px] font-medium text-chart-2">Purchased</span> : <button className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="More request actions"><MoreHorizontal className="size-4" /></button>}</div> })}</div></div>)}<button onClick={onAdd} className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary/50 py-3 text-sm font-medium text-primary transition hover:bg-primary/5"><Plus className="size-4" />Add a request</button></div> }
+  const load = useCallback(async () => {
+    if (!selectedEnvelopeId || !unlocked) return
+    setLoadError(null)
+    try {
+      const snap = await fetchGroup(selectedEnvelopeId)
+      const decrypted = await withPrivacyKey((key) => decryptGroupSnapshot(snap, key))
+      if (!decrypted) {
+        setLoadError("Unlock your data to open this group.")
+        return
+      }
+      setView(decrypted)
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not load this group")
+    }
+  }, [selectedEnvelopeId, unlocked, fetchGroup, withPrivacyKey])
 
-function ReceiptsTab({ onAdd }: { onAdd: () => void }) { return <div className="flex flex-col gap-4"><div className="flex items-center justify-between"><div><h2 className="text-xl font-semibold">Shared receipts</h2><p className="text-sm text-muted-foreground">Scan or enter a receipt, then match items to requests.</p></div><button onClick={onAdd} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><Plus className="size-4" />Add receipt</button></div>{[{merchant: "Trader Joe’s", date: "Sep 8, 2026", total: "$86.42", status: "Ready to split", items: "12 items", tone: "text-primary bg-primary/15"}, {merchant: "Corner Market", date: "Sep 2, 2026", total: "$31.18", status: "Finalized", items: "6 items", tone: "text-chart-2 bg-chart-2/15"}].map(receipt => <div key={receipt.merchant} className="flex flex-col gap-4 rounded-2xl border border-border/70 bg-card p-5 sm:flex-row sm:items-center"><div className="flex size-12 items-center justify-center rounded-xl bg-secondary text-primary"><Receipt className="size-5" /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{receipt.merchant}</h3><span className={`rounded-full px-2 py-1 text-[10px] font-medium ${receipt.tone}`}>{receipt.status}</span></div><p className="mt-1 text-sm text-muted-foreground">{receipt.date} · Paid by You · {receipt.items}</p></div><div className="flex items-center justify-between gap-4 sm:flex-col sm:items-end"><p className="text-lg font-semibold">{receipt.total}</p>{receipt.status === "Ready to split" && <button className="text-sm text-primary hover:underline">Review split</button>}</div></div>)}</div> }
+  useEffect(() => {
+    void load()
+  }, [load])
 
-function TabTab({ onPayment }: { onPayment: () => void }) { return <div className="flex flex-col gap-5"><div className="grid gap-4 md:grid-cols-2"><div className="rounded-2xl border border-primary/30 bg-primary/5 p-5"><p className="text-sm text-muted-foreground">Net owed to you</p><p className="mt-2 text-3xl font-semibold text-primary">$24.80</p><p className="mt-1 text-xs text-muted-foreground">Maya owes $24.80</p></div><div className="rounded-2xl border border-border/70 bg-card p-5"><p className="text-sm text-muted-foreground">You owe</p><p className="mt-2 text-3xl font-semibold">$18.50</p><p className="mt-1 text-xs text-muted-foreground">Jordan owes you $6.30 back</p></div></div><div className="flex items-center justify-between"><div><h2 className="text-xl font-semibold">Payment history</h2><p className="text-sm text-muted-foreground">A record only — no money moves automatically.</p></div><button onClick={onPayment} className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-medium hover:bg-accent"><Plus className="size-4" />Record payment</button></div>{[["Sep 6", "You paid for groceries", "Maya", "+$24.80"], ["Aug 30", "Shared dinner receipt", "Jordan", "+$18.50"], ["Aug 22", "Jordan paid you back", "Jordan", "-$12.20"]].map(row => <div key={row[0]} className="flex items-center gap-3 border-b border-border/60 py-4"><span className="flex size-9 items-center justify-center rounded-full bg-secondary text-xs font-semibold">{row[2][0]}</span><div className="min-w-0 flex-1"><p className="text-sm font-medium">{row[1]}</p><p className="text-xs text-muted-foreground">{row[0]} · {row[2]}</p></div><span className={row[3].startsWith("+") ? "text-primary" : "text-chart-2"}>{row[3]}</span></div>)}</div> }
+  if (!selectedEnvelopeId) {
+    return (
+      <section className="flex flex-col gap-4 pb-10">
+        <p className="text-sm text-muted-foreground">Choose a shopping group.</p>
+        <Button type="button" variant="outline" onClick={() => navigateTo("shopping")}>
+          All shopping groups
+        </Button>
+      </section>
+    )
+  }
 
-function MembersTab({ onInvite }: { onInvite: () => void }) { return <div className="flex flex-col gap-5"><div className="flex items-center justify-between"><div><h2 className="text-xl font-semibold">Group members</h2><p className="text-sm text-muted-foreground">Aliases are shown instead of account details.</p></div><button onClick={onInvite} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"><UserPlus className="size-4" />Add member</button></div><div className="overflow-hidden rounded-2xl border border-border/70 bg-card">{[["You", "Owner", "Y", "Active"], ["Maya", "Member", "M", "Active"], ["Jordan", "Member", "J", "Active"]].map(member => <div key={member[0]} className="flex items-center gap-3 border-b border-border/60 px-4 py-4 last:border-0"><span className="flex size-9 items-center justify-center rounded-full bg-secondary text-xs font-semibold">{member[2]}</span><div className="flex-1"><p className="text-sm font-medium">{member[0]}</p><p className="text-xs text-muted-foreground">{member[1]}</p></div><span className="rounded-full bg-chart-2/15 px-2 py-1 text-[10px] text-chart-2">{member[3]}</span><MoreHorizontal className="size-4 text-muted-foreground" /></div>)}</div></div> }
+  const tabSummary = view ? tabSummaryForMember(view, view.me.id) : null
+  const openCount = view?.requests.filter((r) => !r.checkedOff).length ?? 0
 
-function Dialog({ type, onClose }: { type: "request" | "receipt" | "payment" | "invite"; onClose: () => void }) { const titles = {request: "Add a request", receipt: "Add a shared receipt", payment: "Record a payment", invite: "Invite to household groceries"}; return <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 p-4 backdrop-blur-sm md:items-center"><div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl"><div className="flex items-start justify-between"><div><p className="font-mono text-xs uppercase tracking-[0.2em] text-primary">Shared group</p><h2 className="mt-2 text-2xl font-semibold">{titles[type]}</h2></div><button onClick={onClose} aria-label="Close" className="rounded-lg p-2 text-muted-foreground hover:bg-accent"><X className="size-5" /></button></div>{type === "invite" ? <div className="mt-6 flex flex-col gap-4"><p className="text-sm leading-6 text-muted-foreground">Invite someone explicitly. They will only see this group’s requests, receipts, and balances — never your private budget.</p><div className="flex items-center justify-between rounded-xl border border-border bg-background p-4"><div><p className="font-mono text-xs tracking-[0.16em] text-muted-foreground">INVITE CODE</p><p className="mt-1 text-xl font-semibold tracking-[0.2em]">H7K2-9Q</p></div><button className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent"><Copy className="size-4" />Copy</button></div><button className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground"><Send className="size-4" />Share invite link</button><p className="text-center text-xs text-muted-foreground">Expires in 48 hours · Verify identity out of band</p></div> : <div className="mt-6 flex flex-col gap-4"><label className="flex flex-col gap-2 text-sm font-medium">{type === "request" ? "What should be picked up?" : type === "receipt" ? "Receipt image or details" : "Payment amount"}<input autoFocus placeholder={type === "request" ? "e.g. Greek yogurt" : type === "receipt" ? "Choose a file or enter manually" : "$0.00"} className="rounded-xl border border-input bg-background px-4 py-3 outline-none ring-primary focus:ring-2" /></label>{type === "request" && <label className="flex flex-col gap-2 text-sm font-medium">Quantity or note<textarea placeholder="2 tubs · plain, full fat" className="min-h-20 rounded-xl border border-input bg-background px-4 py-3 outline-none ring-primary focus:ring-2" /></label>}{type === "receipt" && <div className="flex items-start gap-3 rounded-xl bg-primary/5 p-3 text-xs leading-5 text-muted-foreground"><FileText className="mt-0.5 size-4 shrink-0 text-primary" />Cloud scan is optional. If used, the receipt image is processed by BitBudget and OpenAI, then shared item details are visible to this group.</div>}{type === "payment" && <div className="flex items-start gap-3 rounded-xl bg-secondary/60 p-3 text-xs leading-5 text-muted-foreground"><LockKeyhole className="mt-0.5 size-4 shrink-0 text-primary" />This records a real-world payment for bookkeeping. No money is transferred automatically.</div>}<button onClick={onClose} className="mt-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground">{type === "payment" ? "Review payment" : type === "receipt" ? "Continue" : "Add to list"}</button></div>}</div></div> }
+  return (
+    <section className="flex min-w-0 w-full max-w-full flex-col gap-6 pb-10">
+      <button
+        type="button"
+        onClick={() => navigateTo("shopping")}
+        className="flex w-fit items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" />
+        All shopping groups
+      </button>
+
+      {loadError && <p className="text-sm text-destructive">{loadError}</p>}
+      {!view && !loadError && <p className="text-sm text-muted-foreground">Loading group…</p>}
+
+      {view && (
+        <>
+          <div className="flex flex-col gap-5 rounded-2xl border border-border/70 bg-card p-4 sm:p-6 md:p-8">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-start gap-4">
+                <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                  <ShoppingBasket className="size-6" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="text-2xl font-semibold">{view.name}</h1>
+                    <span className="rounded-full bg-chart-2/15 px-2.5 py-1 text-[11px] font-medium text-chart-2">
+                      {view.lifecycle === "active" ? "Active" : view.lifecycle}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {view.description || "No description"}
+                  </p>
+                  <div className="mt-4 flex -space-x-2">
+                    {view.members.map((member) => (
+                      <span
+                        key={member.id}
+                        className="flex size-8 items-center justify-center rounded-full border-2 border-card bg-secondary text-xs font-semibold"
+                        title={member.alias}
+                      >
+                        {member.initials}
+                      </span>
+                    ))}
+                    {view.me.role === "owner" && (
+                      <button
+                        type="button"
+                        onClick={() => setDialog("invite")}
+                        className="flex size-8 items-center justify-center rounded-full border-2 border-card bg-primary text-primary-foreground"
+                        aria-label="Invite member"
+                      >
+                        <Plus className="size-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {view.me.role === "owner" && (
+                <Button type="button" variant="outline" className="rounded-xl" onClick={() => setDialog("invite")}>
+                  <UserPlus className="size-4" />
+                  Invite
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center justify-between rounded-xl bg-secondary/50 px-4 py-3 text-sm">
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <LockKeyhole className="size-4 text-primary" />
+                Only {view.members.length} invited {view.members.length === 1 ? "member" : "members"} can see
+                this group
+              </span>
+            </div>
+          </div>
+
+          <div className="min-w-0 overflow-x-auto border-b border-border">
+            <div className="flex min-w-max gap-6" role="tablist" aria-label="Group sections">
+              {(["Requests", "Receipts", "Tab", "Members"] as const).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === item}
+                  onClick={() => setTab(item)}
+                  className={`border-b-2 px-1 pb-3 text-sm font-medium transition ${
+                    tab === item
+                      ? "border-primary text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {item}
+                  {item === "Requests" && openCount > 0 && (
+                    <span className="ml-2 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
+                      {openCount}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {tab === "Requests" && (
+            <RequestsTab
+              view={view}
+              busy={busy}
+              onAdd={() => setDialog("request")}
+              onToggle={(req) => void toggleRequest(req)}
+            />
+          )}
+          {tab === "Receipts" && <ReceiptsTab view={view} onAdd={() => setDialog("receipt")} />}
+          {tab === "Tab" && tabSummary && (
+            <TabPanel view={view} summary={tabSummary} onPayment={() => setDialog("payment")} />
+          )}
+          {tab === "Members" && (
+            <MembersTab
+              view={view}
+              onInvite={() => setDialog("invite")}
+              onReview={(invite) => void openReview(invite)}
+              onReject={(inviteId) => void decideInvite(inviteId, "reject")}
+              onRevoke={(inviteId) => void revokeInvite(inviteId)}
+            />
+          )}
+        </>
+      )}
+
+      {view && dialog === "request" && (
+        <RequestDialog
+          busy={busy}
+          onClose={() => setDialog(null)}
+          onSave={(description, notes) => void addRequest(description, notes)}
+        />
+      )}
+      {view && dialog === "receipt" && (
+        <ReceiptDialog
+          busy={busy}
+          onClose={() => setDialog(null)}
+          onSave={(merchant, amount) => void addReceipt(merchant, amount)}
+        />
+      )}
+      {view && dialog === "payment" && (
+        <PaymentDialog
+          view={view}
+          busy={busy}
+          onClose={() => setDialog(null)}
+          onSave={(counterpartId, cents, iPaidThem) => void addPayment(counterpartId, cents, iPaidThem)}
+        />
+      )}
+      {view && review && (
+        <ApproveRequestDialog
+          alias={review.alias}
+          fingerprint={review.fingerprint}
+          verificationCode={review.verificationCode}
+          busy={busy}
+          onClose={() => setReview(null)}
+          onDecline={() => void decideInvite(review.inviteId, "reject")}
+          onApprove={(compared) => void approveRequest(review, compared)}
+        />
+      )}
+      {view && dialog === "invite" && (
+        <InviteDialog
+          view={view}
+          createInvite={createInvite}
+          onClose={() => setDialog(null)}
+        />
+      )}
+    </section>
+  )
+
+  async function openReview(invite: ShoppingSnapshotInvite) {
+    if (!view || invite.status !== "requested") return
+    setBusy(true)
+    setLoadError(null)
+    try {
+      const claimant = await fetchClaimantKey(view.groupId, invite.id)
+      if (!claimant.encryptedClaimantAlias) {
+        setLoadError("This request is missing a name.")
+        return
+      }
+      const alias = await withPrivacyKey((key) =>
+        decryptClaimantAlias(claimant.encryptedClaimantAlias as string, key),
+      )
+      if (!alias) {
+        setLoadError("Unlock your data to review this request.")
+        return
+      }
+      setReview({
+        inviteId: invite.id,
+        alias,
+        fingerprint: claimant.fingerprint,
+        verificationCode: claimant.verificationCode,
+        publicKey: claimant.publicKey,
+      })
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not load this request")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function decideInvite(inviteId: string, action: "reject" | "revoke") {
+    if (!view) return
+    setBusy(true)
+    try {
+      await respondToInvite(view.groupId, inviteId, { action })
+      setReview(null)
+      await load()
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not update this invite")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function revokeInvite(inviteId: string) {
+    await decideInvite(inviteId, "revoke")
+  }
+
+  async function approveRequest(
+    pending: {
+      inviteId: string
+      alias: string
+      fingerprint: string
+      publicKey: string
+    },
+    compared: boolean,
+  ) {
+    if (!view || !compared) return
+    setBusy(true)
+    try {
+      const prepared = await withPrivacyKey(() =>
+        prepareApproveMember({
+          groupId: view.groupId,
+          groupKey: view.groupKey,
+          keyVersion: view.keyVersion,
+          claimantPublicKeyHex: pending.publicKey,
+          alias: pending.alias,
+        }),
+      )
+      if (!prepared) {
+        setLoadError("Unlock your data to approve this request.")
+        return
+      }
+      await respondToInvite(view.groupId, pending.inviteId, {
+        action: "approve",
+        expectedFingerprint: pending.fingerprint,
+        wrappedKey: prepared.wrappedKey,
+        encryptedAlias: prepared.encryptedAlias,
+        localId: prepared.localId,
+        memberKeyVersion: prepared.memberKeyVersion,
+      })
+      setReview(null)
+      await load()
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not approve this request")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function toggleRequest(req: DecryptedRequest) {
+    if (!view) return
+    setBusy(true)
+    try {
+      const nextChecked = !req.checkedOff
+      const encryptedPayload = await prepareRequest({
+        groupId: view.groupId,
+        groupKey: view.groupKey,
+        keyVersion: view.keyVersion,
+        revision: req.revision + 1,
+        requestId: req.id,
+        description: req.description,
+        notes: req.notes,
+        unit: req.unit,
+        requestedQuantity: req.requestedQuantity,
+        purchasedQuantity: nextChecked ? req.requestedQuantity : req.purchasedQuantity,
+        checkedOff: nextChecked,
+      })
+      await queueCheckoff({
+        id: newShoppingObjectId(),
+        groupId: view.groupId,
+        kind: "request_checkoff",
+        objectId: req.id,
+        expectedRevision: req.revision,
+        encryptedPayload,
+        keyVersion: view.keyVersion,
+        queuedAt: new Date().toISOString(),
+      })
+      await flushOutbox()
+      await load()
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not update item")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function addRequest(description: string, notes: string) {
+    if (!view) return
+    setBusy(true)
+    try {
+      let listId = view.lists[0]?.id
+      if (!listId) {
+        const list = await prepareDefaultList({
+          groupId: view.groupId,
+          groupKey: view.groupKey,
+          keyVersion: view.keyVersion,
+        })
+        await createList(view.groupId, {
+          id: list.id,
+          encryptedPayload: list.encryptedPayload,
+          keyVersion: list.keyVersion,
+        })
+        listId = list.id
+      }
+      const requestId = newShoppingObjectId()
+      const encryptedPayload = await prepareRequest({
+        groupId: view.groupId,
+        groupKey: view.groupKey,
+        keyVersion: view.keyVersion,
+        revision: 1,
+        requestId,
+        description,
+        notes: notes.trim() || undefined,
+      })
+      await createRequest(view.groupId, {
+        id: requestId,
+        listId,
+        requesterMemberId: view.me.id,
+        encryptedPayload,
+        keyVersion: view.keyVersion,
+      })
+      setDialog(null)
+      await load()
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not add item")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function addReceipt(merchant: string, amountRaw: string) {
+    if (!view) return
+    const totalCents = dollarsToCents(amountRaw)
+    if (totalCents == null || totalCents <= 0) {
+      setLoadError("Enter a valid amount")
+      return
+    }
+    setBusy(true)
+    try {
+      const receiptId = newShoppingObjectId()
+      const encryptedPayload = await prepareReceiptDraft({
+        groupId: view.groupId,
+        groupKey: view.groupKey,
+        keyVersion: view.keyVersion,
+        revision: 1,
+        receiptId,
+        merchant,
+        postedOn: todayTransactionCalendarDay(),
+        totalCents,
+      })
+      await createReceiptDraft(view.groupId, {
+        id: receiptId,
+        payerMemberId: view.me.id,
+        listId: view.lists[0]?.id,
+        encryptedPayload,
+        keyVersion: view.keyVersion,
+      })
+      const active = view.members.filter((m) => m.status === "active")
+      const shares = splitCentsByWeights(
+        totalCents,
+        active.map((m) => ({ id: m.id, weight: 10_000 })),
+      )
+      const operationId = newShoppingObjectId()
+      const eventPayload = {
+        schemaVersion: SHOPPING_PAYLOAD_SCHEMA_VERSION,
+        type: "receipt_finalized" as const,
+        receiptId,
+        payerMemberId: view.me.id,
+        postedOn: todayTransactionCalendarDay(),
+        currency: "USD" as const,
+        totalCents,
+        shares: shares.map((s) => ({ memberId: s.id, cents: s.cents })),
+      }
+      const encryptedEvent = await prepareEventPayload({
+        groupId: view.groupId,
+        groupKey: view.groupKey,
+        keyVersion: view.keyVersion,
+        operationId,
+        payload: eventPayload,
+      })
+      await finalizeReceipt(view.groupId, receiptId, {
+        action: "finalize",
+        type: "receipt_finalized",
+        encryptedPayload: encryptedEvent,
+        expectedSequence: view.eventSequence,
+        keyVersion: view.keyVersion,
+        operationId,
+        payerMemberId: view.me.id,
+        affectedMemberIds: active.map((m) => m.id),
+      })
+      setDialog(null)
+      await load()
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not save receipt")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function addPayment(counterpartId: string, cents: number, iPaidThem: boolean) {
+    if (!view) return
+    setBusy(true)
+    try {
+      const fromMemberId = iPaidThem ? view.me.id : counterpartId
+      const toMemberId = iPaidThem ? counterpartId : view.me.id
+      const operationId = newShoppingObjectId()
+      const payload = {
+        schemaVersion: SHOPPING_PAYLOAD_SCHEMA_VERSION,
+        type: "repayment" as const,
+        fromMemberId,
+        toMemberId,
+        cents,
+        postedOn: todayTransactionCalendarDay(),
+      }
+      const encryptedPayload = await prepareEventPayload({
+        groupId: view.groupId,
+        groupKey: view.groupKey,
+        keyVersion: view.keyVersion,
+        operationId,
+        payload,
+      })
+      await recordPayment(view.groupId, {
+        encryptedPayload,
+        expectedSequence: view.eventSequence,
+        keyVersion: view.keyVersion,
+        operationId,
+        affectedMemberIds: [fromMemberId, toMemberId],
+      })
+      setDialog(null)
+      await load()
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not record payment")
+    } finally {
+      setBusy(false)
+    }
+  }
+}
+
+function RequestsTab({
+  view,
+  busy,
+  onAdd,
+  onToggle,
+}: {
+  view: DecryptedGroupView
+  busy: boolean
+  onAdd: () => void
+  onToggle: (req: DecryptedRequest) => void
+}) {
+  const grouped = new Map<string, DecryptedRequest[]>()
+  for (const req of view.requests) {
+    const list = grouped.get(req.requesterMemberId) ?? []
+    list.push(req)
+    grouped.set(req.requesterMemberId, list)
+  }
+  const purchased = view.requests.filter((r) => r.checkedOff).length
+  const listTitle = view.lists[0]?.title ?? "Current trip"
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-primary">Current trip</p>
+          <p className="mt-1 font-medium">{listTitle}</p>
+        </div>
+        <div className="text-left sm:text-right">
+          <p className="text-sm font-medium">
+            {purchased} of {view.requests.length} purchased
+          </p>
+        </div>
+      </div>
+      {view.requests.length === 0 && (
+        <p className="text-sm text-muted-foreground">No items yet. Add a request to get started.</p>
+      )}
+      {[...grouped.entries()].map(([memberId, items]) => {
+        const person = memberAlias(view, memberId)
+        const initials = view.members.find((m) => m.id === memberId)?.initials ?? "?"
+        return (
+          <div key={memberId} className="overflow-hidden rounded-2xl border border-border/70 bg-card">
+            <div className="flex items-center gap-3 border-b border-border/60 bg-secondary/30 px-4 py-3">
+              <span className="flex size-8 items-center justify-center rounded-full bg-secondary text-xs font-semibold">
+                {initials}
+              </span>
+              <div>
+                <p className="text-sm font-semibold">Requests by {person}</p>
+                <p className="text-xs text-muted-foreground">{items.length} items</p>
+              </div>
+            </div>
+            <div className="flex flex-col">
+              {items.map((item) => (
+                <div
+                  key={item.id}
+                  className={`flex items-start gap-3 border-b border-border/50 px-4 py-4 last:border-0 ${item.checkedOff ? "opacity-55" : ""}`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onToggle(item)}
+                    disabled={busy}
+                    aria-label={`${item.checkedOff ? "Uncheck" : "Check off"} ${item.description}`}
+                    className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition ${
+                      item.checkedOff
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-muted-foreground/50 hover:border-primary"
+                    }`}
+                  >
+                    {item.checkedOff && <Check className="size-3.5" />}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className={`font-medium ${item.checkedOff ? "line-through" : ""}`}>{item.description}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {item.requestedQuantity}
+                      {item.unit ? ` ${item.unit}` : ""}
+                      {item.notes ? ` · ${item.notes}` : ""}
+                    </p>
+                  </div>
+                  {item.checkedOff && (
+                    <span className="rounded-full bg-chart-2/15 px-2 py-1 text-[10px] font-medium text-chart-2">
+                      Purchased
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+      <button
+        type="button"
+        onClick={onAdd}
+        className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary/50 py-3 text-sm font-medium text-primary transition hover:bg-primary/5"
+      >
+        <Plus className="size-4" />
+        Add a request
+      </button>
+    </div>
+  )
+}
+
+function ReceiptsTab({ view, onAdd }: { view: DecryptedGroupView; onAdd: () => void }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Shared receipts</h2>
+          <p className="text-sm text-muted-foreground">
+            Enter a receipt to split evenly among members. Item matching can wait.
+          </p>
+        </div>
+        <Button type="button" className="rounded-xl" onClick={onAdd}>
+          <Plus className="size-4" />
+          Add receipt
+        </Button>
+      </div>
+      {view.receipts.length === 0 && (
+        <p className="text-sm text-muted-foreground">No receipts yet.</p>
+      )}
+      {view.receipts.map((receipt) => (
+        <div
+          key={receipt.id}
+          className="flex flex-col gap-4 rounded-2xl border border-border/70 bg-card p-5 sm:flex-row sm:items-center"
+        >
+          <div className="flex size-12 items-center justify-center rounded-xl bg-secondary text-primary">
+            <Receipt className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-semibold">{receipt.merchant}</h3>
+              <span
+                className={`rounded-full px-2 py-1 text-[10px] font-medium ${
+                  receipt.status === "finalized"
+                    ? "bg-chart-2/15 text-chart-2"
+                    : "bg-primary/15 text-primary"
+                }`}
+              >
+                {receipt.status === "finalized" ? "Finalized" : "Draft"}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {receipt.postedOn} · Paid by {memberAlias(view, receipt.payerMemberId)}
+            </p>
+          </div>
+          <p className="text-lg font-semibold">{centsToUsdLabel(receipt.totalCents)}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function TabPanel({
+  view,
+  summary,
+  onPayment,
+}: {
+  view: DecryptedGroupView
+  summary: { owedToMeCents: number; iOweCents: number }
+  onPayment: () => void
+}) {
+  const tab = reduceShoppingTab(view.events)
+  const rows = view.members
+    .filter((m) => m.id !== view.me.id)
+    .map((m) => ({
+      member: m,
+      theyOwe: amountOwed(tab, m.id, view.me.id),
+      iOwe: amountOwed(tab, view.me.id, m.id),
+    }))
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5">
+          <p className="text-sm text-muted-foreground">Net owed to you</p>
+          <p className="mt-2 text-3xl font-semibold text-primary">{centsToUsdLabel(summary.owedToMeCents)}</p>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-card p-5">
+          <p className="text-sm text-muted-foreground">You owe</p>
+          <p className="mt-2 text-3xl font-semibold">{centsToUsdLabel(summary.iOweCents)}</p>
+        </div>
+      </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Running tab</h2>
+          <p className="text-sm text-muted-foreground">A record only — no money moves automatically.</p>
+        </div>
+        <Button type="button" variant="outline" className="rounded-xl" onClick={onPayment}>
+          <Plus className="size-4" />
+          Record payment
+        </Button>
+      </div>
+      {rows.length === 0 && (
+        <p className="text-sm text-muted-foreground">Invite someone to start a tab.</p>
+      )}
+      {rows.map((row) => (
+        <div key={row.member.id} className="flex items-center gap-3 border-b border-border/60 py-4">
+          <span className="flex size-9 items-center justify-center rounded-full bg-secondary text-xs font-semibold">
+            {row.member.initials}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">{row.member.alias}</p>
+            <p className="text-xs text-muted-foreground">
+              {row.theyOwe > 0
+                ? `Owes you ${centsToUsdLabel(row.theyOwe)}`
+                : row.iOwe > 0
+                  ? `You owe ${centsToUsdLabel(row.iOwe)}`
+                  : "Settled"}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MembersTab({
+  view,
+  onInvite,
+  onReview,
+  onReject,
+  onRevoke,
+}: {
+  view: DecryptedGroupView
+  onInvite: () => void
+  onReview: (invite: ShoppingSnapshotInvite) => void
+  onReject: (inviteId: string) => void
+  onRevoke: (inviteId: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Group members</h2>
+          <p className="text-sm text-muted-foreground">Aliases are shown instead of account details.</p>
+        </div>
+        {view.me.role === "owner" && (
+          <Button type="button" className="rounded-xl" onClick={onInvite}>
+            <UserPlus className="size-4" />
+            Add member
+          </Button>
+        )}
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
+        {view.members.map((member) => (
+          <div key={member.id} className="flex items-center gap-3 border-b border-border/60 px-4 py-4 last:border-0">
+            <span className="flex size-9 items-center justify-center rounded-full bg-secondary text-xs font-semibold">
+              {member.initials}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">
+                {member.alias}
+                {member.id === view.me.id ? " (you)" : ""}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {member.role === "owner" ? "Owner" : "Member"} · {member.fingerprint}
+              </p>
+            </div>
+            <span className="rounded-full bg-chart-2/15 px-2 py-1 text-[10px] text-chart-2">{member.status}</span>
+          </div>
+        ))}
+      </div>
+      {view.me.role === "owner" && view.invites.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2 className="text-xl font-semibold">Join requests</h2>
+          {view.invites.map((invite) => (
+            <div
+              key={invite.id}
+              className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium">
+                  {invite.status === "requested" ? "Someone asked to join" : "Invite link is open"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Expires {new Date(invite.expiresAt).toLocaleString()}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                {invite.status === "requested" ? (
+                  <>
+                    <Button type="button" onClick={() => onReview(invite)}>
+                      Review
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={() => onReject(invite.id)}>
+                      Decline
+                    </Button>
+                  </>
+                ) : (
+                  <Button type="button" variant="ghost" onClick={() => onRevoke(invite.id)}>
+                    Revoke link
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RequestDialog({
+  busy,
+  onClose,
+  onSave,
+}: {
+  busy: boolean
+  onClose: () => void
+  onSave: (description: string, notes: string) => void
+}) {
+  const [description, setDescription] = useState("")
+  const [notes, setNotes] = useState("")
+  return (
+    <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
+      <DialogContent
+        className="max-w-[min(96vw,32rem)] rounded-2xl"
+        onKeyDown={(e) =>
+          handleDialogEnterToPrimary(e, { disabled: busy || !description.trim(), onPrimary: () => onSave(description, notes) })
+        }
+      >
+        <DialogHeader className="pr-10 text-left">
+          <DialogTitle>Add a request</DialogTitle>
+          <DialogDescription>This item is encrypted for the group.</DialogDescription>
+        </DialogHeader>
+        <label className="flex flex-col gap-2 text-sm font-medium">
+          What should be picked up?
+          <Input
+            autoFocus
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="e.g. Greek yogurt"
+          />
+        </label>
+        <label className="flex flex-col gap-2 text-sm font-medium" data-no-enter-submit="">
+          Quantity or note
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="2 tubs · plain, full fat"
+            className="min-h-20"
+          />
+        </label>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={busy || !description.trim()} onClick={() => onSave(description, notes)}>
+            Add to list
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ReceiptDialog({
+  busy,
+  onClose,
+  onSave,
+}: {
+  busy: boolean
+  onClose: () => void
+  onSave: (merchant: string, amount: string) => void
+}) {
+  const [merchant, setMerchant] = useState("")
+  const [amount, setAmount] = useState("")
+  return (
+    <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
+      <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl">
+        <DialogHeader className="pr-10 text-left">
+          <DialogTitle>Add a shared receipt</DialogTitle>
+          <DialogDescription>Split evenly among current members. No money is transferred.</DialogDescription>
+        </DialogHeader>
+        <label className="flex flex-col gap-2 text-sm font-medium">
+          Store
+          <Input value={merchant} onChange={(e) => setMerchant(e.target.value)} placeholder="e.g. Trader Joe’s" />
+        </label>
+        <label className="flex flex-col gap-2 text-sm font-medium">
+          Total
+          <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="$0.00" inputMode="decimal" />
+        </label>
+        <div className="flex items-start gap-3 rounded-xl bg-primary/5 p-3 text-xs leading-5 text-muted-foreground">
+          <FileText className="mt-0.5 size-4 shrink-0 text-primary" />
+          Cloud scan is optional and not required here. You can enter the total yourself.
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={busy || !merchant.trim() || !amount.trim()} onClick={() => onSave(merchant, amount)}>
+            Save and split
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PaymentDialog({
+  view,
+  busy,
+  onClose,
+  onSave,
+}: {
+  view: DecryptedGroupView
+  busy: boolean
+  onClose: () => void
+  onSave: (counterpartId: string, cents: number, iPaidThem: boolean) => void
+}) {
+  const others = view.members.filter((m) => m.id !== view.me.id)
+  const [counterpartId, setCounterpartId] = useState(others[0]?.id ?? "")
+  const [amount, setAmount] = useState("")
+  const [iPaidThem, setIPaidThem] = useState(true)
+  const cents = dollarsToCents(amount)
+  return (
+    <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
+      <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl">
+        <DialogHeader className="pr-10 text-left">
+          <DialogTitle>Record a payment</DialogTitle>
+          <DialogDescription>This records a real-world payment for bookkeeping. No money is transferred automatically.</DialogDescription>
+        </DialogHeader>
+        {others.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Invite someone before recording a payment.</p>
+        ) : (
+          <>
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              Person
+              <select
+                className="rounded-xl border border-input bg-background px-4 py-3 text-sm"
+                value={counterpartId}
+                onChange={(e) => setCounterpartId(e.target.value)}
+              >
+                {others.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.alias}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              Amount
+              <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="$0.00" inputMode="decimal" />
+            </label>
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span>I paid them</span>
+              <Switch checked={iPaidThem} onCheckedChange={setIPaidThem} aria-label="I paid them" />
+            </div>
+          </>
+        )}
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={busy || !counterpartId || cents == null || cents <= 0}
+            onClick={() => cents != null && onSave(counterpartId, cents, iPaidThem)}
+          >
+            Record payment
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ApproveRequestDialog({
+  alias,
+  fingerprint,
+  verificationCode,
+  busy,
+  onClose,
+  onDecline,
+  onApprove,
+}: {
+  alias: string
+  fingerprint: string
+  verificationCode: string | null
+  busy: boolean
+  onClose: () => void
+  onDecline: () => void
+  onApprove: (compared: boolean) => void
+}) {
+  const [compared, setCompared] = useState(false)
+  return (
+    <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
+      <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl">
+        <DialogHeader className="pr-10 text-left">
+          <DialogTitle>Let {alias} join?</DialogTitle>
+          <DialogDescription>
+            Compare this code and fingerprint with them before you add them. Their name stays encrypted for the group.
+          </DialogDescription>
+        </DialogHeader>
+        {verificationCode && (
+          <p className="font-mono text-2xl tracking-[0.2em]">{verificationCode}</p>
+        )}
+        <p className="break-all font-mono text-sm">{fingerprint}</p>
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span>I compared this with them</span>
+          <Switch checked={compared} onCheckedChange={setCompared} aria-label="I compared this with them" />
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onDecline} disabled={busy}>
+            Decline
+          </Button>
+          <Button type="button" disabled={busy || !compared} onClick={() => onApprove(compared)}>
+            Add to group
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function InviteDialog({
+  view,
+  createInvite,
+  onClose,
+}: {
+  view: DecryptedGroupView
+  createInvite: (groupId: string) => Promise<{ token: string; ownerPublicKey: string | null; expiresAt: string }>
+  onClose: () => void
+}) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [expiresAt, setExpiresAt] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  async function create() {
+    setBusy(true)
+    setError(null)
+    try {
+      const created = await createInvite(view.groupId)
+      setUrl(shoppingInviteUrl(window.location.origin, created.token, created.ownerPublicKey))
+      setExpiresAt(created.expiresAt)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create invite")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function copy() {
+    if (!url) return
+    await navigator.clipboard.writeText(url)
+    setCopied(true)
+  }
+
+  return (
+    <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
+      <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl">
+        <DialogHeader className="pr-10 text-left">
+          <DialogTitle>Invite to {view.name}</DialogTitle>
+          <DialogDescription>
+            Invite someone explicitly. They will only see this group’s requests, receipts, and balances — never
+            your private budget.
+          </DialogDescription>
+        </DialogHeader>
+        {!url ? (
+          <Button type="button" disabled={busy || view.me.role !== "owner"} onClick={() => void create()}>
+            <Send className="size-4" />
+            Create invite link
+          </Button>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <p className="break-all rounded-xl border border-border bg-background p-3 font-mono text-xs">{url}</p>
+            <p className="text-xs text-muted-foreground">
+              Compare fingerprints out of band. Your fingerprint: {view.me.fingerprint}
+              {expiresAt ? ` · Expires ${new Date(expiresAt).toLocaleString()}` : ""}
+            </p>
+            <Button type="button" variant="outline" onClick={() => void copy()}>
+              <Copy className="size-4" />
+              {copied ? "Copied" : "Copy link"}
+            </Button>
+          </div>
+        )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
