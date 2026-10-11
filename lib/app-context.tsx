@@ -51,7 +51,7 @@ import {
 } from "@/lib/privacy-key-storage"
 import { clearAllDrafts } from "@/lib/draft-storage"
 import { clearShoppingCache } from "@/lib/shopping-cache"
-import { clearPendingShoppingInvite } from "@/lib/shopping-invite-handoff"
+import { clearPendingShoppingInvite, loadPendingShoppingInvite } from "@/lib/shopping-invite-handoff"
 import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 import {
   type ApiTransactionRow,
@@ -83,48 +83,19 @@ import { filterTransactionsForActiveLedger } from "@/lib/envelope-ledger-visibil
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { transactionSyncUserMessage } from "@/lib/transaction-sync-user-message"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
+import {
+  hashToPage,
+  initialRouteFromLocation,
+  pageToHash,
+  type AppRoute,
+  type PageId,
+} from "@/lib/app-routes"
 
-export type PageId =
-  | "dashboard"
-  | "analytics"
-  | "envelopes"
-  | "envelope-allocations"
-  | "envelope-detail"
-  | "transactions"
-  | "btc-price"
-  | "researcher"
-  | "funds"
-  | "profile"
-  | "settings"
-  | "review-inbox"
-  | "shopping"
-  | "shopping-group"
+export type { PageId }
 
-function pageToHash(page: PageId, envelopeId?: string | null): string {
-  if (page === "envelope-detail" && envelopeId) return `#/envelope/${envelopeId}`
-  if (page === "envelope-allocations") return "#/envelopes/allocations"
-  if (page === "shopping-group" && envelopeId) return `#/shopping/group/${envelopeId}`
-  return `#/${page}`
-}
-
-function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
-  const path = hash.replace(/^#\/?/, "")
-  if (!path || path === "/") return { page: "dashboard" }
-
-  const envelopeMatch = path.match(/^envelope\/(.+)$/)
-  if (envelopeMatch) return { page: "envelope-detail", envelopeId: envelopeMatch[1] }
-
-  const shoppingGroupMatch = path.match(/^shopping\/group\/(.+)$/)
-  if (shoppingGroupMatch) return { page: "shopping-group", envelopeId: shoppingGroupMatch[1] }
-
-  if (path === "envelopes/allocations") return { page: "envelope-allocations" }
-
-  if (path.startsWith("settings/")) return { page: "settings" }
-
-  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox", "shopping"]
-  if (validPages.includes(path as PageId)) return { page: path as PageId }
-
-  return { page: "dashboard" }
+function readInitialRoute(): AppRoute {
+  if (typeof window === "undefined") return { page: "dashboard" }
+  return initialRouteFromLocation(window.location.hash, loadPendingShoppingInvite() !== null)
 }
 
 /** Cold-start transaction hydration: init until IDB recent slice; recent → full → synced during refresh. */
@@ -426,15 +397,10 @@ function applyPrivacyKey(key: Uint8Array, publicKeyRef: React.MutableRefObject<U
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(getDefaultState)
-  const [currentPage, setCurrentPage] = useState<PageId>(() => {
-    if (typeof window === "undefined") return "dashboard"
-    const { page } = hashToPage(window.location.hash)
-    return page
-  })
-  const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null
-    return hashToPage(window.location.hash).envelopeId ?? null
-  })
+  const [currentPage, setCurrentPage] = useState<PageId>(() => readInitialRoute().page)
+  const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(
+    () => readInitialRoute().envelopeId ?? null,
+  )
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
   const [transactionPrefill, setTransactionPrefill] = useState<TransactionPrefill | null>(null)

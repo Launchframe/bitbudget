@@ -1127,7 +1127,8 @@ function InviteDialog({
           <div className="flex flex-col gap-3">
             <p className="break-all rounded-xl border border-border bg-background p-3 font-mono text-xs">{url}</p>
             <p className="text-xs text-muted-foreground">
-              Compare fingerprints out of band. Your fingerprint: {view.me.fingerprint}
+              Send this link privately. When they join, check their code with them by call or in person
+              before adding them. Your code: {view.me.fingerprint}
               {expiresAt ? ` · Expires ${new Date(expiresAt).toLocaleString()}` : ""}
             </p>
             <Button type="button" variant="outline" onClick={() => void copy()}>

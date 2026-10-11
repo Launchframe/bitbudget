@@ -122,14 +122,12 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
     setBusy(true)
     setError(null)
     try {
-      const event = view.events.find((item) => item.id === row.sourceEventId)
-      const merchant =
-        event?.payload.type === "receipt_finalized"
-          ? view.receipts.find((receipt) => receipt.id === event.payload.receiptId)?.merchant
-          : undefined
-      const payee = await encryptForStorage(
-        shoppingEntryPayee({ eventType: event?.payload.type, merchant }),
-      )
+      const payload = view.events.find((item) => item.id === row.sourceEventId)?.payload
+      const receiptId = payload?.type === "receipt_finalized" ? payload.receiptId : undefined
+      const merchant = receiptId
+        ? view.receipts.find((receipt) => receipt.id === receiptId)?.merchant
+        : undefined
+      const payee = await encryptForStorage(shoppingEntryPayee({ eventType: payload?.type, merchant }))
       await applyPostings(view.groupId, {
         eventId: row.sourceEventId,
         preferenceVersion: pref.preferenceVersion,
