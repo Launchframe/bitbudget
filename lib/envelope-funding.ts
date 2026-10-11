@@ -25,6 +25,7 @@ import {
   paydayDomListInUtcMonth,
 } from "@/lib/envelope-funding-period"
 import {
+  envelopeBalancesAllTimeBatch,
   envelopeBalancesForMonthBatch,
   monthKeyFromDate,
   savingsEnvelopeBalanceAllTime,
@@ -476,11 +477,13 @@ async function resolveIrregularEnvelopeAmounts(
   const behavior = input.distributionBehavior
   if (!behavior) return null
 
-  const monthKey = input.dateIso.slice(0, 7)
-  const monthBalances = await envelopeBalancesForMonthBatch(
+  // Use all-time balance (credits minus expenses over the envelope's lifetime, including
+  // prior-month carryover) so that set_to_budget correctly computes gap = allotment − remaining.
+  // Month-scoped balance is negative after carry-forward users spend in the current period,
+  // causing the gap to be overstated and the income to be over-drained into envelopes.
+  const allTimeBalances = await envelopeBalancesAllTimeBatch(
     input.userId,
     envelopes.map((e) => e.id),
-    monthKey,
   )
   const savingsBalance = await savingsEnvelopeBalanceAllTime(input.userId, savingsId)
 
@@ -489,7 +492,7 @@ async function resolveIrregularEnvelopeAmounts(
     envelopes: envelopes.map((e) => ({
       id: e.id,
       monthlyAllotment: e.monthlyAllotment,
-      currentMonthBalance: monthBalances.get(e.id) ?? 0,
+      currentMonthBalance: allTimeBalances.get(e.id) ?? 0,
     })),
     grossUsd: gross,
     savingsBalance,
