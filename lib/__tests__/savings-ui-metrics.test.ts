@@ -265,6 +265,53 @@ describe("avgMonthlySpendLastNMonths", () => {
       ;(global as any).Date = realDate
     }
   })
+
+  it("excludes envelope_sweep expenses — sweeps are internal budget ops not real spending", () => {
+    const txns: Transaction[] = [
+      {
+        id: "1",
+        date: "2026-05-01",
+        payee: "Swept to Savings",
+        amount: 50,
+        type: "expense",
+        source: "envelope_sweep",
+        envelopeId: "food",
+        tags: [],
+      },
+      {
+        id: "2",
+        date: "2026-05-15",
+        payee: "Whole Foods",
+        amount: 80,
+        type: "expense",
+        envelopeId: "food",
+        tags: [],
+      },
+    ]
+    const ids = new Set(["food"])
+    const realDate = Date
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- vitest Date mock
+    ;(global as any).Date = class extends realDate {
+      constructor(...args: unknown[]) {
+        if (args.length === 0) {
+          super(Date.UTC(2026, 4, 28, 12, 0, 0))
+        } else {
+          super(...(args as ConstructorParameters<typeof realDate>))
+        }
+      }
+      static UTC = realDate.UTC
+      static now = realDate.now
+      static parse = realDate.parse
+    }
+
+    try {
+      // Only $80 (real spending), NOT $80 + $50 = $130 (with sweep)
+      expect(avgMonthlySpendLastNMonths(txns, ids, 1)).toBe(80)
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(global as any).Date = realDate
+    }
+  })
 })
 
 describe("goalProgressRingColor", () => {

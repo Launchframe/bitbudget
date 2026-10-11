@@ -42,6 +42,14 @@ describe("transaction-visibility", () => {
     ).toBe(false)
   })
 
+  it("isUserFacingExpense rejects envelope sweep expenses — sweeps are internal budget ops not real spending", () => {
+    expect(
+      isUserFacingExpense(
+        txn({ type: "expense", source: "envelope_sweep", excludeFromMainHistory: false }),
+      ),
+    ).toBe(false)
+  })
+
   it("filterUserFacingExpenses keeps only visible expenses", () => {
     const rows = [
       txn({ id: "a", type: "expense" }),
