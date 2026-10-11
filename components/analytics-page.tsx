@@ -17,29 +17,14 @@ import {
 } from "recharts"
 import { useApp } from "@/lib/app-context"
 import { useBtcPrices } from "@/lib/btc-price-context"
-import { formatUsd, getMonthKey, type Envelope, type Transaction } from "@/lib/data"
+import { formatUsd, getMonthKey } from "@/lib/data"
+import { isUserFacingExpense } from "@/lib/transaction-visibility"
+import { isCashInflowCredit } from "@/lib/cash-flow-series"
+import { buildHeatmapDays, buildIncomeFlowData, type SankeyNode } from "@/lib/analytics-page-helpers"
 import { MonthOverlayChart } from "@/components/month-overlay-chart"
 
 type RangeKey = "mtd" | "1m" | "3m" | "12m" | "ytd" | "all" | "custom"
 type HeatmapMode = "count" | "spent"
-
-interface HeatmapDay {
-  date: string
-  count: number
-  spent: number
-  inRange: boolean
-}
-
-interface SankeyNode {
-  name: string
-  color: string
-}
-
-interface SankeyLink {
-  source: number
-  target: number
-  value: number
-}
 
 interface SankeyNodeProps {
   x: number
@@ -88,12 +73,6 @@ function parseIsoDate(date: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date)
-  next.setUTCDate(next.getUTCDate() + days)
-  return next
-}
-
 function getStartDateForRange(key: RangeKey, earliestTransactionDate?: string): string {
   const d = new Date()
   switch (key) {
@@ -116,20 +95,6 @@ function getStartDateForRange(key: RangeKey, earliestTransactionDate?: string): 
       return todayIso()
   }
   return toIsoDate(d)
-}
-
-function getDaysBetween(startDate: string, endDate: string): string[] {
-  const start = parseIsoDate(startDate)
-  const end = parseIsoDate(endDate)
-  if (!start || !end || start > end) return []
-
-  const days: string[] = []
-  let current = start
-  while (current <= end) {
-    days.push(toIsoDate(current))
-    current = addDays(current, 1)
-  }
-  return days
 }
 
 function formatHeatmapDate(date: string): string {
@@ -156,105 +121,6 @@ function getHeatmapLayout(dayCount: number): HeatmapLayout {
   return { gapClass: "gap-1", squareClass: "h-3 w-3", labelClass: "h-3 leading-3" }
 }
 
-function buildHeatmapDays(transactions: Transaction[], startDate: string, endDate: string): HeatmapDay[] {
-  if (transactions.length === 0) return []
-
-  const rangeDays = getDaysBetween(startDate, endDate)
-  if (rangeDays.length === 0) return []
-
-  const firstDate = parseIsoDate(rangeDays[0])
-  const lastDate = parseIsoDate(rangeDays[rangeDays.length - 1])
-  if (!firstDate || !lastDate) return []
-
-  const paddedStart = addDays(firstDate, -firstDate.getUTCDay())
-  const paddedEnd = addDays(lastDate, 6 - lastDate.getUTCDay())
-  const byDay = new Map<string, { count: number; spent: number }>()
-
-  for (const txn of transactions) {
-    if (txn.excludeFromMainHistory) continue
-    const entry = byDay.get(txn.date) ?? { count: 0, spent: 0 }
-    entry.count += 1
-    if (txn.type === "expense") {
-      entry.spent += txn.amount
-    }
-    byDay.set(txn.date, entry)
-  }
-
-  const days: HeatmapDay[] = []
-  let current = paddedStart
-  while (current <= paddedEnd) {
-    const date = toIsoDate(current)
-    const entry = byDay.get(date) ?? { count: 0, spent: 0 }
-    days.push({
-      date,
-      count: entry.count,
-      spent: entry.spent,
-      inRange: date >= startDate && date <= endDate,
-    })
-    current = addDays(current, 1)
-  }
-  return days
-}
-
-function buildIncomeFlowData(transactions: Transaction[], activeEnvelopes: Envelope[]) {
-  const envelopeSpend = new Map<string, number>()
-  let totalIncome = 0
-  let totalExpenses = 0
-
-  for (const txn of transactions) {
-    if (txn.excludeFromMainHistory) continue
-    if (txn.type === "credit") {
-      totalIncome += txn.amount
-    } else {
-      totalExpenses += txn.amount
-      envelopeSpend.set(txn.envelopeId, (envelopeSpend.get(txn.envelopeId) ?? 0) + txn.amount)
-    }
-  }
-
-  const spendNodes = activeEnvelopes
-    .map((env) => ({
-      id: env.id,
-      name: env.name,
-      color: env.color,
-      value: envelopeSpend.get(env.id) ?? 0,
-    }))
-    .filter((env) => env.value > 0)
-    .sort((a, b) => b.value - a.value)
-
-  const nodes: SankeyNode[] = [{ name: "Income", color: "#22C55E" }]
-  const links: SankeyLink[] = []
-  const overspent = Math.max(totalExpenses - totalIncome, 0)
-  const overspentSourceIndex = overspent > 0 ? nodes.push({ name: "Over income", color: "#F59E0B" }) - 1 : null
-  const incomeCoverage = totalExpenses > 0 ? Math.min(totalIncome, totalExpenses) / totalExpenses : 0
-
-  for (const env of spendNodes) {
-    nodes.push({ name: env.name, color: env.color })
-    const target = nodes.length - 1
-    const incomeFunded = env.value * incomeCoverage
-    const overIncomeFunded = env.value - incomeFunded
-
-    if (incomeFunded > 0) {
-      links.push({ source: 0, target, value: incomeFunded })
-    }
-    if (overspentSourceIndex !== null && overIncomeFunded > 0) {
-      links.push({ source: overspentSourceIndex, target, value: overIncomeFunded })
-    }
-  }
-
-  const unspent = Math.max(totalIncome - totalExpenses, 0)
-  if (unspent > 0) {
-    nodes.push({ name: "Unspent", color: "#3B82F6" })
-    links.push({ source: 0, target: nodes.length - 1, value: unspent })
-  }
-
-  return {
-    data: { nodes, links },
-    totalIncome,
-    totalExpenses,
-    unspent,
-    overspent,
-  }
-}
 
 function IncomeFlowNode({ x, y, width, height, payload }: SankeyNodeProps) {
   const color = payload?.color ?? "#F7931A"
@@ -314,11 +180,10 @@ export function AnalyticsPage() {
   const cashFlowData = useMemo(() => {
     const months: Record<string, { income: number; expenses: number }> = {}
     for (const txn of filtered) {
-      if (txn.excludeFromMainHistory) continue
       const mk = getMonthKey(txn.date)
       if (!months[mk]) months[mk] = { income: 0, expenses: 0 }
-      if (txn.type === "credit") months[mk].income += txn.amount
-      else months[mk].expenses += txn.amount
+      if (isCashInflowCredit(txn)) months[mk].income += txn.amount
+      else if (isUserFacingExpense(txn)) months[mk].expenses += txn.amount
     }
     return Object.entries(months)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -332,8 +197,7 @@ export function AnalyticsPage() {
   const envelopePieData = useMemo(() => {
     const envelopeMap: Record<string, number> = {}
     for (const txn of filtered) {
-      if (txn.excludeFromMainHistory) continue
-      if (txn.type === "expense") {
+      if (isUserFacingExpense(txn)) {
         envelopeMap[txn.envelopeId] = (envelopeMap[txn.envelopeId] || 0) + txn.amount
       }
     }
@@ -350,8 +214,7 @@ export function AnalyticsPage() {
     if (!state.opportunityCostEnabled) return []
     const byEnvelope: Record<string, { spent: number; opCost: number }> = {}
     for (const txn of filtered) {
-      if (txn.excludeFromMainHistory) continue
-      if (txn.type === "expense") {
+      if (isUserFacingExpense(txn)) {
         if (!byEnvelope[txn.envelopeId]) byEnvelope[txn.envelopeId] = { spent: 0, opCost: 0 }
         byEnvelope[txn.envelopeId].spent += txn.amount
         byEnvelope[txn.envelopeId].opCost += calculateOpportunityCost(txn.amount, txn.date)
