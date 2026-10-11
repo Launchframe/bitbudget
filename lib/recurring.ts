@@ -13,6 +13,16 @@ export class RecurringConcurrentUpdateError extends Error {
   }
 }
 
+function lastDayOfUtcMonth(year: number, month: number): number {
+  // Date.UTC(y, m+1, 0) = last day of month m (0-indexed) in year y
+  return new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+}
+
+/**
+ * Advance a date by the given cadence, clamping to the last valid day of the
+ * target month so month-end dates (e.g. Jan 31 → Feb 28, not Mar 3) never
+ * silently skip a calendar month.
+ */
 export function advanceDate(date: Date, cadence: Cadence): Date {
   const next = new Date(date)
   switch (cadence) {
@@ -22,15 +32,27 @@ export function advanceDate(date: Date, cadence: Cadence): Date {
     case "biweekly":
       next.setUTCDate(next.getUTCDate() + 14)
       break
-    case "monthly":
+    case "monthly": {
+      const srcDay = next.getUTCDate()
+      next.setUTCDate(1)
       next.setUTCMonth(next.getUTCMonth() + 1)
+      next.setUTCDate(Math.min(srcDay, lastDayOfUtcMonth(next.getUTCFullYear(), next.getUTCMonth())))
       break
-    case "quarterly":
+    }
+    case "quarterly": {
+      const srcDay = next.getUTCDate()
+      next.setUTCDate(1)
       next.setUTCMonth(next.getUTCMonth() + 3)
+      next.setUTCDate(Math.min(srcDay, lastDayOfUtcMonth(next.getUTCFullYear(), next.getUTCMonth())))
       break
-    case "annual":
+    }
+    case "annual": {
+      const srcDay = next.getUTCDate()
+      next.setUTCDate(1)
       next.setUTCFullYear(next.getUTCFullYear() + 1)
+      next.setUTCDate(Math.min(srcDay, lastDayOfUtcMonth(next.getUTCFullYear(), next.getUTCMonth())))
       break
+    }
   }
   return next
 }

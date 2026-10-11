@@ -45,7 +45,7 @@ describe("advanceDate", () => {
     expect(out.getUTCDate()).toBe(17)
   })
 
-  it("advances month for monthly", () => {
+  it("advances month for monthly (mid-month, no overflow)", () => {
     const start = new Date(Date.UTC(2026, 0, 15, 12, 0, 0))
     const out = advanceDate(start, "monthly")
     expect(out.getUTCFullYear()).toBe(2026)
@@ -58,6 +58,62 @@ describe("advanceDate", () => {
     const out = advanceDate(start, "annual")
     expect(out.getUTCFullYear()).toBe(2026)
     expect(out.getUTCMonth()).toBe(5)
+  })
+
+  it("monthly Jan 31 → Feb 28 (not Mar 3)", () => {
+    const jan31 = new Date(Date.UTC(2025, 0, 31, 12, 0, 0))
+    const out = advanceDate(jan31, "monthly")
+    expect(out.getUTCFullYear()).toBe(2025)
+    expect(out.getUTCMonth()).toBe(1) // February
+    expect(out.getUTCDate()).toBe(28)
+  })
+
+  it("monthly Jan 31 → Feb 29 in a leap year", () => {
+    const jan31 = new Date(Date.UTC(2024, 0, 31, 12, 0, 0))
+    const out = advanceDate(jan31, "monthly")
+    expect(out.getUTCFullYear()).toBe(2024)
+    expect(out.getUTCMonth()).toBe(1) // February
+    expect(out.getUTCDate()).toBe(29)
+  })
+
+  it("monthly March 31 → April 30 (not May 1)", () => {
+    const mar31 = new Date(Date.UTC(2025, 2, 31, 12, 0, 0))
+    const out = advanceDate(mar31, "monthly")
+    expect(out.getUTCFullYear()).toBe(2025)
+    expect(out.getUTCMonth()).toBe(3) // April
+    expect(out.getUTCDate()).toBe(30)
+  })
+
+  it("monthly Dec 31 → Jan 31 (no overflow into February)", () => {
+    const dec31 = new Date(Date.UTC(2025, 11, 31, 12, 0, 0))
+    const out = advanceDate(dec31, "monthly")
+    expect(out.getUTCFullYear()).toBe(2026)
+    expect(out.getUTCMonth()).toBe(0) // January
+    expect(out.getUTCDate()).toBe(31)
+  })
+
+  it("quarterly March 31 → June 30 (not July 1)", () => {
+    const mar31 = new Date(Date.UTC(2025, 2, 31, 12, 0, 0))
+    const out = advanceDate(mar31, "quarterly")
+    expect(out.getUTCFullYear()).toBe(2025)
+    expect(out.getUTCMonth()).toBe(5) // June
+    expect(out.getUTCDate()).toBe(30)
+  })
+
+  it("annual Feb 29 (leap year) → Feb 28 next year (not Mar 1)", () => {
+    const feb29 = new Date(Date.UTC(2024, 1, 29, 12, 0, 0))
+    const out = advanceDate(feb29, "annual")
+    expect(out.getUTCFullYear()).toBe(2025)
+    expect(out.getUTCMonth()).toBe(1) // February
+    expect(out.getUTCDate()).toBe(28)
+  })
+
+  it("annual Feb 28 → Feb 28 next year", () => {
+    const feb28 = new Date(Date.UTC(2025, 1, 28, 12, 0, 0))
+    const out = advanceDate(feb28, "annual")
+    expect(out.getUTCFullYear()).toBe(2026)
+    expect(out.getUTCMonth()).toBe(1)
+    expect(out.getUTCDate()).toBe(28)
   })
 })
 
