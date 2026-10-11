@@ -1,4 +1,8 @@
-import { isBudgetEnvelope } from "@/lib/constants"
+import {
+  isBudgetEnvelope,
+  TX_SOURCE_ENVELOPE_SWEEP,
+  TX_SOURCE_ENVELOPE_TRANSFER_OUT,
+} from "@/lib/constants"
 import { isPaydayForUser, type PaydayUserFields } from "@/lib/payday-cadence"
 import { getMonthKey, type Transaction } from "@/lib/data"
 import type { SavingsGoalRow } from "@/lib/savings-ui-metrics"
@@ -82,6 +86,10 @@ function buildDailyDiscretionaryExpenseTotals(
     if (t.excludeFromMainHistory) continue
     if (t.type !== "expense") continue
     if (!discretionaryIds.has(t.envelopeId)) continue
+    // Exclude internal ledger transfers: monthly sweeps (RESET/CAPPED policy) and
+    // envelope-to-envelope rebalances are not real user spending.
+    const src = t.source ?? "manual"
+    if (src === TX_SOURCE_ENVELOPE_SWEEP || src === TX_SOURCE_ENVELOPE_TRANSFER_OUT) continue
     if (getMonthKey(t.date) !== monthKey) continue
     const dom = Number(t.date.slice(8, 10))
     if (!Number.isFinite(dom)) continue
