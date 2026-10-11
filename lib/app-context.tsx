@@ -397,9 +397,10 @@ function applyPrivacyKey(key: Uint8Array, publicKeyRef: React.MutableRefObject<U
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(getDefaultState)
-  const [currentPage, setCurrentPage] = useState<PageId>(() => readInitialRoute().page)
+  const [initialRoute] = useState(readInitialRoute)
+  const [currentPage, setCurrentPage] = useState<PageId>(initialRoute.page)
   const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(
-    () => readInitialRoute().envelopeId ?? null,
+    initialRoute.envelopeId ?? null,
   )
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
@@ -1025,7 +1026,9 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     window.addEventListener("hashchange", onHashChange)
 
     if (!window.location.hash) {
-      window.history.replaceState({ page: "dashboard" }, "", "#/dashboard")
+      const route = initialRouteFromLocation("", loadPendingShoppingInvite() !== null)
+      const hash = pageToHash(route.page, route.envelopeId)
+      window.history.replaceState({ page: route.page }, "", hash)
     }
 
     return () => {

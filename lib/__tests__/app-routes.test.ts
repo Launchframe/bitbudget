@@ -7,10 +7,27 @@ describe("hashToPage / pageToHash", () => {
     expect(hashToPage("#/shopping/group/g1")).toEqual({ page: "shopping-group", envelopeId: "g1" })
   })
 
+  it("maps envelope detail and allocations", () => {
+    expect(pageToHash("envelope-detail", "env-1")).toBe("#/envelope/env-1")
+    expect(hashToPage("#/envelope/env-1")).toEqual({ page: "envelope-detail", envelopeId: "env-1" })
+    expect(pageToHash("envelope-allocations")).toBe("#/envelopes/allocations")
+    expect(hashToPage("#/envelopes/allocations")).toEqual({ page: "envelope-allocations" })
+  })
+
+  it("maps settings subpaths to settings", () => {
+    expect(hashToPage("#/settings/payee-rules")).toEqual({ page: "settings" })
+  })
+
   it("maps the shopping list and unknown paths", () => {
     expect(hashToPage("#/shopping")).toEqual({ page: "shopping" })
     expect(hashToPage("#/nope")).toEqual({ page: "dashboard" })
     expect(hashToPage("")).toEqual({ page: "dashboard" })
+    expect(hashToPage("#/")).toEqual({ page: "dashboard" })
+  })
+
+  it("uses simple page hashes for standard pages", () => {
+    expect(pageToHash("transactions")).toBe("#/transactions")
+    expect(pageToHash("dashboard")).toBe("#/dashboard")
   })
 })
 

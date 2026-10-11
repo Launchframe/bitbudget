@@ -70,7 +70,15 @@ async function seedUser(spec: (typeof USERS)[number]): Promise<void> {
   })
 }
 
+function refuseProduction(): void {
+  if (process.env.VERCEL_ENV === "production") {
+    console.error("Refusing to run qa:shopping:seed when VERCEL_ENV=production.")
+    process.exit(1)
+  }
+}
+
 async function main() {
+  refuseProduction()
   for (const spec of USERS) {
     await resetUser(spec.email)
     await seedUser(spec)
