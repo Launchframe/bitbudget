@@ -114,6 +114,36 @@ describe("income-import helpers", () => {
     }
   })
 
+  it("distributeImportDates annual splitCount=12 covers all 12 months with no duplicates", () => {
+    // Bug: old formula used (count+1) denominator — last item rounded to month 11,
+    // so December was never produced and June was duplicated.
+    const dates = distributeImportDates({ periodKey: "2025", payDay: 15, splitCount: 12 })
+    expect(dates.length).toBe(12)
+    const months = dates.map((d) => Number(d.split("-")[1]))
+    // Every month 1–12 must appear exactly once
+    for (let m = 1; m <= 12; m++) {
+      expect(months.filter((x) => x === m).length).toBe(1)
+    }
+    // payDay 15 must be used for each date
+    dates.forEach((d) => expect(d.endsWith("-15")).toBe(true))
+  })
+
+  it("distributeImportDates annual splitCount=4 always includes December (month 12)", () => {
+    const dates = distributeImportDates({ periodKey: "2025", payDay: 15, splitCount: 4 })
+    expect(dates.length).toBe(4)
+    const months = dates.map((d) => Number(d.split("-")[1]))
+    expect(months).toContain(12)
+  })
+
+  it("distributeImportDates annual splitCount=6 always includes December (month 12)", () => {
+    const dates = distributeImportDates({ periodKey: "2025", payDay: 15, splitCount: 6 })
+    expect(dates.length).toBe(6)
+    const months = dates.map((d) => Number(d.split("-")[1]))
+    expect(months).toContain(12)
+    // No duplicates
+    expect(new Set(months).size).toBe(6)
+  })
+
   it("filterImportDatesThroughToday drops future paycheck dates", () => {
     const now = new Date("2026-05-15T12:00:00.000Z")
     const annual = distributeImportDates({ periodKey: "2026", payDay: 15, splitCount: 12 })
