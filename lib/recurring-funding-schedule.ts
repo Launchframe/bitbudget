@@ -15,7 +15,12 @@ export type RecurringFundingFrequency = (typeof RECURRING_FUNDING_FREQUENCIES)[n
 function addMonthsUtc(date: Date, months: number): Date {
   const y = date.getUTCFullYear()
   const m = date.getUTCMonth() + months
-  return new Date(Date.UTC(y, m, date.getUTCDate(), 12, 0, 0, 0))
+  // Clamp the day to the last day of the target month so that e.g. Jan 31 + 1 month
+  // → Feb 28 (not March 3 via Date.UTC overflow), preventing monthly rules from
+  // silently skipping an entire calendar month.
+  const lastDayOfTargetMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate()
+  const day = Math.min(date.getUTCDate(), lastDayOfTargetMonth)
+  return new Date(Date.UTC(y, m, day, 12, 0, 0, 0))
 }
 
 export function isRecurringFundingFrequency(value: string): value is RecurringFundingFrequency {

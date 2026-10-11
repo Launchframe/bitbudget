@@ -50,9 +50,41 @@ describe("nextRunFromFrequency", () => {
     expect(nextRunFromFrequency("unknown", base).toISOString()).toBe("2026-02-14T12:00:00.000Z")
   })
 
-  it("monthly from Jan 31 wraps via UTC month overflow", () => {
+  it("monthly from Jan 31 clamps to Feb 28 (not March 3)", () => {
     const jan31 = new Date(Date.UTC(2026, 0, 31, 12, 0, 0))
     const next = nextRunFromFrequency("monthly", jan31)
-    expect(next.getUTCMonth()).toBe(2)
+    // 2026 is not a leap year; last day of February is the 28th.
+    expect(next.toISOString()).toBe("2026-02-28T12:00:00.000Z")
+  })
+
+  it("monthly from March 31 clamps to April 30 (not May 1)", () => {
+    const mar31 = new Date(Date.UTC(2026, 2, 31, 12, 0, 0))
+    const next = nextRunFromFrequency("monthly", mar31)
+    expect(next.toISOString()).toBe("2026-04-30T12:00:00.000Z")
+  })
+
+  it("monthly from Oct 31 clamps to Nov 30", () => {
+    const oct31 = new Date(Date.UTC(2026, 9, 31, 12, 0, 0))
+    const next = nextRunFromFrequency("monthly", oct31)
+    expect(next.toISOString()).toBe("2026-11-30T12:00:00.000Z")
+  })
+
+  it("monthly from Feb 28 in non-leap year stays Feb 28 next year", () => {
+    const feb28 = new Date(Date.UTC(2026, 1, 28, 12, 0, 0))
+    const next = nextRunFromFrequency("annually", feb28)
+    // 2027 is not a leap year; Feb 28 + 12 months = Feb 28 2027.
+    expect(next.toISOString()).toBe("2027-02-28T12:00:00.000Z")
+  })
+
+  it("every_2mo from Jan 31 → Mar 31 (no clamping needed)", () => {
+    const jan31 = new Date(Date.UTC(2026, 0, 31, 12, 0, 0))
+    const next = nextRunFromFrequency("every_2mo", jan31)
+    expect(next.toISOString()).toBe("2026-03-31T12:00:00.000Z")
+  })
+
+  it("every_3mo from Jan 31 clamps to Apr 30 (not May 1)", () => {
+    const jan31 = new Date(Date.UTC(2026, 0, 31, 12, 0, 0))
+    const next = nextRunFromFrequency("every_3mo", jan31)
+    expect(next.toISOString()).toBe("2026-04-30T12:00:00.000Z")
   })
 })
