@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   ArrowLeft,
   Check,
@@ -29,6 +29,7 @@ import {
   type DecryptedRequest,
   type ShoppingSnapshotInvite,
 } from "@/lib/shopping-view"
+import { ShoppingSnapshotSupersededError } from "@/lib/shopping-snapshot-events"
 import { useShoppingState } from "@/lib/use-shopping-state"
 import { amountOwed, reduceShoppingTab } from "@/lib/shopping-ledger"
 import { ShoppingBudgetCard } from "@/components/shopping-budget-card"
@@ -76,19 +77,31 @@ export function ShoppingGroupDetail() {
     verificationCode: string | null
     publicKey: string
   } | null>(null)
+  const loadGen = useRef(0)
+  const shownGroupId = useRef<string | null>(null)
 
   const load = useCallback(async () => {
-    if (!selectedEnvelopeId || !unlocked) return
+    const groupId = selectedEnvelopeId
+    if (!groupId || !unlocked) return
+    const gen = ++loadGen.current
+    if (shownGroupId.current !== groupId) {
+      shownGroupId.current = groupId
+      setView(null)
+    }
     setLoadError(null)
     try {
-      const snap = await fetchGroup(selectedEnvelopeId)
+      const snap = await fetchGroup(groupId)
+      if (gen !== loadGen.current) return
       const decrypted = await withPrivacyKey((key) => decryptGroupSnapshot(snap, key))
+      if (gen !== loadGen.current) return
       if (!decrypted) {
         setLoadError("Unlock your data to open this group.")
         return
       }
       setView(decrypted)
     } catch (err) {
+      if (gen !== loadGen.current) return
+      if (err instanceof ShoppingSnapshotSupersededError) return
       setLoadError(err instanceof Error ? err.message : "Could not load this group")
     }
   }, [selectedEnvelopeId, unlocked, fetchGroup, withPrivacyKey])

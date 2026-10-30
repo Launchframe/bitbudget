@@ -12,7 +12,7 @@ Read [AGENTS.md](../../../AGENTS.md) (privacy, tests, PR comment replies). Do **
 
 ## Worktree isolation
 
-Follow [`.cursor/rules/agent-git-hygiene.mdc`](../rules/agent-git-hygiene.mdc): review in the **primary clone** by default. Fall back to `./scripts/new-worktree.sh` and `move_agent_to_root` **once** only if that tree is dirty with other WIP or another agent is writing there.
+Follow [`.cursor/rules/agent-git-hygiene.mdc`](../rules/agent-git-hygiene.mdc): review in the **primary clone** by default. Fall back to `./scripts/new-worktree.sh` and `move_agent_to_root` **once** only if the maintainer asks, or if colliding sessions / foreign dirty WIP would clobber the shared tree — ask when unsure.
 
 ## Invocation
 

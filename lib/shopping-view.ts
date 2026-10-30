@@ -82,6 +82,11 @@ export interface ShoppingSnapshotInvite {
   claimantKeyFingerprint: string | null
 }
 
+export interface ShoppingSnapshotEventsMeta {
+  oldestIncludedSequence: number | null
+  hasEarlierEvents: boolean
+}
+
 export interface ShoppingGroupSnapshot {
   group: {
     id: string
@@ -106,6 +111,7 @@ export interface ShoppingGroupSnapshot {
   requests: ShoppingSnapshotRequest[]
   receipts: ShoppingSnapshotReceipt[]
   events: ShoppingSnapshotEvent[]
+  eventsMeta?: ShoppingSnapshotEventsMeta
   invites: ShoppingSnapshotInvite[]
 }
 

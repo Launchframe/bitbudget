@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest"
 import { amountOwed, canRecordRepayment, prepaidCredit, reduceShoppingTab, type ShoppingLedgerEvent } from "../shopping-ledger"
-import { projectMemberBudget } from "../shopping-budget-projection"
+import { expectedShoppingEntryType, projectMemberBudget } from "../shopping-budget-projection"
 import { parseShoppingEventPayload } from "../shopping-event-validation"
 import { isShoppingCashInflow, isShoppingCashOutflow, isShoppingPersonalSpend } from "../shopping-classification"
 import { isUserFacingExpense } from "../transaction-visibility"
@@ -192,5 +192,16 @@ describe("shopping classification", () => {
     expect(isUserFacingExpense(apply)).toBe(true)
     expect(isShoppingCashInflow(recovery)).toBe(true)
     expect(isCashInflowCredit(recovery)).toBe(true)
+  })
+
+  it("ties each shopping entry kind to one amount direction", () => {
+    expect(expectedShoppingEntryType("own_expense")).toBe("expense")
+    expect(expectedShoppingEntryType("advance_out")).toBe("expense")
+    expect(expectedShoppingEntryType("repayment_expense")).toBe("expense")
+    expect(expectedShoppingEntryType("prepaid_out")).toBe("expense")
+    expect(expectedShoppingEntryType("prepaid_apply")).toBe("expense")
+    expect(expectedShoppingEntryType("advance_recovery")).toBe("credit")
+    expect(expectedShoppingEntryType("prepaid_in")).toBe("credit")
+    expect(expectedShoppingEntryType("correction")).toBe("either")
   })
 })
