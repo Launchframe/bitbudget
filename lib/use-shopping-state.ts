@@ -15,7 +15,8 @@ import {
 import { generateRequestVerificationCode } from "@/lib/shopping-invites"
 import { canQueueOffline, type ShoppingOutboxItem } from "@/lib/shopping-sync"
 import { encryptFieldAsymmetric, hexToPublicKey } from "@/lib/crypto"
-import type { ShoppingGroupSnapshot } from "@/lib/shopping-view"
+import { loadCompleteShoppingSnapshotEvents } from "@/lib/shopping-snapshot-events"
+import type { ShoppingGroupSnapshot, ShoppingSnapshotEvent } from "@/lib/shopping-view"
 
 export interface ShoppingGroupSummary {
   id: string
@@ -165,14 +166,31 @@ export function useShoppingState() {
     [],
   )
 
+  const fetchGroupEventsBefore = useCallback(async (groupId: string, beforeSequence: number) => {
+    const res = await shoppingFetch(
+      `/api/shopping/groups/${groupId}/events?beforeSequence=${beforeSequence}`,
+    )
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string }
+      throw new Error(body.error || "Could not load earlier tab history")
+    }
+    return res.json() as Promise<{ events: ShoppingSnapshotEvent[]; hasMore: boolean }>
+  }, [])
+
   const fetchGroup = useCallback(async (groupId: string) => {
     const res = await shoppingFetch(`/api/shopping/groups/${groupId}`)
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string }
       throw new Error(body.error || "Could not load this group")
     }
-    return res.json() as Promise<ShoppingGroupSnapshot>
-  }, [])
+    const snapshot = (await res.json()) as ShoppingGroupSnapshot
+    const events = await loadCompleteShoppingSnapshotEvents(
+      snapshot.events,
+      snapshot.eventsMeta,
+      (beforeSequence) => fetchGroupEventsBefore(groupId, beforeSequence),
+    )
+    return { ...snapshot, events }
+  }, [fetchGroupEventsBefore])
 
   const createGroup = useCallback(async (body: Record<string, unknown>) => {
     const res = await shoppingFetch("/api/shopping/groups", {

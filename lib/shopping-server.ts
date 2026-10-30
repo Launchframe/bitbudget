@@ -22,7 +22,6 @@ import {
   SHOPPING_MAX_REQUESTS_PER_LIST,
   isNonEmptyId,
   isShoppingEventType,
-  isNonEmptyId,
   type ShoppingEventType,
 } from "@/lib/shopping-types"
 
