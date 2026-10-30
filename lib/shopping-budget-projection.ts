@@ -244,6 +244,29 @@ export function projectMemberBudget(params: {
   return out
 }
 
+/** Direction a private posting must use. Corrections may be either way. */
+export function expectedShoppingEntryType(
+  kind: ShoppingEntryKind,
+): "expense" | "credit" | "either" {
+  switch (kind) {
+    case "own_expense":
+    case "advance_out":
+    case "repayment_expense":
+    case "prepaid_out":
+    case "prepaid_apply":
+      return "expense"
+    case "advance_recovery":
+    case "prepaid_in":
+      return "credit"
+    case "correction":
+      return "either"
+    default: {
+      const _never: never = kind
+      return _never
+    }
+  }
+}
+
 export function kindToTransactionSource(kind: ShoppingEntryKind): string {
   switch (kind) {
     case "own_expense":
