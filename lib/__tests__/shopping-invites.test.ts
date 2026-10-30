@@ -12,6 +12,7 @@ import { captureInviteFromLocation, loadPendingShoppingInvite, clearPendingShopp
 import {
   assertExpectedRevision,
   ShoppingRevisionConflictError,
+  planShoppingEventPage,
   shoppingEventSnapshotWhere,
   shoppingEventWindowStart,
 } from "../shopping-sync"
@@ -87,5 +88,67 @@ describe("shopping event snapshot window", () => {
     expect(shoppingEventWindowStart(101)).toBe(2)
     expect(shoppingEventWindowStart(150)).toBe(51)
     expect(shoppingEventSnapshotWhere(150)).toEqual({ sequence: { gte: 51 } })
+  })
+})
+
+describe("shopping event page plan", () => {
+  it("walks forward from afterSequence and asks for one extra row", () => {
+    expect(planShoppingEventPage({ afterSequence: 0, beforeSequence: null })).toEqual({
+      ok: true,
+      sequence: { gt: 0 },
+      order: "asc",
+      take: 101,
+      pageSize: 100,
+      reverse: false,
+    })
+    expect(planShoppingEventPage({ afterSequence: 40, beforeSequence: null, pageSize: 2 })).toMatchObject({
+      sequence: { gt: 40 },
+      take: 3,
+      pageSize: 2,
+      reverse: false,
+    })
+  })
+
+  it("walks backward from beforeSequence so a tail snapshot can load the previous page", () => {
+    const plan = planShoppingEventPage({ afterSequence: null, beforeSequence: 51, pageSize: 100 })
+    expect(plan).toEqual({
+      ok: true,
+      sequence: { lt: 51 },
+      order: "desc",
+      take: 101,
+      pageSize: 100,
+      reverse: true,
+    })
+  })
+
+  it("rejects both cursors, a missing cursor, and a non-integer page size", () => {
+    expect(planShoppingEventPage({ afterSequence: 1, beforeSequence: 2 })).toEqual({
+      ok: false,
+      reason: "both",
+    })
+    expect(planShoppingEventPage({ afterSequence: null, beforeSequence: null })).toEqual({
+      ok: false,
+      reason: "invalid",
+    })
+    expect(planShoppingEventPage({ afterSequence: 1.5, beforeSequence: null }).ok).toBe(false)
+    expect(planShoppingEventPage({ afterSequence: -1, beforeSequence: null }).ok).toBe(false)
+    expect(planShoppingEventPage({ afterSequence: null, beforeSequence: -1 }).ok).toBe(false)
+    expect(planShoppingEventPage({ afterSequence: null, beforeSequence: 1.2 }).ok).toBe(false)
+    expect(planShoppingEventPage({ afterSequence: 0, beforeSequence: null, pageSize: 1.5 })).toEqual({
+      ok: false,
+      reason: "invalid",
+    })
+  })
+
+  it("clamps page size into 1..100", () => {
+    expect(planShoppingEventPage({ afterSequence: 0, beforeSequence: null, pageSize: 0 })).toMatchObject({
+      pageSize: 1,
+      take: 2,
+    })
+    expect(planShoppingEventPage({ afterSequence: null, beforeSequence: 10, pageSize: 500 })).toMatchObject({
+      pageSize: 100,
+      take: 101,
+      reverse: true,
+    })
   })
 })

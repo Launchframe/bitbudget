@@ -9,6 +9,7 @@ import { generateInviteToken, hashInviteToken } from "@/lib/shopping-invites"
 import {
   ShoppingRevisionConflictError,
   ShoppingStaleSequenceError,
+  planShoppingEventPage,
   shoppingEventSnapshotWhere,
   shoppingEventWindowStart,
 } from "@/lib/shopping-sync"
@@ -17,8 +18,9 @@ import {
   SHOPPING_MAX_ACTIVE_MEMBERS,
   SHOPPING_MAX_INVITES_PER_HOUR,
   SHOPPING_MAX_LISTS_PER_GROUP,
+  SHOPPING_MAX_CIPHERTEXT_CHARS,
   SHOPPING_MAX_REQUESTS_PER_LIST,
-  SHOPPING_MAX_EVENTS_PAGE,
+  isNonEmptyId,
   isShoppingEventType,
   type ShoppingEventType,
 } from "@/lib/shopping-types"
@@ -225,6 +227,7 @@ export async function getGroupSnapshot(groupId: string, userId: string) {
     events: events.map(serializeEvent),
     eventsMeta: {
       oldestIncludedSequence: events[0]?.sequence ?? null,
+      // Earlier rows: GET .../events?beforeSequence=<oldestIncludedSequence>
       hasEarlierEvents: eventWindowStart != null && eventWindowStart > 1,
     },
     invites:
@@ -577,6 +580,57 @@ export async function removeOrLeaveMember(params: {
   })
 }
 
+/** Every active member gets exactly one wrap, and each wrap is long enough to be a sealed key. */
+export function assertWrapsCoverMembers(
+  wraps: ReadonlyArray<{ memberId: string; wrappedKey: string }>,
+  activeMemberIds: readonly string[],
+): void {
+  const ids = wraps.map((wrap) => wrap.memberId)
+  const unique = new Set(ids)
+  if (
+    unique.size !== ids.length ||
+    unique.size !== activeMemberIds.length ||
+    activeMemberIds.some((id) => !unique.has(id))
+  ) {
+    throw new ShoppingHttpError("Wrap the new key for every remaining member", 400)
+  }
+  for (const wrap of wraps) {
+    if (typeof wrap.wrappedKey !== "string" || wrap.wrappedKey.length < 40) {
+      throw new ShoppingHttpError("Missing wrapped group key", 400)
+    }
+  }
+}
+
+type ReencryptedRow = { id?: unknown; encryptedPayload?: unknown; revision?: unknown }
+
+/** Reject plaintext and missing ids before rotation `updateMany` (undefined filters match every row). */
+export function assertReencryptedShoppingCiphertext(reencrypted: {
+  lists?: readonly ReencryptedRow[]
+  requests?: readonly ReencryptedRow[]
+  receipts?: readonly ReencryptedRow[]
+}): void {
+  const check = (rows: unknown, label: string) => {
+    if (rows == null) return
+    if (!Array.isArray(rows)) throw new ShoppingHttpError("Invalid revision", 400)
+    for (const row of rows as ReencryptedRow[]) {
+      if (!row || typeof row !== "object" || !isNonEmptyId(row.id)) {
+        throw new ShoppingHttpError("Invalid revision", 400)
+      }
+      if (typeof row.revision !== "number" || !Number.isInteger(row.revision) || row.revision < 1) {
+        throw new ShoppingHttpError("Invalid revision", 400)
+      }
+      const payload = typeof row.encryptedPayload === "string" ? row.encryptedPayload : ""
+      assertCiphertext(payload, label)
+      if (payload.length > SHOPPING_MAX_CIPHERTEXT_CHARS) {
+        throw new ShoppingHttpError(`${label} is too large`, 400)
+      }
+    }
+  }
+  check(reencrypted.lists, "List")
+  check(reencrypted.requests, "Item")
+  check(reencrypted.receipts, "Receipt")
+}
+
 export async function rotateGroupKeys(params: {
   groupId: string
   userId: string
@@ -596,9 +650,10 @@ export async function rotateGroupKeys(params: {
   const active = await prisma.shoppingMember.findMany({
     where: { groupId: params.groupId, status: "active" },
   })
-  if (params.wraps.length !== active.length) {
-    throw new ShoppingHttpError("Wrap the new key for every remaining member", 400)
-  }
+  assertWrapsCoverMembers(
+    params.wraps,
+    active.map((m) => m.id),
+  )
   const byId = new Map(active.map((m) => [m.id, m]))
   for (const wrap of params.wraps) {
     const member = byId.get(wrap.memberId)
@@ -608,6 +663,7 @@ export async function rotateGroupKeys(params: {
     }
   }
   assertCiphertext(params.encryptedMetadata, "Group name")
+  assertReencryptedShoppingCiphertext(params.reencrypted)
   await prisma.$transaction(async (tx) => {
     await tx.shoppingGroup.update({
       where: { id: params.groupId },
@@ -883,23 +939,33 @@ export async function upsertReceiptDraft(params: {
 export async function listShoppingEvents(params: {
   groupId: string
   userId: string
-  afterSequence: number
+  afterSequence?: number | null
+  beforeSequence?: number | null
   limit?: number
 }) {
   await requireActiveMember(params.groupId, params.userId)
-  if (!Number.isInteger(params.afterSequence) || params.afterSequence < 0) {
-    throw new ShoppingHttpError("Invalid sequence cursor", 400)
-  }
-  const limit = Math.min(
-    Math.max(1, params.limit ?? SHOPPING_MAX_EVENTS_PAGE),
-    SHOPPING_MAX_EVENTS_PAGE,
-  )
-  const rows = await prisma.shoppingEvent.findMany({
-    where: { groupId: params.groupId, sequence: { gt: params.afterSequence } },
-    orderBy: { sequence: "asc" },
-    take: limit,
+  const plan = planShoppingEventPage({
+    afterSequence: params.afterSequence ?? null,
+    beforeSequence: params.beforeSequence ?? null,
+    pageSize: params.limit,
   })
-  return rows.map(serializeEvent)
+  if (!plan.ok) {
+    throw new ShoppingHttpError(
+      plan.reason === "both"
+        ? "Choose either newer or earlier items, not both."
+        : "Invalid sequence cursor",
+      400,
+    )
+  }
+  const rows = await prisma.shoppingEvent.findMany({
+    where: { groupId: params.groupId, sequence: plan.sequence },
+    orderBy: { sequence: plan.order },
+    take: plan.take,
+  })
+  const hasMore = rows.length > plan.pageSize
+  const page = hasMore ? rows.slice(0, plan.pageSize) : rows
+  const ordered = plan.reverse ? page.reverse() : page
+  return { events: ordered.map(serializeEvent), hasMore }
 }
 
 export async function appendShoppingEvent(params: {

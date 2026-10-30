@@ -10,7 +10,7 @@ import { centsToDollars } from "@/lib/shopping-split-math"
 import { isShoppingManagedSource } from "@/lib/shopping-classification"
 import { ShoppingHttpError, requireActiveMember } from "@/lib/shopping-server"
 import { SHOPPING_ENTRY_KINDS, type ShoppingEntryKind } from "@/lib/shopping-types"
-import { kindToTransactionSource } from "@/lib/shopping-budget-projection"
+import { expectedShoppingEntryType, kindToTransactionSource } from "@/lib/shopping-budget-projection"
 
 export interface ShoppingPostingEntryInput {
   entryKey: string
@@ -64,6 +64,10 @@ export async function applyShoppingPostings(params: {
     }
     if (entry.type !== "expense" && entry.type !== "credit") {
       throw new ShoppingHttpError("type must be expense or credit", 400)
+    }
+    const expectedType = expectedShoppingEntryType(entry.kind)
+    if (expectedType !== "either" && entry.type !== expectedType) {
+      throw new ShoppingHttpError("This shared-list entry cannot be saved that way.", 400)
     }
     if (!looksLikeAsymmetricCiphertext(entry.payee)) {
       throw new ShoppingHttpError("Payee must be encrypted", 400)

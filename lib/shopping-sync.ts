@@ -65,6 +65,63 @@ export function shoppingEventSnapshotWhere(
   return { sequence: { gte: start } }
 }
 
+export type ShoppingEventPagePlan =
+  | { ok: false; reason: "both" | "invalid" }
+  | {
+      ok: true
+      sequence: { gt: number } | { lt: number }
+      order: "asc" | "desc"
+      /** Rows to fetch, one past the page so the caller can set `hasMore`. */
+      take: number
+      pageSize: number
+      /** Descending history pages are flipped to ascending before they are returned. */
+      reverse: boolean
+    }
+
+/**
+ * One cursor per request.
+ * `afterSequence` walks forward (`sequence > cursor`).
+ * `beforeSequence` walks backward to the page immediately older than the cursor
+ * (the snapshot tail's `oldestIncludedSequence`).
+ */
+export function planShoppingEventPage(input: {
+  afterSequence: number | null
+  beforeSequence: number | null
+  pageSize?: number
+}): ShoppingEventPagePlan {
+  const requested = input.pageSize ?? SHOPPING_MAX_EVENTS_PAGE
+  if (!Number.isInteger(requested)) return { ok: false, reason: "invalid" }
+  const pageSize = Math.min(Math.max(1, requested), SHOPPING_MAX_EVENTS_PAGE)
+  const hasAfter = input.afterSequence != null
+  const hasBefore = input.beforeSequence != null
+  if (hasAfter && hasBefore) return { ok: false, reason: "both" }
+  if (!hasAfter && !hasBefore) return { ok: false, reason: "invalid" }
+  if (hasAfter) {
+    if (!Number.isInteger(input.afterSequence) || (input.afterSequence ?? -1) < 0) {
+      return { ok: false, reason: "invalid" }
+    }
+    return {
+      ok: true,
+      sequence: { gt: input.afterSequence as number },
+      order: "asc",
+      take: pageSize + 1,
+      pageSize,
+      reverse: false,
+    }
+  }
+  if (!Number.isInteger(input.beforeSequence) || (input.beforeSequence ?? -1) < 0) {
+    return { ok: false, reason: "invalid" }
+  }
+  return {
+    ok: true,
+    sequence: { lt: input.beforeSequence as number },
+    order: "desc",
+    take: pageSize + 1,
+    pageSize,
+    reverse: true,
+  }
+}
+
 export type ShoppingOutboxKind = "request_upsert" | "request_checkoff" | "list_upsert"
 
 export interface ShoppingOutboxItem {
