@@ -1,7 +1,24 @@
 import { withShoppingUser } from "@/lib/shopping-api"
 import { readShoppingJson, requirePositiveInt, requireShoppingCiphertext, shoppingJson } from "@/lib/shopping-http"
-import { appendShoppingEvent } from "@/lib/shopping-server"
+import { appendShoppingEvent, listShoppingEvents } from "@/lib/shopping-server"
 import { isShoppingEventType } from "@/lib/shopping-types"
+
+export async function GET(req: Request, ctx: { params: Promise<{ groupId: string }> }) {
+  const { groupId } = await ctx.params
+  const afterRaw = new URL(req.url).searchParams.get("afterSequence")
+  let afterSequence = 0
+  if (afterRaw != null && afterRaw !== "") {
+    const parsed = Number(afterRaw)
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      return shoppingJson({ error: "Invalid sequence cursor" }, 400)
+    }
+    afterSequence = parsed
+  }
+  return withShoppingUser(async (userId) => {
+    const events = await listShoppingEvents({ groupId, userId, afterSequence })
+    return shoppingJson({ events })
+  })
+}
 
 export async function POST(req: Request, ctx: { params: Promise<{ groupId: string }> }) {
   const { groupId } = await ctx.params

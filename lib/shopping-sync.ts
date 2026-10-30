@@ -3,6 +3,8 @@
  * Financial writes use the group event sequence; list/request rows use per-object revision.
  */
 
+import { SHOPPING_MAX_EVENTS_PAGE } from "@/lib/shopping-types"
+
 export class ShoppingRevisionConflictError extends Error {
   readonly currentRevision: number
   constructor(currentRevision: number) {
@@ -41,6 +43,26 @@ export function assertExpectedSequence(actual: number, expected: number): void {
   if (actual !== expected) {
     throw new ShoppingStaleSequenceError(actual)
   }
+}
+
+/** First sequence included in a tail snapshot window (null when the group has no events yet). */
+export function shoppingEventWindowStart(
+  eventSequence: number,
+  pageSize: number = SHOPPING_MAX_EVENTS_PAGE,
+): number | null {
+  if (eventSequence <= 0) return null
+  if (eventSequence <= pageSize) return 1
+  return eventSequence - pageSize + 1
+}
+
+/** Prisma `where` clause for the newest `pageSize` shopping ledger events. */
+export function shoppingEventSnapshotWhere(
+  eventSequence: number,
+  pageSize: number = SHOPPING_MAX_EVENTS_PAGE,
+): { sequence?: { gte: number } } {
+  const start = shoppingEventWindowStart(eventSequence, pageSize)
+  if (start == null || start <= 1) return {}
+  return { sequence: { gte: start } }
 }
 
 export type ShoppingOutboxKind = "request_upsert" | "request_checkoff" | "list_upsert"

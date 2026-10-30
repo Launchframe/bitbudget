@@ -9,7 +9,12 @@ import {
   isRequestVerificationCode,
 } from "../shopping-invites"
 import { captureInviteFromLocation, loadPendingShoppingInvite, clearPendingShoppingInvite } from "../shopping-invite-handoff"
-import { assertExpectedRevision, ShoppingRevisionConflictError } from "../shopping-sync"
+import {
+  assertExpectedRevision,
+  ShoppingRevisionConflictError,
+  shoppingEventSnapshotWhere,
+  shoppingEventWindowStart,
+} from "../shopping-sync"
 
 describe("shopping invites", () => {
   it("hashes tokens without storing the raw value", async () => {
@@ -67,5 +72,20 @@ describe("shopping sync CAS", () => {
   it("surfaces a conflict when the expected revision is stale", () => {
     expect(() => assertExpectedRevision(2, 1)).toThrow(ShoppingRevisionConflictError)
     expect(() => assertExpectedRevision(3, 3)).not.toThrow()
+  })
+})
+
+describe("shopping event snapshot window", () => {
+  it("returns the full ledger when eventSequence fits in one page", () => {
+    expect(shoppingEventWindowStart(0)).toBeNull()
+    expect(shoppingEventWindowStart(50)).toBe(1)
+    expect(shoppingEventWindowStart(100)).toBe(1)
+    expect(shoppingEventSnapshotWhere(80)).toEqual({})
+  })
+
+  it("tails the newest events when the ledger exceeds the page size", () => {
+    expect(shoppingEventWindowStart(101)).toBe(2)
+    expect(shoppingEventWindowStart(150)).toBe(51)
+    expect(shoppingEventSnapshotWhere(150)).toEqual({ sequence: { gte: 51 } })
   })
 })

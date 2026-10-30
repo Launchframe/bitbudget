@@ -35,7 +35,7 @@ export async function applyShoppingPostings(params: {
   skipped: string[]
   needsAttention: string[]
 }> {
-  const me = await requireActiveMember(params.groupId, params.userId)
+  await requireActiveMember(params.groupId, params.userId)
   const event = await prisma.shoppingEvent.findFirst({
     where: { id: params.eventId, groupId: params.groupId },
   })
@@ -183,7 +183,6 @@ export async function applyShoppingPostings(params: {
     }
   }
 
-  void me
   return { createdIds, skipped, needsAttention }
 }
 

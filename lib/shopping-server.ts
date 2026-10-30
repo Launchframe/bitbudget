@@ -9,6 +9,8 @@ import { generateInviteToken, hashInviteToken } from "@/lib/shopping-invites"
 import {
   ShoppingRevisionConflictError,
   ShoppingStaleSequenceError,
+  shoppingEventSnapshotWhere,
+  shoppingEventWindowStart,
 } from "@/lib/shopping-sync"
 import {
   SHOPPING_INVITE_TTL_MS,
@@ -153,6 +155,7 @@ export async function createGroup(params: {
 
 export async function getGroupSnapshot(groupId: string, userId: string) {
   const me = await requireActiveMember(groupId, userId)
+  const eventWindowStart = shoppingEventWindowStart(me.group.eventSequence)
   const [members, lists, requests, receipts, events, myKeys, pendingInvites] = await Promise.all([
     prisma.shoppingMember.findMany({
       where: { groupId, status: { in: ["active", "removed", "left"] } },
@@ -180,9 +183,8 @@ export async function getGroupSnapshot(groupId: string, userId: string) {
       orderBy: { createdAt: "desc" },
     }),
     prisma.shoppingEvent.findMany({
-      where: { groupId },
+      where: { groupId, ...shoppingEventSnapshotWhere(me.group.eventSequence) },
       orderBy: { sequence: "asc" },
-      take: SHOPPING_MAX_EVENTS_PAGE,
     }),
     prisma.shoppingMemberKey.findMany({
       where: { memberId: me.id },
@@ -221,6 +223,10 @@ export async function getGroupSnapshot(groupId: string, userId: string) {
     requests: requests.map(serializeRequest),
     receipts: receipts.map(serializeReceipt),
     events: events.map(serializeEvent),
+    eventsMeta: {
+      oldestIncludedSequence: events[0]?.sequence ?? null,
+      hasEarlierEvents: eventWindowStart != null && eventWindowStart > 1,
+    },
     invites:
       me.role === "owner"
         ? pendingInvites.map((inv) => ({
@@ -874,6 +880,28 @@ export async function upsertReceiptDraft(params: {
   return prisma.shoppingReceipt.findFirstOrThrow({ where: { id: existing.id } })
 }
 
+export async function listShoppingEvents(params: {
+  groupId: string
+  userId: string
+  afterSequence: number
+  limit?: number
+}) {
+  await requireActiveMember(params.groupId, params.userId)
+  if (!Number.isInteger(params.afterSequence) || params.afterSequence < 0) {
+    throw new ShoppingHttpError("Invalid sequence cursor", 400)
+  }
+  const limit = Math.min(
+    Math.max(1, params.limit ?? SHOPPING_MAX_EVENTS_PAGE),
+    SHOPPING_MAX_EVENTS_PAGE,
+  )
+  const rows = await prisma.shoppingEvent.findMany({
+    where: { groupId: params.groupId, sequence: { gt: params.afterSequence } },
+    orderBy: { sequence: "asc" },
+    take: limit,
+  })
+  return rows.map(serializeEvent)
+}
+
 export async function appendShoppingEvent(params: {
   groupId: string
   userId: string
@@ -974,7 +1002,10 @@ export async function updatePreference(params: {
   enabledAtSequence?: number | null
 }) {
   await requireActiveMember(params.groupId, params.userId)
-  if (params.enabled && params.envelopeId) {
+  if (params.enabled) {
+    if (!params.envelopeId) {
+      throw new ShoppingHttpError("Choose one of your envelopes", 400)
+    }
     const envelope = await prisma.envelope.findFirst({
       where: { id: params.envelopeId, userId: params.userId, deletedAt: null },
     })
