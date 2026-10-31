@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
 import { dollarsToCents, newShoppingObjectId } from "@/lib/shopping-payloads"
 import { suggestShoppingRequestId } from "@/lib/shopping-receipt-plan"
 import type { ShoppingMatchRequest } from "@/lib/shopping-item-matcher"
@@ -90,7 +91,15 @@ export function ShoppingReceiptDialog({
 
   return (
     <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent className="max-h-[min(90vh,40rem)] max-w-[min(96vw,32rem)] overflow-y-auto rounded-2xl">
+      <DialogContent
+        className="max-h-[min(90vh,40rem)] max-w-[min(96vw,32rem)] overflow-y-auto rounded-2xl"
+        onKeyDown={(event) =>
+          handleDialogEnterToPrimary(event, {
+            disabled: busy || !merchant.trim() || !amount.trim(),
+            onPrimary: save,
+          })
+        }
+      >
         <DialogHeader className="pr-10 text-left">
           <DialogTitle>Add a shared receipt</DialogTitle>
           <DialogDescription>

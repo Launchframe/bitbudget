@@ -33,6 +33,19 @@ describe("planSharedReceiptShares", () => {
       }),
     ).toThrow(ReceiptPlanError)
   })
+
+  it("splits a shared item across members and divides the remainder evenly", () => {
+    const shares = planSharedReceiptShares({
+      totalCents: 300,
+      memberIds: members,
+      lines: [{ cents: 120, memberIds: members }],
+    })
+    expect(shares).toEqual([
+      { memberId: "ann", cents: 150 },
+      { memberId: "ben", cents: 150 },
+    ])
+    expect(shares.reduce((sum, row) => sum + row.cents, 0)).toBe(300)
+  })
 })
 
 describe("suggestShoppingRequestId", () => {
