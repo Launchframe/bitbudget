@@ -62,9 +62,10 @@ export function shoppingInviteUrl(
 export function parseInviteFragment(hash: string): string | null {
   const raw = hash.startsWith("#") ? hash.slice(1) : hash
   if (!raw) return null
-  let token = raw
+  const tokenPart = raw.split(".")[0] ?? ""
+  let token = tokenPart
   try {
-    token = decodeURIComponent(raw)
+    token = decodeURIComponent(tokenPart)
   } catch {
     return null
   }

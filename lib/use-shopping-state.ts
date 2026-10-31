@@ -15,7 +15,11 @@ import {
 import { generateRequestVerificationCode } from "@/lib/shopping-invites"
 import { canQueueOffline, type ShoppingOutboxItem } from "@/lib/shopping-sync"
 import { encryptFieldAsymmetric, hexToPublicKey } from "@/lib/crypto"
-import type { ShoppingGroupSnapshot } from "@/lib/shopping-view"
+import {
+  ShoppingSnapshotSupersededError,
+  loadCompleteShoppingSnapshotEvents,
+} from "@/lib/shopping-snapshot-events"
+import type { ShoppingGroupSnapshot, ShoppingSnapshotEvent } from "@/lib/shopping-view"
 
 export interface ShoppingGroupSummary {
   id: string
@@ -48,6 +52,10 @@ async function shoppingFetch(url: string, init?: RequestInit): Promise<Response>
   })
 }
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError"
+}
+
 /**
  * Encrypted shopping state for the signed-in user.
  * Decrypt payloads in the caller with the group content key; this hook never
@@ -56,33 +64,73 @@ async function shoppingFetch(url: string, init?: RequestInit): Promise<Response>
 export function useShoppingState() {
   const { currentUserId, encryption } = useApp()
   const unlocked = encryption.ready && !encryption.needsPinUnlock
-  const [groups, setGroups] = useState<ShoppingGroupSummary[]>([])
+  const [groupsState, setGroupsState] = useState<{ userId: string; groups: ShoppingGroupSummary[] } | null>(null)
+  const [settledUserId, setSettledUserId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [errorState, setErrorState] = useState<{ userId: string; message: string } | null>(null)
   const [pendingInvite, setPendingInvite] = useState<{ token: string; ownerPublicKey: string | null } | null>(
     loadPendingShoppingInvite,
   )
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const refreshGen = useRef(0)
+  const groupsAbort = useRef<AbortController | null>(null)
+  const fetchAbort = useRef<AbortController | null>(null)
+  const userIdRef = useRef(currentUserId)
+  const hasLoadedRef = useRef(false)
+  const loadedForUser = useRef(currentUserId)
+  userIdRef.current = currentUserId
+  if (loadedForUser.current !== currentUserId) {
+    loadedForUser.current = currentUserId
+    hasLoadedRef.current = false
+    refreshGen.current += 1
+  }
+
+  const groups =
+    unlocked && groupsState?.userId === currentUserId ? groupsState.groups : []
+  const error = errorState?.userId === currentUserId ? errorState.message : null
+  const loadingGroups = Boolean(
+    unlocked && currentUserId && (loading || settledUserId !== currentUserId),
+  )
 
   const refreshGroups = useCallback(async () => {
-    if (!currentUserId || !unlocked) return
-    setLoading(true)
-    setError(null)
+    const userId = currentUserId
+    if (!userId || !unlocked) return
+    const gen = ++refreshGen.current
+    const background = hasLoadedRef.current
+    groupsAbort.current?.abort()
+    const controller = new AbortController()
+    groupsAbort.current = controller
+    if (!background) {
+      setLoading(true)
+      setErrorState(null)
+    }
     try {
-      const res = await shoppingFetch("/api/shopping/groups")
+      const res = await shoppingFetch("/api/shopping/groups", { signal: controller.signal })
+      if (gen !== refreshGen.current || userIdRef.current !== userId) return
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string }
         throw new Error(body.error || "Could not load shared lists")
       }
       const data = (await res.json()) as { groups: ShoppingGroupSummary[] }
-      setGroups(data.groups)
+      if (gen !== refreshGen.current || userIdRef.current !== userId) return
+      hasLoadedRef.current = true
+      setSettledUserId(userId)
+      setErrorState(null)
+      setGroupsState({ userId, groups: data.groups })
       for (const group of data.groups) {
-        await saveShoppingSnapshot(currentUserId, group.id, JSON.stringify(group))
+        if (gen !== refreshGen.current || userIdRef.current !== userId) return
+        await saveShoppingSnapshot(userId, group.id, JSON.stringify(group))
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load shared lists")
+      if (isAbortError(err)) return
+      if (gen !== refreshGen.current || userIdRef.current !== userId) return
+      setSettledUserId(userId)
+      setErrorState({
+        userId,
+        message: err instanceof Error ? err.message : "Could not load shared lists",
+      })
     } finally {
-      setLoading(false)
+      if (gen === refreshGen.current && userIdRef.current === userId) setLoading(false)
     }
   }, [currentUserId, unlocked])
 
@@ -121,6 +169,8 @@ export function useShoppingState() {
       void refreshGroups()
     }, 20_000)
     return () => {
+      refreshGen.current += 1
+      groupsAbort.current?.abort()
       if (pollRef.current) clearInterval(pollRef.current)
     }
   }, [unlocked, currentUserId, refreshGroups, flushOutbox])
@@ -165,14 +215,50 @@ export function useShoppingState() {
     [],
   )
 
-  const fetchGroup = useCallback(async (groupId: string) => {
-    const res = await shoppingFetch(`/api/shopping/groups/${groupId}`)
+  const fetchGroupEventsBefore = useCallback(async (
+    groupId: string,
+    beforeSequence: number,
+    signal: AbortSignal,
+  ) => {
+    const res = await shoppingFetch(
+      `/api/shopping/groups/${groupId}/events?beforeSequence=${beforeSequence}`,
+      { signal },
+    )
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string }
-      throw new Error(body.error || "Could not load this group")
+      throw new Error(body.error || "Could not load earlier tab history")
     }
-    return res.json() as Promise<ShoppingGroupSnapshot>
+    return res.json() as Promise<{ events: ShoppingSnapshotEvent[]; hasMore: boolean }>
   }, [])
+
+  const fetchGroup = useCallback(async (groupId: string) => {
+    fetchAbort.current?.abort()
+    const controller = new AbortController()
+    fetchAbort.current = controller
+    const { signal } = controller
+    try {
+      const res = await shoppingFetch(`/api/shopping/groups/${groupId}`, { signal })
+      if (signal.aborted) throw new ShoppingSnapshotSupersededError()
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(body.error || "Could not load this group")
+      }
+      const snapshot = (await res.json()) as ShoppingGroupSnapshot
+      const events = await loadCompleteShoppingSnapshotEvents(
+        snapshot.events,
+        snapshot.eventsMeta,
+        (beforeSequence) => {
+          if (signal.aborted) throw new ShoppingSnapshotSupersededError()
+          return fetchGroupEventsBefore(groupId, beforeSequence, signal)
+        },
+      )
+      if (signal.aborted) throw new ShoppingSnapshotSupersededError()
+      return { ...snapshot, events }
+    } catch (err) {
+      if (isAbortError(err) || signal.aborted) throw new ShoppingSnapshotSupersededError()
+      throw err
+    }
+  }, [fetchGroupEventsBefore])
 
   const createGroup = useCallback(async (body: Record<string, unknown>) => {
     const res = await shoppingFetch("/api/shopping/groups", {
@@ -322,8 +408,8 @@ export function useShoppingState() {
   }, [])
 
   return {
-    groups: unlocked ? groups : [],
-    loading,
+    groups,
+    loading: loadingGroups,
     error,
     unlocked,
     pendingInvite,

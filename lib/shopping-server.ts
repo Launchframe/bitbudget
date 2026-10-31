@@ -4,21 +4,25 @@
  */
 
 import { prisma } from "@/lib/db"
+import { budgetOptInSequence } from "@/lib/shopping-budget-projection"
 import { isShoppingCiphertext } from "@/lib/shopping-crypto"
 import { generateInviteToken, hashInviteToken } from "@/lib/shopping-invites"
 import {
   ShoppingRevisionConflictError,
   ShoppingStaleSequenceError,
+  planShoppingEventPage,
+  shoppingEventSnapshotWhere,
+  shoppingEventWindowStart,
 } from "@/lib/shopping-sync"
 import {
   SHOPPING_INVITE_TTL_MS,
   SHOPPING_MAX_ACTIVE_MEMBERS,
   SHOPPING_MAX_INVITES_PER_HOUR,
   SHOPPING_MAX_LISTS_PER_GROUP,
+  SHOPPING_MAX_CIPHERTEXT_CHARS,
   SHOPPING_MAX_REQUESTS_PER_LIST,
-  SHOPPING_MAX_EVENTS_PAGE,
-  isShoppingEventType,
   isNonEmptyId,
+  isShoppingEventType,
   type ShoppingEventType,
 } from "@/lib/shopping-types"
 
@@ -160,6 +164,7 @@ export async function createGroup(params: {
 
 export async function getGroupSnapshot(groupId: string, userId: string) {
   const me = await requireActiveMember(groupId, userId)
+  const eventWindowStart = shoppingEventWindowStart(me.group.eventSequence)
   const [members, lists, requests, receipts, events, myKeys, pendingInvites] = await Promise.all([
     prisma.shoppingMember.findMany({
       where: { groupId, status: { in: ["active", "removed", "left"] } },
@@ -187,9 +192,8 @@ export async function getGroupSnapshot(groupId: string, userId: string) {
       orderBy: { createdAt: "desc" },
     }),
     prisma.shoppingEvent.findMany({
-      where: { groupId },
+      where: { groupId, ...shoppingEventSnapshotWhere(me.group.eventSequence) },
       orderBy: { sequence: "asc" },
-      take: SHOPPING_MAX_EVENTS_PAGE,
     }),
     prisma.shoppingMemberKey.findMany({
       where: { memberId: me.id },
@@ -228,6 +232,11 @@ export async function getGroupSnapshot(groupId: string, userId: string) {
     requests: requests.map(serializeRequest),
     receipts: receipts.map(serializeReceipt),
     events: events.map(serializeEvent),
+    eventsMeta: {
+      oldestIncludedSequence: events[0]?.sequence ?? null,
+      // Earlier rows: GET .../events?beforeSequence=<oldestIncludedSequence>
+      hasEarlierEvents: eventWindowStart != null && eventWindowStart > 1,
+    },
     invites:
       me.role === "owner"
         ? pendingInvites.map((inv) => ({
@@ -578,6 +587,57 @@ export async function removeOrLeaveMember(params: {
   })
 }
 
+/** Every active member gets exactly one wrap, and each wrap is long enough to be a sealed key. */
+export function assertWrapsCoverMembers(
+  wraps: ReadonlyArray<{ memberId: string; wrappedKey: string }>,
+  activeMemberIds: readonly string[],
+): void {
+  const ids = wraps.map((wrap) => wrap.memberId)
+  const unique = new Set(ids)
+  if (
+    unique.size !== ids.length ||
+    unique.size !== activeMemberIds.length ||
+    activeMemberIds.some((id) => !unique.has(id))
+  ) {
+    throw new ShoppingHttpError("Wrap the new key for every remaining member", 400)
+  }
+  for (const wrap of wraps) {
+    if (typeof wrap.wrappedKey !== "string" || wrap.wrappedKey.length < 40) {
+      throw new ShoppingHttpError("Missing wrapped group key", 400)
+    }
+  }
+}
+
+type ReencryptedRow = { id?: unknown; encryptedPayload?: unknown; revision?: unknown }
+
+/** Reject plaintext and missing ids before rotation `updateMany` (undefined filters match every row). */
+export function assertReencryptedShoppingCiphertext(reencrypted: {
+  lists?: readonly ReencryptedRow[]
+  requests?: readonly ReencryptedRow[]
+  receipts?: readonly ReencryptedRow[]
+}): void {
+  const check = (rows: unknown, label: string) => {
+    if (rows == null) return
+    if (!Array.isArray(rows)) throw new ShoppingHttpError("Invalid revision", 400)
+    for (const row of rows as ReencryptedRow[]) {
+      if (!row || typeof row !== "object" || !isNonEmptyId(row.id)) {
+        throw new ShoppingHttpError("Invalid revision", 400)
+      }
+      if (typeof row.revision !== "number" || !Number.isInteger(row.revision) || row.revision < 1) {
+        throw new ShoppingHttpError("Invalid revision", 400)
+      }
+      const payload = typeof row.encryptedPayload === "string" ? row.encryptedPayload : ""
+      assertCiphertext(payload, label)
+      if (payload.length > SHOPPING_MAX_CIPHERTEXT_CHARS) {
+        throw new ShoppingHttpError(`${label} is too large`, 400)
+      }
+    }
+  }
+  check(reencrypted.lists, "List")
+  check(reencrypted.requests, "Item")
+  check(reencrypted.receipts, "Receipt")
+}
+
 export async function rotateGroupKeys(params: {
   groupId: string
   userId: string
@@ -597,9 +657,10 @@ export async function rotateGroupKeys(params: {
   const active = await prisma.shoppingMember.findMany({
     where: { groupId: params.groupId, status: "active" },
   })
-  if (params.wraps.length !== active.length) {
-    throw new ShoppingHttpError("Wrap the new key for every remaining member", 400)
-  }
+  assertWrapsCoverMembers(
+    params.wraps,
+    active.map((m) => m.id),
+  )
   const byId = new Map(active.map((m) => [m.id, m]))
   for (const wrap of params.wraps) {
     const member = byId.get(wrap.memberId)
@@ -609,6 +670,7 @@ export async function rotateGroupKeys(params: {
     }
   }
   assertCiphertext(params.encryptedMetadata, "Group name")
+  assertReencryptedShoppingCiphertext(params.reencrypted)
   await prisma.$transaction(async (tx) => {
     await tx.shoppingGroup.update({
       where: { id: params.groupId },
@@ -912,6 +974,38 @@ export async function upsertReceiptDraft(params: {
   return prisma.shoppingReceipt.findFirstOrThrow({ where: { id: existing.id } })
 }
 
+export async function listShoppingEvents(params: {
+  groupId: string
+  userId: string
+  afterSequence?: number | null
+  beforeSequence?: number | null
+  limit?: number
+}) {
+  await requireActiveMember(params.groupId, params.userId)
+  const plan = planShoppingEventPage({
+    afterSequence: params.afterSequence ?? null,
+    beforeSequence: params.beforeSequence ?? null,
+    pageSize: params.limit,
+  })
+  if (!plan.ok) {
+    throw new ShoppingHttpError(
+      plan.reason === "both"
+        ? "Choose either newer or earlier items, not both."
+        : "Invalid sequence cursor",
+      400,
+    )
+  }
+  const rows = await prisma.shoppingEvent.findMany({
+    where: { groupId: params.groupId, sequence: plan.sequence },
+    orderBy: { sequence: plan.order },
+    take: plan.take,
+  })
+  const hasMore = rows.length > plan.pageSize
+  const page = hasMore ? rows.slice(0, plan.pageSize) : rows
+  const ordered = plan.reverse ? page.reverse() : page
+  return { events: ordered.map(serializeEvent), hasMore }
+}
+
 export async function appendShoppingEvent(params: {
   groupId: string
   userId: string
@@ -1009,34 +1103,66 @@ export async function updatePreference(params: {
   enabled: boolean
   envelopeId: string | null
   catchUpApproved?: boolean
-  enabledAtSequence?: number | null
 }) {
   await requireActiveMember(params.groupId, params.userId)
-  if (params.enabled && params.envelopeId) {
+  if (params.enabled) {
+    if (!params.envelopeId) {
+      throw new ShoppingHttpError("Choose one of your envelopes", 400)
+    }
     const envelope = await prisma.envelope.findFirst({
-      where: { id: params.envelopeId, userId: params.userId, deletedAt: null },
+      where: {
+        id: params.envelopeId,
+        userId: params.userId,
+        deletedAt: null,
+        archived: false,
+        systemRole: null,
+      },
     })
     if (!envelope) throw new ShoppingHttpError("Choose one of your envelopes", 400)
   }
-  const updated = await prisma.shoppingBudgetPreference.updateMany({
-    where: {
-      groupId: params.groupId,
-      userId: params.userId,
-      preferenceVersion: params.expectedVersion,
-    },
-    data: {
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ eventSequence: number }>>`
+      SELECT "eventSequence" FROM "ShoppingGroup" WHERE "id" = ${params.groupId} FOR UPDATE
+    `
+    const groupEventSequence = locked[0]?.eventSequence
+    if (groupEventSequence == null) {
+      throw new ShoppingHttpError("You do not have access to this list", 404)
+    }
+    const current = await tx.shoppingBudgetPreference.findFirst({
+      where: { groupId: params.groupId, userId: params.userId },
+    })
+    if (!current || current.preferenceVersion !== params.expectedVersion) {
+      throw new ShoppingHttpError("Budget settings changed on another device. Refresh and try again.", 409)
+    }
+    const catchUpApproved = params.enabled && params.catchUpApproved === true
+    const enabledAtSequence = budgetOptInSequence({
       enabled: params.enabled,
-      envelopeId: params.enabled ? params.envelopeId : params.envelopeId,
-      catchUpApproved: params.catchUpApproved ?? false,
-      enabledAtSequence: params.enabledAtSequence ?? undefined,
-      preferenceVersion: params.expectedVersion + 1,
-    },
-  })
-  if (updated.count !== 1) {
-    throw new ShoppingHttpError("Budget settings changed on another device. Refresh and try again.", 409)
-  }
-  return prisma.shoppingBudgetPreference.findFirstOrThrow({
-    where: { groupId: params.groupId, userId: params.userId },
+      catchUpApproved,
+      previouslyEnabled: current.enabled,
+      previousCatchUpApproved: current.catchUpApproved,
+      previousEnabledAtSequence: current.enabledAtSequence,
+      groupEventSequence,
+    })
+    const updated = await tx.shoppingBudgetPreference.updateMany({
+      where: {
+        groupId: params.groupId,
+        userId: params.userId,
+        preferenceVersion: params.expectedVersion,
+      },
+      data: {
+        enabled: params.enabled,
+        envelopeId: params.enabled ? params.envelopeId : current.envelopeId,
+        catchUpApproved,
+        enabledAtSequence,
+        preferenceVersion: params.expectedVersion + 1,
+      },
+    })
+    if (updated.count !== 1) {
+      throw new ShoppingHttpError("Budget settings changed on another device. Refresh and try again.", 409)
+    }
+    return tx.shoppingBudgetPreference.findFirstOrThrow({
+      where: { groupId: params.groupId, userId: params.userId },
+    })
   })
 }
 
