@@ -113,6 +113,9 @@ export async function applyShoppingPostings(params: {
       continue
     }
 
+    if (pref.envelopeId && entry.envelopeId !== pref.envelopeId) {
+      throw new ShoppingHttpError("Use the envelope selected in your budget settings", 400)
+    }
     const envelope = await prisma.envelope.findFirst({
       where: { id: entry.envelopeId, userId: params.userId, deletedAt: null },
     })

@@ -68,8 +68,11 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
   }, [pref, view.events, view.me.id])
 
   const pending = projected.filter((row) => !settled.has(row.entryKey))
+  const preferenceDraftDirty =
+    pref != null &&
+    (envelopeId !== (pref.envelopeId ?? "") || catchUp !== pref.catchUpApproved)
   const selectedEnvelope =
-    discretionaryEnvelopes.find((env) => env.id === (pref?.envelopeId || envelopeId)) ?? null
+    discretionaryEnvelopes.find((env) => env.id === (pref?.envelopeId ?? "")) ?? null
 
   async function reload() {
     const [nextPref, rows] = await Promise.all([
@@ -228,8 +231,7 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
             />
           </div>
 
-          {pref.enabled &&
-            (envelopeId !== (pref.envelopeId ?? "") || catchUp !== pref.catchUpApproved) && (
+          {pref.enabled && preferenceDraftDirty && (
             <Button type="button" className="w-full sm:w-auto" disabled={busy} onClick={() => void save(true)}>
               Save
             </Button>
@@ -243,6 +245,10 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
 
           {pref.enabled && pending.length === 0 && (
             <p className="text-sm text-muted-foreground">Nothing new to add.</p>
+          )}
+
+          {pref.enabled && preferenceDraftDirty && pending.length > 0 && (
+            <p className="text-sm text-muted-foreground">Save your envelope choice before adding rows.</p>
           )}
 
           {pref.enabled && pending.length > 0 && (
@@ -259,10 +265,21 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <Button type="button" size="sm" disabled={busy} onClick={() => void addRow(row)}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={busy || preferenceDraftDirty}
+                      onClick={() => void addRow(row)}
+                    >
                       Add
                     </Button>
-                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void skipRow(row)}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy || preferenceDraftDirty}
+                      onClick={() => void skipRow(row)}
+                    >
                       Skip
                     </Button>
                   </div>
