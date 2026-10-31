@@ -37,7 +37,14 @@ const USERS = [
   },
 ] as const
 
+function assertQaTestEmail(email: string): void {
+  if (!email.endsWith("@bitbudget.test")) {
+    throw new Error(`Refusing qa:shopping:seed for non-test email: ${email}`)
+  }
+}
+
 async function resetUser(email: string): Promise<void> {
+  assertQaTestEmail(email)
   const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } })
   if (!existing) return
   await prisma.shoppingGroup.deleteMany({ where: { ownerId: existing.id } })
@@ -45,6 +52,7 @@ async function resetUser(email: string): Promise<void> {
 }
 
 async function seedUser(spec: (typeof USERS)[number]): Promise<void> {
+  assertQaTestEmail(spec.email)
   const privacyKey = hexToUint8(spec.privacyKeyHex)
   const wrappingKey = await deriveKeyFromPin(PASSPHRASE, hexToUint8(spec.saltHex))
   const wrapped = await encryptPrivacyKey(privacyKey, wrappingKey)
