@@ -17,6 +17,7 @@ import {
   hexToUint8,
   publicKeyToHex,
 } from "../lib/crypto"
+import { assertShoppingQaSeedEmail, SHOPPING_QA_SEED_EMAILS } from "../lib/shopping-qa-seed"
 
 const prisma = new PrismaClient()
 
@@ -24,35 +25,40 @@ const PASSPHRASE = "4242"
 
 const USERS = [
   {
-    email: "shopping-owner@bitbudget.test",
+    email: SHOPPING_QA_SEED_EMAILS.owner,
     name: "Shopping Owner",
     privacyKeyHex: "1111111111111111111111111111111111111111111111111111111111111111",
     saltHex: "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
   },
   {
-    email: "shopping-member@bitbudget.test",
+    email: SHOPPING_QA_SEED_EMAILS.member,
     name: "Shopping Member",
     privacyKeyHex: "2222222222222222222222222222222222222222222222222222222222222222",
     saltHex: "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
   },
 ] as const
 
-function assertQaTestEmail(email: string): void {
-  if (!email.endsWith("@bitbudget.test")) {
-    throw new Error(`Refusing qa:shopping:seed for non-test email: ${email}`)
-  }
-}
-
 async function resetUser(email: string): Promise<void> {
-  assertQaTestEmail(email)
-  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } })
-  if (!existing) return
-  await prisma.shoppingGroup.deleteMany({ where: { ownerId: existing.id } })
-  await prisma.user.delete({ where: { id: existing.id } })
+  assertShoppingQaSeedEmail(email)
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.user.findUnique({
+      where: { email },
+      select: { id: true, email: true },
+    })
+    if (!existing?.email) return
+    assertShoppingQaSeedEmail(existing.email)
+    await tx.shoppingGroup.deleteMany({ where: { ownerId: existing.id } })
+    const deleted = await tx.user.deleteMany({
+      where: { id: existing.id, email: existing.email },
+    })
+    if (deleted.count !== 1) {
+      throw new Error("Refusing qa:shopping:seed: the user row did not match the allowlisted email")
+    }
+  })
 }
 
 async function seedUser(spec: (typeof USERS)[number]): Promise<void> {
-  assertQaTestEmail(spec.email)
+  assertShoppingQaSeedEmail(spec.email)
   const privacyKey = hexToUint8(spec.privacyKeyHex)
   const wrappingKey = await deriveKeyFromPin(PASSPHRASE, hexToUint8(spec.saltHex))
   const wrapped = await encryptPrivacyKey(privacyKey, wrappingKey)

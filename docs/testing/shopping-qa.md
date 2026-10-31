@@ -46,7 +46,7 @@ The fixed sign-in code is not available on staging. Use two real accounts with e
 
 ### 2. Invite (owner)
 
-- [ ] **Members** → **Invite** → **Create invite link**. Copy the link and note **Your code** (the owner's fingerprint).
+- [ ] **Members** → **Add member** → **Create invite link**. Copy the link and note **Your code** (the owner's fingerprint).
 - [ ] The link looks like `/shopping-invite#<token>.<key>`. The part after `#` is never sent to the server.
 
 ### 3. Join (member)
@@ -62,7 +62,7 @@ The fixed sign-in code is not available on staging. Use two real accounts with e
 - [ ] Reload the group. **Members** → **Join requests** shows **Someone asked to join** → **Review**.
 - [ ] The code and fingerprint match what the member sees. Turn on **I compared this with them**, then **Add to group**.
 - [ ] Both people show under **Group members** with the names they chose (neither is called "You").
-- [ ] **Decline** on a second test invite removes the request. **Revoke** cancels an open link.
+- [ ] **Decline** on a second test invite removes the request. **Revoke link** cancels an open link.
 
 ### 5. Requests and check-off
 
@@ -82,7 +82,7 @@ The fixed sign-in code is not available on staging. Use two real accounts with e
 ### 7. Running tab and payments
 
 - [ ] **Tab**: owner sees **Net owed to you** $26.00; member sees **You owe** $26.00.
-- [ ] Member → **Record a payment** with **I paid them** on, $26.00. Both tabs show $0.
+- [ ] Member → **Tab** → **Record payment**, with **I paid them** on, $26.00. Both tabs show $0.
 - [ ] A partial payment (e.g. $10) leaves the right balance on both sides.
 
 ### 8. Budget posting (each person, opt-in)
