@@ -1,8 +1,18 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { FileText, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Dialog,
   DialogContent,
@@ -12,8 +22,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
 import { dollarsToCents, newShoppingObjectId } from "@/lib/shopping-payloads"
-import { suggestShoppingRequestId } from "@/lib/shopping-receipt-plan"
+import { assignmentForReceiptDescription } from "@/lib/shopping-receipt-plan"
+import {
+  clearShoppingReceiptDraft,
+  loadShoppingReceiptDraft,
+  saveShoppingReceiptDraft,
+  type ShoppingReceiptDraftRow,
+} from "@/lib/shopping-receipt-draft"
 import type { ShoppingMatchRequest } from "@/lib/shopping-item-matcher"
 
 export interface ReceiptDraftLine {
@@ -21,6 +38,11 @@ export interface ReceiptDraftLine {
   cents: number
   requestId: string | null
 }
+
+export type ReceiptSaveResult =
+  | { ok: true; warning?: string }
+  | { ok: false; message: string }
+  | { ok: false; ignored: true }
 
 interface DraftRow {
   key: string
@@ -30,39 +52,108 @@ interface DraftRow {
   touched: boolean
 }
 
+function toDraftRow(row: ShoppingReceiptDraftRow): DraftRow {
+  return {
+    key: row.key,
+    description: row.description,
+    amount: row.amount,
+    requestId: row.requestId,
+    touched: row.touched,
+  }
+}
+
+function selectedRequestLabel(
+  requestId: string,
+  requests: ReadonlyArray<ShoppingMatchRequest & { checkedOff?: boolean }>,
+  members: ReadonlyArray<{ id: string; alias: string }>,
+): string {
+  const selected = requests.find((request) => request.id === requestId)
+  if (!selected) return "That choice is no longer available"
+  const who = members.find((member) => member.id === selected.memberId)?.alias ?? "Someone"
+  return `${selected.description} · ${who}`
+}
+
 export function ShoppingReceiptDialog({
+  groupId,
   busy,
   requests,
   members,
   onClose,
   onSave,
 }: {
+  groupId: string
   busy: boolean
-  requests: readonly ShoppingMatchRequest[]
+  requests: ReadonlyArray<ShoppingMatchRequest & { checkedOff?: boolean }>
   members: ReadonlyArray<{ id: string; alias: string }>
   onClose: () => void
-  onSave: (merchant: string, totalCents: number, lines: ReceiptDraftLine[]) => void
+  onSave: (merchant: string, totalCents: number, lines: ReceiptDraftLine[]) => Promise<ReceiptSaveResult>
 }) {
-  const [merchant, setMerchant] = useState("")
-  const [amount, setAmount] = useState("")
-  const [rows, setRows] = useState<DraftRow[]>([])
+  const restored = useState(() => loadShoppingReceiptDraft(groupId))[0]
+  const [merchant, setMerchant] = useState(restored?.merchant ?? "")
+  const [amount, setAmount] = useState(restored?.amount ?? "")
+  const [rows, setRows] = useState<DraftRow[]>(() => restored?.rows.map(toDraftRow) ?? [])
   const [error, setError] = useState<string | null>(null)
-  const openRequests = requests.filter((request) => request.requestedQuantity > request.purchasedQuantity)
+  const [clearOpen, setClearOpen] = useState(false)
+  const childModalOpenRef = useRef(false)
+  const saveLock = useRef(false)
+  const openRequests = requests.filter(
+    (request) => !request.checkedOff && request.requestedQuantity > request.purchasedQuantity,
+  )
+  const dirty =
+    merchant.trim() !== "" ||
+    amount.trim() !== "" ||
+    rows.some((row) => row.description.trim() !== "" || row.amount.trim() !== "" || row.requestId !== "")
+
+  useEffect(() => {
+    if (!dirty) {
+      if (loadShoppingReceiptDraft(groupId)) clearShoppingReceiptDraft()
+      return
+    }
+    saveShoppingReceiptDraft({ version: 1, groupId, merchant, amount, rows })
+  }, [dirty, groupId, merchant, amount, rows])
 
   function updateRow(key: string, patch: Partial<DraftRow>) {
     setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)))
   }
 
   function onDescription(row: DraftRow, description: string) {
-    if (row.touched) {
-      updateRow(row.key, { description })
-      return
-    }
-    const suggestion = suggestShoppingRequestId(description, openRequests)
-    updateRow(row.key, { description, requestId: suggestion ?? "" })
+    const requestId = assignmentForReceiptDescription({
+      touched: row.touched,
+      requestId: row.requestId,
+      description,
+      requests: openRequests,
+    })
+    updateRow(row.key, row.touched ? { description } : { description, requestId })
   }
 
-  function save() {
+  function openClear() {
+    childModalOpenRef.current = true
+    setClearOpen(true)
+  }
+
+  function onClearOpenChange(next: boolean) {
+    if (next) {
+      childModalOpenRef.current = true
+      setClearOpen(true)
+      return
+    }
+    setClearOpen(false)
+    setTimeout(() => {
+      childModalOpenRef.current = false
+    }, 0)
+  }
+
+  function clearAll() {
+    setMerchant("")
+    setAmount("")
+    setRows([])
+    setError(null)
+    clearShoppingReceiptDraft()
+    onClearOpenChange(false)
+  }
+
+  async function save() {
+    if (saveLock.current || busy) return
     const totalCents = dollarsToCents(amount)
     if (totalCents == null || totalCents <= 0) {
       setError("Enter a valid total")
@@ -85,14 +176,49 @@ export function ShoppingReceiptDialog({
       })
     }
     setError(null)
-    onSave(merchant.trim(), totalCents, lines)
+    saveLock.current = true
+    try {
+      const result = await onSave(merchant.trim(), totalCents, lines)
+      if (!result.ok) {
+        if ("message" in result) setError(result.message)
+        return
+      }
+      clearShoppingReceiptDraft()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save receipt")
+    } finally {
+      saveLock.current = false
+    }
   }
 
   return (
-    <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent className="max-h-[min(90vh,40rem)] max-w-[min(96vw,32rem)] overflow-y-auto rounded-2xl">
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && childModalOpenRef.current) return
+        if (!next) onClose()
+      }}
+    >
+      <DialogContent
+        className="max-h-[min(90vh,40rem)] max-w-[min(96vw,32rem)] overflow-y-auto rounded-2xl"
+        onKeyDown={(event) =>
+          handleDialogEnterToPrimary(event, {
+            disabled: busy || !merchant.trim() || !amount.trim(),
+            onPrimary: () => {
+              void save()
+            },
+          })
+        }
+      >
         <DialogHeader className="pr-10 text-left">
-          <DialogTitle>Add a shared receipt</DialogTitle>
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <DialogTitle>Add a shared receipt</DialogTitle>
+            {dirty && (
+              <Button type="button" variant="outline" size="sm" className="w-full shrink-0 sm:w-auto" onClick={openClear}>
+                Clear All
+              </Button>
+            )}
+          </div>
           <DialogDescription>
             Tie an item to someone on the list and they cover that amount. Anything left is split evenly. No money is transferred.
           </DialogDescription>
@@ -161,7 +287,7 @@ export function ShoppingReceiptDialog({
                   </Button>
                 </div>
               </div>
-              <label className="flex min-w-0 flex-col gap-1 text-sm">
+              <label className="flex min-w-0 flex-col gap-1 text-sm" data-no-enter-submit="">
                 Who asked for this
                 <select
                   className="h-10 w-full min-w-0 rounded-xl border border-border bg-background px-3"
@@ -179,6 +305,9 @@ export function ShoppingReceiptDialog({
                       </option>
                     )
                   })}
+                  {row.requestId && !openRequests.some((request) => request.id === row.requestId) && (
+                    <option value={row.requestId}>{selectedRequestLabel(row.requestId, requests, members)}</option>
+                  )}
                 </select>
               </label>
             </div>
@@ -188,15 +317,50 @@ export function ShoppingReceiptDialog({
           <FileText className="mt-0.5 size-4 shrink-0 text-primary" />
           A matching name is filled in for you. Change it if it is wrong.
         </div>
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={onClose}>
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+        <DialogFooter className="flex-col gap-2 sm:flex-row">
+          <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="button" disabled={busy || !merchant.trim() || !amount.trim()} onClick={save}>
+          <Button
+            type="button"
+            className="w-full sm:w-auto"
+            disabled={busy || !merchant.trim() || !amount.trim()}
+            onClick={() => {
+              void save()
+            }}
+          >
             Save and split
           </Button>
         </DialogFooter>
+        <AlertDialog open={clearOpen} onOpenChange={onClearOpenChange}>
+          <AlertDialogContent className="max-w-[min(96vw,28rem)]">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Clear this receipt?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The store, total, and items you entered will be discarded.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel type="button" onClick={(event) => event.stopPropagation()}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  clearAll()
+                }}
+              >
+                Clear All
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   )

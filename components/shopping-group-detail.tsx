@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   ArrowLeft,
   Check,
@@ -17,7 +17,19 @@ import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
 import { shoppingInviteUrl } from "@/lib/shopping-invites"
 import { centsToUsdLabel, dollarsToCents, newShoppingObjectId } from "@/lib/shopping-payloads"
 import { decryptClaimantAlias, prepareApproveMember, prepareDefaultList, prepareEventPayload, prepareReceiptDraft, prepareRequest } from "@/lib/shopping-prepare"
-import { planSharedReceiptShares, ReceiptPlanError } from "@/lib/shopping-receipt-plan"
+import {
+  continueReceiptFinancialAttempt,
+  isReceiptAlreadyFinalizedError,
+  isReceiptSequenceConflictError,
+  markReceiptFinancialAttemptFinalized,
+  memberIdsForPlannedReceiptLine,
+  planSharedReceiptShares,
+  ReceiptPlanError,
+  RECEIPT_CHECKOFF_WARNING,
+  RECEIPT_SEQUENCE_RETRY_MESSAGE,
+  receiptRequestIdsToCheckOff,
+  type ReceiptFinancialAttempt,
+} from "@/lib/shopping-receipt-plan"
 import { SHOPPING_PAYLOAD_SCHEMA_VERSION } from "@/lib/shopping-types"
 import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
 import {
@@ -28,10 +40,16 @@ import {
   type DecryptedRequest,
   type ShoppingSnapshotInvite,
 } from "@/lib/shopping-view"
+import { ShoppingSnapshotSupersededError } from "@/lib/shopping-snapshot-events"
+import {
+  clearShoppingReceiptAttempt,
+  loadShoppingReceiptAttempt,
+  saveShoppingReceiptAttempt,
+} from "@/lib/shopping-receipt-draft"
 import { useShoppingState } from "@/lib/use-shopping-state"
 import { amountOwed, reduceShoppingTab } from "@/lib/shopping-ledger"
 import { ShoppingBudgetCard } from "@/components/shopping-budget-card"
-import { ShoppingReceiptDialog, type ReceiptDraftLine } from "@/components/shopping-receipt-dialog"
+import { ShoppingReceiptDialog, type ReceiptDraftLine, type ReceiptSaveResult } from "@/components/shopping-receipt-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -57,12 +75,17 @@ export function ShoppingGroupDetail() {
     flushOutbox,
     createList,
     createRequest,
+    updateRequest,
     createInvite,
     fetchClaimantKey,
     respondToInvite,
     createReceiptDraft,
     finalizeReceipt,
     recordPayment,
+    fetchPreference,
+    listPostings,
+    savePreference,
+    applyPostings,
   } = useShoppingState()
   const [view, setView] = useState<DecryptedGroupView | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -76,19 +99,40 @@ export function ShoppingGroupDetail() {
     verificationCode: string | null
     publicKey: string
   } | null>(null)
+  const loadGen = useRef(0)
+  const shownGroupId = useRef<string | null>(null)
+  const receiptSaveLock = useRef(false)
+  const receiptAttemptRef = useRef<{
+    groupId: string
+    attempt: ReceiptFinancialAttempt
+    draftRevision: number | null
+    checkoffLines: ReceiptDraftLine[]
+  } | null>(null)
 
   const load = useCallback(async () => {
-    if (!selectedEnvelopeId || !unlocked) return
+    const groupId = selectedEnvelopeId
+    if (!groupId || !unlocked) return
+    const gen = ++loadGen.current
+    if (shownGroupId.current !== groupId) {
+      shownGroupId.current = groupId
+      receiptAttemptRef.current = null
+      setView(null)
+      setDialog(null)
+    }
     setLoadError(null)
     try {
-      const snap = await fetchGroup(selectedEnvelopeId)
+      const snap = await fetchGroup(groupId)
+      if (gen !== loadGen.current) return
       const decrypted = await withPrivacyKey((key) => decryptGroupSnapshot(snap, key))
+      if (gen !== loadGen.current) return
       if (!decrypted) {
         setLoadError("Unlock your data to open this group.")
         return
       }
       setView(decrypted)
     } catch (err) {
+      if (gen !== loadGen.current) return
+      if (err instanceof ShoppingSnapshotSupersededError) return
       setLoadError(err instanceof Error ? err.message : "Could not load this group")
     }
   }, [selectedEnvelopeId, unlocked, fetchGroup, withPrivacyKey])
@@ -182,7 +226,13 @@ export function ShoppingGroupDetail() {
             </div>
           </div>
 
-          <ShoppingBudgetCard view={view} />
+          <ShoppingBudgetCard
+            view={view}
+            fetchPreference={fetchPreference}
+            listPostings={listPostings}
+            savePreference={savePreference}
+            applyPostings={applyPostings}
+          />
 
           <div className="min-w-0 overflow-x-auto border-b border-border">
             <div className="flex min-w-max gap-6" role="tablist" aria-label="Group sections">
@@ -243,9 +293,12 @@ export function ShoppingGroupDetail() {
       )}
       {view && dialog === "receipt" && (
         <ShoppingReceiptDialog
+          groupId={view.groupId}
           busy={busy}
           requests={view.requests
-            .filter((request) => !request.checkedOff)
+            .filter((request) =>
+              view.members.some((member) => member.id === request.requesterMemberId && member.status === "active"),
+            )
             .map((request) => ({
               id: request.id,
               memberId: request.requesterMemberId,
@@ -253,10 +306,19 @@ export function ShoppingGroupDetail() {
               requestedQuantity: request.requestedQuantity,
               purchasedQuantity: request.purchasedQuantity,
               unit: request.unit,
+              checkedOff: request.checkedOff,
             }))}
           members={view.members.map((member) => ({ id: member.id, alias: member.alias }))}
           onClose={() => setDialog(null)}
-          onSave={(merchant, totalCents, lines) => void addReceipt(merchant, totalCents, lines)}
+          onSave={async (merchant, totalCents, lines) => {
+            const result = await addReceipt(merchant, totalCents, lines)
+            if (result.ok) {
+              setDialog(null)
+              await load()
+              if (result.warning) setLoadError(result.warning)
+            }
+            return result
+          }}
         />
       )}
       {view && dialog === "payment" && (
@@ -460,106 +522,215 @@ export function ShoppingGroupDetail() {
     }
   }
 
-  async function addReceipt(merchant: string, totalCents: number, lines: ReceiptDraftLine[]) {
-    if (!view) return
-    const active = view.members.filter((member) => member.status === "active")
-    let shares: Array<{ memberId: string; cents: number }>
-    try {
-      shares = planSharedReceiptShares({
-        totalCents,
-        memberIds: active.map((member) => member.id),
-        lines: lines.map((line) => {
-          if (!line.requestId) return { cents: line.cents, memberIds: active.map((member) => member.id) }
-          const request = view.requests.find((item) => item.id === line.requestId)
-          if (!request) throw new ReceiptPlanError("That item is no longer on the list")
-          return { cents: line.cents, memberIds: [request.requesterMemberId] }
-        }),
-      })
-    } catch (err) {
-      setLoadError(err instanceof ReceiptPlanError ? err.message : "Could not split this receipt")
-      return
+  function forgetReceiptAttempt(groupId: string) {
+    if (receiptAttemptRef.current?.groupId === groupId) receiptAttemptRef.current = null
+    clearShoppingReceiptAttempt(groupId)
+  }
+
+  function rememberReceiptAttempt(
+    state: {
+      groupId: string
+      attempt: ReceiptFinancialAttempt
+      draftRevision: number | null
+      checkoffLines: ReceiptDraftLine[]
+    } | null,
+  ) {
+    receiptAttemptRef.current = state
+    if (!state) return
+    saveShoppingReceiptAttempt({
+      version: 1,
+      groupId: state.groupId,
+      receiptId: state.attempt.receiptId,
+      operationId: state.attempt.operationId,
+      draftRevision: state.draftRevision,
+      finalized: state.attempt.finalized,
+      checkoffRequestIds: state.checkoffLines.flatMap((line) => (line.requestId ? [line.requestId] : [])),
+    })
+  }
+
+  function storedReceiptAttempt(groupId: string) {
+    const memory = receiptAttemptRef.current
+    if (memory?.groupId === groupId) return memory
+    const saved = loadShoppingReceiptAttempt(groupId)
+    if (!saved) return null
+    const restored = {
+      groupId,
+      attempt: {
+        receiptId: saved.receiptId,
+        operationId: saved.operationId,
+        finalized: saved.finalized,
+      },
+      draftRevision: saved.draftRevision,
+      checkoffLines: saved.checkoffRequestIds.map((requestId) => ({
+        description: "",
+        cents: 0,
+        requestId,
+      })),
     }
+    receiptAttemptRef.current = restored
+    return restored
+  }
+
+  async function addReceipt(
+    merchant: string,
+    totalCents: number,
+    lines: ReceiptDraftLine[],
+  ): Promise<ReceiptSaveResult> {
+    if (!view) return { ok: false, message: "Could not save receipt" }
+    if (receiptSaveLock.current) return { ok: false, ignored: true }
+    receiptSaveLock.current = true
     setBusy(true)
+    const groupId = view.groupId
     try {
-      const receiptId = newShoppingObjectId()
-      const encryptedPayload = await prepareReceiptDraft({
-        groupId: view.groupId,
-        groupKey: view.groupKey,
-        keyVersion: view.keyVersion,
-        revision: 1,
-        receiptId,
-        merchant,
-        postedOn: todayTransactionCalendarDay(),
-        totalCents,
-      })
-      await createReceiptDraft(view.groupId, {
-        id: receiptId,
-        payerMemberId: view.me.id,
-        listId: view.lists[0]?.id,
-        encryptedPayload,
-        keyVersion: view.keyVersion,
-      })
-      const operationId = newShoppingObjectId()
-      const eventPayload = {
-        schemaVersion: SHOPPING_PAYLOAD_SCHEMA_VERSION,
-        type: "receipt_finalized" as const,
-        receiptId,
-        payerMemberId: view.me.id,
-        postedOn: todayTransactionCalendarDay(),
-        currency: "USD" as const,
-        totalCents,
-        shares,
-      }
-      const encryptedEvent = await prepareEventPayload({
-        groupId: view.groupId,
-        groupKey: view.groupKey,
-        keyVersion: view.keyVersion,
-        operationId,
-        payload: eventPayload,
-      })
-      await finalizeReceipt(view.groupId, receiptId, {
-        action: "finalize",
-        type: "receipt_finalized",
-        encryptedPayload: encryptedEvent,
-        expectedSequence: view.eventSequence,
-        keyVersion: view.keyVersion,
-        operationId,
-        payerMemberId: view.me.id,
-        affectedMemberIds: shares.map((share) => share.memberId),
-      })
-      for (const requestId of new Set(lines.flatMap((line) => (line.requestId ? [line.requestId] : [])))) {
-        const request = view.requests.find((item) => item.id === requestId)
-        if (!request || request.checkedOff) continue
-        const encryptedRequest = await prepareRequest({
-          groupId: view.groupId,
-          groupKey: view.groupKey,
-          keyVersion: view.keyVersion,
-          revision: request.revision + 1,
-          requestId: request.id,
-          description: request.description,
-          notes: request.notes,
-          unit: request.unit,
-          requestedQuantity: request.requestedQuantity,
-          purchasedQuantity: request.requestedQuantity,
-          checkedOff: true,
+      const active = view.members.filter((member) => member.status === "active")
+      let shares: Array<{ memberId: string; cents: number }>
+      try {
+        shares = planSharedReceiptShares({
+          totalCents,
+          memberIds: active.map((member) => member.id),
+          lines: lines.map((line) => ({
+            cents: line.cents,
+            memberIds: memberIdsForPlannedReceiptLine({
+              requestId: line.requestId,
+              activeMemberIds: active.map((member) => member.id),
+              requests: view.requests,
+            }),
+          })),
         })
-        await queueCheckoff({
-          id: newShoppingObjectId(),
-          groupId: view.groupId,
-          kind: "request_checkoff",
-          objectId: request.id,
-          expectedRevision: request.revision,
-          encryptedPayload: encryptedRequest,
-          keyVersion: view.keyVersion,
-          queuedAt: new Date().toISOString(),
-        })
+      } catch (err) {
+        const message = err instanceof ReceiptPlanError ? err.message : "Could not split this receipt"
+        return { ok: false, message }
       }
-      await flushOutbox()
-      setDialog(null)
-      await load()
+
+      const stored = storedReceiptAttempt(groupId)
+      const planned = continueReceiptFinancialAttempt(stored?.attempt ?? null, () => ({
+        receiptId: newShoppingObjectId(),
+        operationId: newShoppingObjectId(),
+      }))
+      let attempt = planned.attempt
+      let draftRevision = planned.attempt.receiptId === stored?.attempt.receiptId ? stored.draftRevision : null
+      let checkoffLines =
+        planned.attempt.receiptId === stored?.attempt.receiptId ? (stored?.checkoffLines ?? lines) : lines
+      rememberReceiptAttempt({ groupId, attempt, draftRevision, checkoffLines })
+
+      const postedOn = todayTransactionCalendarDay()
+      if (planned.writeFinancial) {
+        let alreadyFinalized = false
+        try {
+          const encryptedPayload = await prepareReceiptDraft({
+            groupId,
+            groupKey: view.groupKey,
+            keyVersion: view.keyVersion,
+            revision: draftRevision == null ? 1 : draftRevision + 1,
+            receiptId: attempt.receiptId,
+            merchant,
+            postedOn,
+            totalCents,
+          })
+          const created = await createReceiptDraft(groupId, {
+            id: attempt.receiptId,
+            payerMemberId: view.me.id,
+            listId: view.lists[0]?.id,
+            encryptedPayload,
+            keyVersion: view.keyVersion,
+          })
+          draftRevision =
+            typeof created.revision === "number" ? created.revision : draftRevision == null ? 1 : draftRevision + 1
+          rememberReceiptAttempt({ groupId, attempt, draftRevision, checkoffLines })
+        } catch (err) {
+          if (isReceiptSequenceConflictError(err)) {
+            await load()
+            return { ok: false, message: RECEIPT_SEQUENCE_RETRY_MESSAGE }
+          }
+          if (!isReceiptAlreadyFinalizedError(err)) throw err
+          alreadyFinalized = true
+        }
+        if (!alreadyFinalized) {
+          const eventPayload = {
+            schemaVersion: SHOPPING_PAYLOAD_SCHEMA_VERSION,
+            type: "receipt_finalized" as const,
+            receiptId: attempt.receiptId,
+            payerMemberId: view.me.id,
+            postedOn,
+            currency: "USD" as const,
+            totalCents,
+            shares,
+          }
+          const encryptedEvent = await prepareEventPayload({
+            groupId,
+            groupKey: view.groupKey,
+            keyVersion: view.keyVersion,
+            operationId: attempt.operationId,
+            payload: eventPayload,
+          })
+          checkoffLines = lines
+          rememberReceiptAttempt({ groupId, attempt, draftRevision, checkoffLines })
+          try {
+            await finalizeReceipt(groupId, attempt.receiptId, {
+              action: "finalize",
+              type: "receipt_finalized",
+              encryptedPayload: encryptedEvent,
+              expectedSequence: view.eventSequence,
+              keyVersion: view.keyVersion,
+              operationId: attempt.operationId,
+              payerMemberId: view.me.id,
+              affectedMemberIds: shares.map((share) => share.memberId),
+            })
+          } catch (err) {
+            if (isReceiptSequenceConflictError(err)) {
+              await load()
+              return { ok: false, message: RECEIPT_SEQUENCE_RETRY_MESSAGE }
+            }
+            if (!isReceiptAlreadyFinalizedError(err)) throw err
+          }
+        }
+        attempt = markReceiptFinancialAttemptFinalized(attempt)
+        rememberReceiptAttempt({ groupId, attempt, draftRevision, checkoffLines })
+      }
+
+      const failed: string[] = []
+      await Promise.all(
+        receiptRequestIdsToCheckOff(checkoffLines, view.requests).map(async (requestId) => {
+          const request = view.requests.find((item) => item.id === requestId)
+          if (!request) return
+          try {
+            // The receipt line has no quantity. Marking the list item purchased matches tapping it.
+            const encryptedRequest = await prepareRequest({
+              groupId,
+              groupKey: view.groupKey,
+              keyVersion: view.keyVersion,
+              revision: request.revision + 1,
+              requestId: request.id,
+              description: request.description,
+              notes: request.notes,
+              unit: request.unit,
+              requestedQuantity: request.requestedQuantity,
+              purchasedQuantity: request.requestedQuantity,
+              checkedOff: true,
+            })
+            await updateRequest(groupId, request.id, {
+              encryptedPayload: encryptedRequest,
+              expectedRevision: request.revision,
+              keyVersion: view.keyVersion,
+              checkoffOnly: true,
+            })
+          } catch {
+            failed.push(requestId)
+          }
+        }),
+      )
+      try {
+        await flushOutbox()
+      } catch {
+        // Older list updates stay queued. The receipt itself is already saved.
+      }
+      forgetReceiptAttempt(groupId)
+      if (failed.length > 0) return { ok: true, warning: RECEIPT_CHECKOFF_WARNING }
+      return { ok: true }
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Could not save receipt")
+      return { ok: false, message: err instanceof Error ? err.message : "Could not save receipt" }
     } finally {
+      receiptSaveLock.current = false
       setBusy(false)
     }
   }

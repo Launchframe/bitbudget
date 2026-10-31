@@ -203,6 +203,8 @@ export interface ShoppingProjectedEntry {
   counterpartMemberId?: string
   sourceEventId: string
   envelopeHint?: "default" | "original_advance"
+  /** Payback whose matching cover was skipped. Do not post it as a credit. */
+  needsAttention?: boolean
 }
 
 export const SHOPPING_MAX_ACTIVE_MEMBERS = 12

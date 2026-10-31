@@ -1,5 +1,5 @@
 ---
-description: Git isolation — primary clone by default, worktrees when the shared tree is dirty or contended
+description: Git isolation — primary clone by default; worktrees are opt-in, not automatic
 alwaysApply: true
 ---
 
@@ -7,7 +7,7 @@ alwaysApply: true
 
 Work in the **primary clone** by default. That keeps the local dev server attached and the files visible in the Cursor IDE.
 
-**One task → one branch → one concern** still applies. Parallel Cursor agents share one git object database; checkout fights and monolithic stashes are how WIP gets lost. Isolate with a **worktree** only when the primary tree is already dirty or multiple writers would clobber it.
+**One task → one branch → one concern** still applies. Parallel Cursor agents share one git object database; checkout fights and monolithic stashes are how WIP gets lost. That does **not** mean reaching for a worktree by default — each one is a full checkout (`node_modules` aside, still real disk) and one more path the maintainer has to remember exists, find, and manually validate against. **Worktrees are opt-in**: create one only when it is genuinely necessary (see triggers below) **or** the maintainer explicitly asks for one. When in doubt, stay in the primary clone and ask before creating a worktree.
 
 ## One task → one branch → one concern
 
@@ -33,19 +33,22 @@ Stay in the primary workspace unless a fallback trigger below fires:
 | Agent / task | Workspace |
 | --- | --- |
 | Feature implementation (tree is idle for this task) | Primary clone on `feat/<topic>` |
+| Feature implementation (primary genuinely contended, or maintainer asked for a worktree) | Worktree — see fallback below |
 | Real Steel (primary idle for this PR) | Primary clone on the PR branch |
 | Read-only explore | Primary clone |
 
 ## Fallback: isolate with a worktree
 
-Escalate out of the primary clone when **any** of these is true — including mid-task after a clean start:
+This is a **fallback**, not a default. Only escalate out of the primary clone when **any** of these is true — including mid-task after a clean start — **or the maintainer explicitly asked for a worktree**:
 
-- `git status` shows **dirty files that are not this task's** (another agent's WIP, mixed concerns).
+- `git status` shows **dirty files that are not this task's** (another agent's WIP, mixed concerns) that cannot be resolved by simply asking the maintainer.
 - Checkout, merge, or rebase would **clobber** someone else's in-progress edits.
-- **Two implementing agents** would write the same working tree at the same time (Multitask, overlapping chats).
-- The primary clone is on a **different branch** that must stay checked out.
+- **Two implementing agents** would write the same working tree at the same time (Multitask, overlapping chats / colliding sessions).
+- The primary clone is on a **different branch that has real uncommitted work on it** the maintainer still needs (a clean idle branch is not a reason — just check out the target branch in the primary clone instead).
 
-Then give this writer its **own worktree directory** and **own branch**:
+If none of these clearly apply, **stay in the primary clone**. If you are unsure whether a trigger applies, **ask the maintainer** rather than defaulting to a worktree — creating one is easy to do but easy to forget to clean up, and it costs real disk and a second path to keep straight during manual validation.
+
+When a worktree genuinely is warranted, give this writer its **own worktree directory** and **own branch**:
 
 ```bash
 # From the primary clone (repo root) — worktree + env copy in one step
@@ -105,8 +108,8 @@ The script pairs with GitHub **Automatically delete head branches**. It never de
 
 ## Before changing branches in the primary clone
 
-1. `git status` — if dirty with **this task's** files, **commit to the topic branch**. If dirty with **someone else's** files, **fall back to a worktree** (or stop and ask); do not auto-stash to “make checkout work.”
-2. If the change belongs to a different concern, **new branch + commit** (or new worktree if the primary tree is contended), not a mixed stash on whatever branch is checked out.
+1. `git status` — if dirty with **this task's** files, **commit to the topic branch**. If dirty with **someone else's** files, **stop and ask** the maintainer (they may just want you to wait, or may explicitly ask for a worktree); do not auto-stash to “make checkout work,” and do not spin up a worktree on your own initiative unless a fallback trigger clearly applies.
+2. If the change belongs to a different concern, **new branch + commit**, not a mixed stash on whatever branch is checked out. Reach for a new worktree only if the primary tree is genuinely contended (see fallback triggers above) or the maintainer asks for one.
 
 ## Stash discipline (when stash is unavoidable)
 
@@ -117,14 +120,14 @@ The script pairs with GitHub **Automatically delete head branches**. It never de
 
 ## Real Steel
 
-Default: run Real Steel in the **primary clone** on the PR branch so the review stays in the IDE tree. Fall back to a dedicated worktree (and `move_agent_to_root` once — see **Fallback** above) if the primary has other WIP or another agent is writing there. Do not rebase or commit over unrelated dirty files. The global **real-steel** skill (`~/.cursor/skills/real-steel/SKILL.md`) defines the review/pass workflow; [`.cursor/skills/real-steel/SKILL.md`](../skills/real-steel/SKILL.md) adds BitBudget completion steps.
+Default: run Real Steel in the **primary clone** on the PR branch so the review stays in the IDE tree. Fall back to a dedicated worktree (and `move_agent_to_root` once — see **Fallback** above) only if the primary has other WIP or another agent is writing there, **or** the maintainer asks for a worktree. Do not rebase or commit over unrelated dirty files. The global **real-steel** skill (`~/.cursor/skills/real-steel/SKILL.md`) defines the review/pass workflow; [`.cursor/skills/real-steel/SKILL.md`](../skills/real-steel/SKILL.md) adds BitBudget completion steps.
 
 ## Multitask mode
 
-Multitask is fine when each implementing agent has its **own branch**. The first writer uses the **primary clone** if that tree is idle. A second implementing agent that would share the same working directory **must fall back** to a worktree — sharing one dirty tree produces duplicate-looking stashes and clobbered edits.
+Multitask is fine when each implementing agent has its **own branch**. The first writer uses the **primary clone** if that tree is idle. A second implementing agent that would share the same working directory should **prefer asking the maintainer** (wait/serialize vs worktree); only fall back to a worktree when colliding sessions would clobber the shared tree and waiting is not workable.
 
 **Checklist before starting a second implementing agent:**
 
 - [ ] First agent has its own branch (primary clone OK if the tree was idle).
-- [ ] Second agent has a **different** branch, and a **worktree** if the primary is already in use.
+- [ ] Second agent has a **different** branch; use a **worktree** only for real contention or an explicit maintainer request.
 - [ ] No uncommitted mixed WIP on a shared integration branch (e.g. long-lived `feat/foo` with unrelated slices).
