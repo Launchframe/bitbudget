@@ -3,9 +3,12 @@
  * Opt-in is prospective from enabledAtSequence unless catch-up is approved.
  */
 
+import { looksLikeAsymmetricCiphertext } from "@/lib/crypto"
 import type { ShoppingEntryKind, ShoppingProjectedEntry } from "@/lib/shopping-types"
 import type { ShoppingLedgerEvent } from "@/lib/shopping-ledger"
 import { amountOwed, prepaidCredit, reduceShoppingTab } from "@/lib/shopping-ledger"
+
+const ADVANCE_OUT_MARKER = ":advance_out:"
 
 export interface ShoppingPreferenceSnapshot {
   enabled: boolean
@@ -32,9 +35,86 @@ function entry(
 
 function shouldInclude(event: ShoppingLedgerEvent, pref: ShoppingPreferenceSnapshot): boolean {
   if (!pref.enabled) return false
-  if (pref.catchUpApproved) return true
-  if (pref.enabledAtSequence == null) return false
-  return event.sequence >= pref.enabledAtSequence
+  return eventAllowedByBudgetOptIn({
+    catchUpApproved: pref.catchUpApproved,
+    enabledAtSequence: pref.enabledAtSequence,
+    eventSequence: event.sequence,
+  })
+}
+
+/** Whether a private posting may be written for this event. */
+export function eventAllowedByBudgetOptIn(params: {
+  catchUpApproved: boolean
+  enabledAtSequence: number | null
+  eventSequence: number
+}): boolean {
+  if (params.catchUpApproved) return true
+  if (params.enabledAtSequence == null) return false
+  return params.eventSequence >= params.enabledAtSequence
+}
+
+/**
+ * Opt-in point stored on the preference. Envelope edits keep the current point.
+ * Turning budgeting on, or turning catch-up off, starts at the next group event.
+ */
+export function budgetOptInSequence(params: {
+  enabled: boolean
+  catchUpApproved: boolean
+  previouslyEnabled: boolean
+  previousCatchUpApproved: boolean
+  previousEnabledAtSequence: number | null
+  groupEventSequence: number
+}): number | null {
+  if (!params.enabled || params.catchUpApproved) return params.previousEnabledAtSequence
+  const openFreshWindow =
+    !params.previouslyEnabled ||
+    params.previousCatchUpApproved ||
+    params.previousEnabledAtSequence == null
+  if (openFreshWindow) return params.groupEventSequence + 1
+  return params.previousEnabledAtSequence
+}
+
+/** Receipt events whose "you covered someone else" row was skipped or removed. */
+export function missingAdvanceEventIdsFromPostings(
+  rows: readonly { entryKey: string; status: string }[],
+): Set<string> {
+  const ids = new Set<string>()
+  for (const row of rows) {
+    if (row.status !== "skipped" && row.status !== "suppressed") continue
+    const at = row.entryKey.indexOf(ADVANCE_OUT_MARKER)
+    if (at <= 0) continue
+    ids.add(row.entryKey.slice(0, at))
+  }
+  return ids
+}
+
+export function budgetPayeeReady(payee: string): boolean {
+  return looksLikeAsymmetricCiphertext(payee)
+}
+
+export function budgetEnvelopeUnavailable(result: Record<string, unknown>): boolean {
+  return Array.isArray(result.needsAttention) && result.needsAttention.length > 0
+}
+
+export function budgetPostingSkipped(result: Record<string, unknown>): boolean {
+  return Array.isArray(result.skipped) && result.skipped.length > 0
+}
+
+function repaymentAdvanceWasSkipped(params: {
+  applied: readonly ShoppingLedgerEvent[]
+  missingAdvanceEventIds: ReadonlySet<string>
+  debtorMemberId: string
+  payerMemberId: string
+}): boolean {
+  if (params.missingAdvanceEventIds.size === 0) return false
+  for (const event of params.applied) {
+    if (!params.missingAdvanceEventIds.has(event.id)) continue
+    if (event.payload.type !== "receipt_finalized") continue
+    if (event.payload.payerMemberId !== params.payerMemberId) continue
+    const share = event.payload.shares.find((row) => row.memberId === params.debtorMemberId)
+    if (share && share.cents > 0) return true
+  }
+  return false
 }
 
 export function splitRepaymentForProjection(params: {
@@ -195,19 +275,13 @@ export function projectMemberBudget(params: {
               )
             }
           } else if (payload.toMemberId === me) {
-            if (context.missingAdvanceEventIds.size > 0 && split.expenseCents > 0) {
-              out.push(
-                entry({
-                  entryKey: `${event.id}:needs_attention`,
-                  kind: "advance_recovery",
-                  cents: split.expenseCents,
-                  type: "credit",
-                  postedOn: payload.postedOn,
-                  counterpartMemberId: payload.fromMemberId,
-                  sourceEventId: event.id,
-                }),
-              )
-            } else if (split.expenseCents > 0) {
+            if (split.expenseCents > 0) {
+              const advanceMissing = repaymentAdvanceWasSkipped({
+                applied,
+                missingAdvanceEventIds: context.missingAdvanceEventIds,
+                debtorMemberId: payload.fromMemberId,
+                payerMemberId: me,
+              })
               out.push(
                 entry({
                   entryKey: `${event.id}:advance_recovery`,
@@ -217,7 +291,8 @@ export function projectMemberBudget(params: {
                   postedOn: payload.postedOn,
                   counterpartMemberId: payload.fromMemberId,
                   sourceEventId: event.id,
-                  envelopeHint: "original_advance",
+                  envelopeHint: advanceMissing ? "default" : "original_advance",
+                  ...(advanceMissing ? { needsAttention: true } : {}),
                 }),
               )
             }

@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import {
+  budgetEnvelopeUnavailable,
+  budgetPayeeReady,
+  budgetPostingSkipped,
+  missingAdvanceEventIdsFromPostings,
   projectMemberBudget,
   shoppingEntryLabel,
   shoppingEntryPayee,
@@ -11,19 +15,32 @@ import {
 import { centsToUsdLabel } from "@/lib/shopping-payloads"
 import type { ShoppingProjectedEntry } from "@/lib/shopping-types"
 import type { DecryptedGroupView } from "@/lib/shopping-view"
-import { useShoppingState } from "@/lib/use-shopping-state"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 
 const SETTLED = new Set(["posted", "skipped", "suppressed"])
 
-export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
+type BudgetPostingRow = { eventId: string; entryKey: string; status: string }
+
+export function ShoppingBudgetCard({
+  view,
+  fetchPreference,
+  listPostings,
+  savePreference,
+  applyPostings,
+}: {
+  view: DecryptedGroupView
+  fetchPreference: (groupId: string) => Promise<ShoppingPreferenceSnapshot>
+  listPostings: (groupId: string) => Promise<BudgetPostingRow[]>
+  savePreference: (groupId: string, body: Record<string, unknown>) => Promise<unknown>
+  applyPostings: (groupId: string, body: Record<string, unknown>) => Promise<Record<string, unknown>>
+}) {
   const { discretionaryEnvelopes, encryptForStorage, refreshData } = useApp()
-  const { fetchPreference, listPostings, savePreference, applyPostings } = useShoppingState()
   const [pref, setPref] = useState<ShoppingPreferenceSnapshot | null>(null)
   const [envelopeId, setEnvelopeId] = useState("")
   const [catchUp, setCatchUp] = useState(false)
   const [settled, setSettled] = useState<Set<string>>(new Set())
+  const [postingRows, setPostingRows] = useState<BudgetPostingRow[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -40,6 +57,7 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
         setPref(nextPref)
         setEnvelopeId(nextPref.envelopeId ?? "")
         setCatchUp(nextPref.catchUpApproved)
+        setPostingRows(rows)
         setSettled(
           new Set(rows.filter((row) => SETTLED.has(row.status)).map((row) => row.entryKey)),
         )
@@ -62,10 +80,10 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
       context: {
         memberId: view.me.id,
         preference: pref,
-        missingAdvanceEventIds: new Set(),
+        missingAdvanceEventIds: missingAdvanceEventIdsFromPostings(postingRows),
       },
     })
-  }, [pref, view.events, view.me.id])
+  }, [postingRows, pref, view.events, view.me.id])
 
   const pending = projected.filter((row) => !settled.has(row.entryKey))
   const preferenceDraftDirty =
@@ -82,6 +100,7 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
     setPref(nextPref)
     setEnvelopeId(nextPref.envelopeId ?? "")
     setCatchUp(nextPref.catchUpApproved)
+    setPostingRows(rows)
     setSettled(new Set(rows.filter((row) => SETTLED.has(row.status)).map((row) => row.entryKey)))
   }
 
@@ -103,13 +122,8 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
       await savePreference(view.groupId, {
         expectedVersion: pref.preferenceVersion,
         enabled,
-        envelopeId: chosen || null,
+        envelopeId: enabled ? chosen || null : pref.envelopeId,
         catchUpApproved: enabled ? catchUp : false,
-        enabledAtSequence: enabled
-          ? catchUp
-            ? 1
-            : view.eventSequence + 1
-          : pref.enabledAtSequence,
       })
       await reload()
       setNotice(enabled ? "New shared purchases can be added to your budget." : "Your budget is left alone.")
@@ -121,7 +135,11 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
   }
 
   async function addRow(row: ShoppingProjectedEntry) {
-    if (!pref?.envelopeId) return
+    if (row.needsAttention) return
+    if (!pref?.envelopeId) {
+      setError("Choose an envelope first.")
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -133,7 +151,11 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
       const payee = await encryptForStorage(
         shoppingEntryPayee({ eventType: event?.payload.type, merchant }),
       )
-      await applyPostings(view.groupId, {
+      if (!budgetPayeeReady(payee)) {
+        setError("Unlock BitBudget, then try adding this again.")
+        return
+      }
+      const result = await applyPostings(view.groupId, {
         eventId: row.sourceEventId,
         preferenceVersion: pref.preferenceVersion,
         projectionRevision: pref.preferenceVersion,
@@ -149,6 +171,16 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
           },
         ],
       })
+      if (budgetEnvelopeUnavailable(result)) {
+        setError("That envelope is no longer available. Choose another one and save.")
+        await reload()
+        return
+      }
+      if (budgetPostingSkipped(result)) {
+        setError("This was already skipped.")
+        await reload()
+        return
+      }
       await refreshData()
       await reload()
     } catch (err) {
@@ -248,7 +280,7 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
           )}
 
           {pref.enabled && preferenceDraftDirty && pending.length > 0 && (
-            <p className="text-sm text-muted-foreground">Save your envelope choice before adding rows.</p>
+            <p className="text-sm text-muted-foreground">Save your choices before adding rows.</p>
           )}
 
           {pref.enabled && pending.length > 0 && (
@@ -263,16 +295,23 @@ export function ShoppingBudgetCard({ view }: { view: DecryptedGroupView }) {
                     <p className="text-sm text-muted-foreground">
                       {centsToUsdLabel(row.cents)} · {row.postedOn}
                     </p>
+                    {row.needsAttention && (
+                      <p className="text-sm text-muted-foreground">
+                        You skipped the earlier amount, so this payback stays off your budget.
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={busy || preferenceDraftDirty}
-                      onClick={() => void addRow(row)}
-                    >
-                      Add
-                    </Button>
+                    {!row.needsAttention && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={busy || preferenceDraftDirty}
+                        onClick={() => void addRow(row)}
+                      >
+                        Add
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       size="sm"

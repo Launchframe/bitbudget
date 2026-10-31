@@ -4,6 +4,7 @@
  */
 
 import { prisma } from "@/lib/db"
+import { budgetOptInSequence } from "@/lib/shopping-budget-projection"
 import { isShoppingCiphertext } from "@/lib/shopping-crypto"
 import { generateInviteToken, hashInviteToken } from "@/lib/shopping-invites"
 import {
@@ -1102,7 +1103,6 @@ export async function updatePreference(params: {
   enabled: boolean
   envelopeId: string | null
   catchUpApproved?: boolean
-  enabledAtSequence?: number | null
 }) {
   await requireActiveMember(params.groupId, params.userId)
   if (params.enabled) {
@@ -1110,29 +1110,59 @@ export async function updatePreference(params: {
       throw new ShoppingHttpError("Choose one of your envelopes", 400)
     }
     const envelope = await prisma.envelope.findFirst({
-      where: { id: params.envelopeId, userId: params.userId, deletedAt: null },
+      where: {
+        id: params.envelopeId,
+        userId: params.userId,
+        deletedAt: null,
+        archived: false,
+        systemRole: null,
+      },
     })
     if (!envelope) throw new ShoppingHttpError("Choose one of your envelopes", 400)
   }
-  const updated = await prisma.shoppingBudgetPreference.updateMany({
-    where: {
-      groupId: params.groupId,
-      userId: params.userId,
-      preferenceVersion: params.expectedVersion,
-    },
-    data: {
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ eventSequence: number }>>`
+      SELECT "eventSequence" FROM "ShoppingGroup" WHERE "id" = ${params.groupId} FOR UPDATE
+    `
+    const groupEventSequence = locked[0]?.eventSequence
+    if (groupEventSequence == null) {
+      throw new ShoppingHttpError("You do not have access to this list", 404)
+    }
+    const current = await tx.shoppingBudgetPreference.findFirst({
+      where: { groupId: params.groupId, userId: params.userId },
+    })
+    if (!current || current.preferenceVersion !== params.expectedVersion) {
+      throw new ShoppingHttpError("Budget settings changed on another device. Refresh and try again.", 409)
+    }
+    const catchUpApproved = params.enabled && params.catchUpApproved === true
+    const enabledAtSequence = budgetOptInSequence({
       enabled: params.enabled,
-      envelopeId: params.enabled ? params.envelopeId : params.envelopeId,
-      catchUpApproved: params.catchUpApproved ?? false,
-      enabledAtSequence: params.enabledAtSequence ?? undefined,
-      preferenceVersion: params.expectedVersion + 1,
-    },
-  })
-  if (updated.count !== 1) {
-    throw new ShoppingHttpError("Budget settings changed on another device. Refresh and try again.", 409)
-  }
-  return prisma.shoppingBudgetPreference.findFirstOrThrow({
-    where: { groupId: params.groupId, userId: params.userId },
+      catchUpApproved,
+      previouslyEnabled: current.enabled,
+      previousCatchUpApproved: current.catchUpApproved,
+      previousEnabledAtSequence: current.enabledAtSequence,
+      groupEventSequence,
+    })
+    const updated = await tx.shoppingBudgetPreference.updateMany({
+      where: {
+        groupId: params.groupId,
+        userId: params.userId,
+        preferenceVersion: params.expectedVersion,
+      },
+      data: {
+        enabled: params.enabled,
+        envelopeId: params.enabled ? params.envelopeId : current.envelopeId,
+        catchUpApproved,
+        enabledAtSequence,
+        preferenceVersion: params.expectedVersion + 1,
+      },
+    })
+    if (updated.count !== 1) {
+      throw new ShoppingHttpError("Budget settings changed on another device. Refresh and try again.", 409)
+    }
+    return tx.shoppingBudgetPreference.findFirstOrThrow({
+      where: { groupId: params.groupId, userId: params.userId },
+    })
   })
 }
 

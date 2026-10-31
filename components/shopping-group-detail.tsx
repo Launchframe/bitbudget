@@ -64,6 +64,10 @@ export function ShoppingGroupDetail() {
     createReceiptDraft,
     finalizeReceipt,
     recordPayment,
+    fetchPreference,
+    listPostings,
+    savePreference,
+    applyPostings,
   } = useShoppingState()
   const [view, setView] = useState<DecryptedGroupView | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -195,7 +199,13 @@ export function ShoppingGroupDetail() {
             </div>
           </div>
 
-          <ShoppingBudgetCard view={view} />
+          <ShoppingBudgetCard
+            view={view}
+            fetchPreference={fetchPreference}
+            listPostings={listPostings}
+            savePreference={savePreference}
+            applyPostings={applyPostings}
+          />
 
           <div className="min-w-0 overflow-x-auto border-b border-border">
             <div className="flex min-w-max gap-6" role="tablist" aria-label="Group sections">
