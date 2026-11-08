@@ -47,4 +47,4 @@ package-lock.json
 /test-results/
 /blob-report/
 /playwright/.cache/
-.cursor/real-steel/
+.cursor/agentic-review/

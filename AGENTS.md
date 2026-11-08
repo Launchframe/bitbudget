@@ -578,7 +578,7 @@ Passive maintenance: `.cursor/hooks.json` runs a **dry-run** `git-prune` on sess
 
 ### Before you push
 
-- **Run `pnpm lint`, `pnpm test`, and `pnpm test:e2e`** (e2e needs Postgres + env; CI runs all three).
+- **Follow [PRE_COMMIT_GATE.md](PRE_COMMIT_GATE.md)** before every commit: `pnpm lint` and `pnpm test` on each commit, plus `pnpm test:e2e` before a PR is ready (e2e needs Postgres + env; CI runs all three).
 - **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don't rely on manual checks alone for production-critical behavior.
 - **Never commit secrets or user data** — no `.env` / `.env.local`, nsec, privacy keys, service tokens, decrypted exports, or personal transaction CSVs.
 
@@ -608,6 +608,63 @@ When a maintainer asks the agent to address open comments on a PR:
 5. **Leave threads unresolved** — Do **not** resolve review threads. The maintainer will groom and resolve them after review.
 
 Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not call `resolveReviewThread` unless the maintainer explicitly asks to resolve threads.
+
+## Agentic review focus
+
+Checklist for every automated or multi-model review pass on a BitBudget PR. Review the **PR diff only**. Label findings **Critical** / **Suggestion** / **Nit**. When unsure between two levels, pick the higher one. Fix what you find in the same pass, or write down why it can't be fixed there. Explain the mechanism behind each finding; don't assume browser or framework behavior you haven't checked.
+
+**Privacy and encryption (Critical when violated)**
+
+- Payee, notes, shopping group metadata, aliases, and receipt lines are encrypted on the client. The server never receives or stores plaintext for them.
+- No logging of decrypted data, privacy keys, PINs, group content keys, invite or ingest tokens, or raw request bodies (including `console.*` in scripts and error paths).
+- Secrets in URL fragments (invite tokens) never reach the server or analytics; the server stores hashes only.
+- `POST /api/user/encryption` still refuses to overwrite an existing wrapped key; no new path replaces `encryptedPrivacyKey` without recovery semantics.
+- Flows that weaken anonymity (linking email, OAuth, Plaid, SMS, inbox) warn in plain language and can be cancelled before anything is stored.
+
+**Authorization and API routes**
+
+- User-scoped routes call `auth()` and return 401 without a session. Every Prisma query filters by `session.user.id`, never by a `userId` from the body.
+- Shopping routes check active group membership. Private preferences and postings are only returned to their owner.
+- Webhooks and crons verify a shared secret or signature. Every input field is validated (type, range, format), JSON columns are parsed defensively, and responses use `NextResponse.json` with correct status codes.
+
+**Ledger and money**
+
+- No toggle that disables ledger funding. Income lands in Savings first.
+- "Remaining" / "$X left" uses all-time balances with the genesis floor, never month-scoped balances. Month scope is only for Monthly Income/Spend, goal periods, and pacing.
+- Funding legs (`envelope_funding_*`) never count as user spending. Feeds use the visibility helpers in `lib/transaction-visibility.ts`, and charts stop at today (UTC).
+- New `Transaction.source` values follow the checklist in **Transaction visibility, analytics, and lifecycle** (`excludeFromMainHistory`, `fundingBatchId`, batch delete cascade).
+- Savings stays out of the discretionary envelope grid (`discretionaryEnvelopes`, not `activeEnvelopes`).
+- Shopping advances are cash movement, not personal spend, and recoveries are not income. Generic transaction routes can't create or edit shopping-managed sources.
+- Server writes for user actions take the posting day from the client, not the server's UTC date.
+
+**Data and schema**
+
+- Schema changes ship with idempotent migrations (`IF NOT EXISTS`, guarded `DO` blocks). Applied migrations are never edited. Raw-SQL constraints aren't lost to `db push`.
+- Multi-row writes that must stay consistent use a transaction. Retries and re-imports are idempotent.
+
+**Client state and routing**
+
+- Hash routes keep working: `#/envelope/<id>`, `#/settings/...`, deep links after sign-in, refresh, and Back/Forward all land on the same page the URL describes.
+- Optimistic updates roll back on failure. Smart defaults never overwrite values the user set explicitly.
+- No synchronous `setState` inside effects. Multi-field flows save drafts and offer Clear All with a confirmation. Nested dialogs don't close their parent.
+- Logout clears caches that hold keys, drafts, shopping data, or pending invites.
+
+**UI and copy**
+
+- Mobile-first: no horizontal page scroll at 390px and 320px (`min-w-0` down the flex/grid chain), tables scroll inside their own wrapper, and dialogs fit short screens.
+- Plain-language copy with no internal vocabulary. Bitcoin, sats, and opportunity-cost content is wrapped in `opportunityCostEnabled`. Accessibility labels and state match the visible UI.
+- Boolean settings use `Switch`. Dark theme and accent colors follow **Styling**.
+
+**Tests and tooling**
+
+- Non-trivial `lib/` logic, API input handling, and fixed regressions have Vitest coverage that would fail if the behavior broke. Reviewer fixes are fully covered.
+- Playwright specs and seed fixtures are updated when auth, onboarding, referrals, transaction prefill, envelopes, the income importer, or core navigation change.
+- QA and seed scripts only touch `@bitbudget.test` fixtures and never print secrets beyond the documented fixed test codes.
+- `pnpm lint` and `pnpm test` pass per [PRE_COMMIT_GATE.md](PRE_COMMIT_GATE.md).
+
+**Prior passes**
+
+- Confirm or reject earlier passes' fixes and their reasoning. Flag regressions or overfixes they introduced.
 
 ## Common Pitfalls
 

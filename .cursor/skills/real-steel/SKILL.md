@@ -59,7 +59,7 @@ You coordinate; you do **not** skip passes or collapse them into one review.
 3. **Baseline** — note `origin/<base>...HEAD` diff after the merge, open/unresolved review threads (`gh api graphql`).
 4. **Run log (local only)** — append to `.cursor/real-steel/pr-<number>-<YYYYMMDD>.md` (create dir if needed): pass order, model, commits, comment URLs, findings, merge notes. **Do not commit run logs or review write-ups** — those belong on the PR via `gh`, not in the repo (see **Git and PR rules**).
 5. **For each pass in order** — launch a **Task** subagent (see below). **Wait for completion** before the next pass.
-6. **After each pass** — verify `pnpm lint` + scoped `pnpm test` (full suite before declaring done). Push if the pass committed (**regular push only** — never force-push).
+6. **After each pass** — run every command under **Gates** in [PRE_COMMIT_GATE.md](../../../PRE_COMMIT_GATE.md). Push if the pass committed (**regular push only** — never force-push).
 7. **Final summary** to the user: pass table, remaining risks, link to run log, CI status, merge/push status.
 8. **Apply `real-steel-ready` label** — once the full chain (including post-mortem) is complete and the post-mortem has been posted on the PR, apply the `real-steel-ready` label to the PR using `EditPullRequestLabels`. This signals to future agents that the PR has been through the full adversarial review gauntlet.
 
@@ -75,7 +75,7 @@ Include in every pass prompt:
 - **Parent is merged into the feature branch (no rebase, no force-push)** — review remote `HEAD`, including any remote feature-branch commits that were ahead of local
 - Path to run log
 - List of prior pass summaries (from run log)
-- `AGENTS.md` must be followed (encryption, ledger, tests, mobile UI)
+- `AGENTS.md` must be followed, including **`## Agentic review focus`**; gates come from `PRE_COMMIT_GATE.md`
 - Scope: **PR diff only** — no drive-by refactors
 
 **Standard pass (`mode: review`):**
@@ -105,13 +105,7 @@ If this model had no earlier pass in the chain, post-mortem is a normal final re
 
 ## Review focus (every pass)
 
-- Correctness, security, privacy (no plaintext secrets / decrypted data in logs)
-- AGENTS.md violations (ledger toggle, month-scoped "Remaining", encryption)
-- Missing tests for non-trivial `lib/` changes
-- Mobile layout (`min-w-0`, no horizontal page scroll)
-- Prior pass regressions or overfixes
-
-Severity in comments: **Critical** / **Suggestion** / **Nit**.
+Apply every item under **`## Agentic review focus`** in [AGENTS.md](../../../AGENTS.md). Severity in comments: **Critical** / **Suggestion** / **Nit**.
 
 ### Reviewer rigor — non-negotiable
 
