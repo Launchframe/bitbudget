@@ -30,7 +30,8 @@ export interface ExpenseInsightInput {
   recentMonths?: number
   /** How many prior complete months to use as the baseline (default 3). */
   baselineMonths?: number
-  /** Anchor date; defaults to now (UTC). The month containing `asOf` is excluded. */
+  /** Anchor date; defaults to now. Interpreted on the local calendar (matching
+   * `getMonthKey` grouping). The month containing `asOf` is excluded. */
   asOf?: Date
   /** A purchase ≥ this multiple of the envelope's typical size is flagged (default 3). */
   outlierMultiple?: number
@@ -93,10 +94,15 @@ export interface ExpenseInsightResult {
   totalDollarsKeptIfFlexibleReturned: number
 }
 
-/** UTC month key (`YYYY-MM`) for `asOf` shifted back `monthsBack` whole months. */
+/**
+ * Local-calendar month key (`YYYY-MM`) for `asOf` shifted back `monthsBack` whole
+ * months. This matches how transactions are grouped via `getMonthKey`
+ * (`transactionCalendarDay`, local calendar) and `getCurrentMonthKey`, so the
+ * recent/baseline windows line up with the spend buckets they compare against.
+ */
 function monthKeyOffset(asOf: Date, monthsBack: number): string {
-  const d = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() - monthsBack, 1))
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+  const d = new Date(asOf.getFullYear(), asOf.getMonth() - monthsBack, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
 }
 
 function median(values: readonly number[]): number {

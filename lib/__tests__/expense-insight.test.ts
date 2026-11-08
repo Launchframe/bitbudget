@@ -44,7 +44,7 @@ function envelope(id: string, name: string, overrides: Partial<Envelope> = {}): 
 const savings = envelope("sav", "Savings", { systemRole: SYSTEM_ENVELOPE_ROLE_SAVINGS })
 
 describe("computeExpenseInsight month windows", () => {
-  it("derives recent and baseline month keys from asOf (UTC, excluding current month)", () => {
+  it("derives recent and baseline month keys from asOf (local calendar, excluding current month)", () => {
     const result = computeExpenseInsight({ transactions: [], envelopes: [], asOf: AS_OF })
     expect(result.recentMonthKeys).toEqual(["2026-10", "2026-09", "2026-08"])
     expect(result.baselineMonthKeys).toEqual(["2026-07", "2026-06", "2026-05"])
@@ -61,6 +61,37 @@ describe("computeExpenseInsight month windows", () => {
     expect(result.recentMonthKeys).toEqual(["2026-10", "2026-09"])
     // Baseline is the month immediately before the (2-month) recent window.
     expect(result.baselineMonthKeys).toEqual(["2026-08"])
+  })
+
+  it("builds month windows on the local calendar so they match getMonthKey grouping", () => {
+    // Instant that lands in a different month under UTC vs a US-Eastern local
+    // calendar: UTC sees 2026-11-01, but America/New_York (UTC-5) sees 2026-10-31.
+    // Transaction grouping uses getMonthKey (local calendar), so the windows must
+    // agree with the local view — otherwise the incomplete current local month
+    // (October) would be miscounted as a complete recent month.
+    const originalTz = process.env.TZ
+    process.env.TZ = "America/New_York"
+    try {
+      const nearBoundary = new Date("2026-11-01T02:00:00Z")
+      const groceries = envelope("gro", "Groceries")
+      const txns = [
+        expense("gro", "2026-10-15", 500), // local current (incomplete) month → excluded
+        expense("gro", "2026-09-10", 100), // recent
+      ]
+      const result = computeExpenseInsight({
+        transactions: txns,
+        envelopes: [groceries],
+        asOf: nearBoundary,
+      })
+      // Local calendar: current month is 2026-10, so recent = Sep/Aug/Jul.
+      expect(result.recentMonthKeys).toEqual(["2026-09", "2026-08", "2026-07"])
+      expect(result.baselineMonthKeys).toEqual(["2026-06", "2026-05", "2026-04"])
+      // The Oct 15 purchase is in the incomplete current local month → not counted.
+      expect(result.totalRecentDiscretionarySpend).toBe(100)
+      expect(result.envelopes[0]!.recentTotal).toBe(100)
+    } finally {
+      process.env.TZ = originalTz
+    }
   })
 
   it("ignores transactions dated in the incomplete current month or outside the window", () => {
