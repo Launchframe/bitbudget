@@ -386,8 +386,18 @@ function validateQuitDate(value: unknown): ValidationResult<string | null> {
   if (typeof value !== "string" || !DATE_RE.test(value)) {
     return { ok: false, error: "Quit date must look like YYYY-MM-DD." }
   }
-  const parsed = new Date(`${value}T00:00:00.000Z`)
-  if (Number.isNaN(parsed.getTime())) {
+  const year = Number(value.slice(0, 4))
+  const month = Number(value.slice(5, 7))
+  const day = Number(value.slice(8, 10))
+  // Date() normalizes overflow (e.g. 2027-02-31 → March 3) instead of failing,
+  // so round-trip the components to reject impossible calendar dates.
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() + 1 !== month ||
+    parsed.getUTCDate() !== day
+  ) {
     return { ok: false, error: "Quit date is not a real date." }
   }
   return { ok: true, value }
@@ -399,6 +409,11 @@ function validateMonthKey(value: unknown): ValidationResult<string | null> {
   }
   if (typeof value !== "string" || !MONTH_KEY_RE.test(value)) {
     return { ok: false, error: "Month must look like YYYY-MM." }
+  }
+  // The regex allows any two digits; reject months outside 01–12.
+  const month = Number(value.slice(5, 7))
+  if (month < 1 || month > 12) {
+    return { ok: false, error: "Month must be between 01 and 12." }
   }
   return { ok: true, value }
 }

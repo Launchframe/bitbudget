@@ -124,8 +124,22 @@ export async function GET() {
   }
 
   // Create an empty plan (schema defaults) so the client always has a row.
-  const created = await prisma.runwayPlan.create({ data: { userId } })
-  return NextResponse.json(serializePlan(created))
+  // Concurrent first-time GETs can both miss above and race to create; the
+  // unique `userId` constraint means one wins and the other throws P2002.
+  // Treat that as a success and re-fetch the row the winner created.
+  try {
+    const created = await prisma.runwayPlan.create({ data: { userId } })
+    return NextResponse.json(serializePlan(created))
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const row = await prisma.runwayPlan.findUnique({ where: { userId } })
+      if (row) return NextResponse.json(serializePlan(row))
+    }
+    throw err
+  }
 }
 
 export async function PUT(req: NextRequest) {

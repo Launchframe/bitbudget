@@ -336,6 +336,22 @@ describe("parseRunwayPlanBody", () => {
     expect(parseRunwayPlanBody({ quitDate: "2027-13-40" }).ok).toBe(false)
   })
 
+  it("rejects calendar-impossible quit dates that Date() would normalize", () => {
+    // Day overflow: Feb never has 31 days (Date would roll to March 3).
+    expect(parseRunwayPlanBody({ quitDate: "2027-02-31" }).ok).toBe(false)
+    // Month overflow and day-zero.
+    expect(parseRunwayPlanBody({ quitDate: "2027-00-10" }).ok).toBe(false)
+    expect(parseRunwayPlanBody({ quitDate: "2027-04-31" }).ok).toBe(false)
+    expect(parseRunwayPlanBody({ quitDate: "2027-01-00" }).ok).toBe(false)
+    // Real dates still pass, including a valid leap day.
+    expect(expectOk(parseRunwayPlanBody({ quitDate: "2027-02-28" })).quitDate).toBe(
+      "2027-02-28",
+    )
+    expect(expectOk(parseRunwayPlanBody({ quitDate: "2028-02-29" })).quitDate).toBe(
+      "2028-02-29",
+    )
+  })
+
   it("rejects out-of-range horizon", () => {
     expect(parseRunwayPlanBody({ horizonMonths: 0 }).ok).toBe(false)
     expect(parseRunwayPlanBody({ horizonMonths: 2.5 }).ok).toBe(false)
@@ -397,5 +413,21 @@ describe("parseRunwayPlanBody", () => {
       false,
     )
     expect(parseRunwayPlanBody({ checkupOpenedMonthKey: "nope" }).ok).toBe(false)
+  })
+
+  it("rejects month keys whose month is outside 01–12", () => {
+    // Regex-shaped but out of range (the bug: 2026-99 used to pass).
+    expect(parseRunwayPlanBody({ checkupOpenedMonthKey: "2026-99" }).ok).toBe(false)
+    expect(parseRunwayPlanBody({ checkupOpenedMonthKey: "2026-00" }).ok).toBe(false)
+    expect(parseRunwayPlanBody({ checkupOpenedMonthKey: "2026-13" }).ok).toBe(false)
+    // Valid bounds still pass.
+    expect(
+      expectOk(parseRunwayPlanBody({ checkupOpenedMonthKey: "2026-01" }))
+        .checkupOpenedMonthKey,
+    ).toBe("2026-01")
+    expect(
+      expectOk(parseRunwayPlanBody({ checkupOpenedMonthKey: "2026-12" }))
+        .checkupOpenedMonthKey,
+    ).toBe("2026-12")
   })
 })
