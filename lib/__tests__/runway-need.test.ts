@@ -171,6 +171,27 @@ describe("computeRunwayNeed — required bitcoin", () => {
     expect(growth.monthsLeftAtGrowth!).toBeGreaterThan(growth.monthsLeft!)
   })
 
+  it("returns Infinity required sats when the stress price is zero (100% drop)", () => {
+    const result = computeRunwayNeed(
+      makeInput({ livingBaselineUsd: 5_000, stressPercent: 1 }),
+    )
+    // stress price = 100k × (1 − 1) = 0 → bitcoin cannot fund the draw
+    expect(result.stressPriceUsd).toBe(0)
+    expect(result.requiredBitcoinSatsStress).toBe(Infinity)
+    // spot is still finite and fundable
+    expect(Number.isFinite(result.requiredBitcoinSatsSpot)).toBe(true)
+  })
+
+  it("requires zero sats at a zero price when nothing must be funded", () => {
+    // income fully covers the draw → requiredSpendableUsd is 0
+    const result = computeRunwayNeed(
+      makeInput({ livingBaselineUsd: 3_000, runwayIncomeUsd: 5_000, stressPercent: 1 }),
+    )
+    expect(result.requiredSpendableUsd).toBe(0)
+    expect(result.requiredBitcoinSatsStress).toBe(0)
+    expect(result.requiredBitcoinSatsSpot).toBe(0)
+  })
+
   it("one-time proceeds reduce required spendable dollars", () => {
     const scenarios: RunwayScenario[] = [
       { id: "sale", label: "Side sale", monthlyDeltaUsd: 0, oneTimeUsd: 10_000, enabled: true },

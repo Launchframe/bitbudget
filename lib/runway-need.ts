@@ -213,8 +213,13 @@ export function computeRunwayNeed(input: RunwayNeedInput): RunwayNeedResult {
   const requiredSpendableUsd = Math.max(0, drawOverHorizonUsd - oneTimeNetUsd)
 
   // 10 & 12. Required bitcoin sats to fund the draw at a given price.
+  // A non-positive price (e.g. a 100% stress drop, stressPercent === 1) means
+  // bitcoin cannot fund any dollar draw: return Infinity to flag impossibility
+  // rather than 0, which would wrongly imply no bitcoin is needed. When nothing
+  // must be funded (requiredSpendableUsd === 0), 0 sats is correct at any price.
   const requiredSatsAt = (price: number): number => {
-    if (price <= 0) return 0
+    if (requiredSpendableUsd <= 0) return 0
+    if (price <= 0) return Infinity
     return Math.max(0, Math.ceil((requiredSpendableUsd / price) * SATS_PER_BTC))
   }
   const requiredBitcoinSatsSpot = requiredSatsAt(input.btcPriceUsd)
