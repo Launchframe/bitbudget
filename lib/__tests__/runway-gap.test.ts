@@ -272,6 +272,69 @@ describe("computeRunwayGap — net burn drains bitcoin first", () => {
   })
 })
 
+describe("computeRunwayGap — non-positive BTC price keeps dollars as cash", () => {
+  it("does not lose bitcoin-destined savings when btcPriceUsd <= 0", () => {
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 4,
+        monthlySavingsUsd: 500, // 2000 new
+        btcPriceUsd: 0,
+        cashUsd: 0,
+        cashRequiredUsd: 0, // floor already met, so all 2000 would target bitcoin
+        spendableSats: 0,
+        requiredBitcoinSats: 5_000_000,
+      }),
+    )
+    // At a zero price the 2000 can't buy sats — it must stay in projected cash.
+    expect(r.flat.projectedSats).toBe(0)
+    expect(r.flat.projectedCashUsd).toBe(2_000)
+    expect(r.flat.toCashUsd).toBe(2_000)
+    expect(r.flat.toBitcoinUsd).toBe(0)
+    // Dollars are preserved: no money vanishes from the projection.
+    expect(r.flat.projectedCashUsd + r.flat.toBitcoinUsd).toBe(2_000)
+  })
+})
+
+describe("computeRunwayGap — scenario cost consumes bitcoin surplus first", () => {
+  const surplusBase = makeInput({
+    monthsUntilQuit: 0,
+    monthlySavingsUsd: 0,
+    cashUsd: 2_000,
+    cashRequiredUsd: 1_000, // floor met
+    spendableSats: 10_000_000, // $10k at $100k/BTC
+    requiredBitcoinSats: 5_000_000, // $5k required => $5k surplus
+  })
+
+  it("does not widen the gap when surplus fully absorbs the cost", () => {
+    const r = computeRunwayGap({
+      ...surplusBase,
+      scenarios: [{ id: "cost", label: "Cost", monthlyDeltaUsd: 0, oneTimeUsd: -3_000 }],
+    })
+    // Baseline: no gap, $5k bitcoin surplus.
+    expect(r.flat.bitcoinGapUsd).toBe(0)
+    expect(r.flat.bitcoinSurplusSats).toBe(5_000_000)
+    const sc = r.scenarios[0]!
+    expect(sc.extraUsd).toBe(-3_000)
+    // $3k cost < $5k surplus: the gap is untouched.
+    expect(sc.cashGapClosedUsd).toBe(0)
+    expect(sc.bitcoinGapClosedUsd).toBe(0)
+    expect(sc.bitcoinGapClosedSats).toBe(0)
+  })
+
+  it("widens the gap only by the cost beyond the surplus", () => {
+    const r = computeRunwayGap({
+      ...surplusBase,
+      scenarios: [{ id: "cost", label: "Cost", monthlyDeltaUsd: 0, oneTimeUsd: -7_000 }],
+    })
+    const sc = r.scenarios[0]!
+    expect(sc.extraUsd).toBe(-7_000)
+    // $7k cost - $5k surplus = $2k widens the bitcoin gap.
+    expect(sc.cashGapClosedUsd).toBe(0)
+    expect(sc.bitcoinGapClosedUsd).toBe(-2_000)
+    expect(sc.bitcoinGapClosedSats).toBe(-2_000_000)
+  })
+})
+
 describe("computeRunwayGap — Infinity required bitcoin", () => {
   it("keeps the bitcoin gap Infinity without NaN and never hides the cash side", () => {
     const r = computeRunwayGap(
