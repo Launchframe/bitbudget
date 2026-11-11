@@ -192,6 +192,7 @@ export function RunwayPage() {
     error,
     reload,
     insightMonthlyUsd: livingPlaceholder,
+    envelopeCashUsd,
     btcPriceOrNull,
     loans,
     loansEval,
@@ -221,9 +222,15 @@ export function RunwayPage() {
 
   // Mark this month's checkup opened once the user lands here (clears the card
   // prompt). The banner stays visible for this visit via `showCheckup`.
+  // Merge only the checkup key into whatever plan is current — never rebuild
+  // from a stale `plan` closure, or a concurrent totals/scenario save is lost.
   const markedRef = useRef(false)
+  const planRef = useRef(plan)
   useEffect(() => {
-    if (!configured || !checkupReady || markedRef.current || !plan) return
+    planRef.current = plan
+  }, [plan])
+  useEffect(() => {
+    if (!configured || !checkupReady || markedRef.current || !planRef.current) return
     markedRef.current = true
     const t = setTimeout(() => setShowCheckup(true), 0)
     fetch("/api/runway/checkup/opened", {
@@ -234,14 +241,17 @@ export function RunwayPage() {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data && typeof data.checkupOpenedMonthKey === "string") {
-          setPlan({ ...plan, checkupOpenedMonthKey: data.checkupOpenedMonthKey })
+          const key = data.checkupOpenedMonthKey as string
+          setPlan((prev) =>
+            prev ? { ...prev, checkupOpenedMonthKey: key } : prev,
+          )
         }
       })
       .catch(() => {
         /* best-effort */
       })
     return () => clearTimeout(t)
-  }, [configured, checkupReady, plan, monthKey, setPlan])
+  }, [configured, checkupReady, monthKey, setPlan])
 
   const scenarioMode = applyScenarios ? "enabled" : "none"
   const comp = useMemo(() => compute(scenarioMode), [compute, scenarioMode])
@@ -254,14 +264,15 @@ export function RunwayPage() {
 
   const savePatch = useCallback(
     async (patch: Partial<RunwayPlanResponse>) => {
-      if (!plan) return
-      const optimistic = { ...plan, ...patch }
+      const current = planRef.current
+      if (!current) return
+      const optimistic = { ...current, ...patch }
       setPlan(optimistic)
       try {
         const res = await fetch("/api/runway/plan", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildPlanPutBody(plan, patch)),
+          body: JSON.stringify(buildPlanPutBody(current, patch)),
         })
         if (res.ok) {
           const saved = (await res.json()) as RunwayPlanResponse
@@ -271,7 +282,7 @@ export function RunwayPage() {
         /* optimistic update already applied; next reload reconciles */
       }
     },
-    [plan, setPlan],
+    [setPlan],
   )
 
   // Gate first: a user who reaches #/runway with bitcoin features off (e.g. a
@@ -697,7 +708,29 @@ export function RunwayPage() {
 
       {/* Sales in progress */}
       {openSales.length > 0 && (
-        <PendingSalesSection sales={openSales} onChanged={reloadSales} />
+        <PendingSalesSection
+          sales={openSales}
+          onChanged={reloadSales}
+          onLinked={(sale) => {
+            // Permanently move sold sats out of the typed bitcoin total and
+            // credit cash with proceeds so linking doesn't snap holdings back.
+            const current = planRef.current
+            if (!current) return
+            const nextBtc =
+              current.bitcoinOverrideSats != null
+                ? Math.max(0, current.bitcoinOverrideSats - sale.sats)
+                : current.bitcoinOverrideSats
+            const proceeds = sale.proceedsUsd ?? 0
+            const nextCash =
+              proceeds > 0
+                ? (current.cashOverrideUsd ?? envelopeCashUsd) + proceeds
+                : current.cashOverrideUsd
+            void savePatch({
+              bitcoinOverrideSats: nextBtc,
+              cashOverrideUsd: nextCash,
+            })
+          }}
+        />
       )}
 
       <RunwaySetupDialog
@@ -752,9 +785,11 @@ export function RunwayPage() {
 function PendingSalesSection({
   sales,
   onChanged,
+  onLinked,
 }: {
   sales: RunwayPendingSale[]
   onChanged: () => void
+  onLinked: (sale: RunwayPendingSale) => void
 }) {
   return (
     <div className="flex flex-col gap-3 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F]">
@@ -768,7 +803,12 @@ function PendingSalesSection({
       </p>
       <div className="flex flex-col gap-2">
         {sales.map((sale) => (
-          <PendingSaleRow key={sale.id} sale={sale} onChanged={onChanged} />
+          <PendingSaleRow
+            key={sale.id}
+            sale={sale}
+            onChanged={onChanged}
+            onLinked={onLinked}
+          />
         ))}
       </div>
     </div>
@@ -778,9 +818,11 @@ function PendingSalesSection({
 function PendingSaleRow({
   sale,
   onChanged,
+  onLinked,
 }: {
   sale: RunwayPendingSale
   onChanged: () => void
+  onLinked: (sale: RunwayPendingSale) => void
 }) {
   const [recording, setRecording] = useState(false)
   const [proceeds, setProceeds] = useState("")
@@ -802,6 +844,14 @@ function PendingSaleRow({
           setError(typeof data.error === "string" ? data.error : "Couldn't update this sale.")
           return
         }
+        if (body.status === "linked") {
+          onLinked({
+            ...sale,
+            status: "linked",
+            proceedsUsd:
+              typeof body.proceedsUsd === "number" ? body.proceedsUsd : sale.proceedsUsd,
+          })
+        }
         onChanged()
       } catch {
         setError("Network error — try again.")
@@ -809,7 +859,7 @@ function PendingSaleRow({
         setBusy(false)
       }
     },
-    [sale.id, onChanged],
+    [sale, onChanged, onLinked],
   )
 
   const btcLabel = (sale.sats / SATS_PER_BTC).toLocaleString("en-US", {

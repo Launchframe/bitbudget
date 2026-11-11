@@ -143,6 +143,42 @@ describe("computeRunwayNeed — holdings", () => {
     expect(result.cashOnTheWayUsd).toBe(2_000)
     expect(result.bitcoinOnTheWaySats).toBe(ONE_BTC_SATS)
   })
+
+  it("does not double-count override sats that are also on the way", () => {
+    const result = computeRunwayNeed(
+      makeInput({
+        holdings: {
+          envelopeCashUsd: 0,
+          walletSats: 0,
+          bitcoinOverrideSats: ONE_BTC_SATS,
+          bitcoinOnTheWaySats: ONE_BTC_SATS,
+        },
+      }),
+    )
+    // Override still lists 1 BTC; half is "on the way" → spendable 0, mark 1 BTC.
+    expect(result.spendableSats).toBe(0)
+    expect(result.btcMarkSats).toBe(ONE_BTC_SATS)
+    expect(result.stackUsd).toBe(100_000)
+  })
+
+  it("keeps spendable reduced when a sale has moved to cash on the way", () => {
+    const result = computeRunwayNeed(
+      makeInput({
+        holdings: {
+          envelopeCashUsd: 0,
+          walletSats: 0,
+          bitcoinOverrideSats: ONE_BTC_SATS,
+          bitcoinOnTheWaySats: 0,
+          cashOnTheWayUsd: 50_000,
+          reservedForSaleSats: ONE_BTC_SATS,
+        },
+      }),
+    )
+    expect(result.spendableSats).toBe(0)
+    expect(result.btcMarkSats).toBe(0)
+    // cash on the way only — sold coins are not still marked as bitcoin
+    expect(result.stackUsd).toBe(50_000)
+  })
 })
 
 describe("computeRunwayNeed — required bitcoin", () => {

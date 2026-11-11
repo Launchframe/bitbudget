@@ -263,6 +263,8 @@ export interface RunwayComputationInput {
   bitcoinOnTheWaySats?: number
   /** Cash in transit from open bitcoin sales (proceeds known, not yet linked). */
   cashOnTheWayUsd?: number
+  /** Sats reserved by open sales (`sent` + `cash_on_the_way`); see RunwayHoldingsInput. */
+  reservedForSaleSats?: number
 }
 
 export interface RunwayComputation {
@@ -299,6 +301,7 @@ export function buildRunwayComputation(
       amountDueUsd: input.amountDueUsd,
       bitcoinOnTheWaySats: input.bitcoinOnTheWaySats,
       cashOnTheWayUsd: input.cashOnTheWayUsd,
+      reservedForSaleSats: input.reservedForSaleSats,
     },
     btcPriceUsd: input.btcPriceUsd,
     scenarioMode: input.scenarioMode,

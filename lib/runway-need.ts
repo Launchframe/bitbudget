@@ -51,6 +51,12 @@ export interface RunwayHoldingsInput {
   /** Pending sale: bitcoin on the way (sats) OR cash on the way (usd) — summed across open sales. */
   bitcoinOnTheWaySats?: number
   cashOnTheWayUsd?: number
+  /**
+   * Sats already committed to an open sale (status `sent` or `cash_on_the_way`).
+   * Defaults to `bitcoinOnTheWaySats` when omitted. Needed so a sale that has
+   * converted to cash-on-the-way still reduces spendable until the deposit is linked.
+   */
+  reservedForSaleSats?: number
 }
 
 /** Which scenarios to apply for a single evaluation. */
@@ -168,11 +174,20 @@ export function computeRunwayNeed(input: RunwayNeedInput): RunwayNeedResult {
 
   // 4. Resolve holdings (overrides replace one side only).
   const cashUsd = input.holdings.cashOverrideUsd ?? input.holdings.envelopeCashUsd
-  const spendableSats = input.holdings.bitcoinOverrideSats ?? input.holdings.walletSats
   const lenderHeldSats = input.holdings.lenderHeldSats ?? 0
   const amountDueUsd = input.holdings.amountDueUsd ?? 0
   const bitcoinOnTheWaySats = input.holdings.bitcoinOnTheWaySats ?? 0
   const cashOnTheWayUsd = input.holdings.cashOnTheWayUsd ?? 0
+  // Typed bitcoin override is a gross "coins I hold" figure that still includes
+  // sats committed to an open sale until the user links the deposit. Subtract
+  // reserved sale sats so spendable + on-the-way (or cash-on-the-way) does not
+  // double-count. A live wallet total is already net of sends, so leave it alone.
+  const reservedForSaleSats = input.holdings.reservedForSaleSats ?? bitcoinOnTheWaySats
+  const overrideSats = input.holdings.bitcoinOverrideSats
+  const spendableSats =
+    overrideSats != null && overrideSats >= 0
+      ? Math.max(0, overrideSats - reservedForSaleSats)
+      : input.holdings.walletSats
 
   // Everything marked as bitcoin for stack + exposure purposes: spendable,
   // lender-held (still the user's exposure), and bitcoin on the way.

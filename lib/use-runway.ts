@@ -13,6 +13,7 @@ import { evaluateLoans, type LoanEvaluation } from "@/lib/loan-health"
 import { toLoanHealthInput } from "@/lib/btc-loan"
 import {
   buildRunwayComputation,
+  effectiveBorrowCapFraction,
   resolveLivingBaselineUsd,
   type RunwayComputation,
   type RunwayPlanResponse,
@@ -59,7 +60,12 @@ function todayIso(): string {
 
 export interface UseRunwayResult {
   plan: RunwayPlanResponse | null
-  setPlan: (plan: RunwayPlanResponse) => void
+  setPlan: (
+    plan:
+      | RunwayPlanResponse
+      | null
+      | ((prev: RunwayPlanResponse | null) => RunwayPlanResponse | null),
+  ) => void
   loading: boolean
   error: string | null
   reload: () => void
@@ -218,6 +224,11 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
 
   const today = todayIso()
 
+  const borrowCapFraction = useMemo(
+    () => (plan ? effectiveBorrowCapFraction(plan) : 0),
+    [plan],
+  )
+
   const loansEval = useMemo<LoanEvaluation[]>(() => {
     const openLoans = loans.filter((l) => l.status === "open")
     if (openLoans.length === 0) return []
@@ -235,9 +246,9 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
           maturityBillOverrideUsd: l.maturityBillOverrideUsd,
         }),
       ),
-      { btcPriceUsd, asOfDate: today, borrowCapFraction: 0.5 },
+      { btcPriceUsd, asOfDate: today, borrowCapFraction },
     ).loans
-  }, [loans, btcPriceUsd, today])
+  }, [loans, btcPriceUsd, today, borrowCapFraction])
 
   const lenderHeldSats = useMemo(
     () => loans.filter((l) => l.status === "open").reduce((s, l) => s + l.collateralSats, 0),
@@ -248,11 +259,13 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
     [loansEval],
   )
 
-  const { bitcoinOnTheWaySats, cashOnTheWayUsd } = useMemo(() => {
+  const { bitcoinOnTheWaySats, cashOnTheWayUsd, reservedForSaleSats } = useMemo(() => {
     const open = pendingSales.filter(
       (s) => s.status === "sent" || s.status === "cash_on_the_way",
     )
-    return sumSaleHoldings(open)
+    const holdings = sumSaleHoldings(open)
+    const reservedForSaleSats = open.reduce((s, sale) => s + Math.max(0, sale.sats), 0)
+    return { ...holdings, reservedForSaleSats }
   }, [pendingSales])
 
   const livingBaselineUsd = plan
@@ -281,6 +294,7 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
         flexibleCutMonthlyUsd,
         bitcoinOnTheWaySats,
         cashOnTheWayUsd,
+        reservedForSaleSats,
       })
     },
     [
@@ -295,6 +309,7 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
       flexibleCutMonthlyUsd,
       bitcoinOnTheWaySats,
       cashOnTheWayUsd,
+      reservedForSaleSats,
     ],
   )
 
