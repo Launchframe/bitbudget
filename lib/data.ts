@@ -28,6 +28,11 @@ export type TransactionSource =
   | "deficit_cover"
   | "envelope_transfer_in"
   | "envelope_transfer_out"
+  | "btc_sale_conversion"
+  | "loan_open"
+  | "loan_roll"
+  | "loan_payoff"
+  | "loan_liquidation"
 
 export interface Transaction {
   id: string

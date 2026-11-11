@@ -506,11 +506,26 @@ Tracked bitcoin-backed loans (`BtcLoan`, `GET`/`POST`/`DELETE /api/runway/loans`
 
 Monthly checkup reflections (`RunwayJournal`) store an **encrypted body only**. The client encrypts the note like a transaction note before sending; the server stores and returns the opaque string and never decrypts or inspects it (`lib/runway-journal.ts` validates `encryptedBody` as an opaque bounded string). Never write decrypted journal text to drafts, logs, alerts, or PRs.
 
+### Posting semantics (stack moves — not income or spending)
+
+A Runway **stack move** rearranges the user's stack (cash + bitcoin + loan liability) without being income the user earned or money they spent. The contract:
+
+- **Selling bitcoin is a conversion into cash** (`TX_SOURCE_BTC_SALE_CONVERSION`). It is **excluded from income and from the savings goal** — it changes the form the stack is held in, it does not grow net worth.
+- **Loan open / roll / payoff / liquidation** (`TX_SOURCE_LOAN_OPEN` / `_ROLL` / `_PAYOFF` / `_LIQUIDATION`) move the stack together (cash ↔ liability ↔ collateral). None of these legs are income or spending.
+
+`lib/runway-posting.ts` is the single source of truth for these source sets and predicates (`isBtcSaleConversion`, `isLoanStackMove`, `isRunwayStackMove`, `classifyRunwayPosting`, and the `countsAs…` contract predicates). Enforcement relies on two mechanisms:
+
+- **Allowlists stay narrow.** Income (`MONTHLY_INCOME_SOURCES`), savings inflow (`SAVINGS_INFLOW_SOURCES`), and cash-inflow (`CASH_INFLOW_SOURCES`) are allowlists — runway stack-move sources are deliberately **not** in them, so conversions/loan moves never count as income or savings-goal credits. A Vitest asserts they remain absent.
+- **Spending is denylisted.** `isUserFacingExpense` (`lib/transaction-visibility.ts`) excludes runway stack moves alongside funding legs and internal transfers, so a loan payoff/liquidation or sale proceeds leg can never leak into Monthly Spend, spend charts, or OC totals. This does **not** change existing funding-leg visibility.
+
+If you add a new runway source, add it to the appropriate set in `lib/runway-posting.ts` (and the `TransactionSource` union / `TX_SOURCE_*` constants) — do **not** add it to any income/savings/cash-inflow allowlist.
+
 ### Key libraries (pure math + glue)
 
 | Module | Responsibility |
 |--------|----------------|
 | `lib/runway-plan.ts` | Plan types, middle-path defaults, body validation (no throw, plain-language errors) |
+| `lib/runway-posting.ts` | Posting semantics: stack-move classification + income/savings/spend contract predicates |
 | `lib/runway-risk.ts` | Questionnaire → risk profile (target bitcoin share, cash-floor months, borrow cap) |
 | `lib/runway-need.ts` | Core need math: monthly draw, resolved holdings, required cash + required bitcoin, months-left at spot/stress/growth |
 | `lib/runway-gap.ts` | Quit-day projection: where cash/bitcoin land, separate cash and bitcoin gaps, scenario closures |

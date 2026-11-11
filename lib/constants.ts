@@ -61,6 +61,31 @@ export const TX_SOURCE_DEFICIT_COVER = "deficit_cover"
 export const TX_SOURCE_ENVELOPE_TRANSFER_IN = "envelope_transfer_in"
 export const TX_SOURCE_ENVELOPE_TRANSFER_OUT = "envelope_transfer_out"
 
+// ---------------------------------------------------------------------------
+// Financial Runway stack-move sources
+//
+// These mark transactions that rearrange the user's "stack" (cash + bitcoin +
+// loan liability) without being income the user earned or money the user spent:
+//   - Selling bitcoin is a CONVERSION of bitcoin into cash. It must never count
+//     as income or as a savings-goal credit (it does not grow net worth).
+//   - Opening, rolling, paying off, or liquidating a bitcoin-backed loan moves
+//     the stack together (cash ↔ liability ↔ collateral). None of these legs are
+//     income or spending.
+// Keeping them out of the income / savings-inflow / cash-inflow allowlists (and
+// out of user-facing spending) preserves the runway posting contract.
+// ---------------------------------------------------------------------------
+
+/** Proceeds leg when the user sells bitcoin — a bitcoin→cash conversion, not income. */
+export const TX_SOURCE_BTC_SALE_CONVERSION = "btc_sale_conversion"
+/** Cash received when a bitcoin-backed loan is opened (paired with a liability). */
+export const TX_SOURCE_LOAN_OPEN = "loan_open"
+/** Rolling / refinancing an existing loan into a new one (stack move, not spend). */
+export const TX_SOURCE_LOAN_ROLL = "loan_roll"
+/** Paying off a loan's balloon bill at maturity (stack move, not spend). */
+export const TX_SOURCE_LOAN_PAYOFF = "loan_payoff"
+/** Lender liquidates collateral to cover the bill (stack move, not spend). */
+export const TX_SOURCE_LOAN_LIQUIDATION = "loan_liquidation"
+
 export const ENVELOPE_FUNDING_BATCH_KIND_FUND = "fund"
 export const ENVELOPE_FUNDING_BATCH_KIND_SWEEP = "sweep"
 export const ENVELOPE_FUNDING_BATCH_KIND_REBALANCE = "rebalance"
