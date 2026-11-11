@@ -99,6 +99,7 @@ model User {
   pendingStatementBatches    PendingStatementBatch[]
   premiumRenewalReminderLogs PremiumRenewalReminderLog[]
   runwayPlan                 RunwayPlan?
+  runwayJournalEntries       RunwayJournalEntry[]
 }
 
 model PremiumRenewalReminderLog {
@@ -262,6 +263,7 @@ model Envelope {
   pendingTransactions   PendingTransaction[]
   shortcuts             TransactionShortcut[]
   payeeMappings         PayeeEnvelopeMapping[]
+  runwayJournalEntries  RunwayJournalEntry[]
 
   @@unique([userId, name])
   @@index([userId])
@@ -391,6 +393,26 @@ model RunwayPlan {
   updatedAt                 DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// A month-scoped, encrypted Financial Runway journal note. The server only ever
+/// stores and returns ciphertext in `encryptedBody` (encrypted client-side like
+/// transaction notes) — it is never logged or decrypted on the backend. An
+/// optional `envelopeId` scopes the note to a single envelope.
+model RunwayJournalEntry {
+  id            String   @id @default(cuid())
+  userId        String
+  monthKey      String // YYYY-MM
+  envelopeId    String? // optional envelope scope
+  encryptedBody String // ciphertext only — never logged or decrypted server-side
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envelope Envelope? @relation(fields: [envelopeId], references: [id], onDelete: SetNull)
+
+  @@index([userId, monthKey])
+  @@index([envelopeId])
 }
 
 model UserAchievement {
