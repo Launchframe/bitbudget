@@ -65,6 +65,11 @@ const sourceIcons: Record<TransactionSource, React.ElementType> = {
   deficit_cover: ArrowDownToLine,
   envelope_transfer_in: ArrowDownToLine,
   envelope_transfer_out: ArrowUpFromLine,
+  btc_sale_conversion: ArrowDownToLine,
+  loan_open: Building2,
+  loan_roll: ArrowRight,
+  loan_payoff: ArrowUpFromLine,
+  loan_liquidation: ArrowUpFromLine,
 }
 
 const sourceLabels: Record<TransactionSource, string> = {
@@ -88,6 +93,11 @@ const sourceLabels: Record<TransactionSource, string> = {
   deficit_cover: "Cover from Savings",
   envelope_transfer_in: "Transfer in",
   envelope_transfer_out: "Transfer out",
+  btc_sale_conversion: "Bitcoin sale",
+  loan_open: "Loan opened",
+  loan_roll: "Loan rolled over",
+  loan_payoff: "Loan paid off",
+  loan_liquidation: "Loan liquidated",
 }
 
 export function ReviewInbox() {

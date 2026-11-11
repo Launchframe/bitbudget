@@ -232,6 +232,7 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
           collateralSats: l.collateralSats,
           lenderSellPriceUsd: l.lenderSellPriceUsd,
           payoffStyle: l.payoffStyle,
+          maturityBillOverrideUsd: l.maturityBillOverrideUsd,
         }),
       ),
       { btcPriceUsd, asOfDate: today, borrowCapFraction: 0.5 },

@@ -8,6 +8,7 @@ import {
   buildRunwayComputation,
   checkupMonthName,
   effectiveBorrowCapFraction,
+  formatLiquidationRoomPct,
   formatSharePct,
   gapSummaryLine,
   isCheckupReady,
@@ -142,6 +143,15 @@ describe("formatSharePct / satsToUsd", () => {
     expect(formatSharePct(0.5)).toBe("50%")
     expect(formatSharePct(1.4)).toBe("100%")
     expect(formatSharePct(Number.NaN)).toBe("—")
+  })
+
+  it("shows liquidation-room breaches as negative instead of clamping to 0%", () => {
+    expect(formatLiquidationRoomPct(0.375)).toBe("38%")
+    expect(formatLiquidationRoomPct(1.4)).toBe("100%") // upside still capped
+    // A price below the lender's sell price must surface as a breach, not 0%.
+    expect(formatLiquidationRoomPct(-0.25)).toBe("-25%")
+    expect(formatLiquidationRoomPct(null)).toBe("—")
+    expect(formatLiquidationRoomPct(Number.NaN)).toBe("—")
   })
 
   it("values sats at spot, zero when price unknown", () => {

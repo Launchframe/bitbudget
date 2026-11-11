@@ -177,6 +177,18 @@ export function formatSharePct(fraction: number): string {
   return `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%`
 }
 
+/**
+ * Format the liquidation-room percent for display. Unlike `formatSharePct`, a
+ * negative value is NOT clamped to 0% — the price can be *below* the lender's
+ * sell price, and hiding that breach as "0%" would misrepresent a loan that is
+ * already liquidatable. Caps the upside at 100% but shows negatives (breach)
+ * verbatim. `null`/non-finite → "—".
+ */
+export function formatLiquidationRoomPct(fraction: number | null | undefined): string {
+  if (fraction == null || !Number.isFinite(fraction)) return "—"
+  return `${Math.round(Math.min(1, fraction) * 100)}%`
+}
+
 /** Convert integer sats to a USD value at a spot price (0 when price unknown). */
 export function satsToUsd(sats: number, btcPriceUsd: number): number {
   if (!Number.isFinite(sats) || btcPriceUsd <= 0) return 0

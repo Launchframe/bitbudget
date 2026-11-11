@@ -12,6 +12,7 @@ import {
   borrowingAllowed,
   buildPlanPutBody,
   checkupMonthName,
+  formatLiquidationRoomPct,
   formatSharePct,
   gapSummaryLine,
   isCheckupReady,
@@ -128,8 +129,15 @@ function LoanRow({
   onDelete: () => void
 }) {
   const roomPct = evaluation?.liquidationRoom.percent
+  const roomBreached = roomPct != null && roomPct < 0
   const roomTone =
-    roomPct == null ? "text-muted-foreground" : roomPct < 0.15 ? "text-amber-400" : "text-[#22C55E]"
+    roomPct == null
+      ? "text-muted-foreground"
+      : roomPct < 0
+        ? "text-red-400"
+        : roomPct < 0.15
+          ? "text-amber-400"
+          : "text-[#22C55E]"
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3 min-w-0">
       <div className="flex items-center justify-between gap-2 min-w-0">
@@ -157,10 +165,15 @@ function LoanRow({
         <div className="flex flex-col">
           <span className="text-muted-foreground">Room before sell price</span>
           <span className={`tabular-nums ${roomTone}`}>
-            {priceKnown && roomPct != null ? formatSharePct(roomPct) : "—"}
+            {priceKnown && roomPct != null ? formatLiquidationRoomPct(roomPct) : "—"}
           </span>
         </div>
       </div>
+      {priceKnown && roomBreached && (
+        <p className="text-xs text-red-400">
+          Bitcoin is already below the lender&apos;s sell price — this loan could be liquidated.
+        </p>
+      )}
       {priceKnown && evaluation && !evaluation.rolloverCoversBillAtToday && (
         <p className="text-xs text-amber-400/90">
           At today&apos;s price, a new loan on this bitcoin wouldn&apos;t fully cover the bill.
