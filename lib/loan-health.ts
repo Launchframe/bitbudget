@@ -91,26 +91,53 @@ export interface BtcLoanInput {
   collateralSats: number
   /** Lender's liquidation ("sell") price in USD for the collateral. */
   liquidationPriceUsd: number
+  /**
+   * Optional typed final bill that overrides the computed maturity bill. When
+   * present (finite), it is the authoritative amount owed at maturity, so both
+   * `maturityBillUsd` and (through it) the interest portion and accrued due are
+   * derived from it instead of principal + APR interest.
+   */
+  maturityBillOverrideUsd?: number | null
 }
 
-/** Whole-term interest for a loan (the interest baked into the maturity bill). */
-export function maturityInterestUsd(loan: BtcLoanInput): number {
+/** The override maturity bill when it is set and usable, else null. */
+function overrideBillUsd(loan: BtcLoanInput): number | null {
+  const override = loan.maturityBillOverrideUsd
+  return override != null && Number.isFinite(override) ? override : null
+}
+
+/** Computed (non-override) whole-term interest, simple pro-rata actual/365. */
+function computedMaturityInterestUsd(loan: BtcLoanInput): number {
   const termDays = Math.max(0, daysBetween(loan.openDate, loan.maturityDate))
   if (!Number.isFinite(loan.principalUsd) || !Number.isFinite(loan.aprFraction)) return 0
   return loan.principalUsd * loan.aprFraction * (termDays / DAYS_PER_YEAR)
 }
 
-/** The single balloon bill owed on the maturity date (principal + full interest). */
+/**
+ * The single balloon bill owed on the maturity date. A typed override takes
+ * precedence over the computed principal + full interest.
+ */
 export function maturityBillUsd(loan: BtcLoanInput): number {
-  return loan.principalUsd + maturityInterestUsd(loan)
+  const override = overrideBillUsd(loan)
+  if (override != null) return override
+  return loan.principalUsd + computedMaturityInterestUsd(loan)
+}
+
+/**
+ * Interest baked into the maturity bill (bill − principal), so it stays
+ * consistent with any typed override. May be negative if an override bill is
+ * below principal.
+ */
+export function maturityInterestUsd(loan: BtcLoanInput): number {
+  return maturityBillUsd(loan) - loan.principalUsd
 }
 
 /**
  * Amount due as of a given date.
  *
- * - `accrued`   → principal + interest accrued so far (pro-rata actual/365,
- *                 clamped to the term so nothing accrues before open or after
- *                 maturity).
+ * - `accrued`   → principal + interest accrued so far, pro-rata over the term
+ *                 toward the (possibly overridden) maturity interest, clamped so
+ *                 nothing accrues before open or after maturity.
  * - `full_bill` → the full maturity bill for the entire term (locked day one).
  */
 export function amountDueUsd(loan: BtcLoanInput, asOfDate: string): number {
@@ -118,9 +145,13 @@ export function amountDueUsd(loan: BtcLoanInput, asOfDate: string): number {
     return maturityBillUsd(loan)
   }
   const termDays = Math.max(0, daysBetween(loan.openDate, loan.maturityDate))
+  // A zero-day term matures immediately: the full bill is due on/after open.
+  if (termDays <= 0) {
+    return maturityBillUsd(loan)
+  }
   const elapsed = Math.min(Math.max(0, daysBetween(loan.openDate, asOfDate)), termDays)
-  const accruedInterest = loan.principalUsd * loan.aprFraction * (elapsed / DAYS_PER_YEAR)
-  return loan.principalUsd + accruedInterest
+  const fraction = elapsed / termDays
+  return loan.principalUsd + maturityInterestUsd(loan) * fraction
 }
 
 export interface StackInput {
