@@ -147,7 +147,7 @@ function LoanRow({
           <span className="text-foreground tabular-nums">{loan.maturityOn}</span>
         </div>
         <div className="flex flex-col">
-          <span className="text-muted-foreground">Room to sell price</span>
+          <span className="text-muted-foreground">Room before sell price</span>
           <span className={`tabular-nums ${roomTone}`}>
             {priceKnown && roomPct != null ? formatSharePct(roomPct) : "—"}
           </span>
@@ -238,14 +238,9 @@ export function RunwayPage() {
     [plan, setPlan],
   )
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-24">
-        <Spinner className="h-8 w-8 text-[#F7931A]" />
-      </div>
-    )
-  }
-
+  // Gate first: a user who reaches #/runway with bitcoin features off (e.g. a
+  // stale hash) sees the calm redirect immediately, not a spinner for content
+  // they can't use.
   if (!state.opportunityCostEnabled) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20 bg-[#0D0D0D] rounded-2xl text-center px-6">
@@ -259,6 +254,14 @@ export function RunwayPage() {
         <Button variant="outline" className="border-[#333]" onClick={() => navigateTo("settings")}>
           Open Settings
         </Button>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24" role="status" aria-label="Loading your runway">
+        <Spinner className="h-8 w-8 text-[#F7931A]" />
       </div>
     )
   }

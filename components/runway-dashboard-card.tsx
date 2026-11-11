@@ -24,17 +24,25 @@ export function RunwayDashboardCard() {
   const configured = isRunwayConfigured(plan)
   const checkupReady = isCheckupReady(plan, monthKey)
 
-  // Keep the card height stable across its states to avoid dashboard layout jump.
+  // Keep the card height stable across its states to avoid dashboard layout
+  // jump. A reserved min-height on the text column keeps the loading skeleton,
+  // the gap line, and the checkup variant the same height.
   const shell =
-    "group w-full text-left flex items-center gap-4 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F] hover:border-[#F7931A]/50 transition-colors min-w-0"
+    "group w-full text-left flex items-center gap-4 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border transition-colors min-w-0"
+  // A ready checkup gets an accent border so it reads as actionable at a glance
+  // in the dense dashboard grid; otherwise the card stays visually quiet.
+  const borderClass = checkupReady
+    ? "border-[#F7931A]/40 hover:border-[#F7931A]/70"
+    : "border-[#1F1F1F] hover:border-[#F7931A]/50"
+  const textCol = "flex flex-col gap-0.5 min-w-0 flex-1 min-h-[2.5rem] justify-center"
 
   if (loading) {
     return (
-      <div className={shell} aria-hidden>
+      <div className={`${shell} border-[#1F1F1F]`} aria-hidden>
         <div className="p-2.5 rounded-xl bg-[#F7931A]/10 shrink-0">
           <Plane className="h-5 w-5 text-[#F7931A]" />
         </div>
-        <div className="flex flex-col gap-2 min-w-0 flex-1">
+        <div className={`${textCol} gap-2`}>
           <div className="h-3 w-20 rounded bg-[#1A1A1A]" />
           <div className="h-3 w-48 max-w-full rounded bg-[#1A1A1A]" />
         </div>
@@ -59,13 +67,19 @@ export function RunwayDashboardCard() {
     <button
       type="button"
       onClick={() => navigateTo("runway")}
-      className={shell}
-      aria-label={configured ? "Open your runway" : "Set up your runway"}
+      className={`${shell} ${borderClass}`}
+      aria-label={
+        checkupReady
+          ? `Open your runway — ${checkupMonthName(monthKey)} checkup ready`
+          : configured
+            ? "Open your runway"
+            : "Set up your runway"
+      }
     >
       <div className="p-2.5 rounded-xl bg-[#F7931A]/10 shrink-0">
         <Plane className="h-5 w-5 text-[#F7931A]" aria-hidden />
       </div>
-      <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+      <div className={textCol}>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-muted-foreground uppercase tracking-wider">
             {title}
