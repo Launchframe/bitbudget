@@ -196,8 +196,18 @@ function projectStack(args: ProjectArgs): RunwayGapProjection {
     const gapToFloor = Math.max(0, args.cashRequiredUsd - args.startCashUsd)
     toCashUsd = Math.min(newSavingsUsd, gapToFloor)
     toBitcoinUsd = newSavingsUsd - toCashUsd
-    projectedCashUsd = args.startCashUsd + toCashUsd
-    projectedSats = args.startSats + usdToSats(toBitcoinUsd, args.btcPriceUsd)
+    if (args.btcPriceUsd > 0) {
+      projectedCashUsd = args.startCashUsd + toCashUsd
+      projectedSats = args.startSats + usdToSats(toBitcoinUsd, args.btcPriceUsd)
+    } else {
+      // Bitcoin can't be bought at a non-positive price. Keep those dollars as
+      // cash so the projected stack doesn't silently lose value; the bitcoin
+      // gap stays whatever it was (no sats added).
+      projectedCashUsd = args.startCashUsd + toCashUsd + toBitcoinUsd
+      projectedSats = args.startSats
+      toCashUsd += toBitcoinUsd
+      toBitcoinUsd = 0
+    }
   } else {
     // Net drain: take it out of bitcoin first (protect the floor), then cash.
     const drainUsd = -newSavingsUsd
@@ -242,13 +252,16 @@ function projectStack(args: ProjectArgs): RunwayGapProjection {
 /**
  * Apply a scenario's extra dollars against the flat-projection gaps. Positive
  * extra closes the cash gap first, then the bitcoin gap (floor-first). Negative
- * extra (a net cost) widens the bitcoin gap first (bitcoin drained to protect
- * the floor), reported as negative closure.
+ * extra (a net cost) is absorbed by any bitcoin surplus first (spending down
+ * sats you already hold above the requirement doesn't widen the gap); only the
+ * remainder beyond the surplus widens the bitcoin gap, reported as negative
+ * closure. The cash floor is always protected.
  */
 function closeGaps(
   extraUsd: number,
   cashGapUsd: number,
   bitcoinGapUsd: number,
+  bitcoinSurplusUsd: number,
   btcPriceUsd: number,
 ): { cashGapClosedUsd: number; bitcoinGapClosedUsd: number; bitcoinGapClosedSats: number } {
   if (extraUsd >= 0) {
@@ -260,9 +273,16 @@ function closeGaps(
     const bitcoinGapClosedSats = usdToSats(bitcoinGapClosedUsd, btcPriceUsd)
     return { cashGapClosedUsd, bitcoinGapClosedUsd, bitcoinGapClosedSats }
   }
-  // Net cost: widen the bitcoin gap (negative closure). Cash floor is protected.
-  const bitcoinGapClosedUsd = extraUsd
-  const bitcoinGapClosedSats = -usdToSats(-extraUsd, btcPriceUsd)
+  // Net cost: bitcoin is drained to protect the cash floor. A surplus of sats
+  // above the requirement absorbs the cost first (the gap stays 0); only the
+  // cost beyond the surplus actually widens the bitcoin gap.
+  const costUsd = -extraUsd
+  const surplusUsd = Math.max(0, bitcoinSurplusUsd)
+  const gapWidenedUsd = Math.max(0, costUsd - surplusUsd)
+  // Avoid -0 when the surplus fully absorbs the cost (clean equality in tests).
+  const bitcoinGapClosedUsd = gapWidenedUsd === 0 ? 0 : -gapWidenedUsd
+  const widenedSats = usdToSats(gapWidenedUsd, btcPriceUsd)
+  const bitcoinGapClosedSats = widenedSats === 0 ? 0 : -widenedSats
   return { cashGapClosedUsd: 0, bitcoinGapClosedUsd, bitcoinGapClosedSats }
 }
 
@@ -300,6 +320,13 @@ export function computeRunwayGap(input: RunwayGapInput): RunwayGapResult {
     monthsToCloseDollarGap = Number.isFinite(combinedDollarGapUsd) ? null : Infinity
   }
 
+  // USD value of any bitcoin held above the requirement in the flat projection.
+  // A net cost eats this surplus before it can widen the bitcoin gap.
+  // -Infinity surplus (Infinity requirement) means no surplus to spend down.
+  const flatBitcoinSurplusUsd = Number.isFinite(flat.bitcoinSurplusSats)
+    ? satsToUsd(flat.bitcoinSurplusSats, input.btcPriceUsd)
+    : 0
+
   const scenarioClosure = (
     id: string,
     label: string,
@@ -309,7 +336,13 @@ export function computeRunwayGap(input: RunwayGapInput): RunwayGapResult {
     const fromMonthlyUsd = -monthlyDeltaUsd * months
     const fromOneTimeUsd = oneTimeUsd
     const extraUsd = fromMonthlyUsd + fromOneTimeUsd
-    const closed = closeGaps(extraUsd, flat.cashGapUsd, flat.bitcoinGapUsd, input.btcPriceUsd)
+    const closed = closeGaps(
+      extraUsd,
+      flat.cashGapUsd,
+      flat.bitcoinGapUsd,
+      flatBitcoinSurplusUsd,
+      input.btcPriceUsd,
+    )
     return {
       id,
       label,
