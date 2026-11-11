@@ -18,6 +18,10 @@ import {
   type RunwayPlanResponse,
 } from "@/lib/runway-ui"
 import type { RunwayScenario } from "@/lib/runway-need"
+import {
+  computeMonthsLeftImpact,
+  formatMonthsLeft,
+} from "@/lib/runway-expense-impact"
 import type { LoanEvaluation } from "@/lib/loan-health"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -41,6 +45,7 @@ import {
   Settings2,
   Trash2,
   Wallet,
+  X,
 } from "lucide-react"
 
 const SATS_PER_BTC = 100_000_000
@@ -163,7 +168,7 @@ function LoanRow({
 }
 
 export function RunwayPage() {
-  const { state, navigateTo } = useApp()
+  const { state, navigateTo, runwayWhatIfUsd, setRunwayWhatIf } = useApp()
   const {
     plan,
     setPlan,
@@ -215,6 +220,12 @@ export function RunwayPage() {
 
   const scenarioMode = applyScenarios ? "enabled" : "none"
   const comp = useMemo(() => compute(scenarioMode), [compute, scenarioMode])
+
+  // The transient "See this on your plan" what-if is a preview only — never
+  // persisted. Clear it when the user navigates away from Runway.
+  useEffect(() => {
+    return () => setRunwayWhatIf(null)
+  }, [setRunwayWhatIf])
 
   const savePatch = useCallback(
     async (patch: Partial<RunwayPlanResponse>) => {
@@ -320,6 +331,19 @@ export function RunwayPage() {
   const bitcoinKnownUsd = need ? satsToUsd(need.spendableSats, btcPriceOrNull ?? 0) : 0
   const monthsUntil = comp?.monthsUntilQuit ?? 0
 
+  const whatIfImpact =
+    runwayWhatIfUsd != null && need && need.monthlyDrawUsd > 0
+      ? computeMonthsLeftImpact({
+          liquidTodayUsd: (need.monthsLeft ?? 0) * need.monthlyDrawUsd,
+          monthlyDrawUsd: need.monthlyDrawUsd,
+          expenseUsd: runwayWhatIfUsd,
+          liquidStressUsd:
+            need.monthsLeftAtStress != null
+              ? need.monthsLeftAtStress * need.monthlyDrawUsd
+              : null,
+        })
+      : null
+
   return (
     <div className="flex flex-col gap-4 md:gap-6 min-w-0 w-full max-w-full">
       {/* Header */}
@@ -349,6 +373,40 @@ export function RunwayPage() {
           Adjust
         </Button>
       </div>
+
+      {/* Temporary "See this on your plan" what-if preview */}
+      {runwayWhatIfUsd != null && (
+        <div className="flex items-start gap-3 rounded-2xl border border-[#F7931A]/30 bg-[#F7931A]/5 p-4">
+          <Plane className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-foreground">
+              Previewing a {formatUsd(runwayWhatIfUsd)} expense
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {whatIfImpact
+                ? `Spending this once would shorten your runway from ${formatMonthsLeft(
+                    whatIfImpact.monthsBefore,
+                  )} to ${formatMonthsLeft(whatIfImpact.monthsAfter)}${
+                    whatIfImpact.monthsBeforeStress != null &&
+                    whatIfImpact.monthsAfterStress != null
+                      ? ` (${formatMonthsLeft(whatIfImpact.monthsBeforeStress)} to ${formatMonthsLeft(
+                          whatIfImpact.monthsAfterStress,
+                        )} if bitcoin dips)`
+                      : ""
+                  }. Nothing is saved — this is just a preview.`
+                : "We can't preview this against your runway right now — your plan has no monthly draw to shorten."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRunwayWhatIf(null)}
+            className="p-1 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            aria-label="Dismiss expense preview"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+      )}
 
       {/* Checkup banner */}
       {(showCheckup || checkupReady) && (
