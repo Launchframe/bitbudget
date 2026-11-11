@@ -72,6 +72,46 @@ describe("interest / amount due (actual/365, balloon)", () => {
   })
 })
 
+describe("maturity bill override honored at the source of truth", () => {
+  // Same worked loan, but the user typed a $60k final bill (vs computed $55k).
+  const overrideLoan: BtcLoanInput = { ...workedLoan, maturityBillOverrideUsd: 60_000 }
+
+  it("maturityBillUsd returns the override instead of computed principal+interest", () => {
+    expect(maturityBillUsd(overrideLoan)).toBeCloseTo(60_000, 6)
+    // Interest portion stays consistent: bill − principal = 10_000.
+    expect(maturityInterestUsd(overrideLoan)).toBeCloseTo(10_000, 6)
+  })
+
+  it("full_bill due uses the override for the whole term", () => {
+    const fullBill: BtcLoanInput = { ...overrideLoan, payoffStyle: "full_bill" }
+    expect(amountDueUsd(fullBill, "2025-01-01")).toBeCloseTo(60_000, 6)
+    expect(amountDueUsd(fullBill, "2026-01-01")).toBeCloseTo(60_000, 6)
+  })
+
+  it("accrued due interpolates toward the override bill and hits it at maturity", () => {
+    expect(amountDueUsd(overrideLoan, "2025-01-01")).toBeCloseTo(50_000, 6)
+    expect(amountDueUsd(overrideLoan, "2026-01-01")).toBeCloseTo(60_000, 6)
+  })
+
+  it("evaluateLoan reports the override bill and derived interest", () => {
+    const row = evaluateLoan(overrideLoan, {
+      btcPriceUsd: 100_000,
+      asOfDate: "2026-01-01",
+      borrowCapFraction: 0.5,
+    })
+    expect(row.billAtMaturityUsd).toBeCloseTo(60_000, 6)
+    expect(row.maturityInterestUsd).toBeCloseTo(10_000, 6)
+    expect(row.amountDueTodayUsd).toBeCloseTo(60_000, 6)
+  })
+
+  it("ignores a non-finite override and falls back to the computed bill", () => {
+    const bad: BtcLoanInput = { ...workedLoan, maturityBillOverrideUsd: Number.NaN }
+    expect(maturityBillUsd(bad)).toBeCloseTo(55_000, 6)
+    const cleared: BtcLoanInput = { ...workedLoan, maturityBillOverrideUsd: null }
+    expect(maturityBillUsd(cleared)).toBeCloseTo(55_000, 6)
+  })
+})
+
 describe("stack identity", () => {
   it("is unchanged at open under accrued style (loan is stack-neutral)", () => {
     const beforeLoan = stackUsd({

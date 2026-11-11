@@ -6,14 +6,13 @@ import {
   parseLoanCreateBody,
   parseLoanUpdateBody,
   toLoanHealthInput,
+  validateCalendarDate,
   type LoanUpdateInput,
 } from "@/lib/btc-loan"
 import { evaluateLoan, type LoanPayoffStyle } from "@/lib/loan-health"
 
 /** Default borrow cap / max LTV used for the rollover check in GET summaries. */
 const DEFAULT_BORROW_CAP_FRACTION = 0.5
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 /** Shape of a loan row selected from the DB. */
 interface LoanRow {
@@ -87,10 +86,13 @@ export async function GET(req: NextRequest) {
   const asOfParam = req.nextUrl.searchParams.get("asOf")
   let asOfDate = todayUtcDate()
   if (asOfParam != null && asOfParam.trim() !== "") {
-    if (!DATE_RE.test(asOfParam.trim())) {
-      return NextResponse.json({ error: "asOf must be YYYY-MM-DD" }, { status: 400 })
+    // Validate it is a real calendar date (rejects e.g. 2026-02-31), not just
+    // the YYYY-MM-DD shape, so we never summarize for a rolled-over date.
+    const parsedAsOf = validateCalendarDate(asOfParam, "asOf")
+    if (!parsedAsOf.ok) {
+      return NextResponse.json({ error: parsedAsOf.error }, { status: 400 })
     }
-    asOfDate = asOfParam.trim()
+    asOfDate = parsedAsOf.value
   }
 
   const capParam = req.nextUrl.searchParams.get("borrowCapFraction")
@@ -119,6 +121,7 @@ export async function GET(req: NextRequest) {
         collateralSats: loan.collateralSats,
         lenderSellPriceUsd: loan.lenderSellPriceUsd,
         payoffStyle: loan.payoffStyle as LoanPayoffStyle,
+        maturityBillOverrideUsd: loan.maturityBillOverrideUsd,
       }),
       ctx,
     ),

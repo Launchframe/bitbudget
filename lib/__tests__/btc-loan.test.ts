@@ -276,6 +276,37 @@ describe("toLoanHealthInput", () => {
       payoffStyle: "full_bill",
       collateralSats: 100_000_000,
       liquidationPriceUsd: 40000,
+      maturityBillOverrideUsd: null,
     })
+  })
+
+  it("passes a stored maturity bill override through to loan-health", () => {
+    const input = toLoanHealthInput({
+      id: "loan_2",
+      principalUsd: 50000,
+      apr: 0.1,
+      openedOn: "2026-01-01",
+      maturityOn: "2027-01-01",
+      collateralSats: 100_000_000,
+      lenderSellPriceUsd: 40000,
+      payoffStyle: "full_bill",
+      maturityBillOverrideUsd: 58000,
+    })
+    expect(input.maturityBillOverrideUsd).toBe(58000)
+  })
+
+  it("maps a missing override to null", () => {
+    const input = toLoanHealthInput({
+      id: "loan_3",
+      principalUsd: 50000,
+      apr: 0.1,
+      openedOn: "2026-01-01",
+      maturityOn: "2027-01-01",
+      collateralSats: 100_000_000,
+      lenderSellPriceUsd: 40000,
+      payoffStyle: "accrued",
+      maturityBillOverrideUsd: null,
+    })
+    expect(input.maturityBillOverrideUsd).toBe(null)
   })
 })

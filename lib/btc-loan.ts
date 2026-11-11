@@ -338,6 +338,8 @@ export interface BtcLoanRowForMath {
   collateralSats: number
   lenderSellPriceUsd: number
   payoffStyle: LoanPayoffStyle
+  /** Typed final bill overriding the computed maturity bill, or null. */
+  maturityBillOverrideUsd?: number | null
 }
 
 /** Map a persisted loan row to the `BtcLoanInput` shape used by loan-health. */
@@ -351,6 +353,7 @@ export function toLoanHealthInput(row: BtcLoanRowForMath): BtcLoanInput {
     payoffStyle: row.payoffStyle,
     collateralSats: row.collateralSats,
     liquidationPriceUsd: row.lenderSellPriceUsd,
+    maturityBillOverrideUsd: row.maturityBillOverrideUsd ?? null,
   }
 }
 
