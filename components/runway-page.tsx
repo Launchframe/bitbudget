@@ -187,6 +187,7 @@ export function RunwayPage() {
     reloadSales,
     nextPaycheckUsd,
     btcPriceUsd,
+    suggestedStressPercent,
     compute,
   } = useRunway({ withLoans: true })
 
@@ -328,6 +329,7 @@ export function RunwayPage() {
           onOpenChange={setSetupOpen}
           plan={plan}
           livingPlaceholderUsd={livingPlaceholder}
+          suggestedStressPercent={suggestedStressPercent}
           onSaved={setPlan}
         />
       </div>
@@ -690,6 +692,7 @@ export function RunwayPage() {
         onOpenChange={setSetupOpen}
         plan={plan}
         livingPlaceholderUsd={livingPlaceholder}
+        suggestedStressPercent={suggestedStressPercent}
         onSaved={setPlan}
       />
       <RunwayLoanDialog

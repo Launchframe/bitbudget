@@ -22,6 +22,7 @@ import {
   sumSaleHoldings,
   type PendingSaleStatus,
 } from "@/lib/runway-refill"
+import { suggestedStressPercent } from "@/lib/runway-stress"
 
 /** Serialized loan row from GET /api/runway/loans. */
 export interface RunwayLoan {
@@ -88,6 +89,12 @@ export interface UseRunwayResult {
   cashOnTheWayUsd: number
   /** Estimated next paycheck while still earning (0 once on runway). */
   nextPaycheckUsd: number
+  /**
+   * Default stress percent suggested from historical bitcoin drawdowns. Seeds a
+   * NEW plan only (see RunwaySetupDialog); never overwrites a saved plan's
+   * stress. Falls back to the middle-path default when price history is sparse.
+   */
+  suggestedStressPercent: number
   /** Build the full need+gap computation for a given scenario mode. */
   compute: (scenarioMode: ScenarioMode) => RunwayComputation | null
 }
@@ -100,7 +107,7 @@ export interface UseRunwayResult {
 export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
   const withLoans = opts?.withLoans ?? false
   const { state, activeTransactions, discretionaryEnvelopes } = useApp()
-  const { currentPrice } = useBtcPrices()
+  const { currentPrice, priceHistory } = useBtcPrices()
 
   const [plan, setPlanState] = useState<RunwayPlanResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -199,6 +206,15 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
 
   const btcPriceOrNull = currentPrice
   const btcPriceUsd = currentPrice ?? 0
+
+  // Suggested default stress from historical drawdowns (seeds a new plan only).
+  const suggestedStress = useMemo(
+    () =>
+      suggestedStressPercent(
+        priceHistory.map((p) => ({ date: p.date, priceUsd: p.price })),
+      ),
+    [priceHistory],
+  )
 
   const today = todayIso()
 
@@ -312,6 +328,7 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
     bitcoinOnTheWaySats,
     cashOnTheWayUsd,
     nextPaycheckUsd,
+    suggestedStressPercent: suggestedStress,
     compute,
   }
 }

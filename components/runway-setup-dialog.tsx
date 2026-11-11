@@ -29,7 +29,7 @@ import type {
   BtcSharePreference,
   DipResponse,
 } from "@/lib/runway-risk"
-import type { RunwayPlanResponse } from "@/lib/runway-ui"
+import { isRunwayConfigured, type RunwayPlanResponse } from "@/lib/runway-ui"
 import { formatUsd } from "@/lib/data"
 import { Briefcase } from "lucide-react"
 
@@ -188,6 +188,7 @@ export function RunwaySetupDialog({
   onOpenChange,
   plan,
   livingPlaceholderUsd,
+  suggestedStressPercent,
   onSaved,
 }: {
   open: boolean
@@ -195,6 +196,11 @@ export function RunwaySetupDialog({
   plan: RunwayPlanResponse | null
   /** Recent-spend monthly average used to prefill living costs. */
   livingPlaceholderUsd: number
+  /**
+   * Default stress percent from historical drawdowns. Seeds a brand-new plan's
+   * stress; an already-configured plan keeps its (possibly user-edited) stress.
+   */
+  suggestedStressPercent?: number
   onSaved: (plan: RunwayPlanResponse) => void
 }) {
   const [step, setStep] = useState(0)
@@ -379,6 +385,14 @@ export function RunwaySetupDialog({
     setError(null)
     const income = parseFloat(runwayIncomeUsd)
     const living = parseFloat(livingBaselineUsd)
+    // Seed stress from historical drawdowns for a brand-new plan only. Once the
+    // plan is configured, keep its saved (possibly user-edited) stress.
+    const seedStress =
+      !isRunwayConfigured(plan) &&
+      typeof suggestedStressPercent === "number" &&
+      Number.isFinite(suggestedStressPercent)
+        ? { stressPercent: suggestedStressPercent }
+        : {}
     const body = {
       ...(plan ?? {}),
       phase,
@@ -390,6 +404,7 @@ export function RunwaySetupDialog({
       btcSharePreference,
       borrowStance,
       plannedLines: buildPlannedLines(),
+      ...seedStress,
     }
     // createdAt/updatedAt are server-managed; the parser ignores them.
     delete (body as Record<string, unknown>).createdAt
@@ -426,6 +441,7 @@ export function RunwaySetupDialog({
     btcSharePreference,
     borrowStance,
     buildPlannedLines,
+    suggestedStressPercent,
     onSaved,
     onOpenChange,
   ])

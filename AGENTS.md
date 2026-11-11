@@ -520,12 +520,19 @@ A Runway **stack move** rearranges the user's stack (cash + bitcoin + loan liabi
 
 If you add a new runway source, add it to the appropriate set in `lib/runway-posting.ts` (and the `TransactionSource` union / `TX_SOURCE_*` constants) — do **not** add it to any income/savings/cash-inflow allowlist.
 
+### Default stress from drawdowns
+
+A **new** plan's `stressPercent` (the crash-test drop used by `computeRunwayNeed`) can be seeded from how far bitcoin has actually fallen, instead of always starting at the middle `0.5`. `lib/runway-stress.ts` (`suggestStressFromPrices` / `suggestedStressPercent`) walks the trailing **`STRESS_WINDOW_YEARS` (4y, ~one halving cycle)** of a daily price series, takes the **max peak-to-trough drawdown**, and **clamps it to `[STRESS_MIN, STRESS_MAX]` = `[0.30, 0.70]`**. With too little history (fewer than `STRESS_MIN_POINTS` in-window points or under `STRESS_MIN_SPAN_DAYS` of span) it returns `STRESS_DEFAULT` (`0.5`) and `sufficient: false`.
+
+`useRunway` derives `suggestedStressPercent` from `useBtcPrices().priceHistory` and passes it to `RunwaySetupDialog`, which seeds it **only for a brand-new plan** (`!isRunwayConfigured(plan)`). An already-configured plan keeps its saved, possibly user-edited, stress — **never overwrite user-edited stress**. The questionnaire's dip-response bands remain labels; this does not change the risk-profile math.
+
 ### Key libraries (pure math + glue)
 
 | Module | Responsibility |
 |--------|----------------|
 | `lib/runway-plan.ts` | Plan types, middle-path defaults, body validation (no throw, plain-language errors) |
 | `lib/runway-posting.ts` | Posting semantics: stack-move classification + income/savings/spend contract predicates |
+| `lib/runway-stress.ts` | Suggest a default stress percent from historical BTC drawdowns (banded, degrades to middle) |
 | `lib/runway-risk.ts` | Questionnaire → risk profile (target bitcoin share, cash-floor months, borrow cap) |
 | `lib/runway-need.ts` | Core need math: monthly draw, resolved holdings, required cash + required bitcoin, months-left at spot/stress/growth |
 | `lib/runway-gap.ts` | Quit-day projection: where cash/bitcoin land, separate cash and bitcoin gaps, scenario closures |
