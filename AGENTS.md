@@ -480,6 +480,50 @@ When adding **any** Bitcoin, sats, or opportunity-cost content, wrap it with `st
 
 Onboarding no longer has a separate opportunity-cost step; the flag is saved from `sessionStorage` `onboardingSource` (`btc` from `/landing`, otherwise vanilla). Premium users toggle in Settings.
 
+## Financial Runway (bitcoin feature)
+
+**Runway** answers "how long would my money last if I stepped back from work, and what does it take to get there?" It blends the user's cash, their bitcoin, and a short questionnaire into a plan with a **cash gap** and a **bitcoin gap**. It is a **bitcoin experience**: all Runway UI is gated behind `state.opportunityCostEnabled`. The ledger (pay-yourself-first, Savings envelope) and `savingsExperience` are **independent** — Runway never turns either on or off, and a dismissed savings experience does not hide Runway.
+
+### Mix and questionnaire defaults
+
+The persisted plan lives in `RunwayPlan` and is served by `GET`/`PUT /api/runway/plan`. Server defaults are the **middle path** (`RUNWAY_PLAN_DEFAULTS` in `lib/runway-plan.ts`): `dipResponse: "cut"`, `btcSharePreference: "half"`, `borrowStance: "deep_drop"`, `inflationRateYear: 0.05`, `stressPercent: 0.5`, `horizonMonths: 24`, `growthRateYear: null`. These must match the Prisma column defaults.
+
+The setup wizard (`components/runway-setup-dialog.tsx`) **pre-selects** middle-path answers so a user can finish fast, but any answer the user actually picks is a **user-specific choice**, not a default — do not treat a selected/highlighted answer in the UI as "the default", and do not overwrite a saved answer with a default on re-open. `PUT` replaces the whole row, so echo unspecified fields back (`buildPlanPutBody` in `lib/runway-ui.ts`) rather than resetting them.
+
+### Known totals and overrides
+
+Runway resolves holdings from the budget: **envelope cash** = Savings remaining + discretionary remaining (all-time, genesis-floored), and **wallet sats** (currently 0 until a wallet source is wired). A typed **override replaces one side only**: `cashOverrideUsd` replaces the cash total, `bitcoinOverrideSats` replaces the bitcoin total; the other side still comes from the budget. See `knownCashUsd` / `knownBitcoinSats` in `lib/runway-ui.ts` and the holdings resolution in `computeRunwayNeed`.
+
+### Cash floor vs required bitcoin — keep them separate
+
+The **cash floor** (months of spending kept in cash before leaning on bitcoin) and the **required bitcoin** (sats needed to fund the draw over the horizon) are reported as **two independent gaps** everywhere (`cashGapUsd` and `bitcoinGapUsd`). A bold bitcoin target must never mask a short cash floor, and vice-versa. `gapSummaryLine` phrases them as distinct shortfalls; the gap math (`lib/runway-gap.ts`) fills the cash floor **first**, then buys bitcoin, and keeps the bitcoin side Infinity-safe (a 100% stress drop yields an Infinity bitcoin requirement, never NaN).
+
+### Loans are balloon loans
+
+Tracked bitcoin-backed loans (`BtcLoan`, `GET`/`POST`/`DELETE /api/runway/loans`) are **balloon loans**: the user pays the bill at **maturity** (`maturityOn`), not as a monthly draw. `payoffStyle` is `accrued` (interest-to-date) or `full_bill` (fixed maturity bill). Collateral sats a lender holds (`collateralSats` → `lenderHeldSats`) are still the user's **bitcoin exposure** for the mix; the amount due (`amountDueUsd`) is a **liability** that reduces the stack. Do not model loan repayment as a recurring monthly expense in the draw.
+
+### Journal is ciphertext
+
+Monthly checkup reflections (`RunwayJournal`) store an **encrypted body only**. The client encrypts the note like a transaction note before sending; the server stores and returns the opaque string and never decrypts or inspects it (`lib/runway-journal.ts` validates `encryptedBody` as an opaque bounded string). Never write decrypted journal text to drafts, logs, alerts, or PRs.
+
+### Key libraries (pure math + glue)
+
+| Module | Responsibility |
+|--------|----------------|
+| `lib/runway-plan.ts` | Plan types, middle-path defaults, body validation (no throw, plain-language errors) |
+| `lib/runway-risk.ts` | Questionnaire → risk profile (target bitcoin share, cash-floor months, borrow cap) |
+| `lib/runway-need.ts` | Core need math: monthly draw, resolved holdings, required cash + required bitcoin, months-left at spot/stress/growth |
+| `lib/runway-gap.ts` | Quit-day projection: where cash/bitcoin land, separate cash and bitcoin gaps, scenario closures |
+| `lib/runway-expense-impact.ts` | Expense-impact previews: savings-goal out-of-reach / behind-pace and months-left delta (pure, degrades silently) |
+| `lib/runway-checkup.ts` | Monthly checkup readiness and summary |
+| `lib/runway-journal.ts` | Encrypted journal validators (ciphertext only) |
+| `lib/loan-health.ts` | Loan evaluation: amount due today, liquidation room, rollover coverage |
+| `lib/btc-loan.ts` | Loan row ↔ loan-health input mapping |
+| `lib/runway-ui.ts` | UI glue: plan→computation, summary strings, PUT body builder (pure, unit-tested) |
+| `lib/use-runway.ts` | Client hook: loads plan + loans, resolves holdings, exposes `compute(scenarioMode)` |
+
+All of the `lib/runway-*` math is pure (no React/Prisma/network) and shared by server and client; add or extend Vitest in `lib/__tests__/runway-*.test.ts` whenever you change behavior.
+
 ## Encryption Rules
 
 These are **non-negotiable**:
