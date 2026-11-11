@@ -142,6 +142,38 @@ describe("buildRunwayCheckup — buildup", () => {
     expect(fact(targets, "required-bitcoin").unit).toBe("sats")
   })
 
+  it("tones by displayed rounding, so a sub-cent/sub-sat shortfall stays good", () => {
+    const checkup = buildRunwayCheckup(
+      baseBuildup({
+        required: { cashUsd: 10000, bitcoinSats: 5_000_000 },
+        projected: {
+          // 0.004 short rounds to the same cents as the target → good, not bad.
+          cashUsd: { spot: 9999.996, stress: 8000, growth: 15000 },
+          // 0.4 sats short rounds to the same whole sats as the target → good.
+          bitcoinSats: { spot: 4_999_999.6, stress: 4_000_000, growth: 7_000_000 },
+        },
+      }),
+    )
+    const targets = section(checkup, "targets")
+    expect(fact(targets, "projected-cash-spot").tone).toBe("good")
+    expect(fact(targets, "projected-bitcoin-spot").tone).toBe("good")
+  })
+
+  it("still marks a shortfall bad once it is larger than display rounding", () => {
+    const checkup = buildRunwayCheckup(
+      baseBuildup({
+        required: { cashUsd: 10000, bitcoinSats: 5_000_000 },
+        projected: {
+          cashUsd: { spot: 9999.98, stress: 8000, growth: 15000 },
+          bitcoinSats: { spot: 4_999_999, stress: 4_000_000, growth: 7_000_000 },
+        },
+      }),
+    )
+    const targets = section(checkup, "targets")
+    expect(fact(targets, "projected-cash-spot").tone).toBe("bad")
+    expect(fact(targets, "projected-bitcoin-spot").tone).toBe("bad")
+  })
+
   it("rounds projected cash to cents and bitcoin sats to whole numbers", () => {
     const checkup = buildRunwayCheckup(
       baseBuildup({
