@@ -9,6 +9,8 @@ import {
   isCheckupReady,
   isRunwayConfigured,
 } from "@/lib/runway-ui"
+import { refillStatus } from "@/lib/runway-refill"
+import { formatUsd } from "@/lib/data"
 import { ArrowRight, CalendarCheck, Plane } from "lucide-react"
 
 /**
@@ -58,9 +60,22 @@ export function RunwayDashboardCard() {
   } else {
     const comp = compute("none")
     title = "Runway"
-    detail = comp
-      ? gapSummaryLine(comp.gap.flat.cashGapUsd, comp.gap.flat.bitcoinGapUsd)
-      : "Open your runway to see where you stand."
+    const refill = comp
+      ? refillStatus({
+          cashUsd: comp.need.cashUsd,
+          cashOnTheWayUsd: comp.need.cashOnTheWayUsd,
+          cashFloorUsd: comp.need.cashFloorUsedUsd,
+          monthlyDrawUsd: comp.need.monthlyDrawUsd,
+        })
+      : null
+    if (refill && refill.underFloor) {
+      // A cash floor dipping under its cushion is the most urgent runway signal.
+      detail = `Your cash is ${formatUsd(refill.shortfallUsd)} under your cushion — tap to refill.`
+    } else {
+      detail = comp
+        ? gapSummaryLine(comp.gap.flat.cashGapUsd, comp.gap.flat.bitcoinGapUsd)
+        : "Open your runway to see where you stand."
+    }
   }
 
   return (

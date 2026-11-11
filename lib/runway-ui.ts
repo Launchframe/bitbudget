@@ -247,6 +247,10 @@ export interface RunwayComputationInput {
   monthlySavingsUsd: number
   /** Extra dollars/month if flexible envelopes return to usual spending. */
   flexibleCutMonthlyUsd: number
+  /** Sats in transit from open bitcoin sales (placeholder so value doesn't vanish). */
+  bitcoinOnTheWaySats?: number
+  /** Cash in transit from open bitcoin sales (proceeds known, not yet linked). */
+  cashOnTheWayUsd?: number
 }
 
 export interface RunwayComputation {
@@ -281,6 +285,8 @@ export function buildRunwayComputation(
       bitcoinOverrideSats: plan.bitcoinOverrideSats,
       lenderHeldSats: input.lenderHeldSats,
       amountDueUsd: input.amountDueUsd,
+      bitcoinOnTheWaySats: input.bitcoinOnTheWaySats,
+      cashOnTheWayUsd: input.cashOnTheWayUsd,
     },
     btcPriceUsd: input.btcPriceUsd,
     scenarioMode: input.scenarioMode,

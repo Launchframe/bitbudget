@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -28,10 +28,13 @@ export function RunwayLoanDialog({
   open,
   onOpenChange,
   onSaved,
+  prefill,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSaved: () => void
+  /** Optional starting values when arriving from the Runway refill flow. */
+  prefill?: { principalUsd?: number; collateralBtc?: number } | null
 }) {
   const [label, setLabel] = useState("")
   const [principalUsd, setPrincipalUsd] = useState("")
@@ -63,6 +66,21 @@ export function RunwayLoanDialog({
     },
     [onOpenChange, reset],
   )
+
+  // Apply the refill-flow prefill (sized principal + collateral) when the dialog
+  // opens. Deferred out of the synchronous effect body so it doesn't trip
+  // react-hooks/set-state-in-effect and lets the dialog paint first.
+  const prefillPrincipal = prefill?.principalUsd
+  const prefillCollateral = prefill?.collateralBtc
+  useEffect(() => {
+    if (!open) return
+    if (prefillPrincipal == null && prefillCollateral == null) return
+    const t = setTimeout(() => {
+      if (prefillPrincipal != null) setPrincipalUsd(String(prefillPrincipal))
+      if (prefillCollateral != null) setCollateralBtc(String(prefillCollateral))
+    }, 0)
+    return () => clearTimeout(t)
+  }, [open, prefillPrincipal, prefillCollateral])
 
   const submit = useCallback(async () => {
     setError(null)

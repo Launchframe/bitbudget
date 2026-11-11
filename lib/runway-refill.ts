@@ -98,6 +98,48 @@ export function monthsUntilFloorBreach(input: FloorBreachInput): number | null {
   return months > 0 ? months : 0
 }
 
+export interface RefillStatusInput {
+  /** Cash on hand today, USD. */
+  cashUsd: number
+  /** Cash in transit from open sales (reduces the live shortfall). */
+  cashOnTheWayUsd?: number
+  /** The untouched cash floor, USD. */
+  cashFloorUsd: number
+  /** Monthly draw on the stack (living − income); 0 when income covers living. */
+  monthlyDrawUsd: number
+}
+
+export interface RefillStatus {
+  /** Dollars needed to get back to the floor (0 when at/above it). */
+  shortfallUsd: number
+  /** True when effective cash is under the floor. */
+  underFloor: boolean
+  /** Months until cash reaches the floor at the current draw (null = never, 0 = now). */
+  monthsUntilBreach: number | null
+}
+
+/**
+ * One-call refill status for a surface that already has a RunwayNeedResult.
+ * Cash in transit counts toward the floor (the sale is already addressing it).
+ * When under the floor, breach is "now" (0); otherwise it projects from the
+ * monthly draw (income − living), which drains cash toward the floor.
+ */
+export function refillStatus(input: RefillStatusInput): RefillStatus {
+  const effectiveCashUsd = input.cashUsd + Math.max(0, input.cashOnTheWayUsd ?? 0)
+  const { shortfallUsd, underFloor } = cashFloorShortfall({
+    cashUsd: effectiveCashUsd,
+    cashFloorUsd: input.cashFloorUsd,
+  })
+  const monthsUntilBreach = underFloor
+    ? 0
+    : monthsUntilFloorBreach({
+        cashUsd: effectiveCashUsd,
+        cashFloorUsd: input.cashFloorUsd,
+        netMonthlyCashFlowUsd: -Math.max(0, input.monthlyDrawUsd),
+      })
+  return { shortfallUsd, underFloor, monthsUntilBreach }
+}
+
 // ---------------------------------------------------------------------------
 // Paycheck coverage (while still earning)
 // ---------------------------------------------------------------------------

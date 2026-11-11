@@ -8,6 +8,7 @@ import {
   monthsUntilFloorBreach,
   paycheckShortfallCoverage,
   refillOptions,
+  refillStatus,
   saleHoldingsContribution,
   sumSaleHoldings,
   type RefillOptionsInput,
@@ -116,6 +117,37 @@ describe("paycheckShortfallCoverage", () => {
 
   it("is not 'full' when there is no shortfall", () => {
     expect(paycheckShortfallCoverage(0, 400).coversFull).toBe(false)
+  })
+})
+
+describe("refillStatus", () => {
+  it("reports a shortfall and breach-now when under the floor", () => {
+    const r = refillStatus({ cashUsd: 3_000, cashFloorUsd: 5_000, monthlyDrawUsd: 1_000 })
+    expect(r.shortfallUsd).toBe(2_000)
+    expect(r.underFloor).toBe(true)
+    expect(r.monthsUntilBreach).toBe(0)
+  })
+
+  it("counts cash on the way toward the floor", () => {
+    const r = refillStatus({
+      cashUsd: 3_000,
+      cashOnTheWayUsd: 2_000,
+      cashFloorUsd: 5_000,
+      monthlyDrawUsd: 0,
+    })
+    expect(r.underFloor).toBe(false)
+    expect(r.shortfallUsd).toBe(0)
+  })
+
+  it("projects months to breach when above the floor but drawing down", () => {
+    const r = refillStatus({ cashUsd: 8_000, cashFloorUsd: 5_000, monthlyDrawUsd: 750 })
+    expect(r.underFloor).toBe(false)
+    expect(r.monthsUntilBreach).toBe(4)
+  })
+
+  it("never breaches when the draw is zero", () => {
+    const r = refillStatus({ cashUsd: 8_000, cashFloorUsd: 5_000, monthlyDrawUsd: 0 })
+    expect(r.monthsUntilBreach).toBeNull()
   })
 })
 

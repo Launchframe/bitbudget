@@ -18,6 +18,10 @@ import {
   type RunwayPlanResponse,
 } from "@/lib/runway-ui"
 import type { ScenarioMode } from "@/lib/runway-need"
+import {
+  sumSaleHoldings,
+  type PendingSaleStatus,
+} from "@/lib/runway-refill"
 
 /** Serialized loan row from GET /api/runway/loans. */
 export interface RunwayLoan {
@@ -32,6 +36,18 @@ export interface RunwayLoan {
   payoffStyle: "accrued" | "full_bill"
   maturityBillOverrideUsd: number | null
   status: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** Serialized pending-sale row from GET /api/runway/pending-sales. */
+export interface RunwayPendingSale {
+  id: string
+  status: PendingSaleStatus
+  sats: number
+  markPriceUsd: number
+  proceedsUsd: number | null
+  linkedTransactionId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -63,6 +79,15 @@ export interface UseRunwayResult {
   lenderHeldSats: number
   amountDueUsd: number
   reloadLoans: () => void
+  /** Open bitcoin sales (sent / cash_on_the_way) in transit to the cash floor. */
+  pendingSales: RunwayPendingSale[]
+  reloadSales: () => void
+  /** Sats in transit across open sales (counted so the stack value doesn't vanish). */
+  bitcoinOnTheWaySats: number
+  /** Cash in transit across open sales (proceeds known, deposit not yet linked). */
+  cashOnTheWayUsd: number
+  /** Estimated next paycheck while still earning (0 once on runway). */
+  nextPaycheckUsd: number
   /** Build the full need+gap computation for a given scenario mode. */
   compute: (scenarioMode: ScenarioMode) => RunwayComputation | null
 }
@@ -83,6 +108,8 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
   const [reloadKey, setReloadKey] = useState(0)
   const [loans, setLoans] = useState<RunwayLoan[]>([])
   const [loansKey, setLoansKey] = useState(0)
+  const [pendingSales, setPendingSales] = useState<RunwayPendingSale[]>([])
+  const [salesKey, setSalesKey] = useState(0)
 
   // Note: `loading` starts true and is re-armed inside `reload` (an event
   // handler), so the effect body itself performs no synchronous setState.
@@ -127,6 +154,25 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
       cancelled = true
     }
   }, [withLoans, loansKey])
+
+  useEffect(() => {
+    if (!withLoans) return
+    let cancelled = false
+    fetch("/api/runway/pending-sales")
+      .then(async (res) => {
+        if (!res.ok) throw new Error("sales")
+        return (await res.json()) as { sales: RunwayPendingSale[] }
+      })
+      .then((data) => {
+        if (!cancelled) setPendingSales(data.sales ?? [])
+      })
+      .catch(() => {
+        /* pending sales are optional enrichment */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [withLoans, salesKey])
 
   const savingsUsd = useMemo(
     () => savingsBalance(activeTransactions, findSavingsEnvelope(state.envelopes)),
@@ -185,10 +231,21 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
     [loansEval],
   )
 
+  const { bitcoinOnTheWaySats, cashOnTheWayUsd } = useMemo(() => {
+    const open = pendingSales.filter(
+      (s) => s.status === "sent" || s.status === "cash_on_the_way",
+    )
+    return sumSaleHoldings(open)
+  }, [pendingSales])
+
   const livingBaselineUsd = plan
     ? resolveLivingBaselineUsd(plan, insightMonthlyUsd)
     : 0
   const monthlySavingsUsd = Math.max(0, state.monthlyIncome - livingBaselineUsd)
+  // While still building up (not yet living off savings), the next paycheck can
+  // chip at a cash-floor shortfall. Use monthly income as the paycheck estimate.
+  const nextPaycheckUsd =
+    plan && plan.phase !== "runway" ? Math.max(0, state.monthlyIncome) : 0
 
   const compute = useCallback(
     (scenarioMode: ScenarioMode): RunwayComputation | null => {
@@ -205,6 +262,8 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
         scenarioMode,
         monthlySavingsUsd,
         flexibleCutMonthlyUsd,
+        bitcoinOnTheWaySats,
+        cashOnTheWayUsd,
       })
     },
     [
@@ -217,6 +276,8 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
       today,
       monthlySavingsUsd,
       flexibleCutMonthlyUsd,
+      bitcoinOnTheWaySats,
+      cashOnTheWayUsd,
     ],
   )
 
@@ -225,6 +286,7 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
     setReloadKey((k) => k + 1)
   }, [])
   const reloadLoans = useCallback(() => setLoansKey((k) => k + 1), [])
+  const reloadSales = useCallback(() => setSalesKey((k) => k + 1), [])
 
   return {
     plan,
@@ -245,6 +307,11 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
     lenderHeldSats,
     amountDueUsd,
     reloadLoans,
+    pendingSales,
+    reloadSales,
+    bitcoinOnTheWaySats,
+    cashOnTheWayUsd,
+    nextPaycheckUsd,
     compute,
   }
 }

@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { getCurrentMonthKey, formatUsd } from "@/lib/data"
-import { useRunway, type RunwayLoan } from "@/lib/use-runway"
+import { useRunway, type RunwayLoan, type RunwayPendingSale } from "@/lib/use-runway"
 import { RunwaySetupDialog } from "@/components/runway-setup-dialog"
 import { RunwayLoanDialog } from "@/components/runway-loan-dialog"
+import { RunwayRefillDialog } from "@/components/runway-refill-dialog"
+import { refillStatus } from "@/lib/runway-refill"
 import {
   borrowingAllowed,
   buildPlanPutBody,
@@ -35,6 +37,7 @@ import {
 } from "@/components/ui/collapsible"
 import {
   AlertCircle,
+  ArrowDownToLine,
   Bitcoin,
   CalendarCheck,
   ChevronDown,
@@ -180,12 +183,20 @@ export function RunwayPage() {
     loans,
     loansEval,
     reloadLoans,
+    pendingSales,
+    reloadSales,
+    nextPaycheckUsd,
+    btcPriceUsd,
     compute,
   } = useRunway({ withLoans: true })
 
   const [setupOpen, setSetupOpen] = useState(false)
   const [applyScenarios, setApplyScenarios] = useState(false)
   const [loanOpen, setLoanOpen] = useState(false)
+  const [loanPrefill, setLoanPrefill] = useState<
+    { principalUsd?: number; collateralBtc?: number } | null
+  >(null)
+  const [refillOpen, setRefillOpen] = useState(false)
   const [editTotals, setEditTotals] = useState(false)
   const [scenariosOpen, setScenariosOpen] = useState(false)
 
@@ -331,6 +342,18 @@ export function RunwayPage() {
   const bitcoinKnownUsd = need ? satsToUsd(need.spendableSats, btcPriceOrNull ?? 0) : 0
   const monthsUntil = comp?.monthsUntilQuit ?? 0
 
+  const refill = need
+    ? refillStatus({
+        cashUsd: need.cashUsd,
+        cashOnTheWayUsd: need.cashOnTheWayUsd,
+        cashFloorUsd: need.cashFloorUsedUsd,
+        monthlyDrawUsd: need.monthlyDrawUsd,
+      })
+    : null
+  const openSales = pendingSales.filter(
+    (s) => s.status === "sent" || s.status === "cash_on_the_way",
+  )
+
   const whatIfImpact =
     runwayWhatIfUsd != null && need && need.monthlyDrawUsd > 0
       ? computeMonthsLeftImpact({
@@ -473,6 +496,33 @@ export function RunwayPage() {
               About {need.cashFloorMonths} month{need.cashFloorMonths === 1 ? "" : "s"} of spending
               kept in cash before you&apos;d lean on bitcoin.
             </p>
+            {/* Reserved band so the floor card height is stable whether or not
+                there's a shortfall or an upcoming breach to mention. */}
+            <div className="min-h-[2.75rem] flex flex-col justify-center">
+              {refill && refill.underFloor ? (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs text-amber-400">
+                    Your cash is {formatUsd(refill.shortfallUsd)} under this floor right now.
+                  </p>
+                  <Button
+                    size="sm"
+                    className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90 self-start"
+                    onClick={() => setRefillOpen(true)}
+                  >
+                    <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+                    Refill the floor
+                  </Button>
+                </div>
+              ) : refill && refill.monthsUntilBreach != null ? (
+                <p className="text-xs text-muted-foreground">
+                  At your current pace, cash reaches this floor in about{" "}
+                  {Math.max(1, Math.round(refill.monthsUntilBreach))} month
+                  {Math.round(refill.monthsUntilBreach) === 1 ? "" : "s"}.
+                </p>
+              ) : (
+                <p className="text-xs text-[#22C55E]">Your cash is above the floor.</p>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -630,6 +680,11 @@ export function RunwayPage() {
         </div>
       )}
 
+      {/* Sales in progress */}
+      {openSales.length > 0 && (
+        <PendingSalesSection sales={openSales} onChanged={reloadSales} />
+      )}
+
       <RunwaySetupDialog
         open={setupOpen}
         onOpenChange={setSetupOpen}
@@ -637,7 +692,194 @@ export function RunwayPage() {
         livingPlaceholderUsd={livingPlaceholder}
         onSaved={setPlan}
       />
-      <RunwayLoanDialog open={loanOpen} onOpenChange={setLoanOpen} onSaved={reloadLoans} />
+      <RunwayLoanDialog
+        open={loanOpen}
+        onOpenChange={(next) => {
+          setLoanOpen(next)
+          if (!next) setLoanPrefill(null)
+        }}
+        onSaved={reloadLoans}
+        prefill={loanPrefill}
+      />
+      {need && (
+        <RunwayRefillDialog
+          open={refillOpen}
+          onOpenChange={setRefillOpen}
+          shortfallUsd={refill?.shortfallUsd ?? 0}
+          btcPriceUsd={btcPriceUsd}
+          priceKnown={priceKnown}
+          borrowCapFraction={need.borrowCapFraction}
+          stack={{
+            cashUsd: need.cashUsd,
+            cashOnTheWayUsd: need.cashOnTheWayUsd,
+            walletSats: need.spendableSats,
+            lenderHeldSats: need.lenderHeldSats,
+            bitcoinOnTheWaySats: need.bitcoinOnTheWaySats,
+            amountDueUsd: need.amountDueUsd,
+            btcPriceUsd,
+          }}
+          rolloverCollateralSats={need.lenderHeldSats}
+          openLoanAmountDueUsd={need.amountDueUsd}
+          preferBorrow={plan.borrowStance === "ok"}
+          nextPaycheckUsd={nextPaycheckUsd}
+          onSaleCreated={reloadSales}
+          onStartBorrow={(prefill) => {
+            setLoanPrefill(prefill)
+            setLoanOpen(true)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function PendingSalesSection({
+  sales,
+  onChanged,
+}: {
+  sales: RunwayPendingSale[]
+  onChanged: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-3 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F]">
+      <div className="flex items-center gap-2 min-w-0">
+        <ArrowDownToLine className="h-4 w-4 text-[#F7931A] shrink-0" aria-hidden />
+        <span className="text-sm font-semibold text-foreground">Refills on the way</span>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        We keep this money in your total while it travels, so nothing looks like it
+        vanished. Update each one as the cash lands.
+      </p>
+      <div className="flex flex-col gap-2">
+        {sales.map((sale) => (
+          <PendingSaleRow key={sale.id} sale={sale} onChanged={onChanged} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PendingSaleRow({
+  sale,
+  onChanged,
+}: {
+  sale: RunwayPendingSale
+  onChanged: () => void
+}) {
+  const [recording, setRecording] = useState(false)
+  const [proceeds, setProceeds] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const patch = useCallback(
+    async (body: Record<string, unknown>) => {
+      setBusy(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/runway/pending-sales?id=${encodeURIComponent(sale.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setError(typeof data.error === "string" ? data.error : "Couldn't update this sale.")
+          return
+        }
+        onChanged()
+      } catch {
+        setError("Network error — try again.")
+      } finally {
+        setBusy(false)
+      }
+    },
+    [sale.id, onChanged],
+  )
+
+  const btcLabel = (sale.sats / SATS_PER_BTC).toLocaleString("en-US", {
+    maximumFractionDigits: 8,
+  })
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3 min-w-0">
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <span className="text-sm text-foreground truncate min-w-0">
+          {sale.status === "sent"
+            ? `Bitcoin on the way — about ${btcLabel} BTC`
+            : `Cash on the way — ${formatUsd(sale.proceedsUsd ?? 0)}`}
+        </span>
+        <button
+          type="button"
+          onClick={() => void patch({ status: "cancelled" })}
+          disabled={busy}
+          className="p-1 text-muted-foreground hover:text-amber-400 transition-colors shrink-0"
+          aria-label="Cancel this sale"
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </div>
+
+      {sale.status === "sent" && !recording && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="border-[#333] self-start"
+          onClick={() => setRecording(true)}
+        >
+          Cash received
+        </Button>
+      )}
+
+      {sale.status === "sent" && recording && (
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+          <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+            <Label htmlFor={`proceeds-${sale.id}`}>Cash you received (USD)</Label>
+            <Input
+              id={`proceeds-${sale.id}`}
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              value={proceeds}
+              onChange={(e) => setProceeds(e.target.value)}
+              className="bg-[#1A1A1A] border-[#333]"
+            />
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90 w-full sm:w-auto"
+            disabled={busy || !(parseFloat(proceeds) > 0)}
+            onClick={() =>
+              void patch({
+                status: "cash_on_the_way",
+                proceedsUsd: parseFloat(proceeds) || 0,
+              })
+            }
+          >
+            Save
+          </Button>
+        </div>
+      )}
+
+      {sale.status === "cash_on_the_way" && (
+        <Button
+          type="button"
+          size="sm"
+          className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90 self-start"
+          disabled={busy}
+          onClick={() => void patch({ status: "linked" })}
+        >
+          Link the deposit
+        </Button>
+      )}
+
+      {error && (
+        <p className="text-xs text-amber-400/95" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   )
 }
