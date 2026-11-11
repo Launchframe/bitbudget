@@ -192,8 +192,18 @@ export function scenarioEffectUsd(
   return roundToCents(scenario.monthlyDeltaUsd * months + scenario.oneTimeUsd)
 }
 
-function projectionTone(projected: number, required: number): CheckupTone {
-  if (projected >= required) return "good"
+/**
+ * Compare a projected total against the required total using the SAME rounding
+ * the UI applies to the displayed `value` (cents for USD, whole sats). Comparing
+ * the raw inputs would mark a projection as `bad` even when it rounds to the same
+ * number as the target the user sees on screen.
+ */
+function projectionTone(
+  projected: number,
+  required: number,
+  round: (value: number) => number,
+): CheckupTone {
+  if (round(projected) >= round(required)) return "good"
   return "bad"
 }
 
@@ -218,21 +228,33 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
       label: "Projected cash (steady price)",
       value: roundToCents(input.projected.cashUsd.spot),
       unit: "usd",
-      tone: projectionTone(input.projected.cashUsd.spot, input.required.cashUsd),
+      tone: projectionTone(
+        input.projected.cashUsd.spot,
+        input.required.cashUsd,
+        roundToCents,
+      ),
     },
     {
       id: "projected-cash-stress",
       label: "Projected cash (price drop)",
       value: roundToCents(input.projected.cashUsd.stress),
       unit: "usd",
-      tone: projectionTone(input.projected.cashUsd.stress, input.required.cashUsd),
+      tone: projectionTone(
+        input.projected.cashUsd.stress,
+        input.required.cashUsd,
+        roundToCents,
+      ),
     },
     {
       id: "projected-cash-growth",
       label: "Projected cash (price grows)",
       value: roundToCents(input.projected.cashUsd.growth),
       unit: "usd",
-      tone: projectionTone(input.projected.cashUsd.growth, input.required.cashUsd),
+      tone: projectionTone(
+        input.projected.cashUsd.growth,
+        input.required.cashUsd,
+        roundToCents,
+      ),
     },
     {
       id: "required-bitcoin",
@@ -249,6 +271,7 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
       tone: projectionTone(
         input.projected.bitcoinSats.spot,
         input.required.bitcoinSats,
+        Math.round,
       ),
     },
     {
@@ -259,6 +282,7 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
       tone: projectionTone(
         input.projected.bitcoinSats.stress,
         input.required.bitcoinSats,
+        Math.round,
       ),
     },
     {
@@ -269,6 +293,7 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
       tone: projectionTone(
         input.projected.bitcoinSats.growth,
         input.required.bitcoinSats,
+        Math.round,
       ),
     },
   ]
