@@ -4,11 +4,13 @@ import {
   MAX_LOAN_LABEL_LENGTH,
   parseLoanCreateBody,
   parseLoanUpdateBody,
+  serializeLoanEvaluation,
   toLoanHealthInput,
   validateAprFraction,
   validateCalendarDate,
   validateSats,
 } from "@/lib/btc-loan"
+import { evaluateLoan, type LoanEvaluation } from "@/lib/loan-health"
 
 function validCreateBody(overrides: Record<string, unknown> = {}) {
   return {
@@ -308,5 +310,61 @@ describe("toLoanHealthInput", () => {
       maturityBillOverrideUsd: null,
     })
     expect(input.maturityBillOverrideUsd).toBe(null)
+  })
+})
+
+describe("serializeLoanEvaluation", () => {
+  const baseEvaluation: LoanEvaluation = {
+    id: "loan_1",
+    billAtMaturityUsd: 55000,
+    maturityInterestUsd: 5000,
+    amountDueTodayUsd: 52500,
+    collateralSats: 100_000_000,
+    liquidationPriceUsd: 40000,
+    liquidationRoom: { absoluteUsd: 20000, percent: 0.3333 },
+    rolloverPriceUsd: 105000,
+    rolloverCoversBillAtToday: true,
+  }
+
+  it("passes a finite rollover price through and marks it known", () => {
+    const out = serializeLoanEvaluation(baseEvaluation)
+    expect(out.rolloverPriceUsd).toBe(105000)
+    expect(out.rolloverPriceKnown).toBe(true)
+    // Round-trips cleanly through JSON (no Infinity → null coercion).
+    expect(JSON.parse(JSON.stringify(out)).rolloverPriceUsd).toBe(105000)
+  })
+
+  it("maps an infinite rollover price to null + rolloverPriceKnown:false", () => {
+    const out = serializeLoanEvaluation({
+      ...baseEvaluation,
+      rolloverPriceUsd: Number.POSITIVE_INFINITY,
+    })
+    expect(out.rolloverPriceUsd).toBe(null)
+    expect(out.rolloverPriceKnown).toBe(false)
+    // Other fields are preserved.
+    expect(out.rolloverCoversBillAtToday).toBe(true)
+    expect(out.amountDueTodayUsd).toBe(52500)
+  })
+
+  it("serializes an Infinity rollover from a real zero-collateral loan evaluation", () => {
+    const evaluation = evaluateLoan(
+      {
+        id: "loan_no_collateral",
+        principalUsd: 50000,
+        aprFraction: 0.1,
+        openDate: "2026-01-01",
+        maturityDate: "2027-01-01",
+        payoffStyle: "accrued",
+        collateralSats: 0,
+        liquidationPriceUsd: 40000,
+      },
+      { btcPriceUsd: 100000, asOfDate: "2026-07-01", borrowCapFraction: 0.5 },
+    )
+    // Pure math keeps Infinity as its sentinel...
+    expect(evaluation.rolloverPriceUsd).toBe(Number.POSITIVE_INFINITY)
+    // ...and the serializer turns it into a client-safe null + flag.
+    const out = serializeLoanEvaluation(evaluation)
+    expect(out.rolloverPriceUsd).toBe(null)
+    expect(out.rolloverPriceKnown).toBe(false)
   })
 })

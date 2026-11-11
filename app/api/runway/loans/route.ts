@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db"
 import {
   parseLoanCreateBody,
   parseLoanUpdateBody,
+  serializeLoanEvaluation,
   toLoanHealthInput,
   validateCalendarDate,
   type LoanUpdateInput,
@@ -111,19 +112,23 @@ export async function GET(req: NextRequest) {
   const ctx = { btcPriceUsd, asOfDate, borrowCapFraction }
   const loans = serialized.map((loan) => ({
     ...loan,
-    summary: evaluateLoan(
-      toLoanHealthInput({
-        id: loan.id,
-        principalUsd: loan.principalUsd,
-        apr: loan.apr,
-        openedOn: loan.openedOn,
-        maturityOn: loan.maturityOn,
-        collateralSats: loan.collateralSats,
-        lenderSellPriceUsd: loan.lenderSellPriceUsd,
-        payoffStyle: loan.payoffStyle as LoanPayoffStyle,
-        maturityBillOverrideUsd: loan.maturityBillOverrideUsd,
-      }),
-      ctx,
+    // Serialize so an infinite rollover price survives JSON as an explicit
+    // null + rolloverPriceKnown:false sentinel (JSON.stringify(Infinity) → null).
+    summary: serializeLoanEvaluation(
+      evaluateLoan(
+        toLoanHealthInput({
+          id: loan.id,
+          principalUsd: loan.principalUsd,
+          apr: loan.apr,
+          openedOn: loan.openedOn,
+          maturityOn: loan.maturityOn,
+          collateralSats: loan.collateralSats,
+          lenderSellPriceUsd: loan.lenderSellPriceUsd,
+          payoffStyle: loan.payoffStyle as LoanPayoffStyle,
+          maturityBillOverrideUsd: loan.maturityBillOverrideUsd,
+        }),
+        ctx,
+      ),
     ),
   }))
 

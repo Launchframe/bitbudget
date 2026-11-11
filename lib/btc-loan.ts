@@ -11,7 +11,7 @@
  */
 
 import { coerceDecimal12_2Input, roundToCents } from "@/lib/decimal-validation"
-import type { BtcLoanInput, LoanPayoffStyle } from "@/lib/loan-health"
+import type { BtcLoanInput, LoanEvaluation, LoanPayoffStyle } from "@/lib/loan-health"
 
 /** Valid payoff styles (mirrors `LoanPayoffStyle` in loan-health). */
 export const LOAN_PAYOFF_STYLES = ["accrued", "full_bill"] as const
@@ -354,6 +354,46 @@ export function toLoanHealthInput(row: BtcLoanRowForMath): BtcLoanInput {
     collateralSats: row.collateralSats,
     liquidationPriceUsd: row.lenderSellPriceUsd,
     maturityBillOverrideUsd: row.maturityBillOverrideUsd ?? null,
+  }
+}
+
+/**
+ * JSON-safe view of a {@link LoanEvaluation}.
+ *
+ * `loan-health` returns `rolloverPriceUsd: Infinity` as a deliberate sentinel
+ * meaning "no finite price can ever cover this bill" (no collateral or no borrow
+ * capacity). `JSON.stringify` silently turns `Infinity` into `null`, which a
+ * client could mistake for "unknown" or "free". This keeps the infinite value
+ * explicit across the wire.
+ */
+export interface SerializedLoanEvaluation
+  extends Omit<LoanEvaluation, "rolloverPriceUsd"> {
+  /** Finite rollover price in USD, or `null` when no price can cover the bill. */
+  rolloverPriceUsd: number | null
+  /**
+   * `false` when `rolloverPriceUsd` is `null` because the loan can never be
+   * rolled (infinite required price), vs. a genuine finite price the client can
+   * display.
+   */
+  rolloverPriceKnown: boolean
+}
+
+/**
+ * Convert a {@link LoanEvaluation} into a JSON-safe shape before it crosses the
+ * API boundary. A finite `rolloverPriceUsd` passes through unchanged; an
+ * infinite one becomes `rolloverPriceUsd: null` paired with
+ * `rolloverPriceKnown: false` so clients can render "can't roll" instead of
+ * receiving an ambiguous `null` from `JSON.stringify(Infinity)`.
+ */
+export function serializeLoanEvaluation(
+  evaluation: LoanEvaluation,
+): SerializedLoanEvaluation {
+  const { rolloverPriceUsd, ...rest } = evaluation
+  const known = Number.isFinite(rolloverPriceUsd)
+  return {
+    ...rest,
+    rolloverPriceUsd: known ? rolloverPriceUsd : null,
+    rolloverPriceKnown: known,
   }
 }
 
