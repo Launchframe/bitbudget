@@ -3,11 +3,12 @@ import {
   SYSTEM_ENVELOPE_ROLE_SAVINGS,
 } from "@/lib/constants"
 import type { Envelope, Transaction } from "@/lib/data"
-import { getEnvelopeBalanceAllTime, getMonthKey } from "@/lib/data"
+import { envelopeGenesisFloor, getEnvelopeBalanceAllTime, getMonthKey } from "@/lib/data"
 import { currentGoalStreakFromClosed } from "@/lib/savings-goal-streak"
 
 export const SAVINGS_INFLOW_SOURCES = new Set([
   "paycheck",
+  "retro_paycheck",
   "irregular_income",
   "income_import",
   TX_SOURCE_ENVELOPE_SWEEP,
@@ -16,6 +17,7 @@ export const SAVINGS_INFLOW_SOURCES = new Set([
 /** External income credits (excludes envelope sweeps). */
 export const MONTHLY_INCOME_SOURCES = new Set([
   "paycheck",
+  "retro_paycheck",
   "irregular_income",
   "income_import",
 ])
@@ -44,7 +46,11 @@ export function savingsBalance(
   savingsEnvelope: Envelope | undefined,
 ): number {
   if (!savingsEnvelope) return 0
-  return getEnvelopeBalanceAllTime(transactions, savingsEnvelope.id)
+  return getEnvelopeBalanceAllTime(
+    transactions,
+    savingsEnvelope.id,
+    savingsEnvelope.createdAt ? envelopeGenesisFloor(savingsEnvelope.createdAt) : undefined,
+  )
 }
 
 export function sumRemainingDiscretionary(
@@ -52,7 +58,13 @@ export function sumRemainingDiscretionary(
   discretionaryEnvelopes: readonly Envelope[],
 ): number {
   return discretionaryEnvelopes.reduce(
-    (sum, env) => sum + getEnvelopeBalanceAllTime(transactions, env.id),
+    (sum, env) =>
+      sum +
+      getEnvelopeBalanceAllTime(
+        transactions,
+        env.id,
+        env.createdAt ? envelopeGenesisFloor(env.createdAt) : undefined,
+      ),
     0,
   )
 }

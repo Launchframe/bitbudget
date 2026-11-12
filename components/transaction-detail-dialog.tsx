@@ -335,9 +335,8 @@ export function TransactionDetailDialog({
                     if (onNavigateToLinkedIncome) {
                       onNavigateToLinkedIncome(linkedIncomePeer)
                     } else {
-                      navigateTo("transactions", undefined, {
+                      navigateTo("envelope-detail", linkedIncomePeer.envelopeId, {
                         highlightTxnId: linkedIncomePeer.id,
-                        envelopeFilter: linkedIncomePeer.envelopeId,
                       })
                       handleClose()
                     }

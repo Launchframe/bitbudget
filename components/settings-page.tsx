@@ -11,6 +11,7 @@ import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-exp
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
+import { DuplicateCleanupCard } from "@/components/duplicate-cleanup-card"
 import {
   Upload,
   Shield,
@@ -30,7 +31,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Download,
-  Link2,
+  BookOpen,
   Settings2,
   Plug,
   MessageSquare,
@@ -38,6 +39,7 @@ import {
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
+import { RecurringRulesSettings } from "@/components/recurring-rules-settings"
 import { CommunicationChannelsCard } from "@/components/communication-channels-card"
 import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
 import { PlaidConnectionsSection } from "@/components/plaid-connections-section"
@@ -57,7 +59,7 @@ const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
   savings: "savings-tracking",
   integrations: "integrations",
   tags: "tags",
-  payees: "payee-mappings",
+  payees: "budgeting-rules",
   data: "data-security",
 }
 
@@ -70,6 +72,7 @@ const SETTINGS_TAB_FROM_SLUG: Record<string, SettingsTab> = {
   tags: "tags",
   payees: "payees",
   "payee-mappings": "payees",
+  "budgeting-rules": "payees",
   data: "data",
   "data-security": "data",
 }
@@ -94,6 +97,7 @@ export function SettingsPage() {
     refreshData,
     clearLocalTransactionCache,
     encryptForStorage,
+    makeImportDedupeKeyComputer,
     logout,
     subscriptionTier,
     effectiveTier,
@@ -161,7 +165,7 @@ export function SettingsPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
   const [importResult, setImportResult] = useState<
-    | { success: true; imported: number; skipped: number }
+    | { success: true; imported: number; skipped: number; duplicates: number }
     | { success: false; error: string }
     | null
   >(null)
@@ -795,6 +799,7 @@ export function SettingsPage() {
               <CheckCircle2 className="h-4 w-4 shrink-0" />
               <span>
                 {importResult.imported} transaction{importResult.imported !== 1 ? "s" : ""} imported
+                {importResult.duplicates > 0 ? `, ${importResult.duplicates} duplicate${importResult.duplicates !== 1 ? "s" : ""} skipped` : ""}
                 {importResult.skipped > 0 ? `, ${importResult.skipped} skipped` : ""}.
               </span>
             </div>
@@ -953,6 +958,9 @@ export function SettingsPage() {
         </button>
       </div>
 
+      {/* Duplicate cleanup */}
+      <DuplicateCleanupCard />
+
       {/* Danger Zone */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl border border-red-500/20">
         <div className="flex items-center gap-3 mb-4">
@@ -1041,8 +1049,8 @@ export function SettingsPage() {
                 <span>Tags</span>
               </button>
               <button type="button" onClick={() => selectSettingsTab("payees")} className={tabButtonClass("payees")}>
-                <Link2 className={tabIconClass("payees")} aria-hidden />
-                <span>Payee mappings</span>
+                <BookOpen className={tabIconClass("payees")} aria-hidden />
+                <span>Budgeting rules</span>
               </button>
               <button type="button" onClick={() => selectSettingsTab("data")} className={tabButtonClass("data")}>
                 <Shield className={tabIconClass("data")} aria-hidden />
@@ -1058,7 +1066,18 @@ export function SettingsPage() {
           {settingsTab === "savings" && savingsSection}
           {settingsTab === "integrations" && integrationsSection}
           {settingsTab === "tags" && tagsSection}
-          {settingsTab === "payees" && <PayeeMappingsSettings />}
+          {settingsTab === "payees" && (
+            <div className="flex flex-col gap-8 min-w-0">
+              <section className="flex flex-col gap-3">
+                <h3 className="text-lg font-semibold text-foreground">Payee name aliases</h3>
+                <PayeeMappingsSettings />
+              </section>
+              <section className="flex flex-col gap-3">
+                <h3 className="text-lg font-semibold text-foreground">Recurring rules</h3>
+                <RecurringRulesSettings />
+              </section>
+            </div>
+          )}
           {settingsTab === "data" && dataSection}
         </div>
       </div>
@@ -1080,7 +1099,12 @@ export function SettingsPage() {
         dedupExistingTransactions={state.transactions}
         onImportComplete={refreshData}
         onImportResult={(result) =>
-          setImportResult({ success: true, imported: result.imported, skipped: result.skipped })
+          setImportResult({
+            success: true,
+            imported: result.imported,
+            skipped: result.skipped,
+            duplicates: result.duplicates,
+          })
         }
         onDone={() => {}}
         onRequestAllocations={() => {
@@ -1095,6 +1119,7 @@ export function SettingsPage() {
         onLoadingChange={setImportLoading}
         onImportError={handleImportError}
         encryptFn={encryptForStorage}
+        makeDedupeKeyComputer={makeImportDedupeKeyComputer}
       />
     </div>
   )

@@ -200,11 +200,14 @@ describe("openCurrentPeriodGoal", () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue({
       createdAt: new Date(Date.UTC(2026, 3, 1)),
     } as never)
-    vi.mocked(prisma.envelope.findFirst).mockResolvedValue({ id: "sav-1" } as never)
+    vi.mocked(prisma.envelope.findFirst).mockResolvedValue({
+      id: "sav-1",
+      createdAt: new Date(Date.UTC(2026, 3, 1)),
+    } as never)
     vi.mocked(prisma.transaction.aggregate).mockImplementation(((
       args,
     ) => {
-      const where = args?.where as { type?: string; date?: { lt?: Date } }
+      const where = args?.where as { type?: string; date?: { lt?: Date; gte?: Date } }
       if (where.type === "credit" && where.date?.lt) {
         const lt = where.date.lt.getTime()
         const mayStart = Date.UTC(2026, 4, 1)
@@ -220,6 +223,50 @@ describe("openCurrentPeriodGoal", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           startBalance: new Prisma.Decimal(500),
+        }),
+      }),
+    )
+  })
+
+  it("excludes pre-genesis imported income from startBalance snapshot", async () => {
+    vi.mocked(prisma.savingsGoal.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      createdAt: new Date(Date.UTC(2026, 5, 1)),
+    } as never)
+    vi.mocked(prisma.envelope.findFirst).mockResolvedValue({
+      id: "sav-1",
+      createdAt: new Date(Date.UTC(2026, 5, 1)),
+    } as never)
+    vi.mocked(prisma.transaction.aggregate).mockImplementation(((
+      args,
+    ) => {
+      const where = args?.where as { type?: string; date?: { lt?: Date; gte?: Date } }
+      const genesisGte = new Date("2026-05-31T00:00:00.000Z").getTime()
+      const hasGenesisFloor = where.date?.gte?.getTime() === genesisGte
+      if (!hasGenesisFloor && where.type === "credit") {
+        // Without genesis filter the DB would include years of imported income.
+        return Promise.resolve({ _sum: { amount: 50_000 } } as never)
+      }
+      return Promise.resolve({ _sum: { amount: 0 } } as never)
+    }) as typeof prisma.transaction.aggregate)
+    vi.mocked(resolveSavingsGoalTarget).mockResolvedValue(250)
+
+    await openCurrentPeriodGoal("u1", new Date(Date.UTC(2026, 5, 3)))
+
+    expect(prisma.transaction.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: expect.objectContaining({
+            gte: new Date("2026-05-31T00:00:00.000Z"),
+          }),
+        }),
+      }),
+    )
+    expect(prisma.savingsGoal.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          periodKey: "2026-06",
+          startBalance: new Prisma.Decimal(0),
         }),
       }),
     )

@@ -3,22 +3,25 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 import {
+  DEFICIT_COVER_FROM_SAVINGS_LABEL,
+  ENVELOPE_FUNDING_BATCH_KIND_DEFICIT_COVER,
   ENVELOPE_FUNDING_BATCH_KIND_SWEEP,
   isBudgetEnvelope,
   SWEEP_POLICY_RESET,
   SYSTEM_ENVELOPE_ROLE_SAVINGS,
+  TX_SOURCE_DEFICIT_COVER,
   TX_SOURCE_ENVELOPE_SWEEP,
 } from "@/lib/constants"
-import { envelopeBalancesAllTimeBatch } from "@/lib/envelope-balance-server"
-import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
-import { fundingPeriodKeyForDate } from "@/lib/envelope-funding-period"
-import { isDailyCadenceBlocked, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
+import { deficitCoverAmount } from "@/lib/budget-period"
 import {
-  isPaydayForUser,
-  sweepPeriodKeyForPayday,
-  usesPaydayCadence,
-  type PaydayUserFields,
-} from "@/lib/payday-cadence"
+  envelopeBalancesAllTimeBatch,
+  envelopeBalancesForMonthBatch,
+  monthKeyFromDate,
+  savingsEnvelopeBalanceAllTime,
+} from "@/lib/envelope-balance-server"
+import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
+import { isBudgetAllocationDay, sweepBatchPeriodKey } from "@/lib/budget-period"
+import { isDailyCadenceBlocked } from "@/lib/pay-cadence-server"
 import { encryptFieldForUser } from "@/lib/server-encrypt"
 import {
   resolveSweepCapMultiplier,
@@ -60,23 +63,8 @@ export async function lockEnvelopeRowsForSweepBalance(
   `
 }
 
-function sweepPeriodKeyForUser(user: PaydayUserFields, runDateUtc: Date): string | null {
-  if (isDailyCadenceBlocked(user.payCadence)) return null
-
-  if (usesPaydayCadence(user)) {
-    if (!isPaydayForUser(user, runDateUtc)) return null
-    return sweepPeriodKeyForPayday(user, runDateUtc)
-  }
-  const fundKey = fundingPeriodKeyForDate({
-    payCadence: user.payCadence,
-    runDateUtc,
-    dailyCadenceAllowed: isDailyPayCadenceAllowed(),
-  })
-  return fundKey ? `sweep-${fundKey}` : null
-}
-
 /**
- * Sweep discretionary envelope leftovers to Savings on payday.
+ * Auto-sweep discretionary envelope leftovers to Savings on UTC calendar 1st.
  * Returns number of visible transactions created (0 if skipped).
  */
 export async function sweepDiscretionaryEnvelopesForUser(
@@ -84,30 +72,21 @@ export async function sweepDiscretionaryEnvelopesForUser(
   runDateUtc?: Date,
 ): Promise<number> {
   const now = runDateUtc ?? new Date()
+  if (!isBudgetAllocationDay(now)) return 0
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
       publicKey: true,
       payCadence: true,
-      payDays: true,
-      payDayOfWeek: true,
-      lastPaydayAt: true,
       sweepDefaultPolicy: true,
       sweepDefaultCapMultiplier: true,
     },
   })
   if (!user?.publicKey?.trim()) return 0
+  if (isDailyCadenceBlocked(user.payCadence)) return 0
 
-  const paydayUser: PaydayUserFields = {
-    payCadence: user.payCadence,
-    payDays: user.payDays,
-    payDayOfWeek: user.payDayOfWeek,
-    lastPaydayAt: user.lastPaydayAt,
-  }
-
-  const periodKey = sweepPeriodKeyForUser(paydayUser, now)
-  if (!periodKey) return 0
+  const periodKey = sweepBatchPeriodKey(now)
 
   const savings = await ensureSystemSavingsEnvelope(userId)
 
@@ -392,5 +371,134 @@ export async function createManualEnvelopeSweep(
       pk,
       batchId: batch.id,
     })
+  })
+}
+
+export interface ManualDeficitCoverEntry {
+  envelopeId: string
+  amount: number
+}
+
+/**
+ * Manual Savings → envelope cover (month balance toward $0 only).
+ */
+export async function createManualDeficitCover(
+  userId: string,
+  rawEntries: ManualDeficitCoverEntry[],
+  runDateUtc?: Date,
+): Promise<number> {
+  const now = runDateUtc ?? new Date()
+  const monthKey = monthKeyFromDate(now)
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { publicKey: true },
+  })
+  const pk = user?.publicKey?.trim()
+  if (!pk) return 0
+
+  const savings = await ensureSystemSavingsEnvelope(userId)
+  const entries = rawEntries
+    .map((e) => ({
+      envelopeId: e.envelopeId,
+      amount: Math.round(e.amount * 100) / 100,
+    }))
+    .filter((e) => Number.isFinite(e.amount) && e.amount > 0)
+
+  if (entries.length === 0) return 0
+
+  const envelopeIds = [...new Set(entries.map((e) => e.envelopeId))]
+  const envelopeRows = await prisma.envelope.findMany({
+    where: {
+      userId,
+      id: { in: envelopeIds },
+      archived: false,
+      OR: [{ systemRole: null }, { systemRole: { not: SYSTEM_ENVELOPE_ROLE_SAVINGS } }],
+    },
+    select: { id: true, systemRole: true },
+  })
+  const allowed = new Set(
+    envelopeRows.filter((e) => isBudgetEnvelope(e.systemRole)).map((e) => e.id),
+  )
+
+  type Resolved = { envelopeId: string; amount: number }
+  const resolved: Resolved[] = []
+  let totalCover = 0
+
+  const candidateIds = entries
+    .map((e) => e.envelopeId)
+    .filter((id) => allowed.has(id))
+  const monthBalances = await envelopeBalancesForMonthBatch(userId, candidateIds, monthKey)
+
+  for (const entry of entries) {
+    if (!allowed.has(entry.envelopeId)) continue
+    const monthBal = monthBalances.get(entry.envelopeId) ?? 0
+    if (monthBal >= 0) continue
+    const maxCover = deficitCoverAmount(monthBal)
+    const amount = Math.min(entry.amount, maxCover)
+    if (amount <= 0) continue
+    resolved.push({ envelopeId: entry.envelopeId, amount })
+    totalCover += amount
+  }
+
+  if (resolved.length === 0) return 0
+
+  const savingsBalance = await savingsEnvelopeBalanceAllTime(userId, savings.id)
+  if (totalCover > savingsBalance + 0.015) return 0
+
+  const dateStr = now.toISOString().split("T")[0]!
+  const btcPrice = await getBtcPriceForDate(dateStr)
+  const coverDate = new Date(`${dateStr}T12:00:00.000Z`)
+  const periodKey = `deficit-cover-${randomUUID()}`
+
+  const encOut = encryptFieldForUser(DEFICIT_COVER_FROM_SAVINGS_LABEL, pk)
+  const encIn = encryptFieldForUser(DEFICIT_COVER_FROM_SAVINGS_LABEL, pk)
+  if (!encOut || !encIn) return 0
+
+  return prisma.$transaction(async (tx) => {
+    const batch = await tx.envelopeFundingBatch.create({
+      data: {
+        userId,
+        periodKey,
+        kind: ENVELOPE_FUNDING_BATCH_KIND_DEFICIT_COVER,
+      },
+    })
+
+    let created = 0
+    for (const row of resolved) {
+      const satsAmount = btcPrice ? usdToSats(row.amount, btcPrice) : null
+      await tx.transaction.create({
+        data: {
+          userId,
+          envelopeId: savings.id,
+          date: coverDate,
+          payee: encOut,
+          amount: row.amount,
+          type: "expense",
+          tags: "[]",
+          source: TX_SOURCE_DEFICIT_COVER,
+          satsAmount,
+          excludeFromMainHistory: false,
+          fundingBatchId: batch.id,
+        },
+      })
+      await tx.transaction.create({
+        data: {
+          userId,
+          envelopeId: row.envelopeId,
+          date: coverDate,
+          payee: encIn,
+          amount: row.amount,
+          type: "credit",
+          tags: "[]",
+          source: TX_SOURCE_DEFICIT_COVER,
+          satsAmount,
+          excludeFromMainHistory: false,
+          fundingBatchId: batch.id,
+        },
+      })
+      created += 2
+    }
+    return created
   })
 }

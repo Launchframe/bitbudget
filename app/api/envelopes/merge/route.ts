@@ -36,9 +36,9 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  if (source.archived || target.archived) {
+  if (source.archived || target.archived || source.deletedAt || target.deletedAt) {
     return NextResponse.json(
-      { error: "Archived envelopes cannot be merged." },
+      { error: "Archived or deleted envelopes cannot be merged." },
       { status: 400 },
     )
   }

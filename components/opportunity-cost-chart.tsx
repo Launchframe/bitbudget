@@ -385,7 +385,35 @@ export function OpportunityCostChart() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <h2 className="text-xl font-semibold text-foreground">{title}</h2>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <div className="flex min-h-[3.25rem] flex-col justify-center gap-y-1 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4">
+              {spread ? (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <span className="text-muted-foreground">
+                    {spentLabel}: <span className="text-foreground font-medium">{formatUsd(spread.spent)}</span>
+                  </span>
+                  {showBtcOverlay && (
+                    <span className="text-muted-foreground inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span>
+                        BTC value:{" "}
+                        <span className="text-[#F7931A] font-medium">{formatUsd(spread.btcValue)}</span>
+                      </span>
+                      <PriceGainLossBadge
+                        gained={spread.diff >= 0}
+                        percentChange={
+                          spread.spent > 0 ? Math.abs((spread.diff / spread.spent) * 100) : 0
+                        }
+                      />
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <span className="invisible select-none text-sm leading-snug" aria-hidden>
+                  Saved: $0.00
+                </span>
+              )}
+            </div>
+
             <div
               className="flex items-center gap-1 bg-[#1A1A1A] rounded-lg p-1"
               role="group"
@@ -441,27 +469,6 @@ export function OpportunityCostChart() {
               )}
             </div>
 
-          {spread && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-              <span className="text-muted-foreground">
-                {spentLabel}: <span className="text-foreground font-medium">{formatUsd(spread.spent)}</span>
-              </span>
-              {showBtcOverlay && (
-                <span className="text-muted-foreground inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span>
-                    BTC value:{" "}
-                    <span className="text-[#F7931A] font-medium">{formatUsd(spread.btcValue)}</span>
-                  </span>
-                  <PriceGainLossBadge
-                    gained={spread.diff >= 0}
-                    percentChange={
-                      spread.spent > 0 ? Math.abs((spread.diff / spread.spent) * 100) : 0
-                    }
-                  />
-                </span>
-              )}
-            </div>
-          )}
           </div>
         </div>
 

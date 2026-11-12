@@ -2,7 +2,14 @@
 
 import { useState, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
-import { RECEIPT_SCAN_MAX_BYTES } from "@/lib/receipt-scan-validate"
+import type { ParsedTransaction } from "@/lib/csv"
+import type { FoldStatementMeta } from "@/lib/fold-pdf-parser"
+import { PremiumLockedLabel } from "@/components/premium-locked-label"
+import { PREMIUM_UI_COPY } from "@/lib/premium-ui-copy"
+import {
+  RECEIPT_SCAN_MAX_BYTES,
+  normalizeScanExtraction,
+} from "@/lib/receipt-scan-validate"
 import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 import { receiptCapturePrefillDate } from "@/lib/transaction-dates"
 import {
@@ -39,7 +46,7 @@ export function ScanReceiptDialog({
   /** When set, opens dialog and immediately triggers camera or file picker (e.g. from mobile nav one-tap). */
   initialSource?: "camera" | "upload"
 }) {
-  const { openNewTransaction } = useApp()
+  const { openNewTransaction, openStatementImporter, hasPremiumFeatures } = useApp()
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState("")
   const [preview, setPreview] = useState<string | null>(null)
@@ -72,7 +79,7 @@ export function ScanReceiptDialog({
   }
 
   useEffect(() => {
-    if (!open || !initialSource) {
+    if (!open || !initialSource || !hasPremiumFeatures) {
       expectCloseAfterPickerRef.current = false
       return
     }
@@ -92,7 +99,7 @@ export function ScanReceiptDialog({
     return () => {
       clearTimeout(t)
     }
-  }, [open, initialSource, cameraMode])
+  }, [open, initialSource, cameraMode, hasPremiumFeatures])
 
   function handleTakePhotoClick(mode: ReceiptCameraMode) {
     setError("")
@@ -129,7 +136,31 @@ export function ScanReceiptDialog({
   }, [open, initialSource, scanning, error, onOpenChange])
 
   async function processFile(file: File) {
+    if (!hasPremiumFeatures) return
     setError("")
+
+    // CSV: attempt client-side statement parse before uploading to server
+    if (file.name.toLowerCase().endsWith(".csv")) {
+      try {
+        const text = await file.text()
+        const { tryParseStatementCsv } = await import("@/lib/statement-csv")
+        const result = tryParseStatementCsv(text)
+        if (!result) {
+          setError(
+            "This CSV doesn't look like a supported bank statement. To import a BitBudget export, use Import CSV instead."
+          )
+          return
+        }
+        onOpenChange(false)
+        reset()
+        openStatementImporter({ transactions: result.transactions, meta: { institutionName: result.institutionName ?? undefined } })
+        return
+      } catch {
+        setError("Failed to read the CSV file. Please try again.")
+        return
+      }
+    }
+
     if (file.size > RECEIPT_SCAN_MAX_BYTES) {
       setError(
         `File is too large (max ${Math.round(RECEIPT_SCAN_MAX_BYTES / (1024 * 1024))} MB). Try a smaller photo or PDF.`,
@@ -161,19 +192,7 @@ export function ScanReceiptDialog({
         body: formData,
       })
 
-      let data: {
-        error?: string
-        payee?: string
-        amount?: string
-        date?: string
-        suggestedEnvelopeId?: string
-        extractionConfidence?: number
-        model?: string
-        processingMs?: number
-        inputType?: "photo" | "pdf"
-        fileSizeBytes?: number
-        envelopeMatchConfidence?: number | null
-      }
+      let data: unknown
       try {
         data = await res.json()
       } catch {
@@ -182,43 +201,80 @@ export function ScanReceiptDialog({
         return
       }
       if (!res.ok) {
-        setError(data.error || "Failed to scan receipt")
+        const errData = (data && typeof data === "object" ? data : {}) as {
+          error?: string
+          message?: string
+        }
+        setError(errData.message || errData.error || "Failed to scan receipt")
         setScanning(false)
         return
       }
+
+      const raw =
+        data && typeof data === "object" && !Array.isArray(data)
+          ? (data as Record<string, unknown>)
+          : null
+      if (!raw) {
+        setError("Invalid response from server. Please try again.")
+        setScanning(false)
+        return
+      }
+
+      // Statement PDF detected — hand off to the statement importer
+      if (raw.type === "statement" && Array.isArray(raw.transactions)) {
+        onOpenChange(false)
+        reset()
+        openStatementImporter({
+          transactions: raw.transactions as ParsedTransaction[],
+          meta: raw.meta as FoldStatementMeta,
+        })
+        return
+      }
+
+      const extracted = normalizeScanExtraction(raw)
+      const suggestedEnvelopeId =
+        typeof raw.suggestedEnvelopeId === "string" && raw.suggestedEnvelopeId.length > 0
+          ? raw.suggestedEnvelopeId
+          : undefined
 
       const receiptPreviewDataUrl = (await dataUrlPromise) ?? undefined
 
       const prefillDate =
         file.type.startsWith("image/")
-          ? receiptCapturePrefillDate(data.date || "", file.lastModified)
-          : data.date || ""
-
-      const extractionConfidence = typeof data.extractionConfidence === "number"
-        ? data.extractionConfidence
-        : undefined
+          ? receiptCapturePrefillDate(extracted.date, file.lastModified)
+          : extracted.date
 
       const receiptScanStats: ReceiptScanStats | undefined =
-        typeof data.model === "string" && typeof data.processingMs === "number"
+        typeof raw.model === "string" && typeof raw.processingMs === "number"
           ? {
-              model: data.model,
-              processingMs: data.processingMs,
-              inputType: data.inputType ?? (file.type === "application/pdf" ? "pdf" : "photo"),
-              fileSizeBytes: data.fileSizeBytes ?? file.size,
-              extractionConfidence: extractionConfidence ?? 0,
-              envelopeMatchConfidence: data.envelopeMatchConfidence ?? null,
+              model: raw.model,
+              processingMs: raw.processingMs,
+              inputType:
+                raw.inputType === "pdf" || raw.inputType === "photo"
+                  ? raw.inputType
+                  : file.type === "application/pdf"
+                    ? "pdf"
+                    : "photo",
+              fileSizeBytes:
+                typeof raw.fileSizeBytes === "number" ? raw.fileSizeBytes : file.size,
+              extractionConfidence: extracted.extractionConfidence,
+              envelopeMatchConfidence:
+                raw.envelopeMatchConfidence === null ||
+                typeof raw.envelopeMatchConfidence === "number"
+                  ? raw.envelopeMatchConfidence
+                  : null,
             }
           : undefined
 
       onOpenChange(false)
       reset()
       openNewTransaction({
-        payee: data.payee || "",
-        amount: data.amount || "",
+        payee: extracted.payee || (typeof raw.payee === "string" ? raw.payee.trim() : ""),
+        amount: extracted.amount || (typeof raw.amount === "string" ? raw.amount.trim() : ""),
         date: prefillDate,
-        ...(data.suggestedEnvelopeId && { envelopeId: data.suggestedEnvelopeId }),
+        ...(suggestedEnvelopeId ? { envelopeId: suggestedEnvelopeId } : {}),
         ...(receiptPreviewDataUrl ? { receiptPreviewDataUrl } : {}),
-        ...(extractionConfidence !== undefined ? { receiptScanConfidence: extractionConfidence } : {}),
+        receiptScanConfidence: extracted.extractionConfidence,
         ...(receiptScanStats ? { receiptScanStats } : {}),
       })
     } catch {
@@ -277,45 +333,78 @@ export function ScanReceiptDialog({
           />
         ) : (
           <div className="flex flex-col gap-3 py-2">
-            <p className="text-sm text-muted-foreground mb-2">
-              Scan a receipt to auto-fill a new transaction.
-            </p>
+            {!hasPremiumFeatures ? (
+              <div className="rounded-xl border border-[#F7931A]/25 bg-[#F7931A]/10 px-4 py-3 space-y-2">
+                <PremiumLockedLabel className="normal-case tracking-normal text-xs" />
+                <p className="text-sm text-muted-foreground">{PREMIUM_UI_COPY.receiptScan.dialogHint}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground mb-2">
+                Scan a receipt to auto-fill a new transaction.
+              </p>
+            )}
 
             {showTakePhoto ? (
               <button
                 type="button"
-                onClick={() => handleTakePhotoClick(cameraMode)}
-                className="flex items-center gap-4 w-full py-4 px-4 bg-[#1A1A1A] rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
+                onClick={() => hasPremiumFeatures && handleTakePhotoClick(cameraMode)}
+                disabled={!hasPremiumFeatures}
+                aria-disabled={!hasPremiumFeatures}
+                title={hasPremiumFeatures ? undefined : PREMIUM_UI_COPY.receiptScan.hint}
+                className={`flex items-center gap-4 w-full py-4 px-4 rounded-xl text-sm border border-[#333] ${
+                  hasPremiumFeatures
+                    ? "bg-[#1A1A1A] hover:bg-[#222] transition-colors"
+                    : "bg-[#1A1A1A]/60 cursor-not-allowed opacity-80"
+                }`}
               >
                 <div className="p-2.5 rounded-lg bg-btc-orange/10">
-                  <Camera className="h-5 w-5 text-btc-orange" />
+                  <Camera className={`h-5 w-5 ${hasPremiumFeatures ? "text-btc-orange" : "text-muted-foreground"}`} />
                 </div>
-                <div className="flex flex-col text-left">
-                  <span className="font-semibold text-foreground">Take Photo</span>
+                <div className="flex flex-col text-left min-w-0 flex-1">
+                  <span className={`font-semibold ${hasPremiumFeatures ? "text-foreground" : "text-muted-foreground"}`}>
+                    Take Photo
+                  </span>
                   <span className="text-xs text-muted-foreground">
-                    {cameraMode === "live"
-                      ? "Use your webcam to capture a receipt"
-                      : "Use your camera to scan a receipt"}
+                    {hasPremiumFeatures
+                      ? cameraMode === "live"
+                        ? "Use your webcam to capture a receipt"
+                        : "Use your camera to scan a receipt"
+                      : PREMIUM_UI_COPY.receiptScan.hint}
                   </span>
                 </div>
+                {!hasPremiumFeatures ? <PremiumLockedLabel className="shrink-0 normal-case tracking-normal" /> : null}
               </button>
             ) : null}
 
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-4 w-full py-4 px-4 bg-[#1A1A1A] rounded-xl text-sm hover:bg-[#222] transition-colors border border-[#333]"
+              onClick={() => hasPremiumFeatures && fileInputRef.current?.click()}
+              disabled={!hasPremiumFeatures}
+              aria-disabled={!hasPremiumFeatures}
+              title={hasPremiumFeatures ? undefined : PREMIUM_UI_COPY.receiptScan.hint}
+              className={`flex items-center gap-4 w-full py-4 px-4 rounded-xl text-sm border border-[#333] ${
+                hasPremiumFeatures
+                  ? "bg-[#1A1A1A] hover:bg-[#222] transition-colors"
+                  : "bg-[#1A1A1A]/60 cursor-not-allowed opacity-80"
+              }`}
             >
               <div className="p-2.5 rounded-lg bg-[#8B5CF6]/10">
-                <Upload className="h-5 w-5 text-[#8B5CF6]" />
+                <Upload className={`h-5 w-5 ${hasPremiumFeatures ? "text-[#8B5CF6]" : "text-muted-foreground"}`} />
               </div>
-              <div className="flex flex-col text-left">
-                <span className="font-semibold text-foreground">Upload File</span>
-                <span className="text-xs text-muted-foreground">Image or PDF from your device</span>
+              <div className="flex flex-col text-left min-w-0 flex-1">
+                <span className={`font-semibold ${hasPremiumFeatures ? "text-foreground" : "text-muted-foreground"}`}>
+                  Upload File
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {hasPremiumFeatures
+                    ? "Image, PDF, or bank statement CSV"
+                    : PREMIUM_UI_COPY.receiptScan.hint}
+                </span>
               </div>
+              {!hasPremiumFeatures ? <PremiumLockedLabel className="shrink-0 normal-case tracking-normal" /> : null}
             </button>
 
-            {cameraMode === "capture-input" ? (
+            {hasPremiumFeatures && cameraMode === "capture-input" ? (
               <input
                 ref={cameraInputRef}
                 type="file"
@@ -325,13 +414,15 @@ export function ScanReceiptDialog({
                 className="hidden"
               />
             ) : null}
+            {hasPremiumFeatures ? (
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/heic,image/heif,image/webp,application/pdf"
+              accept="image/jpeg,image/png,image/heic,image/heif,image/webp,application/pdf,.csv"
               onChange={handleFileChange}
               className="hidden"
             />
+            ) : null}
           </div>
         )}
       </DialogContent>

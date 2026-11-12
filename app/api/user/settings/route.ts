@@ -20,6 +20,10 @@ import {
 } from "@/lib/constants"
 import { assertPayCadencePersistable, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import { PAYDAY_LAST_OF_MONTH } from "@/lib/payday-cadence"
+import {
+  resolvePremiumExpiredBannerForUser,
+  resolvePremiumRenewalPromptForUser,
+} from "@/lib/premium-renewal-server"
 import { validateDecimal12_2, validateDecimal4_2Positive } from "@/lib/decimal-validation"
 import { booleanSettingsFieldError, setupGuideSnoozedUntilError } from "@/lib/user-settings-validation"
 
@@ -131,6 +135,7 @@ const userSettingsSelect = {
   role: true,
   premiumGratisUntil: true,
   premiumTrialUntil: true,
+  premiumMembershipUntil: true,
   _count: { select: { transactions: true } },
 } as const
 
@@ -145,10 +150,11 @@ function serializeUserSettings(user: {
   sweepDefaultCapMultiplier: Prisma.Decimal | null
   premiumGratisUntil: Date | null
   premiumTrialUntil: Date | null
+  premiumMembershipUntil: Date | null
   _count: { transactions: number }
   [key: string]: unknown
 }) {
-  const { _count, premiumGratisUntil, premiumTrialUntil, ...rest } = user
+  const { _count, premiumGratisUntil, premiumTrialUntil, premiumMembershipUntil, ...rest } = user
   const snoozed = rest.setupGuideSnoozedUntil
   return {
     ...rest,
@@ -165,6 +171,7 @@ function serializeUserSettings(user: {
     sweepDefaultCapMultiplier: serializeDecimal(rest.sweepDefaultCapMultiplier as Prisma.Decimal | null),
     premiumGratisUntil: premiumGratisUntil?.toISOString() ?? null,
     premiumTrialUntil: premiumTrialUntil?.toISOString() ?? null,
+    premiumMembershipUntil: premiumMembershipUntil?.toISOString() ?? null,
     transactionCount: _count.transactions,
   }
 }
@@ -215,7 +222,13 @@ export async function GET() {
     subscriptionTier: user.subscriptionTier,
     premiumGratisUntil: user.premiumGratisUntil,
     premiumTrialUntil: user.premiumTrialUntil,
+    premiumMembershipUntil: user.premiumMembershipUntil,
   })
+
+  const [premiumRenewalPrompt, premiumExpiredBanner] = await Promise.all([
+    resolvePremiumRenewalPromptForUser(session.user.id),
+    resolvePremiumExpiredBannerForUser(session.user.id),
+  ])
 
   const refereeReferralRow = await prisma.referral.findUnique({
     where: { refereeId: session.user.id },
@@ -271,6 +284,8 @@ export async function GET() {
     referralRefereeTrialMonths,
     referral: referralPayload,
     dailyCadenceAllowed: isDailyPayCadenceAllowed(),
+    premiumRenewalPrompt,
+    premiumExpiredBanner,
   })
 }
 

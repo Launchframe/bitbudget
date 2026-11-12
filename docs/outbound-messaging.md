@@ -385,12 +385,23 @@ POST /api/user/notification-email  { "action": "verify", "email": "notify@exampl
 
 ### Cron — premium expiry (production-like)
 
+Daily at **09:00 UTC** (`vercel.json` → `GET /api/cron/referral-expiry`). Sends **renewal_reminders** email/DM with per-user dedup (`PremiumRenewalReminderLog`):
+
+| Window | When (UTC) | Population |
+|--------|------------|------------|
+| 14 days before | Expiry calendar date is today + 14 | Trial, referral bonus (gratis), paid membership (`premiumMembershipUntil`) |
+| 3 days before | Expiry calendar date is today + 3 | Same |
+| 1 day before | Expiry calendar date is tomorrow | Same |
+| Expired | Calendar day **after** expiry date (after 04:00 UTC grace ends) | Same |
+
+Copy differs for **trial** vs **membership** (gratis + paid). In-app popup + post-expiry banner use the same schedule; dismissals log `in_app_dismissed` on the same key.
+
 ```bash
 curl "https://<your-host>/api/cron/referral-expiry" \
   -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-Expect JSON summary; users in warning/expiry windows receive email and/or DM per their settings.
+Expect JSON summary (`nearingSent`, `expiredSent`, …); users in each window receive email and/or DM per their settings.
 
 ---
 

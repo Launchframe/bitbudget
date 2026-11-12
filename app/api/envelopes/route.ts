@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { isReservedSavingsEnvelopeName, SYSTEM_ENVELOPE_ROLE_SAVINGS, SWEEP_POLICY_CAPPED, SWEEP_POLICY_CARRY_FORWARD, SWEEP_POLICY_RESET } from "@/lib/constants"
 import { validateDecimal4_2Positive } from "@/lib/decimal-validation"
+import { envelopeDeletePurgeCutoff } from "@/lib/envelope-delete"
 
 const ALLOWED_SWEEP_POLICIES = new Set([
   SWEEP_POLICY_RESET,
@@ -25,14 +26,17 @@ export async function GET(req: NextRequest) {
 
   if (withUsage) {
     const envelopes = await prisma.envelope.findMany({
-      where: { userId: session.user.id },
+      where: { userId: session.user.id, deletedAt: null },
       orderBy: { createdAt: "asc" },
       include: {
         _count: {
           select: {
-            transactions: true,
             recurringTransactions: true,
           },
+        },
+        transactions: {
+          where: { excludeFromMainHistory: false },
+          select: { amount: true },
         },
       },
     })
@@ -49,8 +53,13 @@ export async function GET(req: NextRequest) {
         sweepPolicy: e.sweepPolicy ?? SWEEP_POLICY_RESET,
         sweepCapMultiplier:
           e.sweepCapMultiplier != null ? Number(e.sweepCapMultiplier) : null,
-        transactionCount: e._count.transactions,
+        createdAt: e.createdAt.toISOString().slice(0, 10),
+        transactionCount: e.transactions.length,
         recurringCount: e._count.recurringTransactions,
+        transactionTotalAmount: e.transactions.reduce(
+          (sum, t) => sum + Math.abs(Number(t.amount)),
+          0,
+        ),
       })),
     )
   }
@@ -68,10 +77,12 @@ export async function GET(req: NextRequest) {
       color: e.color,
       icon: e.icon,
       archived: e.archived,
+      deletedAt: e.deletedAt?.toISOString() ?? null,
       systemRole: e.systemRole ?? null,
       sweepPolicy: e.sweepPolicy ?? SWEEP_POLICY_RESET,
       sweepCapMultiplier:
         e.sweepCapMultiplier != null ? Number(e.sweepCapMultiplier) : null,
+      createdAt: e.createdAt.toISOString().slice(0, 10),
     })),
   )
 }
@@ -161,10 +172,12 @@ export async function POST(req: NextRequest) {
     color: envelope.color,
     icon: envelope.icon,
     archived: envelope.archived,
+    deletedAt: envelope.deletedAt?.toISOString() ?? null,
     systemRole: envelope.systemRole ?? null,
     sweepPolicy: envelope.sweepPolicy ?? SWEEP_POLICY_RESET,
     sweepCapMultiplier:
       envelope.sweepCapMultiplier != null ? Number(envelope.sweepCapMultiplier) : null,
+    createdAt: envelope.createdAt.toISOString().slice(0, 10),
   }, { status: 201 })
 }
 
@@ -180,11 +193,24 @@ export async function PUT(req: NextRequest) {
   let color
   let icon
   let archived
+  let deletedAt
   let sweepPolicy
   let sweepCapMultiplier
+  let createdAt
 
   try {
-    ;({ id, name, monthlyAllotment, color, icon, archived, sweepPolicy, sweepCapMultiplier } = await req.json())
+    ;({
+      id,
+      name,
+      monthlyAllotment,
+      color,
+      icon,
+      archived,
+      deletedAt,
+      sweepPolicy,
+      sweepCapMultiplier,
+      createdAt,
+    } = await req.json())
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
@@ -193,6 +219,10 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Envelope ID must be a non-empty string" }, { status: 400 })
   }
   const envelopeId = id.trim()
+
+  if (createdAt !== undefined) {
+    return NextResponse.json({ error: "Envelope creation date cannot be changed" }, { status: 400 })
+  }
 
   const existing = await prisma.envelope.findFirst({
     where: { id: envelopeId, userId: session.user.id },
@@ -226,6 +256,12 @@ export async function PUT(req: NextRequest) {
         { status: 403 },
       )
     }
+    if (deletedAt !== undefined && deletedAt !== null) {
+      return NextResponse.json(
+        { error: "The system Savings envelope cannot be deleted." },
+        { status: 403 },
+      )
+    }
     if (monthlyAllotment !== undefined) {
       return NextResponse.json(
         { error: "The system Savings envelope allotment cannot be changed." },
@@ -234,16 +270,37 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  let normalizedDeletedAt: Date | null | undefined
+  if (deletedAt !== undefined) {
+    if (deletedAt === null) {
+      normalizedDeletedAt = null
+    } else {
+      return NextResponse.json({ error: "deletedAt can only be cleared with null" }, { status: 400 })
+    }
+  }
+  if (
+    normalizedDeletedAt === null &&
+    existing.deletedAt &&
+    existing.deletedAt < envelopeDeletePurgeCutoff()
+  ) {
+    return NextResponse.json({ error: "This envelope can no longer be restored." }, { status: 410 })
+  }
+
+  let normalizedAllotment: number | undefined
   if (monthlyAllotment !== undefined) {
     if (
-      typeof monthlyAllotment !== "number" ||
-      !Number.isFinite(monthlyAllotment) ||
-      monthlyAllotment < 0
+      monthlyAllotment !== null &&
+      (typeof monthlyAllotment !== "number" ||
+        !Number.isFinite(monthlyAllotment) ||
+        monthlyAllotment < 0)
     ) {
       return NextResponse.json(
         { error: "monthlyAllotment must be a non-negative number" },
         { status: 400 },
       )
+    }
+    if (typeof monthlyAllotment === "number" && Number.isFinite(monthlyAllotment)) {
+      normalizedAllotment = Math.max(0, Math.round(monthlyAllotment * 100) / 100)
     }
   }
 
@@ -275,10 +332,11 @@ export async function PUT(req: NextRequest) {
       where: { id: envelopeId },
       data: {
         ...(existing.systemRole !== SYSTEM_ENVELOPE_ROLE_SAVINGS && name !== undefined ? { name: name.trim() } : {}),
-        ...(monthlyAllotment !== undefined ? { monthlyAllotment: Math.max(0, Math.round(monthlyAllotment * 100) / 100) } : {}),
+        ...(normalizedAllotment !== undefined ? { monthlyAllotment: normalizedAllotment } : {}),
         ...(color !== undefined ? { color } : {}),
         ...(icon !== undefined ? { icon } : {}),
         ...(archived !== undefined ? { archived } : {}),
+        ...(normalizedDeletedAt !== undefined ? { deletedAt: normalizedDeletedAt } : {}),
         ...(sweepPolicy !== undefined ? { sweepPolicy } : {}),
         ...(normalizedSweepCap !== undefined
           ? {
@@ -305,10 +363,12 @@ export async function PUT(req: NextRequest) {
     color: updated.color,
     icon: updated.icon,
     archived: updated.archived,
+    deletedAt: updated.deletedAt?.toISOString() ?? null,
     systemRole: updated.systemRole ?? null,
     sweepPolicy: updated.sweepPolicy ?? SWEEP_POLICY_RESET,
     sweepCapMultiplier:
       updated.sweepCapMultiplier != null ? Number(updated.sweepCapMultiplier) : null,
+    createdAt: updated.createdAt.toISOString().slice(0, 10),
   })
 }
 
@@ -355,19 +415,12 @@ export async function DELETE(req: NextRequest) {
     )
   }
 
-  const userId = session.user.id
+  const now = new Date()
 
-  await prisma.$transaction(async tx => {
-    await tx.pendingTransaction.updateMany({
-      where: { userId, suggestedEnvelopeId: id },
-      data: { suggestedEnvelopeId: null },
-    })
-    await tx.transactionShortcut.deleteMany({
-      where: { userId, envelopeId: id },
-    })
-    // Transactions cascade-delete with the envelope (Prisma schema); explicit deleteMany is redundant.
-    await tx.envelope.delete({ where: { id } })
+  await prisma.envelope.update({
+    where: { id },
+    data: { deletedAt: now },
   })
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, deletedAt: now.toISOString() })
 }

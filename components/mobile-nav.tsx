@@ -5,6 +5,8 @@ import { LayoutDashboard, BarChart3, List, Wallet, Plus, Camera, Upload, Mic } f
 import { useApp, type PageId } from "@/lib/app-context"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
 import { VoiceDictationButton } from "@/components/voice-dictation-button"
+import { PremiumLockedLabel } from "@/components/premium-locked-label"
+import { PREMIUM_UI_COPY } from "@/lib/premium-ui-copy"
 import {
   Sheet,
   SheetContent,
@@ -38,6 +40,21 @@ const INPUT_MODE_SHEET_ORDER: InputMode[] = [
   "camera",
 ]
 
+const PREMIUM_INPUT_MODES = new Set<InputMode>(["voice", "camera", "upload"])
+
+function premiumInputModeHint(mode: InputMode): string | undefined {
+  switch (mode) {
+    case "camera":
+      return PREMIUM_UI_COPY.inputMode.camera
+    case "upload":
+      return PREMIUM_UI_COPY.inputMode.upload
+    case "voice":
+      return PREMIUM_UI_COPY.inputMode.voice
+    default:
+      return undefined
+  }
+}
+
 function loadInputMode(): InputMode {
   if (typeof window === "undefined") return "manual"
   const s = localStorage.getItem(INPUT_MODE_KEY)
@@ -63,36 +80,57 @@ export function InputModeButton({
   currentMode,
   onClick,
   className,
+  premiumLocked = false,
 }: {
   mode: InputMode
   currentMode: InputMode
   onClick: () => void
   className?: string
+  premiumLocked?: boolean
 }) {
   const Icon = INPUT_MODE_ICONS[mode]
   const label = INPUT_MODE_LABELS[mode]
+  const lockedHint = premiumLocked ? premiumInputModeHint(mode) : undefined
   return (
     <button
       type="button"
-      onClick={onClick}
-      aria-pressed={currentMode === mode}
-      aria-label={`${label} input mode`}
+      onClick={premiumLocked ? undefined : onClick}
+      disabled={premiumLocked}
+      aria-disabled={premiumLocked}
+      aria-pressed={!premiumLocked && currentMode === mode}
+      aria-label={premiumLocked ? `${label} input mode — Premium required` : `${label} input mode`}
+      title={lockedHint}
       className={cn(
-        "flex aspect-square max-w-[120px] w-full cursor-pointer flex-col items-center justify-center gap-2 self-center rounded-full border border-[#333] bg-[#1A1A1A] transition-colors hover:bg-[#222] focus-visible:bg-[#222] focus:outline-none",
-        currentMode === mode
+        "relative flex aspect-square max-w-[120px] w-full flex-col items-center justify-center gap-1.5 self-center rounded-full border border-[#333] bg-[#1A1A1A] transition-colors focus:outline-none",
+        premiumLocked
+          ? "cursor-not-allowed opacity-60 text-muted-foreground"
+          : "cursor-pointer hover:bg-[#222] focus-visible:bg-[#222]",
+        !premiumLocked && currentMode === mode
           ? "bg-[#F7931A] text-[#0D0D0D]"
-          : "text-[#666] active:text-[#999]",
+          : !premiumLocked
+            ? "text-[#666] active:text-[#999]"
+            : "",
         className,
       )}
     >
       <Icon className="h-6 w-6 shrink-0 xs:h-8 xs:w-8" />
       <span className="text-xs font-medium xs:text-sm">{label}</span>
+      {premiumLocked ? (
+        <PremiumLockedLabel className="absolute -bottom-1 normal-case tracking-normal" />
+      ) : null}
     </button>
   )
 }
 
 export function MobileNav() {
-  const { currentPage, navigateTo, openNewTransaction, inputModeSheetOpen, setInputModeSheetOpen } = useApp()
+  const {
+    currentPage,
+    navigateTo,
+    openNewTransaction,
+    inputModeSheetOpen,
+    setInputModeSheetOpen,
+    hasPremiumFeatures,
+  } = useApp()
   const [inputMode, setInputModeState] = useState<InputMode>(loadInputMode)
   const [scanOpen, setScanOpen] = useState(false)
   const [scanInitialSource, setScanInitialSource] = useState<"camera" | "upload" | undefined>(undefined)
@@ -111,7 +149,14 @@ export function MobileNav() {
     if (typeof window !== "undefined") localStorage.setItem(INPUT_MODE_KEY, mode)
   }, [])
 
+  const effectiveInputMode: InputMode =
+    !hasPremiumFeatures && PREMIUM_INPUT_MODES.has(inputMode) ? "manual" : inputMode
+
   const runMode = useCallback((mode: InputMode) => {
+    if (!hasPremiumFeatures && PREMIUM_INPUT_MODES.has(mode)) {
+      setInputModeSheetOpen(true)
+      return
+    }
     switch (mode) {
       case "manual":
         openNewTransaction()
@@ -128,7 +173,7 @@ export function MobileNav() {
         setScanOpen(true)
         break
     }
-  }, [openNewTransaction])
+  }, [hasPremiumFeatures, openNewTransaction, setInputModeSheetOpen])
 
   const handleScanOpenChange = useCallback((open: boolean) => {
     setScanOpen(open)
@@ -136,9 +181,10 @@ export function MobileNav() {
   }, [])
 
   const selectMode = useCallback((mode: InputMode) => {
+    if (!hasPremiumFeatures && PREMIUM_INPUT_MODES.has(mode)) return
     setInputMode(mode)
     setInputModeSheetOpen(false)
-  }, [setInputMode, setInputModeSheetOpen])
+  }, [hasPremiumFeatures, setInputMode, setInputModeSheetOpen])
 
   const clearFabNudgeTimer = useCallback(() => {
     if (fabNudgeTimerRef.current) {
@@ -151,12 +197,12 @@ export function MobileNav() {
   const handleFabClick = useCallback(() => {
     clearFabNudgeTimer()
     setFabNudge(true)
-    runMode(inputMode)
+    runMode(effectiveInputMode)
     fabNudgeTimerRef.current = setTimeout(() => {
       setFabNudge(false)
       fabNudgeTimerRef.current = null
     }, 520)
-  }, [clearFabNudgeTimer, inputMode, runMode])
+  }, [clearFabNudgeTimer, effectiveInputMode, runMode])
 
   return (
     <>
@@ -168,7 +214,7 @@ export function MobileNav() {
           {navItems.map((item, i) => {
             const isActive = currentPage === item.id || (item.id === "envelopes" && (currentPage === "envelope-detail" || currentPage === "envelope-allocations"))
             const Icon = item.icon
-            const FabIcon = INPUT_MODE_ICONS[inputMode]
+            const FabIcon = INPUT_MODE_ICONS[effectiveInputMode]
 
             return (
               <Fragment key={item.id}>
@@ -214,12 +260,18 @@ export function MobileNav() {
               <InputModeButton
                 key={mode}
                 mode={mode}
-                currentMode={inputMode}
+                currentMode={effectiveInputMode}
                 onClick={() => selectMode(mode)}
+                premiumLocked={!hasPremiumFeatures && PREMIUM_INPUT_MODES.has(mode)}
                 className={i % 2 === 0 ? "ml-auto sm:ml-0" : "mr-auto sm:mr-0"}
               />
             ))}
           </div>
+          {!hasPremiumFeatures ? (
+            <p className="px-6 pb-6 text-center text-xs text-muted-foreground">
+              Camera, upload, and voice entry require Premium or an active trial. Manual entry is always free.
+            </p>
+          ) : null}
         </SheetContent>
       </Sheet>
 
@@ -236,12 +288,18 @@ export function MobileNav() {
           </SheetHeader>
           <div className="px-4 pb-6">
             {isVoiceSupported() ? (
-              <VoiceDictationButton />
+              <VoiceDictationButton
+                locked={!hasPremiumFeatures}
+                onOpenedTransaction={() => setVoiceSheetOpen(false)}
+              />
             ) : (
               <p className="text-sm text-muted-foreground">
                 Voice input is not supported in this browser. Try manual entry or scan receipt instead.
               </p>
             )}
+            {!hasPremiumFeatures ? (
+              <p className="mt-3 text-xs text-muted-foreground">{PREMIUM_UI_COPY.voiceEntry.sheetHint}</p>
+            ) : null}
           </div>
         </SheetContent>
       </Sheet>

@@ -1,12 +1,18 @@
 import type { Transaction } from "@/lib/data"
-import { TX_SOURCE_ENVELOPE_SWEEP, TX_SOURCE_INCOME_IMPORT } from "@/lib/constants"
+import {
+  TX_SOURCE_ENVELOPE_SWEEP,
+  TX_SOURCE_ENVELOPE_TRANSFER_IN,
+  TX_SOURCE_ENVELOPE_TRANSFER_OUT,
+  TX_SOURCE_INCOME_IMPORT,
+} from "@/lib/constants"
 import { isEnvelopeFundingLeg, isIncomeHeaderTransaction } from "@/lib/ledger-funding-display"
+import { isRebalanceTransferLeg } from "@/lib/rebalance-transaction-display"
 
 /** Funding legs are batch-managed via their income header; hide list delete. */
 export function canDeleteTransactionFromList(
-  txn: Pick<Transaction, "source">,
+  txn: Pick<Transaction, "source" | "fundingBatchKind">,
 ): boolean {
-  return !isEnvelopeFundingLeg(txn)
+  return !isEnvelopeFundingLeg(txn) && !isRebalanceTransferLeg(txn)
 }
 
 /** Income header deletes remove the whole funding batch (income + allocation legs). */
@@ -32,11 +38,28 @@ export function shouldCascadeDeleteSweepBatch(
   )
 }
 
+/** Rebalance / move-funds transfer legs delete as a batch from the header leg. */
+export function shouldCascadeDeleteRebalanceBatch(
+  txn: Pick<Transaction, "source" | "fundingBatchId" | "fundingBatchKind">,
+): boolean {
+  if (!txn.fundingBatchId?.length) return false
+  const kind = txn.fundingBatchKind
+  if (kind === "rebalance" || kind === "move_funds") return true
+  return (
+    txn.source === TX_SOURCE_ENVELOPE_TRANSFER_IN ||
+    txn.source === TX_SOURCE_ENVELOPE_TRANSFER_OUT
+  )
+}
+
 /** Server and client delete paths: cascade when the row owns a managed batch. */
 export function shouldCascadeDeleteTransactionBatch(
-  txn: Pick<Transaction, "type" | "source" | "fundingBatchId">,
+  txn: Pick<Transaction, "type" | "source" | "fundingBatchId" | "fundingBatchKind">,
 ): boolean {
-  return shouldCascadeDeleteFundingBatch(txn) || shouldCascadeDeleteSweepBatch(txn)
+  return (
+    shouldCascadeDeleteFundingBatch(txn) ||
+    shouldCascadeDeleteSweepBatch(txn) ||
+    shouldCascadeDeleteRebalanceBatch(txn)
+  )
 }
 
 export function incomeBatchHasFundingLegs(

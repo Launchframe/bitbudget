@@ -443,4 +443,12 @@ describe("parseNostrAuthEvent", () => {
       parseNostrAuthEvent(eventWithOrigin, pubkey, "https://app.example.com"),
     ).not.toThrow()
   })
+
+  it("accepts created_at as a numeric string (some NIP-07 extensions)", () => {
+    const result = parseNostrAuthEvent(
+      validEventStr({ created_at: String(now()) }),
+      pubkey,
+    )
+    expect(result.created_at).toBe(now())
+  })
 })

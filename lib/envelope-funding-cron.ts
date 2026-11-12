@@ -1,5 +1,9 @@
 import { detectAchievementsForUser } from "@/lib/achievements"
-import { processEnvelopeFundingForUser } from "@/lib/envelope-funding"
+import { isBudgetAllocationDay } from "@/lib/budget-period"
+import {
+  creditPaycheckToSavings,
+  processMonthlyBudgetAllocations,
+} from "@/lib/envelope-funding"
 import { sweepDiscretionaryEnvelopesForUser } from "@/lib/envelope-sweep"
 import {
   fundingCronUserWhere,
@@ -7,8 +11,7 @@ import {
   shouldRunFundingCronForUser,
 } from "@/lib/funding-cron-schedule"
 import { mapWithConcurrency } from "@/lib/map-with-concurrency"
-import { isFundingDayForUser } from "@/lib/pay-cadence-server"
-import { type PaydayUserFields } from "@/lib/payday-cadence"
+import { isPaydayForUser, type PaydayUserFields } from "@/lib/payday-cadence"
 import { prisma } from "@/lib/db"
 import { closePreviousPeriodGoal, openCurrentPeriodGoal } from "@/lib/savings-goal-cron"
 
@@ -27,6 +30,9 @@ export interface EnvelopeFundingCronUserResult {
   goalsClosed: number
   goalsOpened: number
   sweepTransactionsCreated: number
+  paycheckCreditsCreated: number
+  allocationLegsCreated: number
+  /** @deprecated Use paycheckCreditsCreated + allocationLegsCreated */
   fundTransactionsCreated: number
   achievementsDetected: number
 }
@@ -51,6 +57,8 @@ export async function processFundingCronUser(
     goalsClosed: 0,
     goalsOpened: 0,
     sweepTransactionsCreated: 0,
+    paycheckCreditsCreated: 0,
+    allocationLegsCreated: 0,
     fundTransactionsCreated: 0,
     achievementsDetected: 0,
   }
@@ -66,15 +74,24 @@ export async function processFundingCronUser(
   }
 
   let sweepCreated = 0
-  let fundCreated = 0
-  if (isFundingDayForUser(paydayUser, now)) {
+  let paycheckCreated = 0
+  let allocCreated = 0
+
+  if (isBudgetAllocationDay(now)) {
     sweepCreated = await sweepDiscretionaryEnvelopesForUser(u.id, now)
-    fundCreated = await processEnvelopeFundingForUser(u.id, now)
+    allocCreated = await processMonthlyBudgetAllocations(u.id, now)
     partial.sweepTransactionsCreated += sweepCreated
-    partial.fundTransactionsCreated += fundCreated
+    partial.allocationLegsCreated += allocCreated
   }
 
-  if (goalClosed || goalOpened || sweepCreated > 0 || fundCreated > 0) {
+  if (isPaydayForUser(paydayUser, now)) {
+    paycheckCreated = await creditPaycheckToSavings(u.id, now)
+    partial.paycheckCreditsCreated += paycheckCreated
+  }
+
+  partial.fundTransactionsCreated += paycheckCreated + allocCreated
+
+  if (goalClosed || goalOpened || sweepCreated > 0 || paycheckCreated > 0 || allocCreated > 0) {
     partial.achievementsDetected += await detectAchievementsForUser(u.id, now)
   }
 
@@ -119,6 +136,8 @@ export async function processEnvelopeFundingCron(asOf?: Date): Promise<EnvelopeF
     goalsClosed: 0,
     goalsOpened: 0,
     sweepTransactionsCreated: 0,
+    paycheckCreditsCreated: 0,
+    allocationLegsCreated: 0,
     fundTransactionsCreated: 0,
     achievementsDetected: 0,
   }
@@ -127,6 +146,8 @@ export async function processEnvelopeFundingCron(asOf?: Date): Promise<EnvelopeF
     result.goalsClosed += part.goalsClosed
     result.goalsOpened += part.goalsOpened
     result.sweepTransactionsCreated += part.sweepTransactionsCreated
+    result.paycheckCreditsCreated += part.paycheckCreditsCreated
+    result.allocationLegsCreated += part.allocationLegsCreated
     result.fundTransactionsCreated += part.fundTransactionsCreated
     result.achievementsDetected += part.achievementsDetected
   }

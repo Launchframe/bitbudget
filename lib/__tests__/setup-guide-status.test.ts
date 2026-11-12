@@ -138,6 +138,9 @@ describe("setup-guide-status", () => {
 
   it("hasIncomeSignal accepts funded credits", () => {
     expect(hasIncomeSignal(0, [])).toBe(false)
+    // Use a fixed historic date + explicit monthKey so the test is time-zone–independent.
+    // (Building the date from new Date().getUTCMonth() diverges from getCurrentMonthKey()
+    // which uses local time, causing failures on UTC-negative machines at month boundaries.)
     expect(
       hasIncomeSignal(
         0,
@@ -146,9 +149,10 @@ describe("setup-guide-status", () => {
             id: "c1",
             type: "credit",
             source: "paycheck",
-            date: `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, "0")}-15`,
+            date: "2025-03-15",
           }),
         ],
+        "2025-03",
       ),
     ).toBe(true)
   })

@@ -35,7 +35,7 @@ export async function resetReferralE2eData(): Promise<void> {
  */
 export async function seedReferralE2eData(): Promise<void> {
   const now = new Date()
-  /** One day before `now` so `startsAt <= now` always holds for redeem (matches validate). */
+  /** Backdated so validate + redeem pass in e2e; see `fresh startsAt=now` tests for production-like codes. */
   const startsAt = new Date(now.getTime() - 86400000)
   const expiresAt = new Date(now.getTime() + 30 * 86400000)
 

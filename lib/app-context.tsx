@@ -12,6 +12,8 @@ import type {
   RecurringTransaction,
   CommunicationPreferenceKey,
 } from "@/lib/data"
+import type { ParsedTransaction } from "@/lib/csv"
+import type { FoldStatementMeta } from "@/lib/fold-pdf-parser"
 import {
   applyServerTransactionAfterOptimisticCreate,
   compareTransactionsDesc,
@@ -27,6 +29,11 @@ import {
   normalizeCommunicationPreferences,
 } from "@/lib/communication-preferences"
 import {
+  parsePremiumRenewalSettings,
+  type PremiumExpiredBannerPayload,
+  type PremiumRenewalPromptPayload,
+} from "@/lib/premium-renewal-prompt-types"
+import {
   encryptFieldAsymmetric,
   decryptFieldAsymmetric,
   generateKeyPairFromSeed,
@@ -35,6 +42,8 @@ import {
   uint8ToHex,
 } from "@/lib/crypto"
 import { ENCRYPTED_DISPLAY } from "@/lib/encrypted-display"
+import { makeDedupeKeyComputer, type DedupeKeyComputer } from "@/lib/import-dedupe-key"
+import { requestBulkDeleteTransactions } from "@/lib/bulk-delete-client"
 import {
   clearPrivacyKeyCache,
   getValidCachedPrivacyKeyHex,
@@ -64,11 +73,11 @@ import {
   processApiTransactions,
   putMany,
   removeMissing,
-  removeCachedForEnvelope,
   setLastSyncIso,
   setMemo,
   startDateForRecentWindow,
 } from "@/lib/txn-cache"
+import { filterTransactionsForActiveLedger } from "@/lib/envelope-ledger-visibility"
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { transactionSyncUserMessage } from "@/lib/transaction-sync-user-message"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
@@ -160,6 +169,14 @@ export interface TransactionPrefill {
   receiptScanStats?: ReceiptScanStats
 }
 
+/** Pre-parsed data passed to StatementImporterDialog (scan handoff or email pending batch). */
+export interface StatementImporterPrefill {
+  transactions?: ParsedTransaction[]
+  meta?: FoldStatementMeta
+  /** Email-forwarded statement batch — dialog loads encrypted rows from the API. */
+  pendingBatchId?: string
+}
+
 export interface ReferralSummaryState {
   code: string | null
   codeExpiresAt: string | null
@@ -208,16 +225,25 @@ interface AppContextValue {
   navigateTo: (page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => void
   setTransactionDialogOpen: (open: boolean) => void
   openNewTransaction: (prefill?: TransactionPrefill) => void
+  statementImporterOpen: boolean
+  statementImporterPrefill: StatementImporterPrefill | null
+  /** Incremented on each openStatementImporter() call so the dialog remounts with fresh state. */
+  statementImporterKey: number
+  setStatementImporterOpen: (open: boolean) => void
+  openStatementImporter: (prefill?: StatementImporterPrefill) => void
 
   addTransaction: (txn: Omit<Transaction, "id">) => Promise<boolean>
   editTransaction: (id: string, updates: Partial<Omit<Transaction, "id">>) => void
   deleteTransaction: (id: string) => void
+  /** Delete many transactions by id (duplicate cleanup). Returns count deleted. */
+  bulkDeleteTransactions: (ids: string[]) => Promise<number>
 
   addEnvelope: (envelope: Omit<Envelope, "id">) => void
   editEnvelope: (id: string, updates: Partial<Omit<Envelope, "id">>) => void
   archiveEnvelope: (id: string) => void
   restoreEnvelope: (id: string) => void
-  deleteEnvelope: (id: string) => void
+  restoreDeletedEnvelope: (id: string) => void
+  deleteEnvelope: (id: string) => Promise<void>
   mergeEnvelope: (sourceId: string, targetId: string) => Promise<void>
 
   setMonthlyIncome: (income: number) => void
@@ -237,6 +263,11 @@ interface AppContextValue {
   refreshData: () => Promise<void>
   clearLocalTransactionCache: () => Promise<void>
   encryptForStorage: (plaintext: string) => Promise<string>
+  /**
+   * Build a per-import HMAC dedupe-key computer from the cached privacy-key seed,
+   * or null if the session is locked. Create one per import and reuse across chunks.
+   */
+  makeImportDedupeKeyComputer: () => DedupeKeyComputer | null
   logout: () => void
   isAdmin: boolean
   /** Stored billing tier (Stripe). */
@@ -255,6 +286,9 @@ interface AppContextValue {
   referralRefereeTrialMonths: 1 | 3 | null
   premiumTrialUntilIso: string | null
   premiumGratisUntilIso: string | null
+  premiumRenewalPrompt: PremiumRenewalPromptPayload | null
+  premiumExpiredBanner: PremiumExpiredBannerPayload | null
+  dismissPremiumRenewalUi: (logKey: string) => Promise<void>
   referralSummary: ReferralSummaryState | null
 
   /** Server account creation (ISO date YYYY-MM-DD). */
@@ -382,7 +416,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentPage, setCurrentPage] = useState<PageId>(() => {
     if (typeof window === "undefined") return "dashboard"
     const { page } = hashToPage(window.location.hash)
-    return page === "envelope-detail" ? "transactions" : page
+    return page
   })
   const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null
@@ -402,12 +436,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })
   }, [transactionDialogOpen])
 
+  const [statementImporterOpen, setStatementImporterOpen] = useState(false)
+  const [statementImporterPrefill, setStatementImporterPrefill] = useState<StatementImporterPrefill | null>(null)
+  const [statementImporterKey, setStatementImporterKey] = useState(0)
+
+  const openStatementImporter = useCallback((prefill?: StatementImporterPrefill) => {
+    setStatementImporterPrefill(prefill ?? null)
+    setStatementImporterKey(k => k + 1)
+    setStatementImporterOpen(true)
+  }, [])
+
   const [inputModeSheetOpen, setInputModeSheetOpen] = useState(false)
-  const [transactionEnvelopeFilter, setTransactionEnvelopeFilter] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set()
-    const { page, envelopeId } = hashToPage(window.location.hash)
-    return page === "envelope-detail" && envelopeId ? new Set([envelopeId]) : new Set()
-  })
+  const [transactionEnvelopeFilter, setTransactionEnvelopeFilter] = useState<Set<string>>(() => new Set())
   const [txnLoadPhase, setTxnLoadPhase] = useState<TxnLoadPhase>("init")
   const [transactionSyncError, setTransactionSyncError] = useState<string | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
@@ -417,6 +457,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [effectiveTier, setEffectiveTier] = useState<"free" | "premium-trial" | "premium">("free")
   const [premiumTrialUntilIso, setPremiumTrialUntilIso] = useState<string | null>(null)
   const [premiumGratisUntilIso, setPremiumGratisUntilIso] = useState<string | null>(null)
+  const [premiumRenewalPrompt, setPremiumRenewalPrompt] = useState<PremiumRenewalPromptPayload | null>(null)
+  const [premiumExpiredBanner, setPremiumExpiredBanner] = useState<PremiumExpiredBannerPayload | null>(null)
   const [referralSummary, setReferralSummary] = useState<ReferralSummaryState | null>(null)
   const [refereePendingBankLink, setRefereePendingBankLink] = useState(false)
   const [referralRefereeRedeemed, setReferralRefereeRedeemed] = useState(false)
@@ -543,6 +585,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTransactionSyncError(null)
   }, [])
 
+const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
+  const res = await fetch("/api/user/premium-renewal-prompt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ logKey }),
+  })
+  if (res.status === 401 || res.status === 403) {
+    signOut({ callbackUrl: "/auth" })
+    return
+  }
+  setPremiumRenewalPrompt((current) => (current?.logKey === logKey ? null : current))
+  setPremiumExpiredBanner((current) => (current?.logKey === logKey ? null : current))
+}, [])
+
   const refreshData = useCallback(async () => {
     setTransactionSyncError(null)
     try {
@@ -626,6 +682,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setPremiumGratisUntilIso(
         typeof settings.premiumGratisUntil === "string" ? settings.premiumGratisUntil : null,
       )
+      const renewalUi = parsePremiumRenewalSettings(settings)
+      setPremiumRenewalPrompt(renewalUi.premiumRenewalPrompt)
+      setPremiumExpiredBanner(renewalUi.premiumExpiredBanner)
       setRefereePendingBankLink(
         (settings as { referralRefereePendingBankLink?: unknown }).referralRefereePendingBankLink === true,
       )
@@ -934,55 +993,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => {
     const targetPage = page === "envelopes" && opts?.openAllocations ? "envelope-allocations" : page
     setCurrentPage(targetPage)
-    if (envelopeId) setSelectedEnvelopeId(envelopeId)
+    if (targetPage === "envelope-detail" && envelopeId) {
+      setSelectedEnvelopeId(envelopeId)
+    } else {
+      setSelectedEnvelopeId(null)
+    }
     setHighlightTransactionId(opts?.highlightTxnId ?? null)
-    if (opts?.envelopeFilter) setTransactionEnvelopeFilter(new Set([opts.envelopeFilter]))
+    if (targetPage === "envelope-detail") {
+      setTransactionEnvelopeFilter(new Set())
+    } else if (opts?.envelopeFilter) {
+      setTransactionEnvelopeFilter(new Set([opts.envelopeFilter]))
+    }
 
     if (!isPopstate.current) {
       const hash = pageToHash(targetPage, envelopeId)
       if (window.location.hash !== hash) {
-        window.history.pushState({ page: targetPage, envelopeId }, "", hash)
+        window.history.pushState(null, "", hash)
       }
     }
     isPopstate.current = false
   }, [])
 
   useEffect(() => {
-    function onPopState() {
+    function syncRouteFromHash() {
       const { page, envelopeId } = hashToPage(window.location.hash)
       // Mark as popstate so navigateTo skips pushState — but since navigateTo is
       // not called inside this handler we must reset the flag ourselves at the end,
       // otherwise the very next user-triggered navigateTo silently skips pushState
       // and the history entry for that navigation is never written.
       isPopstate.current = true
-      if (page === "envelope-detail" && envelopeId) {
-        setCurrentPage("transactions")
-        setTransactionEnvelopeFilter(new Set([envelopeId]))
-        window.history.replaceState({ page: "transactions" }, "", "#/transactions")
-      } else {
-        setCurrentPage(page)
-        if (envelopeId) setSelectedEnvelopeId(envelopeId)
-        // Clear any envelope filter when going back to a page that isn't transactions.
-        if (page !== "transactions") setTransactionEnvelopeFilter(new Set())
-      }
+      setCurrentPage(page)
+      setSelectedEnvelopeId(page === "envelope-detail" && envelopeId ? envelopeId : null)
+      // Clear any envelope filter when going back to a page that isn't transactions.
+      if (page !== "transactions") setTransactionEnvelopeFilter(new Set())
       // Reset immediately — navigateTo is never invoked inside this handler so it
       // will never reset the flag on our behalf.
       isPopstate.current = false
     }
 
-    window.addEventListener("popstate", onPopState)
+    function onPopState() {
+      syncRouteFromHash()
+    }
 
-    // Redirect initial envelope-detail URLs (e.g. direct link or old bookmark)
-    const initial = hashToPage(window.location.hash)
-    if (initial.page === "envelope-detail" && initial.envelopeId) {
-      setCurrentPage("transactions")
-      setTransactionEnvelopeFilter(new Set([initial.envelopeId]))
-      window.history.replaceState({ page: "transactions" }, "", "#/transactions")
-    } else if (!window.location.hash) {
+    function onHashChange() {
+      // In-page hash changes (e.g. `<a href="#/...">`) do not fire popstate; keep React in sync with the URL.
+      syncRouteFromHash()
+    }
+
+    window.addEventListener("popstate", onPopState)
+    window.addEventListener("hashchange", onHashChange)
+
+    if (!window.location.hash) {
       window.history.replaceState({ page: "dashboard" }, "", "#/dashboard")
     }
 
-    return () => window.removeEventListener("popstate", onPopState)
+    return () => {
+      window.removeEventListener("popstate", onPopState)
+      window.removeEventListener("hashchange", onHashChange)
+    }
   }, [])
 
   const addTransaction = useCallback(async (txn: Omit<Transaction, "id">) => {
@@ -1126,6 +1194,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const bulkDeleteTransactions = useCallback(async (ids: string[]): Promise<number> => {
+    const idSet = new Set(ids)
+    if (idSet.size === 0) return 0
+
+    // Optimistic removal.
+    setState(prev => ({
+      ...prev,
+      transactions: prev.transactions.filter(t => !idSet.has(t.id)),
+    }))
+
+    try {
+      const deleted = await requestBulkDeleteTransactions(Array.from(idSet))
+      if (currentUserIdRef.current) {
+        await Promise.all(
+          Array.from(idSet).map((id) =>
+            deleteCachedTransaction(currentUserIdRef.current!, id),
+          ),
+        )
+      }
+      return deleted
+    } catch (err) {
+      await refreshData()
+      throw err instanceof Error ? err : new Error("Bulk delete failed")
+    }
+  }, [refreshData])
+
   const addEnvelope = useCallback(async (envelope: Omit<Envelope, "id">) => {
     const optimisticId = generateId()
     setState(prev => ({
@@ -1210,21 +1304,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData])
 
+  const restoreDeletedEnvelope = useCallback(async (id: string) => {
+    setState(prev => ({
+      ...prev,
+      envelopes: prev.envelopes.map(e => e.id === id ? { ...e, deletedAt: null } : e),
+    }))
+
+    try {
+      const res = await fetch("/api/envelopes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, deletedAt: null }),
+      })
+      if (!res.ok) {
+        await refreshData()
+      }
+    } catch {
+      await refreshData()
+    }
+  }, [refreshData])
+
   const deleteEnvelope = useCallback(async (id: string) => {
     const env = envelopesRef.current.find(e => e.id === id)
     if (env?.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS) return
 
+    const deletedAt = new Date().toISOString()
     setState(prev => ({
       ...prev,
-      envelopes: prev.envelopes.filter(e => e.id !== id),
-      transactions: prev.transactions.filter(t => t.envelopeId !== id),
+      envelopes: prev.envelopes.map(e => (e.id === id ? { ...e, deletedAt } : e)),
     }))
 
     try {
       const res = await fetch(`/api/envelopes?id=${id}`, { method: "DELETE" })
-      if (res.ok && currentUserIdRef.current) {
-        await removeCachedForEnvelope(currentUserIdRef.current, id)
-      } else if (!res.ok) {
+      if (!res.ok) {
         await refreshData()
       }
     } catch {
@@ -1451,6 +1563,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return encryptFieldAsymmetric(plaintext, publicKeyRef.current)
   }, [])
 
+  const makeImportDedupeKeyComputer = useCallback((): DedupeKeyComputer | null => {
+    const key = privacyKeyRef.current
+    if (!key) return null
+    try {
+      return makeDedupeKeyComputer(uint8ToHex(key))
+    } catch {
+      return null
+    }
+  }, [])
+
   const clearLocalTransactionCache = useCallback(async () => {
     const uid = currentUserIdRef.current
     if (!uid) return
@@ -1638,7 +1760,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const activeEnvelopes = useMemo(
-    () => state.envelopes.filter(e => !e.archived),
+    () => state.envelopes.filter(e => !e.archived && !e.deletedAt),
     [state.envelopes]
   )
 
@@ -1647,14 +1769,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [activeEnvelopes],
   )
 
-  const archivedEnvelopeIds = useMemo(
-    () => new Set(state.envelopes.filter(e => e.archived).map(e => e.id)),
-    [state.envelopes]
-  )
-
   const activeTransactions = useMemo(
-    () => state.transactions.filter(t => !archivedEnvelopeIds.has(t.envelopeId)),
-    [state.transactions, archivedEnvelopeIds]
+    () => filterTransactionsForActiveLedger(state.transactions, state.envelopes),
+    [state.transactions, state.envelopes]
   )
 
   const loading = txnLoadPhase === "init"
@@ -1690,13 +1807,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         navigateTo,
         setTransactionDialogOpen,
         openNewTransaction,
+        statementImporterOpen,
+        statementImporterPrefill,
+        statementImporterKey,
+        setStatementImporterOpen,
+        openStatementImporter,
         addTransaction,
         editTransaction,
         deleteTransaction,
+        bulkDeleteTransactions,
         addEnvelope,
         editEnvelope,
         archiveEnvelope,
         restoreEnvelope,
+        restoreDeletedEnvelope,
         deleteEnvelope,
         mergeEnvelope,
         setMonthlyIncome,
@@ -1712,6 +1836,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         refreshData,
         clearLocalTransactionCache,
         encryptForStorage,
+        makeImportDedupeKeyComputer,
         logout,
         isAdmin: userRole === "admin",
         subscriptionTier,
@@ -1725,6 +1850,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         onboardingCompletedAtIso,
         premiumTrialUntilIso,
         premiumGratisUntilIso,
+        premiumRenewalPrompt,
+        premiumExpiredBanner,
+        dismissPremiumRenewalUi,
         referralSummary,
         pendingTransactions,
         pendingCount: pendingTransactions.length,

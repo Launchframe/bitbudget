@@ -4,12 +4,24 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { useApp, type TransactionPrefill } from "@/lib/app-context"
 import type { TransactionType, Transaction } from "@/lib/data"
 import { formatUsdPrecise } from "@/lib/data"
+import { loadDraft, saveDraft, clearDraft } from "@/lib/draft-storage"
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -22,7 +34,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { X, Repeat, Tag, ChevronRight, FileText, AlertTriangle, FlaskConical, Link2 } from "lucide-react"
+import { X, Repeat, Tag, ChevronRight, FileText } from "lucide-react"
+import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 import { ShortcutsPanel, useTransactionShortcuts } from "@/components/shortcuts-panel"
 import {
   mergePayeeCandidates,
@@ -40,8 +53,6 @@ import {
 } from "@/lib/transaction-dates"
 import { pickTransactionSuccessMessage } from "@/lib/transaction-success-messages"
 import { TransactionSuccessView } from "@/components/transaction-success-view"
-import { isLowConfidenceReceiptScan } from "@/lib/receipt-scan-validate"
-import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -57,6 +68,45 @@ function stableTransactionPrefillKey(prefill: TransactionPrefill): string {
   const { receiptPreviewDataUrl: _r, ...rest } = prefill
   void _r
   return JSON.stringify(rest)
+}
+
+function receiptScanInputTypeLabel(inputType: ReceiptScanStats["inputType"]): string {
+  return inputType === "pdf" ? "PDF document" : "Photo"
+}
+
+function ReceiptScanStatsButton({ stats }: { stats: ReceiptScanStats }) {
+  const qualityPct = Math.round(stats.extractionConfidence * 100)
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="self-start text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline"
+        >
+          Show scan details
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[min(96vw,20rem)] border-[#333] bg-[#141414] text-foreground"
+        align="start"
+      >
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Reading quality</span>
+            <span className="font-medium tabular-nums">{qualityPct}%</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Source</span>
+            <span>{receiptScanInputTypeLabel(stats.inputType)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Model</span>
+            <span>{stats.model}</span>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 /** Many browsers fail on huge `data:application/pdf;base64,...` targets for `<a target=_blank>` / navigation; `blob:` URLs work reliably. */
@@ -102,64 +152,39 @@ function bestEnvelopeIdForPayee(
   return ""
 }
 
-function formatPct(value: number): string {
-  return `${Math.round(value * 100)}%`
+const DRAFT_KEY = "bitbudget-new-transaction-draft"
+
+interface NewTransactionDraft {
+  v: 1
+  type: TransactionType
+  payee: string
+  amount: string
+  envelopeId: string
+  date: string
+  selectedTags: string[]
+  notes: string
+  isRecurring: boolean
+  cadence: Cadence
+  endDate: string
+  saveAsShortcut: boolean
 }
 
-function formatMs(ms: number): string {
-  return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${Math.round(bytes / 1024)} KB`
-}
-
-function ScanStatsPopover({ stats }: { stats: ReceiptScanStats }) {
-  const rows: { label: string; value: string }[] = [
-    { label: "Reading quality", value: formatPct(stats.extractionConfidence) },
-    { label: "Processing time", value: formatMs(stats.processingMs) },
-    { label: "Model", value: stats.model },
-    { label: "Input", value: stats.inputType === "pdf" ? "PDF document" : "Photo" },
-    { label: "File size", value: formatBytes(stats.fileSizeBytes) },
-  ]
-  if (stats.envelopeMatchConfidence !== null) {
-    rows.push({ label: "Category match", value: formatPct(stats.envelopeMatchConfidence) })
-  }
-
+function isNewTransactionDraft(v: unknown): v is NewTransactionDraft {
+  if (typeof v !== "object" || v === null) return false
+  const d = v as Record<string, unknown>
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex items-center gap-1 text-[11px] text-blue-500/75 hover:text-blue-500 transition-colors rounded px-1 py-0.5 hover:bg-white/5"
-          aria-label="Show scan details"
-        >
-          <FlaskConical className="h-3 w-3" aria-hidden />
-          <span>Stats for nerds</span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        side="bottom"
-        className="w-56 bg-[#181818] border-[#2A2A2A] p-0 text-sm"
-        onEscapeKeyDown={(e) => e.stopPropagation()}
-      >
-        <div className="px-3 pt-2.5 pb-1 border-b border-[#2A2A2A]">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Stats for nerds
-          </p>
-        </div>
-        <div className="px-3 py-2 flex flex-col gap-1.5">
-          {rows.map(({ label, value }) => (
-            <div key={label} className="flex items-center justify-between gap-3">
-              <span className="text-[12px] text-muted-foreground shrink-0">{label}</span>
-              <span className="text-[12px] font-mono text-foreground text-right">{value}</span>
-            </div>
-          ))}
-        </div>
-      </PopoverContent>
-    </Popover>
+    d.v === 1 &&
+    typeof d.type === "string" &&
+    typeof d.payee === "string" &&
+    typeof d.amount === "string" &&
+    typeof d.envelopeId === "string" &&
+    typeof d.date === "string" &&
+    Array.isArray(d.selectedTags) &&
+    typeof d.notes === "string" &&
+    typeof d.isRecurring === "boolean" &&
+    typeof d.cadence === "string" &&
+    typeof d.endDate === "string" &&
+    typeof d.saveAsShortcut === "boolean"
   )
 }
 
@@ -198,18 +223,15 @@ export function NewTransactionDialog() {
     original: string
     canonical: string
     reason: CanonicalMatchReason
-    matchedAlias?: PayeeAliasRule
   } | null>(null)
   const [payeeAliasRules, setPayeeAliasRules] = useState<PayeeAliasRule[]>([])
   const [importSourcePayee, setImportSourcePayee] = useState<string | null>(null)
   const [aliasSaveBusy, setAliasSaveBusy] = useState(false)
   const [aliasSaveMessage, setAliasSaveMessage] = useState<string | null>(null)
-  const [savePayeeMappingDismissed, setSavePayeeMappingDismissed] = useState(false)
   const [receiptAttachmentPreview, setReceiptAttachmentPreview] = useState<string | null>(null)
   /** Short-lived object URL for PDF previews (see `pdfDataUrlToBlob`). */
   const [receiptPdfBlobUrl, setReceiptPdfBlobUrl] = useState<string | null>(null)
   const [receiptLightboxOpen, setReceiptLightboxOpen] = useState(false)
-  const [receiptScanWarningDismissed, setReceiptScanWarningDismissed] = useState(false)
   const [successSnapshot, setSuccessSnapshot] = useState<{
     message: string
     payee: string
@@ -219,6 +241,7 @@ export function NewTransactionDialog() {
   type ModalView = "main" | "recurring" | "tags"
   const [modalView, setModalView] = useState<ModalView>("main")
 
+  const [draftLoaded, setDraftLoaded] = useState(false)
   const recurringSnapshotRef = useRef({ isRecurring: false, cadence: "monthly" as Cadence, endDate: "" })
   const tagsSnapshotRef = useRef<string[]>([])
   /** Ignore first click on Recurring/Tags rows after dialog opens so FAB/menu taps are not retargeted into the dialog. */
@@ -228,14 +251,37 @@ export function NewTransactionDialog() {
   const skipCanonicalForPrefillRef = useRef(false)
   /** No `transactionPrefill.payee`: clear payee once when the dialog opens, not on every effect run (`payee` is in deps). */
   const emptyPayeePrefillResetDoneRef = useRef(false)
+  /** Tracks whether we've already hydrated a draft for the current open session. */
+  const draftHydratedRef = useRef(false)
 
   useEffect(() => {
     if (!transactionDialogOpen) {
       setDuplicateExisting(null)
       setSuccessSnapshot(null)
-      setReceiptScanWarningDismissed(false)
+      draftHydratedRef.current = false
+      return
     }
-  }, [transactionDialogOpen])
+    // Only hydrate when no prefill is active — prefill takes priority over draft
+    if (transactionPrefill) return
+    if (draftHydratedRef.current) return
+    draftHydratedRef.current = true
+    const draft = loadDraft(DRAFT_KEY, isNewTransactionDraft)
+    if (!draft) return
+    // Prevent the prefill-payee effect (which runs later) from wiping the restored payee
+    emptyPayeePrefillResetDoneRef.current = true
+    setType(draft.type)
+    setPayee(draft.payee)
+    setAmount(draft.amount)
+    setEnvelopeId(draft.envelopeId)
+    setDate(draft.date)
+    setSelectedTags(draft.selectedTags)
+    setNotes(draft.notes)
+    setIsRecurring(draft.isRecurring)
+    setCadence(draft.cadence)
+    setEndDate(draft.endDate)
+    setSaveAsShortcut(draft.saveAsShortcut)
+    setDraftLoaded(true)
+  }, [transactionDialogOpen, transactionPrefill])
 
   useEffect(() => {
     setDuplicateExisting(null)
@@ -250,14 +296,46 @@ export function NewTransactionDialog() {
     return () => clearTimeout(t)
   }, [transactionDialogOpen])
 
+  // Persist draft on every field change while the dialog is open and not in prefill mode
+  useEffect(() => {
+    if (!transactionDialogOpen || transactionPrefill) return
+    saveDraft(DRAFT_KEY, {
+      v: 1 as const,
+      type,
+      payee,
+      amount,
+      envelopeId,
+      date,
+      selectedTags,
+      notes,
+      isRecurring,
+      cadence,
+      endDate,
+      saveAsShortcut,
+    } satisfies NewTransactionDraft)
+  }, [
+    transactionDialogOpen,
+    transactionPrefill,
+    type,
+    payee,
+    amount,
+    envelopeId,
+    date,
+    selectedTags,
+    notes,
+    isRecurring,
+    cadence,
+    endDate,
+    saveAsShortcut,
+  ])
+
   useEffect(() => {
     if (!transactionDialogOpen) return
     fetch("/api/payee-aliases")
       .then((r) => (r.ok ? r.json() : []))
-      .then((rows: { id: string; sourceNormalized: string; canonicalPayee: string }[]) => {
+      .then((rows: { sourceNormalized: string; canonicalPayee: string }[]) => {
         setPayeeAliasRules(
           rows.map((row) => ({
-            id: row.id,
             sourceNormalized: row.sourceNormalized,
             canonicalPayee: row.canonicalPayee,
           })),
@@ -267,6 +345,7 @@ export function NewTransactionDialog() {
   }, [transactionDialogOpen])
 
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
   const suggestionsRef = useRef<HTMLDivElement>(null)
   const payeeInputRef = useRef<HTMLInputElement>(null)
 
@@ -316,9 +395,19 @@ export function NewTransactionDialog() {
     const key = stableTransactionPrefillKey(transactionPrefill)
     if (appliedPrefillKeyRef.current === key) return
     appliedPrefillKeyRef.current = key
+    prefillPayeeRawRef.current = null
+    emptyPayeePrefillResetDoneRef.current = false
+    skipCanonicalForPrefillRef.current = false
 
     if (transactionPrefill.amount) setAmount(transactionPrefill.amount)
     if (transactionPrefill.date) setDate(transactionPrefill.date)
+    const payeeRaw = transactionPrefill.payee?.trim()
+    if (payeeRaw) {
+      setPayee(payeeRaw)
+      setImportSourcePayee(payeeRaw)
+      prefillPayeeRawRef.current = payeeRaw
+      emptyPayeePrefillResetDoneRef.current = false
+    }
     if (transactionPrefill.notes) setNotes(transactionPrefill.notes)
     if (transactionPrefill.envelopeId) setEnvelopeId(transactionPrefill.envelopeId)
     if (transactionPrefill.type) setType(transactionPrefill.type)
@@ -364,7 +453,6 @@ export function NewTransactionDialog() {
       setPayeeMatchHint(null)
       setImportSourcePayee(null)
       setAliasSaveMessage(null)
-      setSavePayeeMappingDismissed(false)
       return
     }
     const raw = transactionPrefill?.payee?.trim()
@@ -385,12 +473,7 @@ export function NewTransactionDialog() {
 
     const applyResolved = (
       resolved: string,
-      hint: {
-        original: string
-        canonical: string
-        reason: CanonicalMatchReason
-        matchedAlias?: PayeeAliasRule
-      } | null,
+      hint: { original: string; canonical: string; reason: CanonicalMatchReason } | null,
     ) => {
       setPayee(resolved)
       setPayeeMatchHint(hint)
@@ -400,19 +483,17 @@ export function NewTransactionDialog() {
       }
     }
 
-    if (prefillPayeeRawRef.current !== raw) {
+    if (prefillPayeeRawRef.current !== raw || !payee.trim()) {
       prefillPayeeRawRef.current = raw
       skipCanonicalForPrefillRef.current = false
       setImportSourcePayee(raw)
       setAliasSaveMessage(null)
-      setSavePayeeMappingDismissed(false)
       const r = resolveCanonicalPayee(raw, payeeCanonicalCandidates, payeeAliasRules)
       if (r) {
         applyResolved(r.canonicalPayee, {
           original: r.originalExtracted,
           canonical: r.canonicalPayee,
           reason: r.reason,
-          matchedAlias: r.matchedAlias,
         })
       } else {
         applyResolved(raw, null)
@@ -440,7 +521,6 @@ export function NewTransactionDialog() {
           original: r.originalExtracted,
           canonical: r.canonicalPayee,
           reason: r.reason,
-          matchedAlias: r.matchedAlias,
         })
       }
     }
@@ -468,8 +548,7 @@ export function NewTransactionDialog() {
     !!importSourcePayee &&
     payee.trim().length >= 2 &&
     normalizePayeeKey(importSourcePayee) !== normalizePayeeKey(payee) &&
-    !payeeAliasAlreadyMatches &&
-    !savePayeeMappingDismissed
+    !payeeAliasAlreadyMatches
 
   const duplicateEnvelopeName = useMemo(() => {
     if (!duplicateExisting) return null
@@ -507,34 +586,10 @@ export function NewTransactionDialog() {
         })
         return next
       })
-      window.dispatchEvent(new CustomEvent("payee-aliases-updated"))
       setAliasSaveMessage("Saved for future imports.")
     } finally {
       setAliasSaveBusy(false)
     }
-  }
-
-  /** Delete the alias rule that matched the current payee hint, then revert to original text. */
-  async function deleteAliasAndRevert() {
-    const hint = payeeMatchHint
-    const alias = hint?.matchedAlias
-    if (!hint) return
-    if (alias?.id) {
-      try {
-        const res = await fetch(`/api/payee-aliases?id=${encodeURIComponent(alias.id)}`, {
-          method: "DELETE",
-        })
-        if (res.ok) {
-          setPayeeAliasRules((prev) => prev.filter((a) => a.id !== alias.id))
-          window.dispatchEvent(new CustomEvent("payee-aliases-updated"))
-        }
-      } catch {
-        // best-effort; still revert the field
-      }
-    }
-    setPayee(hint.original)
-    setPayeeMatchHint(null)
-    skipCanonicalForPrefillRef.current = true
   }
 
   const payeeSuggestions = useMemo(() => {
@@ -563,7 +618,26 @@ export function NewTransactionDialog() {
       setEnvelopeId(suggestedEnvelopeId)
     }
     setShowSuggestions(false)
+    setActiveSuggestionIndex(-1)
   }, [activeEnvelopes])
+
+  function handlePayeeKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!showSuggestions || payeeSuggestions.length === 0) return
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setActiveSuggestionIndex((i) => Math.min(i + 1, payeeSuggestions.length - 1))
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setActiveSuggestionIndex((i) => Math.max(i - 1, -1))
+    } else if ((e.key === "Enter" || e.key === " ") && activeSuggestionIndex >= 0) {
+      e.preventDefault()
+      const s = payeeSuggestions[activeSuggestionIndex]
+      selectPayeeSuggestion(s.name, s.envelopeId)
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false)
+      setActiveSuggestionIndex(-1)
+    }
+  }
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -576,7 +650,7 @@ export function NewTransactionDialog() {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  function resetForm() {
+  function resetForm(clearStoredDraft = false) {
     setType("expense")
     setPayee("")
     setAmount("")
@@ -595,15 +669,22 @@ export function NewTransactionDialog() {
     setImportSourcePayee(null)
     setAliasSaveMessage(null)
     setDuplicateExisting(null)
+    setDraftLoaded(false)
+    if (clearStoredDraft) clearDraft(DRAFT_KEY)
   }
 
   function finishSuccessAndClose() {
     setSuccessSnapshot(null)
-    resetForm()
+    resetForm(true)
     setTransactionDialogOpen(false)
   }
 
   function handleDialogOpenChange(open: boolean) {
+    // X button / Escape / backdrop while in a sub-view → navigate back, don't close the parent
+    if (!open && modalView !== "main") {
+      setModalView("main")
+      return
+    }
     if (!open) {
       setSuccessSnapshot(null)
       resetForm()
@@ -737,6 +818,8 @@ export function NewTransactionDialog() {
       })
     }
 
+    clearDraft(DRAFT_KEY)
+    setDraftLoaded(false)
     setSuccessSnapshot({
       message: pickTransactionSuccessMessage(type, { isRecurring: isRecurringSubmit }),
       payee: savedPayee,
@@ -769,7 +852,7 @@ export function NewTransactionDialog() {
   return (
     <Dialog open={transactionDialogOpen} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="flex max-h-[min(90dvh,900px)] min-h-0 flex-col gap-0 overflow-hidden border-[#1F1F1F] bg-[#0D0D0D] p-0 text-foreground sm:max-w-lg">
-        <DialogHeader className="shrink-0 px-6 pb-2 pr-14 pt-6" data-walkthrough="new-transaction-dialog-header">
+        <DialogHeader className="shrink-0 px-6 pb-2 pr-14 pt-6">
           <DialogTitle className="text-lg font-bold text-foreground">
             {successSnapshot
               ? "Saved!"
@@ -793,24 +876,22 @@ export function NewTransactionDialog() {
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-4">
               <ShortcutsPanel shortcuts={shortcuts} />
+              {transactionPrefill?.receiptScanStats ? (
+                <ReceiptScanStatsButton stats={transactionPrefill.receiptScanStats} />
+              ) : null}
               {receiptAttachmentPreview && (
                 <div className="rounded-xl border border-[#333] bg-[#141414] overflow-hidden shrink-0">
                   <div className="flex items-center justify-between gap-2 px-3 pt-2 pb-1">
                     <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       Receipt preview
                     </span>
-                    <div className="flex items-center gap-2">
-                      {transactionPrefill?.receiptScanStats && (
-                        <ScanStatsPopover stats={transactionPrefill.receiptScanStats} />
-                      )}
-                      <button
-                        type="button"
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => setReceiptAttachmentPreview(null)}
-                      >
-                        Hide
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setReceiptAttachmentPreview(null)}
+                    >
+                      Hide
+                    </button>
                   </div>
                   <div className="max-h-[min(260px,38vh)] overflow-auto px-3 pb-2">
                     {receiptAttachmentPreview.startsWith("data:image/") ? (
@@ -866,34 +947,10 @@ export function NewTransactionDialog() {
                       </div>
                     ) : null}
                   </div>
-                  <p className="text-[11px] text-muted-foreground px-3 pb-2 -mb-1 pt-2">
-                    Tap the preview to enlarge.
+                  <p className="text-[11px] text-muted-foreground px-3 pb-2 pt-0">
+                    Cross-check payee, amount, and date with the receipt before saving. Tap the preview to
+                    enlarge.
                   </p>
-                </div>
-              )}
-              {/* Scan stats fallback: show outside card when no preview is visible */}
-              {!receiptAttachmentPreview && transactionPrefill?.receiptScanStats && (
-                <div className="flex justify-end shrink-0">
-                  <ScanStatsPopover stats={transactionPrefill.receiptScanStats} />
-                </div>
-              )}
-              {/* Low-confidence receipt scan warning */}
-              {!receiptScanWarningDismissed &&
-                typeof transactionPrefill?.receiptScanConfidence === "number" &&
-                isLowConfidenceReceiptScan(transactionPrefill.receiptScanConfidence) && (
-                <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 shrink-0">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden />
-                  <p className="flex-1 text-sm text-amber-200 leading-snug">
-                    We had some trouble reading this receipt — please double-check the details before saving.
-                  </p>
-                  <button
-                    type="button"
-                    className="shrink-0 text-amber-400/70 hover:text-amber-300 transition-colors"
-                    onClick={() => setReceiptScanWarningDismissed(true)}
-                    aria-label="Dismiss receipt quality warning"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
                 </div>
               )}
               {/* Type toggle */}
@@ -905,7 +962,7 @@ export function NewTransactionDialog() {
                     onClick={() => setType("expense")}
                     className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
                       type === "expense"
-                        ? "bg-btc-orange text-[#0D0D0D]"
+                        ? "bg-[#F7931A] text-[#0D0D0D]"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -916,7 +973,7 @@ export function NewTransactionDialog() {
                     onClick={() => setType("credit")}
                     className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
                       type === "credit"
-                        ? "bg-success text-[#0D0D0D]"
+                        ? "bg-[#22C55E] text-[#0D0D0D]"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -930,164 +987,125 @@ export function NewTransactionDialog() {
                 <Label htmlFor="payee" className="text-muted-foreground text-xs uppercase tracking-wider">
                   {type === "expense" ? "Payee" : "Payer"}
                 </Label>
-                {/* Input + optional mapping-applied icon */}
-                <div className="flex items-center gap-1.5">
-                  <div className="relative flex-1 min-w-0">
-                    <Input
-                      ref={payeeInputRef}
-                      id="payee"
-                      value={payee}
-                      onChange={(e) => {
-                        setPayee(e.target.value)
-                        setPayeeMatchHint(null)
-                        setAliasSaveMessage(null)
-                        if (validationErrors.payee) setValidationErrors(prev => { const next = { ...prev }; delete next.payee; return next })
-                        setShowSuggestions(true)
-                      }}
-                      onFocus={() => { if (payee.trim()) setShowSuggestions(true) }}
-                      placeholder={type === "expense" ? "Who did you pay?" : "Who paid you?"}
-                      className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] w-full"
-                      autoComplete="off"
-                      required
-                    />
-                    {showSuggestions && payeeSuggestions.length > 0 && (
-                      <div
-                        ref={suggestionsRef}
-                        className="absolute top-full left-0 right-0 z-50 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg shadow-xl overflow-hidden max-h-52 overflow-y-auto"
-                      >
-                        {payeeSuggestions.map((s) => {
-                          const env = state.envelopes.find(e => e.id === s.envelopeId)
-                          return (
-                            <button
-                              key={s.name}
-                              type="button"
-                              onClick={() => selectPayeeSuggestion(s.name, s.envelopeId)}
-                              className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[#252525] transition-colors"
-                            >
-                              <span className="text-sm text-foreground truncate">{s.name}</span>
-                              {env && (
-                                <span className="flex items-center gap-1.5 shrink-0 text-xs text-muted-foreground">
-                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: env.color }} />
-                                  {env.name}
-                                </span>
-                              )}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
+                <Input
+                  ref={payeeInputRef}
+                  id="payee"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={showSuggestions && payeeSuggestions.length > 0}
+                  aria-controls="payee-listbox"
+                  aria-activedescendant={
+                    activeSuggestionIndex >= 0
+                      ? `payee-option-${activeSuggestionIndex}`
+                      : undefined
+                  }
+                  value={payee}
+                  onChange={(e) => {
+                    setPayee(e.target.value)
+                    setPayeeMatchHint(null)
+                    setAliasSaveMessage(null)
+                    setActiveSuggestionIndex(-1)
+                    if (validationErrors.payee) setValidationErrors(prev => { const next = { ...prev }; delete next.payee; return next })
+                    setShowSuggestions(true)
+                  }}
+                  onFocus={() => { if (payee.trim()) setShowSuggestions(true) }}
+                  onKeyDown={handlePayeeKeyDown}
+                  placeholder={type === "expense" ? "Who did you pay?" : "Who paid you?"}
+                  className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
+                  autoComplete="off"
+                  required
+                />
+                {showSuggestions && payeeSuggestions.length > 0 && (
+                  <div
+                    ref={suggestionsRef}
+                    id="payee-listbox"
+                    role="listbox"
+                    aria-label="Payee suggestions"
+                    className="absolute top-full left-0 right-0 z-50 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg shadow-xl overflow-hidden max-h-52 overflow-y-auto"
+                  >
+                    {payeeSuggestions.map((s, idx) => {
+                      const env = state.envelopes.find(e => e.id === s.envelopeId)
+                      const isActive = activeSuggestionIndex === idx
+                      return (
+                        <button
+                          key={s.name}
+                          id={`payee-option-${idx}`}
+                          type="button"
+                          role="option"
+                          aria-selected={isActive}
+                          onClick={() => selectPayeeSuggestion(s.name, s.envelopeId)}
+                          onMouseEnter={() => setActiveSuggestionIndex(idx)}
+                          onMouseLeave={() => setActiveSuggestionIndex(-1)}
+                          className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors ${
+                            isActive ? "bg-[#2A2A2A]" : "hover:bg-[#252525]"
+                          }`}
+                        >
+                          <span className="text-sm text-foreground truncate">{s.name}</span>
+                          {env && (
+                            <span className="flex items-center gap-1.5 shrink-0 text-xs text-muted-foreground">
+                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: env.color }} />
+                              {env.name}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
                   </div>
-                  {/* Mapping-applied indicator — small icon reveals details on click */}
-                  {payeeMatchHint && (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
-                          aria-label="Payee was automatically matched — tap for details"
-                        >
-                          <Link2 className="h-3.5 w-3.5" aria-hidden />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        align="end"
-                        side="bottom"
-                        className="w-72 bg-[#181818] border-[#2A2A2A] p-3 text-sm"
-                        onEscapeKeyDown={(e) => e.stopPropagation()}
-                      >
-                        {payeeMatchHint.reason === "alias" ? (
-                          <>
-                            <p className="text-xs text-muted-foreground leading-snug">
-                              Matched using a saved spelling rule:
-                            </p>
-                            <div className="mt-2 rounded-md border border-[#2A2A2A] bg-[#111] px-3 py-2 font-mono text-xs text-foreground">
-                              {payeeMatchHint.original}
-                              <span className="mx-1.5 text-muted-foreground">→</span>
-                              {payeeMatchHint.canonical}
-                            </div>
-                            <div className="mt-3 flex flex-col gap-1.5 border-t border-[#222] pt-3">
-                              <button
-                                type="button"
-                                className="text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
-                                onClick={() => {
-                                  setPayee(payeeMatchHint.original)
-                                  setPayeeMatchHint(null)
-                                  skipCanonicalForPrefillRef.current = true
-                                }}
-                              >
-                                Ignore this time
-                              </button>
-                              {payeeMatchHint.matchedAlias?.id && (
-                                <button
-                                  type="button"
-                                  className="text-left text-xs text-red-400/80 transition-colors hover:text-red-400"
-                                  onClick={() => void deleteAliasAndRevert()}
-                                >
-                                  Remove this rule
-                                </button>
-                              )}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <p className="text-xs text-muted-foreground leading-snug">
-                              <span className="font-medium text-foreground">{payeeMatchHint.original}</span>{" "}
-                              was matched as a similar spelling of{" "}
-                              <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>.
-                              Add a mapping in Settings to make this permanent.
-                            </p>
-                            <button
-                              type="button"
-                              className="mt-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
-                              onClick={() => {
-                                setPayee(payeeMatchHint.original)
-                                setPayeeMatchHint(null)
-                                skipCanonicalForPrefillRef.current = true
-                              }}
-                            >
-                              Ignore this time
-                            </button>
-                          </>
-                        )}
-                      </PopoverContent>
-                    </Popover>
-                  )}
-                </div>
-                {validationErrors.payee && (
-                  <p className="text-xs text-red-400">{validationErrors.payee}</p>
                 )}
-                {/* Save mapping prompt — compact single row, no extra card */}
-                {showSavePayeeMapping && (
-                  <div className="flex items-center gap-2 rounded-lg border border-[#2A2A2A] bg-[#141414] px-3 py-2">
-                    <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                      Save{" "}
-                      <span className="font-medium text-foreground">{importSourcePayee}</span>
-                      {" → "}
-                      <span className="font-medium text-foreground">{payee.trim()}</span>
-                      {" for next time?"}
-                    </p>
-                    {aliasSaveMessage ? (
-                      <span className="shrink-0 text-xs text-muted-foreground">{aliasSaveMessage}</span>
-                    ) : (
+                {validationErrors.payee && (
+                  <p className="text-xs text-red-400 mt-1">{validationErrors.payee}</p>
+                )}
+                {payeeMatchHint && (
+                  <p className="text-xs text-muted-foreground">
+                    {payeeMatchHint.reason === "alias" && (
                       <>
-                        <button
-                          type="button"
-                          disabled={aliasSaveBusy}
-                          onClick={() => void savePayeeMapping()}
-                          className="shrink-0 rounded-md bg-[#333] px-2.5 py-1 text-xs font-medium text-foreground hover:bg-[#444] disabled:opacity-50"
-                        >
-                          {aliasSaveBusy ? "Saving…" : "Save"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSavePayeeMappingDismissed(true)}
-                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
-                          aria-label="Dismiss"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
+                        Using your saved payee{" "}
+                        <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>{" "}
+                        for <span className="font-medium text-foreground">{payeeMatchHint.original}</span>.
                       </>
                     )}
+                    {payeeMatchHint.reason === "soft-equal" && (
+                      <>
+                        <span className="font-medium text-foreground">{payeeMatchHint.original}</span> was
+                        treated as the same merchant as{" "}
+                        <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>{" "}
+                        (hyphens / spacing only). Add a mapping in Settings if this is wrong.
+                      </>
+                    )}{" "}
+                    <button
+                      type="button"
+                      className="text-btc-orange underline decoration-btc-orange/50 hover:decoration-btc-orange"
+                      onClick={() => {
+                        setPayee(payeeMatchHint.original)
+                        setPayeeMatchHint(null)
+                        skipCanonicalForPrefillRef.current = true
+                      }}
+                    >
+                      Use original text
+                    </button>
+                  </p>
+                )}
+                {showSavePayeeMapping && (
+                  <div className="flex flex-col gap-1.5 rounded-lg border border-[#333] bg-[#1A1A1A] px-3 py-2">
+                    <p className="text-xs text-muted-foreground">
+                      Import showed{" "}
+                      <span className="font-medium text-foreground">{importSourcePayee}</span> — always use{" "}
+                      <span className="font-medium text-foreground">{payee.trim()}</span> for that text next
+                      time?
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={aliasSaveBusy}
+                        onClick={() => void savePayeeMapping()}
+                        className="rounded-md bg-[#333] px-3 py-1.5 text-xs font-medium text-foreground hover:bg-[#444] disabled:opacity-50"
+                      >
+                        {aliasSaveBusy ? "Saving…" : "Save payee mapping"}
+                      </button>
+                      {aliasSaveMessage && (
+                        <span className="text-xs text-muted-foreground">{aliasSaveMessage}</span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1175,7 +1193,7 @@ export function NewTransactionDialog() {
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Add any notes..."
                   rows={2}
-                  className="w-full rounded-md bg-[#1A1A1A] border border-[#333] text-foreground placeholder:text-[#555] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-btc-orange/50 focus:border-btc-orange/50"
+                  className="w-full rounded-md bg-[#1A1A1A] border border-[#333] text-foreground placeholder:text-[#555] px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#F7931A]/50 focus:border-[#F7931A]/50"
                 />
               </div>
 
@@ -1239,6 +1257,39 @@ export function NewTransactionDialog() {
               </div>
 
               <div className="shrink-0 border-t border-[#1F1F1F] bg-[#0D0D0D] px-6 py-4 space-y-3">
+                {draftLoaded && (
+                  <div className="flex justify-end">
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground underline decoration-muted-foreground/40 hover:text-foreground transition-colors"
+                        >
+                          Start fresh
+                        </button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="border-[#1F1F1F] bg-[#0D0D0D]">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Discard in-progress transaction?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Your entered details will be cleared and cannot be recovered.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel className="border-[#333] bg-[#1A1A1A] text-foreground hover:bg-[#222]">
+                            Keep editing
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => resetForm(true)}
+                            className="bg-red-600 text-white hover:bg-red-700"
+                          >
+                            Discard
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                )}
                 {duplicateExisting && (
                   <div
                     role="alert"
@@ -1252,7 +1303,7 @@ export function NewTransactionDialog() {
                       <span className="text-foreground">{duplicateExisting.date}</span>
                       {": "}
                       <span className="text-foreground">{duplicateExisting.payee}</span>,{" "}
-                      <span className="font-ibm-plex-mono text-foreground">
+                      <span className="font-mono text-foreground">
                         {formatUsdPrecise(duplicateExisting.amount)}
                       </span>
                       {duplicateEnvelopeName ? (
@@ -1288,7 +1339,7 @@ export function NewTransactionDialog() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full rounded-lg bg-btc-orange py-3 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90 disabled:opacity-50"
+                  className="w-full rounded-lg bg-[#F7931A] py-3 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90 disabled:opacity-50"
                 >
                   {submitting
                     ? transactionPrefill?.recurringId
@@ -1322,7 +1373,7 @@ export function NewTransactionDialog() {
                   id="recurring-toggle"
                   checked={isRecurring}
                   onCheckedChange={setIsRecurring}
-                  className="data-[state=checked]:bg-btc-orange"
+                  className="data-[state=checked]:bg-[#F7931A]"
                 />
               </div>
 
@@ -1376,7 +1427,7 @@ export function NewTransactionDialog() {
                 <button
                   type="button"
                   onClick={() => setModalView("main")}
-                  className="flex-1 rounded-lg bg-btc-orange py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90"
+                  className="flex-1 rounded-lg bg-[#F7931A] py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90"
                 >
                   Done
                 </button>
@@ -1396,8 +1447,8 @@ export function NewTransactionDialog() {
                     variant={selectedTags.includes(tag.name) ? "default" : "outline"}
                     className={`cursor-pointer transition-colors ${
                       selectedTags.includes(tag.name)
-                        ? "bg-btc-orange text-[#0D0D0D] hover:bg-btc-orange/80 border-transparent"
-                        : "border-[#333] text-muted-foreground hover:border-btc-orange/50 hover:text-foreground"
+                        ? "bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/80 border-transparent"
+                        : "border-[#333] text-muted-foreground hover:border-[#F7931A]/50 hover:text-foreground"
                     }`}
                     onClick={() => toggleTag(tag.name)}
                   >
@@ -1438,7 +1489,7 @@ export function NewTransactionDialog() {
                 <button
                   type="button"
                   onClick={() => { setNewTag(""); setModalView("main") }}
-                  className="flex-1 rounded-lg bg-btc-orange py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-btc-orange/90"
+                  className="flex-1 rounded-lg bg-[#F7931A] py-2.5 text-sm font-semibold text-[#0D0D0D] transition-colors hover:bg-[#F7931A]/90"
                 >
                   Done
                 </button>
