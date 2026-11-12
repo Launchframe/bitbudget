@@ -395,16 +395,19 @@ model RunwayPlan {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-/// A month-scoped, encrypted Financial Runway journal note. The server only ever
-/// stores and returns ciphertext in `encryptedBody` (encrypted client-side like
-/// transaction notes) — it is never logged or decrypted on the backend. An
-/// optional `envelopeId` scopes the note to a single envelope.
+/// A month-scoped Financial Runway journal note. `encryptedBody` is a sealed box
+/// to the user's public key (same wire format as transaction notes). The server
+/// never logs or decrypts it. A SQL CHECK rejects values that are not sealed-box
+/// base64. An optional `envelopeId` scopes the note to a single envelope.
 model RunwayJournalEntry {
   id            String   @id @default(cuid())
   userId        String
   monthKey      String // YYYY-MM
   envelopeId    String? // optional envelope scope
-  encryptedBody String // ciphertext only — never logged or decrypted server-side
+  // Sealed-box ciphertext only (user public key). A SQL CHECK
+  // (`RunwayJournalEntry_encryptedBody_sealed`) rejects plaintext-shaped values.
+  // Never logged or decrypted server-side.
+  encryptedBody String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

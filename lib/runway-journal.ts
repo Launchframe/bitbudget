@@ -4,13 +4,15 @@
  * A5 is a standalone slice: it must NOT import from the (separately proposed)
  * runway-need, runway-gap, or expense-insight modules. The validators here only
  * check shape — they never touch user identity (the caller supplies userId from
- * the session) and never log anything, especially not ciphertext.
+ * the session) and never log or decrypt a note.
  *
- * The journal body is *ciphertext*: the client encrypts the note like a
- * transaction note before it is sent, and the server stores and returns only
- * that opaque string. These validators treat `encryptedBody` as an opaque,
- * non-empty, bounded string and never attempt to decrypt or inspect it.
+ * The journal body must already be a sealed box to the user's public key — the
+ * same wire format as transaction notes (`encryptFieldAsymmetric`). The server
+ * has no private key, so it cannot decrypt. It rejects anything that does not
+ * match that wire format so a plaintext note cannot be stored.
  */
+
+import { looksLikeAsymmetricCiphertext } from "@/lib/crypto"
 
 // ---------------------------------------------------------------------------
 // Result type (mirrors lib/runway-plan.ts for consistency)
@@ -56,9 +58,9 @@ export function validateMonthKey(value: unknown): ValidationResult<string> {
 }
 
 /**
- * Validates the encrypted journal body. We require a non-empty, bounded string
- * and never inspect the contents (it is ciphertext). Whitespace-only bodies are
- * rejected so an empty note cannot be saved by accident.
+ * Validates the journal body. Empty notes are rejected. Anything that is not a
+ * sealed box (public-key ciphertext) is rejected without echoing the text.
+ * The stored value is the original string — it is not trimmed or rewritten.
  */
 export function validateEncryptedBody(value: unknown): ValidationResult<string> {
   if (typeof value !== "string") {
@@ -69,6 +71,13 @@ export function validateEncryptedBody(value: unknown): ValidationResult<string> 
   }
   if (value.length > MAX_JOURNAL_BODY_LENGTH) {
     return { ok: false, error: "Your note is too long." }
+  }
+  if (!looksLikeAsymmetricCiphertext(value)) {
+    return {
+      ok: false,
+      error:
+        "Your note has to be protected before it can be saved. Unlock the app and try again.",
+    }
   }
   return { ok: true, value }
 }

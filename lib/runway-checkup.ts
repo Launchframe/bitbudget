@@ -109,7 +109,10 @@ export interface BuildupCheckupInput extends CheckupInputBase {
   bitcoinShare: number
   /** Target share held in bitcoin (0–1). */
   targetBitcoinShare: number
-  /** Today's monthly living costs, for the "draw larger than today" check. */
+  /**
+   * Today's monthly living costs. The draw section flags each planned line on
+   * its own net change; it does not compare that net to this baseline.
+   */
   livingCostsMonthlyUsd: number
   plannedLines: CheckupPlannedLine[]
   hotEnvelopes: CheckupHotEnvelope[]
@@ -168,11 +171,25 @@ export interface RunwayCheckup {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function clampFraction(value: number): number {
-  if (!Number.isFinite(value)) return 0
+/** Clamp a 0–1 share. Non-finite inputs stay missing so they are not reported as 0%. */
+function clampFraction(value: number): number | null {
+  if (!Number.isFinite(value)) return null
   if (value < 0) return 0
   if (value > 1) return 1
   return value
+}
+
+/**
+ * Round for display, then drop non-finite results. `Math.round(Infinity)` is
+ * Infinity and `roundToCents(NaN)` is NaN — neither should become a fact value.
+ */
+function roundedFinite(
+  value: number,
+  round: (value: number) => number,
+): number | null {
+  if (!Number.isFinite(value)) return null
+  const rounded = round(value)
+  return Number.isFinite(rounded) ? rounded : null
 }
 
 /** Net monthly contribution a planned line adds to the draw. */
@@ -188,7 +205,14 @@ export function scenarioEffectUsd(
   scenario: CheckupScenario,
   horizonMonths: number,
 ): number {
-  const months = Number.isFinite(horizonMonths) && horizonMonths > 0 ? horizonMonths : 0
+  if (
+    !Number.isFinite(scenario.monthlyDeltaUsd) ||
+    !Number.isFinite(scenario.oneTimeUsd) ||
+    !Number.isFinite(horizonMonths)
+  ) {
+    return Number.NaN
+  }
+  const months = horizonMonths > 0 ? horizonMonths : 0
   return roundToCents(scenario.monthlyDeltaUsd * months + scenario.oneTimeUsd)
 }
 
@@ -203,8 +227,19 @@ function projectionTone(
   required: number,
   round: (value: number) => number,
 ): CheckupTone {
-  if (round(projected) >= round(required)) return "good"
+  const projectedRounded = roundedFinite(projected, round)
+  const requiredRounded = roundedFinite(required, round)
+  // Missing numbers are not "on track" and not a measured shortfall.
+  if (projectedRounded == null || requiredRounded == null) return "warn"
+  if (projectedRounded >= requiredRounded) return "good"
   return "bad"
+}
+
+/** Scenario mood applies only when the month count is a real, non-negative number. */
+function monthsLeftTone(value: number | null, whenOk: CheckupTone): CheckupTone {
+  if (value == null) return "warn"
+  if (value < 0) return "bad"
+  return whenOk
 }
 
 // ---------------------------------------------------------------------------
@@ -215,18 +250,20 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
   const sections: CheckupSection[] = []
 
   // 1. Cash + bitcoin targets vs on-track projections.
+  const requiredCash = roundedFinite(input.required.cashUsd, roundToCents)
+  const requiredBitcoin = roundedFinite(input.required.bitcoinSats, Math.round)
   const cashFacts: CheckupFact[] = [
     {
       id: "required-cash",
       label: "Cash you need to stay on track",
-      value: roundToCents(input.required.cashUsd),
+      value: requiredCash,
       unit: "usd",
-      tone: "neutral",
+      tone: requiredCash == null ? "warn" : "neutral",
     },
     {
       id: "projected-cash-spot",
       label: "Projected cash (steady price)",
-      value: roundToCents(input.projected.cashUsd.spot),
+      value: roundedFinite(input.projected.cashUsd.spot, roundToCents),
       unit: "usd",
       tone: projectionTone(
         input.projected.cashUsd.spot,
@@ -237,7 +274,7 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
     {
       id: "projected-cash-stress",
       label: "Projected cash (price drop)",
-      value: roundToCents(input.projected.cashUsd.stress),
+      value: roundedFinite(input.projected.cashUsd.stress, roundToCents),
       unit: "usd",
       tone: projectionTone(
         input.projected.cashUsd.stress,
@@ -248,7 +285,7 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
     {
       id: "projected-cash-growth",
       label: "Projected cash (price grows)",
-      value: roundToCents(input.projected.cashUsd.growth),
+      value: roundedFinite(input.projected.cashUsd.growth, roundToCents),
       unit: "usd",
       tone: projectionTone(
         input.projected.cashUsd.growth,
@@ -259,14 +296,14 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
     {
       id: "required-bitcoin",
       label: "Bitcoin you need to stay on track",
-      value: Math.round(input.required.bitcoinSats),
+      value: requiredBitcoin,
       unit: "sats",
-      tone: "neutral",
+      tone: requiredBitcoin == null ? "warn" : "neutral",
     },
     {
       id: "projected-bitcoin-spot",
       label: "Projected bitcoin (steady price)",
-      value: Math.round(input.projected.bitcoinSats.spot),
+      value: roundedFinite(input.projected.bitcoinSats.spot, Math.round),
       unit: "sats",
       tone: projectionTone(
         input.projected.bitcoinSats.spot,
@@ -277,7 +314,7 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
     {
       id: "projected-bitcoin-stress",
       label: "Projected bitcoin (price drop)",
-      value: Math.round(input.projected.bitcoinSats.stress),
+      value: roundedFinite(input.projected.bitcoinSats.stress, Math.round),
       unit: "sats",
       tone: projectionTone(
         input.projected.bitcoinSats.stress,
@@ -288,7 +325,7 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
     {
       id: "projected-bitcoin-growth",
       label: "Projected bitcoin (price grows)",
-      value: Math.round(input.projected.bitcoinSats.growth),
+      value: roundedFinite(input.projected.bitcoinSats.growth, Math.round),
       unit: "sats",
       tone: projectionTone(
         input.projected.bitcoinSats.growth,
@@ -303,7 +340,7 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
     facts: cashFacts,
   })
 
-  // 2. Bitcoin share vs target.
+  // 2. Bitcoin share vs target. Values stay 0–1 fractions; the UI scales percent.
   const held = clampFraction(input.bitcoinShare)
   const target = clampFraction(input.targetBitcoinShare)
   sections.push({
@@ -315,33 +352,48 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
         label: "Held in bitcoin now",
         value: held,
         unit: "percent",
-        tone: held >= target ? "good" : "warn",
+        tone:
+          held == null || target == null ? "warn" : held >= target ? "good" : "warn",
       },
       {
         id: "bitcoin-share-target",
         label: "Your target for bitcoin",
         value: target,
         unit: "percent",
-        tone: "neutral",
+        tone: target == null ? "warn" : "neutral",
       },
     ],
   })
 
-  // 3. Planned lines that make the draw larger than today's living costs.
-  const raisingLines = input.plannedLines
-    .map((line) => ({ line, net: plannedLineNetMonthlyUsd(line) }))
-    .filter(({ net }) => net > 0)
-  const drawFacts: CheckupFact[] = raisingLines.map(({ line, net }) => ({
-    id: `draw-line-${line.id}`,
-    label: line.label,
-    value: net,
-    unit: "usd",
-    tone: "warn",
-    detail:
-      line.mode === "replaces"
-        ? "Costs more than what it replaces"
-        : "Adds to your monthly costs",
-  }))
+  // 3. Planned lines whose own net change is an increase. A line we cannot
+  // read must not disappear into the "nothing raises the draw" all-clear.
+  const drawFacts: CheckupFact[] = []
+  for (const line of input.plannedLines) {
+    const net = plannedLineNetMonthlyUsd(line)
+    if (!Number.isFinite(net)) {
+      drawFacts.push({
+        id: `draw-line-${line.id}`,
+        label: line.label,
+        value: null,
+        unit: "usd",
+        tone: "warn",
+        detail: "We couldn't read this planned change",
+      })
+      continue
+    }
+    if (net <= 0) continue
+    drawFacts.push({
+      id: `draw-line-${line.id}`,
+      label: line.label,
+      value: net,
+      unit: "usd",
+      tone: "warn",
+      detail:
+        line.mode === "replaces"
+          ? "Costs more than what it replaces"
+          : "Adds to your monthly costs",
+    })
+  }
   if (drawFacts.length === 0) {
     drawFacts.push({
       id: "draw-none",
@@ -357,15 +409,32 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
     facts: drawFacts,
   })
 
-  // 4. Flexible envelopes that ran hot (+ prompt).
-  const hotFacts: CheckupFact[] = input.hotEnvelopes.map((env) => ({
-    id: `hot-${env.envelopeId}`,
-    label: env.name,
-    value: roundToCents(env.spentUsd - env.allottedUsd),
-    unit: "usd",
-    tone: "bad",
-    detail: "Spent more than you set aside",
-  }))
+  // 4. Flexible envelopes that ran hot (+ prompt). Tone follows the rounded
+  // overspend, so a fraction of a cent does not read as over budget.
+  const hotFacts: CheckupFact[] = []
+  for (const env of input.hotEnvelopes) {
+    const over = roundedFinite(env.spentUsd - env.allottedUsd, roundToCents)
+    if (over == null) {
+      hotFacts.push({
+        id: `hot-${env.envelopeId}`,
+        label: env.name,
+        value: null,
+        unit: "usd",
+        tone: "warn",
+        detail: "We couldn't read this envelope",
+      })
+      continue
+    }
+    if (over <= 0) continue
+    hotFacts.push({
+      id: `hot-${env.envelopeId}`,
+      label: env.name,
+      value: over,
+      unit: "usd",
+      tone: "bad",
+      detail: "Spent more than you set aside",
+    })
+  }
   if (hotFacts.length > 0) {
     hotFacts.push({
       id: "hot-prompt",
@@ -390,14 +459,25 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
   })
 
   // 5. Scenario effects over the horizon.
-  const scenarioFacts: CheckupFact[] = input.scenarios.map((scenario) => ({
-    id: `scenario-${scenario.id}`,
-    label: scenario.label,
-    value: scenarioEffectUsd(scenario, input.horizonMonths),
-    unit: "usd",
-    tone: scenario.enabled ? "warn" : "neutral",
-    detail: scenario.enabled ? "Turned on" : "Turned off",
-  }))
+  const scenarioFacts: CheckupFact[] = input.scenarios.map((scenario) => {
+    const effect = scenarioEffectUsd(scenario, input.horizonMonths)
+    const value = Number.isFinite(effect) ? effect : null
+    let tone: CheckupTone = "neutral"
+    if (value == null || scenario.enabled) tone = "warn"
+    return {
+      id: `scenario-${scenario.id}`,
+      label: scenario.label,
+      value,
+      unit: "usd",
+      tone,
+      detail:
+        value == null
+          ? "We couldn't total this"
+          : scenario.enabled
+            ? "Turned on"
+            : "Turned off",
+    }
+  })
   if (scenarioFacts.length === 0) {
     scenarioFacts.push({
       id: "scenario-none",
@@ -415,32 +495,48 @@ function buildBuildupSections(input: BuildupCheckupInput): CheckupSection[] {
 
   // 6. Savings goal met or missed.
   if (input.savingsGoal) {
-    const target = roundToCents(input.savingsGoal.targetUsd)
-    const actual = roundToCents(input.savingsGoal.actualUsd)
-    const met = actual >= target
-    sections.push({
-      id: "savings-goal",
-      title: "Your savings goal this month",
-      facts: [
-        {
-          id: "savings-goal-outcome",
-          label: met ? "Goal met" : "Goal missed",
-          value: actual,
-          unit: "usd",
-          tone: met ? "good" : "bad",
-          detail: met
-            ? "You saved at least your target"
-            : "You saved less than your target",
-        },
-        {
-          id: "savings-goal-target",
-          label: "Your target",
-          value: target,
-          unit: "usd",
-          tone: "neutral",
-        },
-      ],
-    })
+    const target = roundedFinite(input.savingsGoal.targetUsd, roundToCents)
+    const actual = roundedFinite(input.savingsGoal.actualUsd, roundToCents)
+    if (target == null || actual == null) {
+      sections.push({
+        id: "savings-goal",
+        title: "Your savings goal this month",
+        facts: [
+          {
+            id: "savings-goal-outcome",
+            label: "We couldn't read this goal",
+            value: null,
+            unit: "usd",
+            tone: "warn",
+          },
+        ],
+      })
+    } else {
+      const met = actual >= target
+      sections.push({
+        id: "savings-goal",
+        title: "Your savings goal this month",
+        facts: [
+          {
+            id: "savings-goal-outcome",
+            label: met ? "Goal met" : "Goal missed",
+            value: actual,
+            unit: "usd",
+            tone: met ? "good" : "bad",
+            detail: met
+              ? "You saved at least your target"
+              : "You saved less than your target",
+          },
+          {
+            id: "savings-goal-target",
+            label: "Your target",
+            value: target,
+            unit: "usd",
+            tone: "neutral",
+          },
+        ],
+      })
+    }
   }
 
   return sections
@@ -455,13 +551,25 @@ function buildRunwaySections(input: RunwayPhaseCheckupInput): CheckupSection[] {
 
   // 1. Each planned line vs actual spent.
   const plannedFacts: CheckupFact[] = input.plannedActuals.map((row) => {
-    const diff = roundToCents(row.actualMonthlyUsd - row.plannedMonthlyUsd)
+    const actual = roundedFinite(row.actualMonthlyUsd, roundToCents)
+    const planned = roundedFinite(row.plannedMonthlyUsd, roundToCents)
+    if (actual == null || planned == null) {
+      return {
+        id: `planned-actual-${row.id}`,
+        label: row.label,
+        value: null,
+        unit: "usd" as const,
+        tone: "warn" as const,
+        detail: "We couldn't compare this line",
+      }
+    }
+    const diff = roundToCents(actual - planned)
     return {
       id: `planned-actual-${row.id}`,
       label: row.label,
       value: diff,
-      unit: "usd",
-      tone: diff > 0 ? "bad" : "good",
+      unit: "usd" as const,
+      tone: diff > 0 ? ("bad" as const) : ("good" as const),
       detail:
         diff > 0
           ? "Over what you planned"
@@ -486,6 +594,13 @@ function buildRunwaySections(input: RunwayPhaseCheckupInput): CheckupSection[] {
   })
 
   // 2. Months of runway left under each assumption.
+  const monthsSpot = Number.isFinite(input.monthsLeft.spot) ? input.monthsLeft.spot : null
+  const monthsStress = Number.isFinite(input.monthsLeft.stress)
+    ? input.monthsLeft.stress
+    : null
+  const monthsGrowth = Number.isFinite(input.monthsLeft.growth)
+    ? input.monthsLeft.growth
+    : null
   sections.push({
     id: "months-left",
     title: "How long your money lasts",
@@ -493,23 +608,23 @@ function buildRunwaySections(input: RunwayPhaseCheckupInput): CheckupSection[] {
       {
         id: "months-left-spot",
         label: "Months left (steady price)",
-        value: input.monthsLeft.spot,
+        value: monthsSpot,
         unit: "months",
-        tone: "neutral",
+        tone: monthsLeftTone(monthsSpot, "neutral"),
       },
       {
         id: "months-left-stress",
         label: "Months left (price drop)",
-        value: input.monthsLeft.stress,
+        value: monthsStress,
         unit: "months",
-        tone: "warn",
+        tone: monthsLeftTone(monthsStress, "warn"),
       },
       {
         id: "months-left-growth",
         label: "Months left (price grows)",
-        value: input.monthsLeft.growth,
+        value: monthsGrowth,
         unit: "months",
-        tone: "good",
+        tone: monthsLeftTone(monthsGrowth, "good"),
       },
     ],
   })
@@ -517,19 +632,21 @@ function buildRunwaySections(input: RunwayPhaseCheckupInput): CheckupSection[] {
   // 3. Open loans summary.
   const loanFacts: CheckupFact[] = []
   for (const loan of input.loans) {
+    const bill = roundedFinite(loan.monthlyBillUsd, roundToCents)
+    const sell = roundedFinite(loan.roomToSellPriceUsd, roundToCents)
     loanFacts.push({
       id: `loan-bill-${loan.id}`,
       label: `${loan.label}: monthly bill`,
-      value: roundToCents(loan.monthlyBillUsd),
+      value: bill,
       unit: "usd",
-      tone: "neutral",
+      tone: bill == null ? "warn" : "neutral",
     })
     loanFacts.push({
       id: `loan-sell-${loan.id}`,
       label: `${loan.label}: room to sell at`,
-      value: roundToCents(loan.roomToSellPriceUsd),
+      value: sell,
       unit: "usd",
-      tone: "neutral",
+      tone: sell == null ? "warn" : "neutral",
     })
     loanFacts.push({
       id: `loan-rollover-${loan.id}`,
@@ -554,6 +671,10 @@ function buildRunwaySections(input: RunwayPhaseCheckupInput): CheckupSection[] {
 
   // 4. Maturity inside horizon callout.
   if (input.maturity.insideHorizon) {
+    const monthsUntil = input.maturity.monthsUntilMaturity
+    const monthsValue =
+      monthsUntil != null && Number.isFinite(monthsUntil) ? monthsUntil : null
+    const monthsUnreadable = monthsUntil != null && !Number.isFinite(monthsUntil)
     sections.push({
       id: "maturity",
       title: "Something matures inside your window",
@@ -561,10 +682,9 @@ function buildRunwaySections(input: RunwayPhaseCheckupInput): CheckupSection[] {
         {
           id: "maturity-callout",
           label: "A holding matures before your horizon ends",
-          value: input.maturity.monthsUntilMaturity,
-          unit:
-            input.maturity.monthsUntilMaturity == null ? "none" : "months",
-          tone: "good",
+          value: monthsValue,
+          unit: monthsValue == null ? "none" : "months",
+          tone: monthsUnreadable || (monthsValue != null && monthsValue < 0) ? "warn" : "good",
           detail: "Plan for the cash it frees up",
         },
       ],
@@ -572,6 +692,12 @@ function buildRunwaySections(input: RunwayPhaseCheckupInput): CheckupSection[] {
   }
 
   // 5. Income that arrived, as months of stack kept.
+  const incomeAmount = roundedFinite(input.incomeArrived.amountUsd, roundToCents)
+  const incomeMonths = Number.isFinite(input.incomeArrived.monthsOfStackKept)
+    ? input.incomeArrived.monthsOfStackKept
+    : null
+  const keptStack =
+    incomeAmount != null && incomeAmount > 0 && incomeMonths != null && incomeMonths > 0
   sections.push({
     id: "income-arrived",
     title: "Income you brought in",
@@ -579,17 +705,19 @@ function buildRunwaySections(input: RunwayPhaseCheckupInput): CheckupSection[] {
       {
         id: "income-arrived-amount",
         label: "Money that came in",
-        value: roundToCents(input.incomeArrived.amountUsd),
+        value: incomeAmount,
         unit: "usd",
-        tone: "good",
+        tone: incomeAmount == null || incomeAmount < 0 ? "warn" : "good",
       },
       {
         id: "income-arrived-months",
         label: "Months of your stack that kept",
-        value: input.incomeArrived.monthsOfStackKept,
+        value: incomeMonths,
         unit: "months",
-        tone: "good",
-        detail: "Earning this let you avoid spending down your savings",
+        tone: incomeMonths == null || incomeMonths < 0 ? "warn" : "good",
+        ...(keptStack
+          ? { detail: "Earning this let you avoid spending down your savings" }
+          : {}),
       },
     ],
   })

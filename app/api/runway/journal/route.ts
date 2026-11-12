@@ -9,9 +9,10 @@ import {
 } from "@/lib/runway-journal"
 
 /**
- * Financial Runway journal entries. The server stores and returns ONLY
- * ciphertext in `encryptedBody` — it is never logged or decrypted here. Every
- * query is scoped to the session userId; the client is never trusted to scope.
+ * Financial Runway journal entries. `encryptedBody` is accepted only when it
+ * is already a sealed box to the user's public key (see `validateEncryptedBody`).
+ * Plaintext notes are rejected. The body is never logged or decrypted here.
+ * Every query is scoped to the session userId; the client is never trusted to scope.
  */
 
 type JournalRow = {
