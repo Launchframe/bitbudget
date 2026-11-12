@@ -1,0 +1,55 @@
+# Local development database (optional Docker) and optional full-stack profile.
+#
+# Recommended on older Macs (no Docker Desktop): native Postgres — see docs/local-development.md
+# Recommended on newer Macs: Postgres in Docker, app on the host
+#
+#   pnpm setup:dev
+#   pnpm dev
+#
+# Optional full stack in Docker (profile `app`, requires Docker):
+#   docker compose --profile app up --build
+
+services:
+  db:
+    image: postgres:16
+    container_name: bitbudget-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bitbudget_dev
+    ports:
+      - "${BITBUDGET_DB_PORT:-5432}:5432"
+    volumes:
+      - bitbudget_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bitbudget_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bitbudget-app
+    restart: unless-stopped
+    ports:
+      - "${BITBUDGET_APP_PORT:-3000}:3000"
+    env_file:
+      - .env.local
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/bitbudget_dev
+      DATABASE_URL_UNPOOLED: postgresql://postgres:postgres@db:5432/bitbudget_dev
+      AUTH_TRUST_HOST: "true"
+      AUTH_URL: http://localhost:${BITBUDGET_APP_PORT:-3000}
+      NEXTAUTH_URL: http://localhost:${BITBUDGET_APP_PORT:-3000}
+      NEXT_PUBLIC_APP_URL: http://localhost:${BITBUDGET_APP_PORT:-3000}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  bitbudget_pgdata:

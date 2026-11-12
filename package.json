@@ -2,6 +2,7 @@
   "name": "bitbudget",
   "version": "0.2.0",
   "private": true,
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
     "build": "prisma generate && prisma migrate deploy && next build",
     "dev": "next dev -p 3001",
@@ -24,7 +25,13 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:local": "pnpm build && pnpm lint && pnpm exec tsc --noEmit && pnpm test && pnpm test:e2e"
+    "test:local": "pnpm build && pnpm lint && pnpm exec tsc --noEmit && pnpm test && pnpm test:e2e",
+    "setup:dev": "bash scripts/dev-setup.sh",
+    "docker:up": "docker compose up -d db",
+    "docker:down": "docker compose stop db",
+    "docker:reset": "docker compose down -v",
+    "docker:logs": "docker compose logs -f db",
+    "docker:app": "docker compose --profile app up --build"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^1.6.0",
