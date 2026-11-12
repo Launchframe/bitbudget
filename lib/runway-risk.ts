@@ -80,6 +80,11 @@ export function baseCashFloorMonths(answers: RiskAnswers): number {
  *
  * So every 10 percentage points over target adds roughly one month, capped at
  * +6 months, and the total is capped at MAX_CASH_FLOOR_MONTHS (18).
+ *
+ * The difference is snapped to the nearest 1e-9 before `ceil`. Otherwise
+ * binary dust turns an exact 30pp gap into 3.0000000000000004 and adds a
+ * whole extra month — `0.8 - 0.5` is that case, and both 0.8 ("most") and
+ * 0.5 ("half") are real questionnaire targets.
  */
 export function recommendCashFloorMonths(
   answers: RiskAnswers,
@@ -88,11 +93,15 @@ export function recommendCashFloorMonths(
 ): number {
   const base = baseCashFloorMonths(answers)
   let extra = 0
-  if (actualBtcShare > target) {
-    extra = Math.min(
-      MAX_EXTRA_CASH_FLOOR_MONTHS,
-      Math.ceil((actualBtcShare - target) * 10),
-    )
+  if (
+    Number.isFinite(actualBtcShare) &&
+    Number.isFinite(target) &&
+    actualBtcShare > target
+  ) {
+    const tenths = (actualBtcShare - target) * 10
+    const nearest = Math.round(tenths)
+    const snapped = Math.abs(tenths - nearest) <= 1e-9 ? nearest : tenths
+    extra = Math.min(MAX_EXTRA_CASH_FLOOR_MONTHS, Math.ceil(snapped))
   }
   return Math.min(MAX_CASH_FLOOR_MONTHS, base + extra)
 }

@@ -15,9 +15,84 @@ import {
 } from "@/lib/runway-risk"
 
 const SATS_PER_BTC = 1e8
+/** Micro-dollars. Exact for cent prices inside the safe-integer range. */
+const USD_MICROS = 1_000_000
 /** Days per year used for annualizing historical CAGR windows. */
 const DAYS_PER_YEAR = 365.25
 const YEAR_MS = DAYS_PER_YEAR * 24 * 60 * 60 * 1000
+
+function finiteNumber(n: number | null | undefined, fallback = 0): number {
+  return typeof n === "number" && Number.isFinite(n) ? n : fallback
+}
+
+/** Sats are a non-negative count. Non-finite or negative input is zero. */
+function nonNegativeSats(n: number | null | undefined, fallback = 0): number {
+  const v = finiteNumber(n, fallback)
+  if (v <= 0) return 0
+  return Math.round(v)
+}
+
+/**
+ * Sats required to cover `usd` at `priceUsd`, rounded up.
+ *
+ * `(usd / price) * 1e8` is often one ulp above an integer, so `Math.ceil`
+ * charges an extra sat (`$134` at `$100` → 134000001). Scale both sides to
+ * micro-dollars and ceil-divide in integers instead. A non-positive or
+ * non-finite price cannot fund a positive dollar need (`Infinity`).
+ */
+function requiredSatsForUsd(usd: number, priceUsd: number): number {
+  if (!(usd > 0)) return 0
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0) return Infinity
+  const usdMicros = Math.round(usd * USD_MICROS)
+  const priceMicros = Math.round(priceUsd * USD_MICROS)
+  if (
+    !Number.isSafeInteger(usdMicros) ||
+    !Number.isSafeInteger(priceMicros) ||
+    priceMicros <= 0
+  ) {
+    const raw = (usd * SATS_PER_BTC) / priceUsd
+    if (!Number.isFinite(raw) || raw <= 0) return Infinity
+    const nearest = Math.round(raw)
+    if (Math.abs(raw - nearest) <= 1e-6) return nearest
+    return Math.ceil(raw)
+  }
+  const sats = (BigInt(usdMicros) * BigInt(SATS_PER_BTC) + BigInt(priceMicros) - 1n) /
+    BigInt(priceMicros)
+  if (sats > BigInt(Number.MAX_SAFE_INTEGER)) return Infinity
+  return Number(sats)
+}
+
+/** Bitcoin mark in dollars. A non-positive price marks the coins at zero, not below. */
+function btcValueUsd(sats: number, priceUsd: number): number {
+  if (!(sats > 0) || !Number.isFinite(priceUsd) || priceUsd <= 0) return 0
+  return (sats / SATS_PER_BTC) * priceUsd
+}
+
+/**
+ * Bitcoin's share of gross assets (cash + bitcoin, before liabilities).
+ * Cash that is underwater by at least the bitcoin mark is still a 100% bitcoin
+ * position — reporting 0 there would skip the over-allocation cash cushion.
+ */
+function bitcoinShare(btcUsd: number, cashUsd: number): number {
+  const btc = Number.isFinite(btcUsd) && btcUsd > 0 ? btcUsd : 0
+  const cash = Number.isFinite(cashUsd) ? cashUsd : 0
+  if (btc === 0) return 0
+  const gross = cash + btc
+  if (!(gross > 0)) return 1
+  return btc / gross
+}
+
+/**
+ * `(1 + rate) ^ years`. A base below 0 is not a usable nominal factor
+ * (fractional powers are NaN). A base of exactly 0 is defined.
+ */
+function compoundFactor(rate: number, years: number): number {
+  if (!Number.isFinite(rate) || !Number.isFinite(years)) return Number.NaN
+  const base = 1 + rate
+  if (base < 0) return Number.NaN
+  const factor = Math.pow(base, years)
+  return Number.isFinite(factor) ? factor : Number.NaN
+}
 
 export type PlannedLineGroup = "bitbudget" | "llc" | "agents" | "other"
 export type PlannedLineMode = "add" | "replaces"
@@ -144,62 +219,74 @@ export function activeScenarios(
 ): RunwayScenario[] {
   if (mode === "none") return []
   if (mode === "enabled") return scenarios.filter((s) => s.enabled)
+  // A stray string is iterable, and `new Set("ab")` would match ids "a" and "b".
+  if (!Array.isArray(mode)) return []
   const ids = new Set(mode)
   return scenarios.filter((s) => ids.has(s.id))
 }
 
 export function computeRunwayNeed(input: RunwayNeedInput): RunwayNeedResult {
   const active = activeScenarios(input.scenarios, input.scenarioMode)
-  const scenarioMonthlyDeltaUsd = active.reduce((s, sc) => s + sc.monthlyDeltaUsd, 0)
-  const oneTimeNetUsd = active.reduce((s, sc) => s + sc.oneTimeUsd, 0)
+  const scenarioMonthlyDeltaUsd = active.reduce(
+    (s, sc) => s + finiteNumber(sc.monthlyDeltaUsd),
+    0,
+  )
+  const oneTimeNetUsd = active.reduce((s, sc) => s + finiteNumber(sc.oneTimeUsd), 0)
 
   // 1–2. Living after replacements.
   //   - Every planned line adds its monthly cost.
   //   - A "replaces" line additionally removes the old recurring cost it
   //     stands in for; the replaced aggregate floors living at 0 (not negative).
   //   - Active scenario monthly deltas adjust living (can be negative).
-  const plannedMonthlyTotal = input.plannedLines.reduce((s, l) => s + l.monthlyUsd, 0)
-  const replacedTotal = input.plannedLines.reduce(
-    (s, l) => (l.mode === "replaces" ? s + (l.replacesMonthlyUsd ?? 0) : s),
+  // Non-finite amounts are ignored so one bad line cannot NaN the plan.
+  const plannedMonthlyTotal = input.plannedLines.reduce(
+    (s, l) => s + finiteNumber(l.monthlyUsd),
     0,
   )
-  const livingAfterReplace = Math.max(0, input.livingBaselineUsd - replacedTotal)
+  const replacedTotal = input.plannedLines.reduce(
+    (s, l) => (l.mode === "replaces" ? s + finiteNumber(l.replacesMonthlyUsd) : s),
+    0,
+  )
+  const livingBaselineUsd = finiteNumber(input.livingBaselineUsd)
+  const livingAfterReplace = Math.max(0, livingBaselineUsd - replacedTotal)
   const livingEffectiveUsd = Math.max(
     0,
     livingAfterReplace + plannedMonthlyTotal + scenarioMonthlyDeltaUsd,
   )
 
   // 3. Monthly draw = living the user must cover out of their own stack.
-  const monthlyDrawUsd = Math.max(0, livingEffectiveUsd - input.runwayIncomeUsd)
+  const monthlyDrawUsd = Math.max(0, livingEffectiveUsd - finiteNumber(input.runwayIncomeUsd))
 
   // 4. Resolve holdings (overrides replace one side only).
-  const cashUsd = input.holdings.cashOverrideUsd ?? input.holdings.envelopeCashUsd
-  const lenderHeldSats = input.holdings.lenderHeldSats ?? 0
-  const amountDueUsd = input.holdings.amountDueUsd ?? 0
-  const bitcoinOnTheWaySats = input.holdings.bitcoinOnTheWaySats ?? 0
-  const cashOnTheWayUsd = input.holdings.cashOnTheWayUsd ?? 0
+  // Cash may be negative (an overspent envelope). Sats and amount due may not.
+  const cashUsd = finiteNumber(input.holdings.cashOverrideUsd ?? input.holdings.envelopeCashUsd)
+  const lenderHeldSats = nonNegativeSats(input.holdings.lenderHeldSats)
+  const amountDueUsd = Math.max(0, finiteNumber(input.holdings.amountDueUsd))
+  const bitcoinOnTheWaySats = nonNegativeSats(input.holdings.bitcoinOnTheWaySats)
+  const cashOnTheWayUsd = finiteNumber(input.holdings.cashOnTheWayUsd)
   // Typed bitcoin override is a gross "coins I hold" figure that still includes
   // sats committed to an open sale until the user links the deposit. Subtract
-  // reserved sale sats so spendable + on-the-way (or cash-on-the-way) does not
-  // double-count. A live wallet total is already net of sends, so leave it alone.
-  const reservedForSaleSats = input.holdings.reservedForSaleSats ?? bitcoinOnTheWaySats
+  // reserved sale sats so spendable + on-the-way does not double-count. A live
+  // wallet total is already net of sends, so leave it alone.
+  const reservedForSaleSats = nonNegativeSats(
+    input.holdings.reservedForSaleSats ?? bitcoinOnTheWaySats,
+  )
   const overrideSats = input.holdings.bitcoinOverrideSats
   const spendableSats =
     overrideSats != null && overrideSats >= 0
-      ? Math.max(0, overrideSats - reservedForSaleSats)
-      : input.holdings.walletSats
+      ? Math.max(0, nonNegativeSats(overrideSats) - reservedForSaleSats)
+      : nonNegativeSats(input.holdings.walletSats)
 
   // Everything marked as bitcoin for stack + exposure purposes: spendable,
   // lender-held (still the user's exposure), and bitcoin on the way.
   const btcMarkSats = spendableSats + lenderHeldSats + bitcoinOnTheWaySats
-  const btcMarkUsd = (btcMarkSats / SATS_PER_BTC) * input.btcPriceUsd
+  const btcMarkUsd = btcValueUsd(btcMarkSats, input.btcPriceUsd)
 
   // 5. Stack mark at spot = cash + cash on the way + all bitcoin value − amount due.
   const stackUsd = cashUsd + cashOnTheWayUsd + btcMarkUsd - amountDueUsd
 
   // 7. Actual bitcoin share = all bitcoin mark / gross assets (assets before the liability).
-  const grossAssetsUsd = cashUsd + cashOnTheWayUsd + btcMarkUsd
-  const actualBtcShare = grossAssetsUsd > 0 ? btcMarkUsd / grossAssetsUsd : 0
+  const actualBtcShare = bitcoinShare(btcMarkUsd, cashUsd + cashOnTheWayUsd)
 
   // 6. Risk profile → cash floor + borrow cap.
   const profile = resolveRiskProfile(input.riskAnswers)
@@ -209,42 +296,56 @@ export function computeRunwayNeed(input: RunwayNeedInput): RunwayNeedResult {
     profile.targetBtcShare,
   )
   const recommendedFloorUsd = recommendedCashFloorUsd(cashFloorMonths, monthlyDrawUsd)
-  const cashFloorUsedUsd = input.editedCashFloorUsd ?? recommendedFloorUsd
+  // A negative edited floor would count as extra spendable cash. Non-finite
+  // edits fall back to the recommendation. A cap above 1 is left alone.
+  const editedFloor = input.editedCashFloorUsd
+  const cashFloorUsedUsd =
+    editedFloor == null || !Number.isFinite(editedFloor)
+      ? recommendedFloorUsd
+      : Math.max(0, editedFloor)
+  const editedCap = input.editedBorrowCapFraction
   const borrowCapFraction =
-    input.editedBorrowCapFraction ?? recommendBorrowCapFraction(profile.answers)
+    editedCap == null || !Number.isFinite(editedCap)
+      ? recommendBorrowCapFraction(profile.answers)
+      : Math.max(0, editedCap)
 
-  // 11. Stress price.
-  const stressPriceUsd = input.btcPriceUsd * (1 - input.stressPercent)
-  const btcMarkStressUsd = (btcMarkSats / SATS_PER_BTC) * stressPriceUsd
+  // 11. Stress price. Below zero (a drop past 100%) is kept on the result so
+  // callers can see it, but marks treat that price as worthless rather than
+  // a negative asset.
+  const stressPriceUsd = finiteNumber(input.btcPriceUsd) * (1 - finiteNumber(input.stressPercent))
+  const btcMarkStressUsd = btcValueUsd(btcMarkSats, stressPriceUsd)
   const stackAtStressUsd = cashUsd + cashOnTheWayUsd + btcMarkStressUsd - amountDueUsd
 
   // 8. Required cash at horizon: preserve the floor's purchasing power.
-  const horizonYears = input.horizonMonths / 12
+  // A rate that cannot be compounded (non-finite, or below -100%) leaves the
+  // floor unchanged instead of emitting NaN. Exactly -100% still goes to zero.
+  const horizonMonths = Number.isFinite(input.horizonMonths) ? Math.max(0, input.horizonMonths) : 0
+  const horizonYears = horizonMonths / 12
+  const inflationFactor = compoundFactor(input.inflationRateYear, horizonYears)
   const requiredCashAtHorizonUsd =
-    cashFloorUsedUsd * Math.pow(1 + input.inflationRateYear, horizonYears)
+    cashFloorUsedUsd * (Number.isFinite(inflationFactor) ? inflationFactor : 1)
 
   // 9. Draw over horizon, reduced by net one-time proceeds from scenarios.
-  const drawOverHorizonUsd = monthlyDrawUsd * input.horizonMonths
+  const drawOverHorizonUsd = monthlyDrawUsd * horizonMonths
   const requiredSpendableUsd = Math.max(0, drawOverHorizonUsd - oneTimeNetUsd)
 
   // 10 & 12. Required bitcoin sats to fund the draw at a given price.
-  // A non-positive price (e.g. a 100% stress drop, stressPercent === 1) means
-  // bitcoin cannot fund any dollar draw: return Infinity to flag impossibility
-  // rather than 0, which would wrongly imply no bitcoin is needed. When nothing
-  // must be funded (requiredSpendableUsd === 0), 0 sats is correct at any price.
-  const requiredSatsAt = (price: number): number => {
-    if (requiredSpendableUsd <= 0) return 0
-    if (price <= 0) return Infinity
-    return Math.max(0, Math.ceil((requiredSpendableUsd / price) * SATS_PER_BTC))
-  }
+  // A non-positive or non-finite price means bitcoin cannot fund any dollar
+  // draw: return Infinity rather than 0, which would imply no bitcoin is
+  // needed. When nothing must be funded, 0 sats is correct at any price.
+  const requiredSatsAt = (price: number): number => requiredSatsForUsd(requiredSpendableUsd, price)
   const requiredBitcoinSatsSpot = requiredSatsAt(input.btcPriceUsd)
   const requiredBitcoinSatsStress = requiredSatsAt(stressPriceUsd)
 
   // 12. Growth reading: if bitcoin is expected to grow, fewer sats are needed to
   // fund the same dollar draw. This does NOT change the cash floor or the
   // flat/stress required stack — it only lowers the sats requirement.
+  // `null` growth is flat. A rate below -100% (or otherwise non-compoundable)
+  // is not a price path: the growth reading treats bitcoin as unable to fund
+  // the draw instead of returning NaN.
   const growthRate = input.growthRateYear ?? 0
-  const growthPrice = input.btcPriceUsd * Math.pow(1 + growthRate, horizonYears)
+  const growthFactor = compoundFactor(growthRate, horizonYears)
+  const growthPrice = Number.isFinite(growthFactor) ? input.btcPriceUsd * growthFactor : 0
   const requiredBitcoinSatsGrowth = requiredSatsAt(growthPrice)
 
   // Total required stack mark ≈ required cash (floor) + required spendable (draw).
@@ -254,15 +355,14 @@ export function computeRunwayNeed(input: RunwayNeedInput): RunwayNeedResult {
   // 13. Months left: spend cash above the floor first, then spendable bitcoin.
   // Unencumbered bitcoin = spendable only (not lender-held, not on the way).
   const cashAboveFloorUsd = Math.max(0, cashUsd + cashOnTheWayUsd - cashFloorUsedUsd)
-  const spendableBtcUsd = (spendableSats / SATS_PER_BTC) * input.btcPriceUsd
-  const spendableBtcStressUsd = (spendableSats / SATS_PER_BTC) * stressPriceUsd
-  const monthsLeftFrom = (spendableMarkUsd: number): number | null =>
-    monthlyDrawUsd > 0 ? (cashAboveFloorUsd + spendableMarkUsd) / monthlyDrawUsd : null
-  const monthsLeft = monthsLeftFrom(spendableBtcUsd)
-  const monthsLeftAtStress = monthsLeftFrom(spendableBtcStressUsd)
-  const spendableBtcGrowthUsd = (spendableSats / SATS_PER_BTC) * growthPrice
-  const monthsLeftAtGrowth = monthsLeftFrom(spendableBtcGrowthUsd)
-  const borrowCapacityUsd = borrowCapFraction * spendableBtcUsd
+  const monthsLeftFromPrice = (price: number): number | null => {
+    if (!(monthlyDrawUsd > 0)) return null
+    return (cashAboveFloorUsd + btcValueUsd(spendableSats, price)) / monthlyDrawUsd
+  }
+  const monthsLeft = monthsLeftFromPrice(input.btcPriceUsd)
+  const monthsLeftAtStress = monthsLeftFromPrice(stressPriceUsd)
+  const monthsLeftAtGrowth = monthsLeftFromPrice(growthPrice)
+  const borrowCapacityUsd = borrowCapFraction * btcValueUsd(spendableSats, input.btcPriceUsd)
 
   return {
     livingEffectiveUsd,
@@ -347,7 +447,9 @@ export interface HistoricalCagrs {
  * window is [last − W years, last]; the CAGR is taken between the first price in
  * that window and the last price. A window is null when the data does not reach
  * back W full years, when there are fewer than two points, or when the span /
- * starting price is non-positive. `full` always uses the earliest and latest points.
+ * starting price is non-positive, or when the ending price is negative.
+ * A zero ending price is a −100% CAGR. `full` always uses the earliest and
+ * latest points. Non-finite prices and unparseable dates are dropped.
  */
 export function historicalCagrs(
   prices: { date: string; priceUsd: number }[],
@@ -357,7 +459,7 @@ export function historicalCagrs(
   }
   const sorted = [...prices]
     .map((p) => ({ ms: Date.parse(p.date), priceUsd: p.priceUsd }))
-    .filter((p) => Number.isFinite(p.ms))
+    .filter((p) => Number.isFinite(p.ms) && Number.isFinite(p.priceUsd))
     .sort((a, b) => a.ms - b.ms)
   if (sorted.length < 2) {
     return { years4: null, years8: null, full: null }
@@ -375,8 +477,9 @@ export function historicalCagrs(
       start = sorted.find((p) => p.ms >= cutoffMs) ?? end
     }
     const years = (end.ms - start.ms) / YEAR_MS
-    if (years <= 0 || start.priceUsd <= 0) return null
-    return Math.pow(end.priceUsd / start.priceUsd, 1 / years) - 1
+    if (years <= 0 || !(start.priceUsd > 0) || end.priceUsd < 0) return null
+    const rate = Math.pow(end.priceUsd / start.priceUsd, 1 / years) - 1
+    return Number.isFinite(rate) ? rate : null
   }
 
   return {
