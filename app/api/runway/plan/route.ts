@@ -10,6 +10,15 @@ import {
   type RunwayScenario,
 } from "@/lib/runway-plan"
 
+/** GET creates a row; never let a shared cache store the plan. */
+export const dynamic = "force-dynamic"
+
+const PRIVATE_NO_STORE = { "Cache-Control": "private, no-store" }
+
+function planResponse(body: unknown, status = 200) {
+  return NextResponse.json(body, { status, headers: PRIVATE_NO_STORE })
+}
+
 /** Shape of a persisted RunwayPlan row we care about for serialization. */
 type RunwayPlanRow = {
   phase: string
@@ -114,13 +123,13 @@ function toPrismaData(values: RunwayPlanValues) {
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    return planResponse({ error: "Unauthorized" }, 401)
   }
   const userId = session.user.id
 
   const existing = await prisma.runwayPlan.findUnique({ where: { userId } })
   if (existing) {
-    return NextResponse.json(serializePlan(existing))
+    return planResponse(serializePlan(existing))
   }
 
   // Create an empty plan (schema defaults) so the client always has a row.
@@ -129,23 +138,27 @@ export async function GET() {
   // Treat that as a success and re-fetch the row the winner created.
   try {
     const created = await prisma.runwayPlan.create({ data: { userId } })
-    return NextResponse.json(serializePlan(created))
+    return planResponse(serializePlan(created))
   } catch (err) {
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2002"
     ) {
       const row = await prisma.runwayPlan.findUnique({ where: { userId } })
-      if (row) return NextResponse.json(serializePlan(row))
+      if (row) return planResponse(serializePlan(row))
     }
     throw err
   }
 }
 
+/**
+ * Replaces the whole plan. Omitted fields are stored as defaults
+ * (`parseRunwayPlanBody`); send the full plan on every save.
+ */
 export async function PUT(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    return planResponse({ error: "Unauthorized" }, 401)
   }
   const userId = session.user.id
 
@@ -153,21 +166,22 @@ export async function PUT(req: NextRequest) {
   try {
     raw = await req.json()
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    return planResponse({ error: "Invalid JSON body" }, 400)
   }
 
   const parsed = parseRunwayPlanBody(raw)
   if (!parsed.ok) {
-    return NextResponse.json({ error: parsed.error }, { status: 400 })
+    return planResponse({ error: parsed.error }, 400)
   }
 
   const data = toPrismaData(parsed.value)
 
   const saved = await prisma.runwayPlan.upsert({
     where: { userId },
-    create: { userId, ...data },
+    // userId last so a future field on `data` cannot reassign the row.
+    create: { ...data, userId },
     update: data,
   })
 
-  return NextResponse.json(serializePlan(saved))
+  return planResponse(serializePlan(saved))
 }

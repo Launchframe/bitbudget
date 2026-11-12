@@ -2,7 +2,11 @@
 import { describe, expect, it } from "vitest"
 import {
   MAX_BITCOIN_OVERRIDE_SATS,
+  MAX_ENVELOPE_PRIORITIES,
   MAX_HORIZON_MONTHS,
+  MAX_PLANNED_LINES,
+  MAX_RUNWAY_TEXT_LENGTH,
+  MAX_SCENARIOS,
   RUNWAY_PLAN_DEFAULTS,
   parseRunwayPlanBody,
   validateEnvelopePriorities,
@@ -83,6 +87,69 @@ describe("validatePlannedLines", () => {
     ).toBe(false)
   })
 
+  it("trims ids, drops replaced amount on add lines, and rejects duplicates", () => {
+    const value = expectOk(
+      validatePlannedLines([
+        {
+          id: "  a  ",
+          group: " home ",
+          label: " Rent ",
+          monthlyUsd: 1,
+          mode: "add",
+          replacesMonthlyUsd: 9,
+        },
+      ]),
+    )
+    expect(value[0]).toEqual({
+      id: "a",
+      group: "home",
+      label: "Rent",
+      monthlyUsd: 1,
+      mode: "add",
+    })
+    expect(
+      validatePlannedLines([
+        { id: "a", group: "g", label: "l", monthlyUsd: 1, mode: "add" },
+        { id: " a ", group: "g", label: "l", monthlyUsd: 2, mode: "add" },
+      ]).ok,
+    ).toBe(false)
+    // A bad replaced amount is still rejected on an add line.
+    expect(
+      validatePlannedLines([
+        {
+          id: "a",
+          group: "g",
+          label: "l",
+          monthlyUsd: 1,
+          mode: "add",
+          replacesMonthlyUsd: -5,
+        },
+      ]).ok,
+    ).toBe(false)
+  })
+
+  it("rejects text and lists over the storage cap", () => {
+    expect(
+      validatePlannedLines([
+        {
+          id: "a",
+          group: "g",
+          label: "l".repeat(MAX_RUNWAY_TEXT_LENGTH + 1),
+          monthlyUsd: 1,
+          mode: "add",
+        },
+      ]).ok,
+    ).toBe(false)
+    const lines = Array.from({ length: MAX_PLANNED_LINES + 1 }, (_, i) => ({
+      id: `id-${i}`,
+      group: "g",
+      label: "l",
+      monthlyUsd: 1,
+      mode: "add" as const,
+    }))
+    expect(validatePlannedLines(lines).ok).toBe(false)
+  })
+
   it("rejects bad replacesMonthlyUsd but allows null", () => {
     expect(
       validatePlannedLines([
@@ -156,6 +223,36 @@ describe("validateScenarios", () => {
     ).toBe(false)
   })
 
+  it("trims ids and rejects duplicates and oversized lists", () => {
+    const value = expectOk(
+      validateScenarios([
+        {
+          id: "  s  ",
+          label: " Downsize ",
+          monthlyDeltaUsd: 1,
+          oneTimeUsd: 0,
+          enabled: true,
+        },
+      ]),
+    )
+    expect(value[0].id).toBe("s")
+    expect(value[0].label).toBe("Downsize")
+    expect(
+      validateScenarios([
+        { id: "s", label: "l", monthlyDeltaUsd: 0, oneTimeUsd: 0, enabled: true },
+        { id: " s ", label: "l", monthlyDeltaUsd: 0, oneTimeUsd: 0, enabled: false },
+      ]).ok,
+    ).toBe(false)
+    const scenarios = Array.from({ length: MAX_SCENARIOS + 1 }, (_, i) => ({
+      id: `s-${i}`,
+      label: "l",
+      monthlyDeltaUsd: 0,
+      oneTimeUsd: 0,
+      enabled: true,
+    }))
+    expect(validateScenarios(scenarios).ok).toBe(false)
+  })
+
   it("rejects missing id and non-finite amounts", () => {
     expect(
       validateScenarios([
@@ -187,6 +284,28 @@ describe("validateEnvelopePriorities", () => {
   it("rejects arrays and unknown values", () => {
     expect(validateEnvelopePriorities([]).ok).toBe(false)
     expect(validateEnvelopePriorities({ e: "critical" }).ok).toBe(false)
+  })
+
+  it("trims ids and rejects blank, duplicate, and prototype keys", () => {
+    const value = expectOk(
+      validateEnvelopePriorities({ " env1 ": "essential" }),
+    )
+    expect(value).toEqual({ env1: "essential" })
+    expect(validateEnvelopePriorities({ "  ": "essential" }).ok).toBe(false)
+    expect(
+      validateEnvelopePriorities({ env1: "essential", " env1 ": "flexible" }).ok,
+    ).toBe(false)
+    expect(
+      validateEnvelopePriorities(JSON.parse('{"__proto__":"essential"}')).ok,
+    ).toBe(false)
+    expect(validateEnvelopePriorities({ constructor: "essential" }).ok).toBe(
+      false,
+    )
+    const tooMany: Record<string, "essential"> = {}
+    for (let i = 0; i < MAX_ENVELOPE_PRIORITIES + 1; i++) {
+      tooMany[`e${i}`] = "essential"
+    }
+    expect(validateEnvelopePriorities(tooMany).ok).toBe(false)
   })
 })
 
@@ -229,6 +348,37 @@ describe("parseRunwayPlanBody", () => {
     expect(value).toEqual(RUNWAY_PLAN_DEFAULTS)
     // Ensure we return a fresh object, not the shared default reference.
     expect(value).not.toBe(RUNWAY_PLAN_DEFAULTS)
+    expect(value.plannedLines).not.toBe(RUNWAY_PLAN_DEFAULTS.plannedLines)
+    expect(value.scenarios).not.toBe(RUNWAY_PLAN_DEFAULTS.scenarios)
+    expect(value.envelopePriorities).not.toBe(
+      RUNWAY_PLAN_DEFAULTS.envelopePriorities,
+    )
+  })
+
+  it("does not let one parse mutate the next default plan", () => {
+    const first = expectOk(parseRunwayPlanBody({}))
+    first.plannedLines.push({
+      id: "x",
+      group: "g",
+      label: "l",
+      monthlyUsd: 1,
+      mode: "add",
+    })
+    first.scenarios.push({
+      id: "s",
+      label: "l",
+      monthlyDeltaUsd: 1,
+      oneTimeUsd: 0,
+      enabled: true,
+    })
+    first.envelopePriorities.env = "essential"
+    const second = expectOk(parseRunwayPlanBody({}))
+    expect(second.plannedLines).toEqual([])
+    expect(second.scenarios).toEqual([])
+    expect(second.envelopePriorities).toEqual({})
+    expect(RUNWAY_PLAN_DEFAULTS.plannedLines).toEqual([])
+    expect(RUNWAY_PLAN_DEFAULTS.scenarios).toEqual([])
+    expect(RUNWAY_PLAN_DEFAULTS.envelopePriorities).toEqual({})
   })
 
   it("rejects non-object bodies", () => {
@@ -339,6 +489,8 @@ describe("parseRunwayPlanBody", () => {
   it("rejects calendar-impossible quit dates that Date() would normalize", () => {
     // Day overflow: Feb never has 31 days (Date would roll to March 3).
     expect(parseRunwayPlanBody({ quitDate: "2027-02-31" }).ok).toBe(false)
+    expect(parseRunwayPlanBody({ quitDate: "2027-02-29" }).ok).toBe(false)
+    expect(parseRunwayPlanBody({ quitDate: "1900-02-29" }).ok).toBe(false)
     // Month overflow and day-zero.
     expect(parseRunwayPlanBody({ quitDate: "2027-00-10" }).ok).toBe(false)
     expect(parseRunwayPlanBody({ quitDate: "2027-04-31" }).ok).toBe(false)
