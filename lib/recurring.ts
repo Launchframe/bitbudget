@@ -19,9 +19,10 @@ function lastDayOfUtcMonth(year: number, month: number): number {
 }
 
 /**
- * Advance a date by the given cadence, clamping to the last valid day of the
- * target month so month-end dates (e.g. Jan 31 → Feb 28, not Mar 3) never
- * silently skip a calendar month.
+ * Advance by one cadence step. Month-end days clamp to the target month
+ * (Jan 31 → Feb 28 / Feb 29, not March) so a step never skips a calendar month.
+ * The day is taken from `date` only. A clamped Feb 28 next advances to Mar 28;
+ * restoring an original 31st needs a stored anchor, which this function does not have.
  */
 export function advanceDate(date: Date, cadence: Cadence): Date {
   const next = new Date(date)

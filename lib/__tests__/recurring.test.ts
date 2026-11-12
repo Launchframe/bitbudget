@@ -115,6 +115,58 @@ describe("advanceDate", () => {
     expect(out.getUTCMonth()).toBe(1)
     expect(out.getUTCDate()).toBe(28)
   })
+
+  it("does not mutate the input and keeps the UTC time of day when clamping", () => {
+    const start = new Date(Date.UTC(2025, 0, 31, 15, 4, 5, 6))
+    const snapshot = start.getTime()
+    const out = advanceDate(start, "monthly")
+    expect(start.getTime()).toBe(snapshot)
+    expect(out).not.toBe(start)
+    expect(out.toISOString()).toBe("2025-02-28T15:04:05.006Z")
+  })
+
+  it("monthly Jan 30 clamps to the last day of February", () => {
+    const nonLeap = advanceDate(new Date(Date.UTC(2025, 0, 30, 12, 0, 0)), "monthly")
+    expect(nonLeap.toISOString()).toBe("2025-02-28T12:00:00.000Z")
+    const leap = advanceDate(new Date(Date.UTC(2024, 0, 30, 12, 0, 0)), "monthly")
+    expect(leap.toISOString()).toBe("2024-02-29T12:00:00.000Z")
+  })
+
+  it("monthly Feb 29 stays on the 29th when the next month has that day", () => {
+    const out = advanceDate(new Date(Date.UTC(2024, 1, 29, 8, 30, 0)), "monthly")
+    expect(out.toISOString()).toBe("2024-03-29T08:30:00.000Z")
+  })
+
+  it("quarterly clamps into April and February and keeps a real 31st", () => {
+    expect(advanceDate(new Date(Date.UTC(2025, 0, 31, 12, 0, 0)), "quarterly").toISOString()).toBe(
+      "2025-04-30T12:00:00.000Z",
+    )
+    expect(advanceDate(new Date(Date.UTC(2025, 10, 30, 12, 0, 0)), "quarterly").toISOString()).toBe(
+      "2026-02-28T12:00:00.000Z",
+    )
+    expect(advanceDate(new Date(Date.UTC(2023, 10, 30, 12, 0, 0)), "quarterly").toISOString()).toBe(
+      "2024-02-29T12:00:00.000Z",
+    )
+    expect(advanceDate(new Date(Date.UTC(2025, 11, 31, 12, 0, 0)), "quarterly").toISOString()).toBe(
+      "2026-03-31T12:00:00.000Z",
+    )
+  })
+
+  it("annual keeps a 31st and the clock time when a leap day clamps", () => {
+    expect(advanceDate(new Date(Date.UTC(2024, 2, 31, 12, 0, 0)), "annual").toISOString()).toBe(
+      "2025-03-31T12:00:00.000Z",
+    )
+    expect(advanceDate(new Date(Date.UTC(2024, 1, 29, 12, 30, 45, 123)), "annual").toISOString()).toBe(
+      "2025-02-28T12:30:45.123Z",
+    )
+  })
+
+  it("uses only the date it is given, so a clamped leap day does not snap back to the 31st", () => {
+    const feb29 = advanceDate(new Date(Date.UTC(2024, 0, 31, 12, 0, 0)), "monthly")
+    const mar = advanceDate(feb29, "monthly")
+    expect(feb29.toISOString()).toBe("2024-02-29T12:00:00.000Z")
+    expect(mar.toISOString()).toBe("2024-03-29T12:00:00.000Z")
+  })
 })
 
 describe("processRecurringTransactions", () => {
@@ -244,5 +296,28 @@ describe("processRecurringTransactions", () => {
 
     // Critical: BTC price must be fetched AFTER preview read but BEFORE the transaction starts
     expect(callOrder).toEqual(["preview-findFirst", "getBtcPrice", "$transaction"])
+  })
+
+  it("posts Jan 31 on that day and advances a monthly rule to Feb 28", async () => {
+    const nextDue = new Date(Date.UTC(2025, 0, 31, 0, 0, 0))
+    vi.mocked(prisma.recurringTransaction.findMany).mockResolvedValue([
+      { ...baseRec, cadence: "monthly", nextDueDate: nextDue },
+    ] as never)
+
+    previewRecurringFindFirst
+      .mockResolvedValueOnce({ nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+    txRecurringFindFirst
+      .mockResolvedValueOnce({ ...baseRec, cadence: "monthly", nextDueDate: nextDue } as never)
+      .mockResolvedValue(null as never)
+
+    const created = await processRecurringTransactions(userId, new Date(Date.UTC(2025, 1, 15, 12, 0, 0)))
+
+    expect(created).toBe(1)
+    const postedOn = txTransactionCreate.mock.calls[0][0].data.date as Date
+    const updated = txRecurringUpdateMany.mock.calls[0][0].data.nextDueDate as Date
+    expect(postedOn.toISOString()).toBe("2025-01-31T00:00:00.000Z")
+    expect(updated.toISOString()).toBe("2025-02-28T00:00:00.000Z")
+    expect(postedOn).not.toBe(updated)
   })
 })
