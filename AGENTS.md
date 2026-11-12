@@ -45,6 +45,26 @@ Use two scopes consistently:
 
 **Do not** use month-scoped balance for remaining labels — it ignores prior-month carryover and diverges from sweep/funding behavior.
 
+### Ledger periods (agent vocabulary)
+
+Two automatic rhythms — **do not** use these terms in user-facing UI:
+
+| Period | When (UTC) | What moves | Helpers / idempotency |
+|--------|------------|------------|------------------------|
+| **PayPeriod** | User paydays (`isPaydayForUser`) | Paycheck slice → **Savings only** (no allocation legs) | `creditPaycheckToSavings` in `lib/envelope-funding.ts`; batch keys `pay-YYYY-MM-DD` (legacy `fund-YYYY-MM-DD` guarded) |
+| **BudgetPeriod** | Calendar **day 1** | Auto sweep (policy) then **gap-only** top-up Savings → envelopes | `sweepDiscretionaryEnvelopesForUser` + `processMonthlyBudgetAllocations`; keys `sweep-YYYY-MM`, `alloc-YYYY-MM` via `lib/budget-period.ts` |
+
+**User-facing copy:** paydays grow Savings; spending envelopes refill on the **1st**. Progress bars use **calendar-month** balance ÷ `monthlyAllotment` (`lib/envelope-card-metrics.ts`).
+
+**Manual flows (separate from cron):**
+
+- **Extra income** — default Savings (`distributionMode: "savings"`); optional envelope legs via `lib/move-funds-math.ts` + irregular-income API.
+- **Move funds** — `POST /api/transactions/move-funds`; sources `envelope_transfer_in` / `out` or Savings legs (`move_funds` batch kind).
+- **Deficit cover** — manual only, month balance → **$0** (`deficitCoverAmount`, `TX_SOURCE_DEFICIT_COVER`); not a full refill.
+- **Income import** — Savings credits only; no immediate envelope legs (wait for next BudgetPeriod cron).
+
+**Cron:** `lib/envelope-funding-cron.ts` — on 1st: sweep → alloc; on paydays: paycheck only. Goal maintenance stays on UTC 1st (`lib/funding-cron-schedule.ts`).
+
 ### Transaction visibility, analytics, and lifecycle
 
 Not every `Transaction` row belongs in every feed. Ledger funding creates **batches**: an income header (`income_import`, `irregular_income`, etc.) plus hidden allocation legs (`envelope_funding_out` / `envelope_funding_in`). Getting visibility wrong leaks allocation legs into spend charts or leaves orphan legs after delete.
@@ -72,6 +92,18 @@ Not every `Transaction` row belongs in every feed. Ledger funding creates **batc
 4. Add or extend **Vitest** coverage for visibility helpers and any new series builder.
 5. If delete semantics apply, extend **`shouldCascadeDeleteFundingBatch`** / server delete and the confirm dialog copy.
 6. Run dashboard + Transactions manually after changes — funding legs are the most common source of chart spikes and orphan rows.
+
+**`csv_import` source:** CSV imports create plain user-facing rows (`source: "csv_import"`, `excludeFromMainHistory: false`, no `fundingBatchId`). They count in main history, envelope lists, spend analytics, and cash flow like any manual expense/credit.
+
+### CSV import: chunking + privacy-preserving idempotency
+
+Large imports (thousands of rows) used to time out the serverless function and leave partial, then duplicated, data on client retries. The hardened flow:
+
+- **Chunked upload.** `components/csv-import-dialog.tsx` encrypts every row, computes a dedupe key, then POSTs `/api/import` in sequential chunks (`IMPORT_CHUNK_SIZE`, ~250). Each chunk is small enough to finish well under the timeout; envelopes created by an earlier chunk are visible to later chunks. `/api/import` also sets `export const maxDuration = 60` as a safety net.
+- **HMAC dedupe key (`Transaction.dedupeKey`, nullable).** The client derives `HMAC-SHA256(privacyKeySeed, "bitbudget-dedupe-v1|" + transactionCollisionKey + "#" + occurrence)` (`lib/import-dedupe-key.ts`, truncated to 128 bits). The server **cannot** recompute it (the HMAC key is the client-only privacy-key seed), so it stays privacy-preserving while still being deterministic for the same row from the same client. An **occurrence counter** keeps genuinely-identical in-file repeats distinct while re-imports of the same file map to the same keys.
+- **Server idempotency.** A **partial unique index** `(userId, dedupeKey) WHERE dedupeKey IS NOT NULL` + `createMany({ skipDuplicates: true })` makes chunk retries and whole-file re-imports no-ops. The route returns `{ imported, skipped, duplicates }` (`duplicates = data.length − inserted`); null-key rows are never deduped. BTC prices are looked up once per distinct date. The index lives in committed migration SQL (`prisma/migrations/20260531130000_transaction_dedupe_key/`) — Prisma schema cannot express partial unique indexes, so **do not use `db push` to sync this table** (see **Database → Local schema sync**).
+- **Seed access.** `resolveImportCrypto()` (`lib/resolve-import-encrypt-fn.ts`) returns `{ encrypt, seedHex }` for the onboarding/standalone path; signed-in callers pass `AppContext.makeImportDedupeKeyComputer()` (built from the cached seed) to the dialog. Never send the seed or raw key to the server.
+- **Manual cleanup.** Existing duplicate messes are fixed in-app: Settings → Data & Security → **Find duplicate transactions** (`components/duplicate-cleanup-card.tsx`, clustering in `lib/duplicate-clusters.ts`) groups decrypted rows by `transactionCollisionKey`, keeps the earliest by default, and bulk-deletes the rest via `POST /api/transactions/bulk-delete` + `AppContext.bulkDeleteTransactions`. Locked rows and funding-batch rows are excluded so plain bulk delete never orphans paired ledger entries.
 
 ## Project Structure
 
@@ -214,6 +246,7 @@ Both DB URLs are required for `migrate deploy`. If `DATABASE_URL_UNPOOLED` is mi
 - Components that use React hooks, local state, or browser-only APIs must be client components (include the `"use client"` directive at the top of the file). Purely presentational components that don't rely on client-only features can be server components.
 - Page-level components live in `components/` (e.g. `dashboard-page.tsx`, `transactions-page.tsx`).
 - The app uses hash-based routing managed by `AppContext` (`navigateTo`, `currentPage`), not the Next.js file-based router, for in-app navigation after auth.
+- **Envelope transaction drill-ins** use **`#/envelope/<id>`** (`navigateTo("envelope-detail", envelopeId)`). Do not rewrite these to `#/transactions` with an envelope filter; the scoped envelope view reuses the main Transactions list behavior.
 - `app/page.tsx` is the shell: `OnboardingGate → AppProvider → EncryptionGate → BtcPriceProvider → layout`.
 - When changing interactive UI, keep accessibility state and labels current: update `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-pressed`, `aria-selected`, and related screen-reader text alongside visible labels and control state.
 
@@ -228,6 +261,13 @@ Both DB URLs are required for `migrate deploy`. If `DATABASE_URL_UNPOOLED` is mi
 - `AppContext` (`lib/app-context.tsx`) is the single source of truth for app state. It holds transactions, envelopes, tags, user settings, encryption state, and navigation.
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
 - `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **should** be called within `BtcPriceProvider`. If it runs outside the provider (e.g. vanilla mode or a missing wrapper), it returns **`NOOP_PRICES`** (zeros / no-op helpers) and logs a **dev-time warning** — it does not throw. Still wrap components that need real BTC data in `BtcPriceProvider` when `opportunityCostEnabled` is on.
+
+### Transaction dates (calendar day vs instant; agents)
+
+- **Display and filters in the browser:** use `lib/transaction-dates.ts` (`transactionCalendarDay`, `formatTransactionTableDate`, `todayTransactionCalendarDay`, etc.) so list and filter “days” match the **user’s local calendar** where those helpers run client-side.
+- **Storage for calendar-only semantics:** prefer `calendarDateToStorageInstant` / `parseTransactionDateInput` for `YYYY-MM-DD` inputs so the DB instant is not naive-UTC-midnight drift (see comments in `transaction-dates.ts`).
+- **User-initiated server writes** (rebalance, move-funds, manual transaction POST bodies, etc.): the server **must not** infer the user’s posting calendar day from `new Date().toISOString().slice(0, 10)` (UTC day). Send an explicit calendar string from the client (`postedOn`, `date`, etc.) validated like other transaction inputs, or document a single timezone contract for the endpoint.
+- **Cron / BudgetPeriod / payday automation** intentionally uses **UTC calendar boundaries** for schedule math where documented in this file — do not conflate that with interactive posting-date UX.
 
 ### Smart defaults must never overwrite explicit user choices
 
@@ -303,7 +343,7 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 - Accent color: `#F7931A` (Bitcoin orange), used for CTAs, active states, and BTC-related highlights.
 - **Savings gold accent:** `SAVINGS_GOLD_ACCENT` (`#D4AF37` in `lib/constants.ts`) — use sparingly for Savings hero card border, pinned Savings filter pill, savings-mode chart lines, and Savings dashboard tile highlights. Distinct from Bitcoin orange.
 - Success/credit color: `#22C55E`. Blue accent: `#3B82F6`.
-- BTC numeric values use `font-ibm-plex-mono` class for monospace rendering.
+- Monospace text (BTC/sats, codes, tabular numbers) uses `font-mono` (JetBrains Mono via `next/font/google`).
 - **Use `Switch` for boolean settings**, not `<input type="checkbox">`. Native checkboxes are off-brand; the shadcn `Switch` component (`components/ui/switch.tsx`) fits the dark-theme design language.
 - **Mobile-first responsive design is required**, not optional. Default styles target narrow viewports; use Tailwind breakpoints (`sm:`, `md:`, `lg:`) to enhance layout on larger screens. Most signed-in users reach the app on phones — a page that only looks correct on desktop is a bug.
 
@@ -329,6 +369,15 @@ Treat horizontal overflow, clipped controls, and fixed-width layouts on small sc
 - Below `md`, navigation is **`MobileNav`** (bottom bar) + **`Header`**; the sidebar is hidden. Pages must not depend on desktop-only chrome for core actions.
 - Dialogs and sheets: use responsive max widths (`max-w-[min(96vw,…)]`, `sm:max-w-lg`) and scrollable bodies (`max-h-[…] overflow-y-auto`) so content fits short viewports.
 - Data tables may scroll horizontally inside a **`overflow-x-auto`** wrapper scoped to the table — not by widening the entire page. Update empty-state `colSpan` when columns are conditionally hidden.
+- **Stable chrome:** Prefer **fixed-height** or **always-present** regions for **dialog headers, footers, and summary strips** so lists and charts do not jump vertically when helper text appears or values update.
+- **Layout shift (CLS):** Avoid **per-row conditional blocks** that grow only some rows (for example funding hints on envelope cards). Put summaries **once** at the top or bottom of a list, or reserve **`min-height`** when optional copy must stay inline.
+- **Charts:** Summary lines above a plot (for example **Saved** / cumulative totals on `components/opportunity-cost-chart.tsx`) should use a **reserved band** so toggling overlay data does not resize the chart body.
+
+### Power users (hash routing, drafts, keyboard)
+
+- **Signed-in navigation** uses hash routes in the shell (for example `/#/envelopes/allocations`, `/#/transactions`, `/#/envelope/<envelopeId>`). When linking from static routes into the app, use `next/link` with `href="/#/<page>"` so it matches `AppContext` navigation.
+- **Draft persistence:** Multi-step flows may cache in `sessionStorage` under keys like `bitbudget-<feature>-draft`. Irregular income uses `bitbudget-irregular-income-draft` (`lib/irregular-income-draft.ts`). Logout runs `clearAllDrafts()` in `lib/draft-storage.ts`, which removes `bitbudget-*-draft` keys.
+- **Enter to submit:** On supported dialogs, **Enter** (without Shift) triggers the primary action for the current step when focus is not in a `TEXTAREA`, a `contentEditable` region, or an element inside `[data-no-enter-submit]`. Shared helper: `handleDialogEnterToPrimary` in `lib/dialog-enter-submit.ts`. Initial coverage: irregular income, rebalance, and fill-envelope preview confirm.
 
 **Before finishing UI work**
 - Resize the browser (or DevTools device mode) to **390px and 320px** on every touched screen, dialog, and banner — including Settings, onboarding steps, and modals.
@@ -349,31 +398,48 @@ Treat horizontal overflow, clipped controls, and fixed-width layouts on small sc
 
 ### Database
 
-- Prisma schema is the source of truth. **Merged** schema changes must ship with a committed migration; **in-progress** work uses `db push` first (see below).
+- Prisma schema is the source of truth for **columns and relations**. **Merged** schema changes must ship with a committed migration. Some constraints (partial unique indexes, guarded DDL) live only in migration SQL — see **Local schema sync** below.
 - Migrations must be **idempotent** (`ADD COLUMN IF NOT EXISTS`, etc.) to survive re-runs during deployment.
 - After changing `schema.prisma`, always run `pnpm prisma generate` before testing types.
 - Use `cuid()` for IDs. Dates are stored as `DateTime` and formatted as `YYYY-MM-DD` strings at the API boundary.
 - **System Savings envelope:** created idempotently via `ensureSystemSavingsEnvelope()` on first session (see `lib/auth.ts`). Prisma `Envelope.systemRole = 'savings'`; reserved name `"Savings"`. Protected from rename, archive, merge, and delete in envelope API routes. **`activeEnvelopes`** includes Savings; **`discretionaryEnvelopes`** (`AppContext`) excludes it — use `discretionaryEnvelopes` for budget grids, sweep targets, and allotment totals.
 - **`SavingsGoal`** rows keyed by `periodKey` (`'YYYY-MM'` or `'default'`). Per-period lifecycle (grace, upward-only edits, close snapshots) is enforced in `lib/savings-goal.ts` and the savings-goal API routes.
 
-#### Schema changes during development (`db push`)
+#### Local schema sync (`migrate deploy`, not `db push`)
+
+**Default for local dev, CI, staging, and production:** apply committed migrations with **`pnpm exec prisma migrate deploy`** (requires `DATABASE_URL` and `DATABASE_URL_UNPOOLED` in `.env` / `.env.local`).
+
+Use **`migrate deploy`** — not **`pnpm db:push`** — when:
+
+- Pulling `main` or any branch with new migration folders.
+- Starting the dev server, running e2e, or testing API routes against Postgres.
+- The feature adds **raw SQL** Prisma cannot model (e.g. partial unique index on `Transaction.dedupeKey` for CSV import idempotency). `db push` syncs from `schema.prisma` only and may **drop** indexes/constraints that exist in the DB but not in the schema file.
+
+**`db push` is only for rapid WIP iteration** on schema-only changes while a feature is still evolving and **before** a migration is committed — and only when you are not relying on migration-only DDL. Once a migration folder exists on the branch, switch to **`migrate deploy`**.
+
+#### Schema changes during development
 
 While a feature is still evolving, **do not** run `pnpm db:migrate` on every schema tweak. That creates migration files and checksum history that are painful to revise.
 
-**Default loop:**
+**Default loop (schema-only WIP, no committed migration yet):**
 
 1. Edit `prisma/schema.prisma`.
-2. Apply locally with **`pnpm db:push`** (updates the dev DB without migration files).
+2. Apply locally with **`pnpm db:push`** (optional shortcut — see **Local schema sync** for when to skip it).
 3. Run **`pnpm prisma generate`** and continue building/testing.
+
+**Once the shape is stable or includes raw SQL:**
+
+1. Add an idempotent migration folder (hand-written or `pnpm db:migrate --name <descriptive_name>` with SQL edited for idempotency).
+2. Apply with **`pnpm exec prisma migrate deploy`** locally and in CI — do not rely on `db push` afterward.
 
 **Before creating a migration file, ask the maintainer:**
 
-- **Create migration now** — schema shape is stable enough for CI, another developer, or a shared environment. Run `pnpm db:migrate --name <descriptive_name>`, then hand-edit the generated SQL for idempotency if needed.
-- **Wait until later** — still iterating; keep using `db push` only and defer migration files until PR finalization.
-
-**Never edit a migration after it has been applied** (local, CI, staging, or prod). Prisma stores a checksum in `_prisma_migrations`; changing the file causes “migration was modified after it was applied” errors. For fixes after apply, add a **new** migration instead.
+- **Create migration now** — schema shape is stable enough for CI, another developer, or a shared environment. Run `pnpm db:migrate --name <descriptive_name>`, then hand-edit the generated SQL for idempotency if needed (partial indexes, `IF NOT EXISTS`, etc.).
+- **Wait until later** — still iterating on columns Prisma models directly; keep using `db push` only until PR finalization, then consolidate into committed migrations and use **`migrate deploy`**.
 
 #### PR finalization: migrations (without resetting local dev data)
+
+**Never edit a migration after it has been applied** (local, CI, staging, or prod). Prisma stores a checksum in `_prisma_migrations`; changing the file causes “migration was modified after it was applied” errors. For fixes after apply, add a **new** migration instead.
 
 Before merge, the branch must have clean, reviewable migration(s) that match final `schema.prisma`. Consolidate WIP history **without** asking the developer to wipe their database:
 
@@ -386,10 +452,10 @@ Before merge, the branch must have clean, reviewable migration(s) that match fin
    - If their DB already has the columns (from `db push` and/or WIP migrations), the consolidated migration should be a **no-op** on apply.
    - Delete `_prisma_migrations` rows for removed WIP migration names.
    - Mark the consolidated migration applied: `pnpm exec prisma migrate resolve --applied <migration_folder_name>`, or update the checksum row if the migration was already applied manually (see **Common Pitfalls**).
-   - Verify with **`pnpm db:migrate`** — expect “Already in sync”, not a reset prompt.
-4. **PR checklist** — migration(s) committed with schema + code; PR description notes `pnpm prisma migrate deploy` for deploy targets.
+   - Verify with **`pnpm exec prisma migrate deploy`** — expect pending migrations to apply cleanly or “Already in sync”, not a reset prompt.
+4. **PR checklist** — migration(s) committed with schema + code; PR description notes **`pnpm exec prisma migrate deploy`** for deploy targets and local setup after merge.
 
-CI and fresh clones use `prisma migrate deploy`; idempotent consolidated migrations must apply cleanly from `main`'s baseline.
+CI, fresh clones, and **local dev after merge** use **`prisma migrate deploy`**; idempotent consolidated migrations must apply cleanly from `main`'s baseline.
 
 ## Feature Gating: Opportunity Cost
 
@@ -458,9 +524,20 @@ If keys are **lost** or **mismatched** (undecryptable blob), the generic onboard
 
 When designing new endpoints, **never** allow replacing `encryptedPrivacyKey` without explicit recovery semantics and user understanding of data loss or migration.
 
-## Envelope Archiving
+## Envelope Archiving and Deletion
 
-Deleting an envelope **archives** it (`archived: true`). Archived envelopes and their transactions are filtered out of active views via `activeEnvelopes` and `activeTransactions` in `AppContext`. Users can view, restore, or permanently delete archived envelopes from the Envelopes page.
+These are two distinct operations with different ledger semantics:
+
+- **Archive** (`archived: true`) — hides the envelope from the active budget grid (`activeEnvelopes` excludes it) but **keeps its transactions in the ledger**. Archived-envelope transactions remain in `activeTransactions` and therefore count toward Monthly Spend, charts, and analytics. Users can restore or permanently delete archived envelopes from the Envelopes page.
+- **Soft-delete** (`deletedAt: DateTime`) — initiated by "Delete" from the archived section. Sets a server-side timestamp and **excludes the envelope's transactions from `activeTransactions`** (and therefore from all spend analytics and charts). The envelope is hidden from all active views and shows in a "Recently deleted" section for up to 30 days (`ENVELOPE_DELETE_GRACE_DAYS`). Restoring clears `deletedAt` and returns the envelope and its transactions to the ledger. A daily purge cron (`/api/cron/envelope-purge`) hard-deletes envelopes whose `deletedAt` is older than the grace window.
+- **Hard-delete** (cron purge only, or `DELETE ?all=true` for full data reset) — permanently removes the envelope and cascades to transactions, recurring rules, and payee mappings. `TransactionShortcut` and `PendingTransaction.suggestedEnvelopeId` are cleaned up explicitly (no cascade).
+
+**Key invariants:**
+- `activeEnvelopes` = envelopes where `!archived && !deletedAt`
+- `activeTransactions` = transactions whose envelope does not have `deletedAt` set
+- The system Savings envelope cannot be archived, soft-deleted, or hard-deleted via user-facing routes.
+- `DELETE /api/envelopes?id=` performs a soft-delete (sets server-timestamped `deletedAt`); `PUT /api/envelopes` with `deletedAt: null` restores; non-null `deletedAt` values are rejected (clients cannot back-date deletes).
+- Restoring an envelope whose `deletedAt` is older than `envelopeDeletePurgeCutoff()` returns HTTP 410.
 
 ## Observability and alerting
 
@@ -475,21 +552,50 @@ Production ops visibility uses **Sentry** (stack traces), **`GET /api/health`** 
 
 **When investigating production issues:** use `pnpm ops:health`, `pnpm ops:errors`, and `pnpm ops:crons` (see runbook). Admin ops dashboard: `/admin/ops`.
 
+## Parallel agents and git isolation
+
+Work in the **primary clone** by default (dev server + IDE). **One task → one branch → one concern**. **Worktrees are opt-in**: use one only when the maintainer asks, or when colliding sessions would clobber a shared tree — when unsure, stay primary and ask. Do not use `git stash` as agent handoff — commit WIP to a topic branch instead. Detail: [`.cursor/rules/agent-git-hygiene.mdc`](.cursor/rules/agent-git-hygiene.mdc).
+
+Passive maintenance: `.cursor/hooks.json` runs a **dry-run** `git-prune` on session start and writes `.cursor/git-prune-status.md`. Never auto-`--apply`.
+
 ## Commit and PR Workflow
+
+### Branches and commits
 
 - **Commit often.** Each logical unit of work (a bug fix, a feature slice, a refactor) gets its own commit. Don't batch unrelated changes.
 - **Commit messages** should be concise and describe the "what" and "why": `fix(receipts): validate file type from magic bytes, not Content-Type` or `feat: add vanilla "Your Expenses" chart for non-OC users`.
-- **When the maintainer says a code change "looks good" or otherwise approves the work, push the committed changes to the upstream branch.**
+- **Agents: commit only when the maintainer asks.** Do not create commits proactively; if intent is unclear, ask first.
 - **Do not continue work directly on non-feature branches.** If the current branch is not a feature branch (for example `main`, a release branch, or another shared integration branch), create a feature branch from the tip of `main` before committing/pushing.
+- **Large features:** slice into stacked, reviewable PRs per the [feature-slice skill](.cursor/skills/feature-slice/SKILL.md); keep each commit scoped to one layer or one slice.
+
+### Push and pull requests
+
+- **When the maintainer says a code change "looks good" or otherwise approves the work, push the committed changes to the upstream branch.**
 - **After pushing a feature branch, ensure a PR exists.** If there is no open PR for the branch, open one against `main`.
 - **Keep PR descriptions current.** If newly pushed changes are not described in the PR body, update the PR description to explain what changed and how it fits the broader purpose of the branch.
-- **Run `pnpm lint`, `pnpm test`, and `pnpm test:e2e` before pushing** (e2e needs Postgres + env; CI runs all three).
-- **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don’t rely on manual checks alone for production-critical behavior.
 - **PR descriptions** should have a Summary (bullet points of what changed) and a Test Plan (checkboxes).
 - **Never force-push to main.**
-- **Schema during development:** use **`pnpm db:push`**; ask the maintainer whether to **`pnpm db:migrate`** now or defer until PR finalization (see **Database → Schema changes during development**).
+
+### Before you push
+
+- **Run `pnpm lint`, `pnpm test`, and `pnpm test:e2e`** (e2e needs Postgres + env; CI runs all three).
+- **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don't rely on manual checks alone for production-critical behavior.
+- **Never commit secrets or user data** — no `.env` / `.env.local`, nsec, privacy keys, service tokens, decrypted exports, or personal transaction CSVs.
+
+### Schema and migrations
+
+- **Schema during development:** optional **`pnpm db:push`** only for early WIP on schema-modeled columns before a migration exists; once migrations are committed (especially raw SQL / partial indexes), use **`pnpm exec prisma migrate deploy`** locally (see **Database → Local schema sync**). Ask the maintainer whether to **`pnpm db:migrate`** now or defer until PR finalization.
 - **Before merge:** consolidate branch migrations into clean idempotent file(s) and reconcile the maintainer's local `_prisma_migrations` without a full DB reset (see **Database → PR finalization**).
 - **Database migrations** on the merged branch must be committed alongside the schema change and the code that uses the new field.
+
+### Cursor plan bookkeeping
+
+When a Cursor plan is **fully implemented** (all todos done, verification passed):
+
+1. **Rename the plan file** by inserting `_done` before the `.plan.md` extension — e.g. `fix_review-inbox_build_607a6e40.plan.md` → `fix_review-inbox_build_607a6e40_done.plan.md`.
+2. Do this **at the end of the session** that completes the plan, before moving on to unrelated work.
+3. **Do not edit the plan body** to mark completion; the `_done` suffix is the source of truth for backlog tracking.
+4. Plans live under **`~/.cursor/plans/`** (Cursor’s user-level plan directory — canonical home for BitBudget). Do **not** write plans under the repo’s `.cursor/plans/` unless the user explicitly asks for a workspace copy. Leave unimplemented plans unchanged so the maintainer can tell at a glance which backlog items remain.
 
 ### Addressing open PR review comments
 
@@ -514,8 +620,9 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **Counting funding legs as user spending** — `envelope_funding_out` rows are `type: "expense"` with `excludeFromMainHistory: true`. Never feed them into spend charts, Monthly Spend, or OC totals. Use `isUserFacingExpense()` / `buildCumulativeSpendingSeries()` and cap series at `todayUtcIso()`. Deleting an income header must cascade the whole `fundingBatchId` (see **Transaction visibility, analytics, and lifecycle**).
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
-- **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During dev, prefer **`db push`**; at PR time, consolidate into a new migration. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.
-- **`db:migrate` on every schema tweak** — creates migration churn and checksum traps. Use **`db push`** while iterating; create migration files when the maintainer agrees or at PR finalization.
+- **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During early dev, `db push` is optional for schema-only tweaks; after migrations land, use **`migrate deploy`**. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.
+- **`db push` after partial-index migrations** — `db push` syncs from `schema.prisma` only. It can **drop** migration-only objects (e.g. `Transaction_userId_dedupeKey_key` partial unique index on CSV import dedupe). Use **`pnpm exec prisma migrate deploy`** instead.
+- **`db:migrate` on every schema tweak** — creates migration churn and checksum traps. Use **`db push`** only for early schema-only iteration; create migration files when the maintainer agrees or at PR finalization, then **`migrate deploy`**.
 - **Stale encryption keys** — switching accounts or clearing data can leave cached keys in `sessionStorage`. The `EncryptionGate` and `PinUnlockDialog` handle re-prompting; don't bypass them.
 - **`POST /api/user/encryption` and existing keys** — see **Privacy key custody & safeguard**; 409 prevents overwrites. Onboarding must handle 409 in `handleSecuritySetup`. Nostr nsec storage: intent `bitbudget-nsec-onboarding-intent`; pending raw key is **in-memory only** until PIN encrypts to `bitbudget-nsec` (JSON iv+ciphertext in localStorage). Legacy `bitbudget-pending-nsec` session key is cleared on `clearPendingNsec`. Logout clears pending/intent and localStorage nsec keys.
 - **`colSpan` mismatch** — when conditionally rendering table columns (e.g. hiding BTC columns in vanilla mode), update the empty-state row's `colSpan` accordingly.
@@ -562,3 +669,25 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - The `pnpm install` postinstall hook runs `prisma generate` automatically, so no separate generate step is needed after install.
 - `pnpm.onlyBuiltDependencies` in `package.json` handles native dependency build approvals non-interactively — do not run `pnpm approve-builds`.
 - The Next.js dev server hot-reloads code changes but does **not** pick up new `.env.local` values without a restart.
+
+## Learned User Preferences
+
+- When implementing from a Cursor plan file (`~/.cursor/plans/*.plan.md`), do not edit the plan — use the pre-created todos and mark them in_progress/completed as you work.
+- For large feature branches, split work into logical commits before push and opening a PR.
+- When test-coverage gaps are identified for new shared logic, write the missing unit and e2e tests in the same session rather than deferring (if the user asks to write tests, implement them — do not stop at a coverage summary).
+- Onboarding and similar money inputs should normalize on blur or when changing steps (strip meaningless leading zeros, coerce empty to zero) so values like `000100000` cannot persist after navigating forward and back.
+
+## Learned Workspace Facts
+
+- Local dev pins Node 22 via `.nvmrc`; run `nvm use` before `pnpm` when the shell reports Node 18 or below (Playwright and the app require Node ≥ 20).
+- Remaining (all-time) discretionary and Savings balances apply a **genesis floor**: only transactions with `date >= envelopeGenesisFloor(envelope.createdAt)` count. `envelopeGenesisFloor` in `lib/data.ts` is one UTC calendar day before `createdAt` (timezone cushion). Pre-genesis rows stay in transaction lists but must not drive new envelopes negative after historical CSV or income imports.
+- Client remaining UI passes `envelopeGenesisFloor(createdAt)` into `getEnvelopeBalanceAllTime` (see `lib/savings-ui-metrics.ts`, envelope pages, sweep dialog). Server sweep/funding uses the same rule in `lib/envelope-balance-server.ts` (`envelopeBalancesBeforeBatch`, `savingsEnvelopeBalanceAllTime`, `savingsEnvelopeBalanceBefore`, month-end batch helpers).
+- Envelope API responses include `createdAt` as `YYYY-MM-DD` so clients can compute the genesis floor.
+- CSV import idempotency: the client derives a per-row `dedupeKey` via HMAC in `lib/import-dedupe-key.ts` using the privacy-key seed hex (server never sees the seed); large imports POST in chunks; the server skips rows with an existing key.
+- `@noble/hashes` v2 subpath imports must use explicit `.js` suffixes (e.g. `@noble/hashes/hmac.js`).
+- Ledger `TX_SOURCE_*` constants belong in `lib/constants.ts`, not `envelope-funding.ts`, to avoid circular imports with `envelope-balance-server.ts`.
+- Rules engine: `AccountRule` + `/api/account-rules`; logic in `lib/account-rules.ts` and `lib/rule-engine-client.ts`; Settings Rules UI at `#/settings/payee-rules` (`components/rules-settings.tsx`).
+- Rules engine tests: `lib/__tests__/rule-engine-client.test.ts`, `lib/__tests__/account-rules.test.ts`, and `e2e/rules-settings.spec.ts`.
+- **Recurring funding rules:** `RecurringFundingRule` stores scheduled income distribution / move-funds configs (`nextRunAt`). Executed by `processAllRecurringFundingRules()` from the daily **envelope-funding** cron (`/api/cron/envelope-funding`). Distinct from `RecurringTransaction` + `/api/cron/recurring` (user transaction templates).
+- `savingsBalance()` in `lib/savings-ui-metrics.ts` takes the Savings `Envelope` (or `undefined`), not `envelopeId` — pass `findSavingsEnvelope(...)`, not `.id`.
+- **Rebalance vs Move to/from Savings:** Both use `createRebalanceBatch` in `lib/rebalance-envelopes.ts` (same rebalance API). **`balanced`** mode only creates discretionary envelope ↔ envelope transfer pairs (Savings is not debited/credited by those legs). **`independent`** mode is used when the Savings path or “fund from Savings” is on: each envelope net change is paired with Savings out/in legs so Savings can fund envelopes or absorb money moved back.

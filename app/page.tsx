@@ -8,6 +8,7 @@ import { BtcPriceProvider } from "@/lib/btc-price-context"
 import { Sidebar } from "@/components/sidebar"
 import { Header } from "@/components/header"
 import { NewTransactionDialog } from "@/components/new-transaction-dialog"
+import { StatementImporterDialog } from "@/components/statement-importer-dialog"
 import { DashboardPage } from "@/components/dashboard-page"
 import { AnalyticsPage } from "@/components/analytics-page"
 import { EnvelopesPage } from "@/components/envelopes-page"
@@ -26,6 +27,8 @@ import { NotificationBanner } from "@/components/notification-banner"
 import { TransactionLoadingIndicator } from "@/components/transaction-loading-indicator"
 import { TrialWelcomeBanner } from "@/components/trial-welcome-banner"
 import { ReferralPlaidReminderBanner } from "@/components/referral-plaid-reminder-banner"
+import { ReferralRedeemFlashBanner } from "@/components/referral-redeem-flash-banner"
+import { PremiumRenewalUiHost } from "@/components/premium-renewal-ui-host"
 import { SurveySheetHost } from "@/components/survey-sheet"
 import { WalkthroughOverlay } from "@/components/walkthrough-overlay"
 import { AchievementCelebrationHost } from "@/components/achievement-celebration-host"
@@ -192,6 +195,35 @@ function PageContent() {
   }
 }
 
+function StatementImporterHost() {
+  const {
+    statementImporterOpen,
+    statementImporterPrefill,
+    statementImporterKey,
+    setStatementImporterOpen,
+    activeTransactions,
+    refreshData,
+  } = useApp()
+  return (
+    <StatementImporterDialog
+      key={statementImporterKey}
+      open={statementImporterOpen}
+      onOpenChange={setStatementImporterOpen}
+      existingTransactions={activeTransactions}
+      onImportComplete={refreshData}
+      initialData={
+        statementImporterPrefill?.transactions
+          ? {
+              transactions: statementImporterPrefill.transactions,
+              meta: statementImporterPrefill.meta,
+            }
+          : null
+      }
+      pendingBatchId={statementImporterPrefill?.pendingBatchId ?? null}
+    />
+  )
+}
+
 export default function Dashboard() {
   return (
     <OnboardingGate>
@@ -206,7 +238,9 @@ export default function Dashboard() {
                   <Sidebar />
                   <div className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
                     <NotificationBanner />
+                    <ReferralRedeemFlashBanner />
                     <ReferralPlaidReminderBanner />
+                    <PremiumRenewalUiHost />
                     <TrialWelcomeBanner />
                     <TransactionLoadingIndicator />
                     <PageContent />
@@ -217,6 +251,7 @@ export default function Dashboard() {
               <WalkthroughOverlay />
               <AchievementCelebrationHost />
               <NewTransactionDialog />
+              <StatementImporterHost />
               <SurveySheetHost />
             </div>
           </BtcPriceShell>

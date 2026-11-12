@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { premiumForbiddenResponse, requirePremiumOrTrial } from "@/lib/subscription"
+import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
+import { coerceVoiceAmount, resolveVoiceTransactionDate } from "@/lib/voice-relative-dates"
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
@@ -21,26 +23,25 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const { transcript } = await req.json()
-  if (!transcript || typeof transcript !== "string") {
+  const body = await req.json()
+  const transcript = typeof body?.transcript === "string" ? body.transcript.trim() : ""
+  if (!transcript) {
     return NextResponse.json({ error: "transcript is required" }, { status: 400 })
   }
 
+  const clientToday =
+    typeof body?.today === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.today)
+      ? body.today
+      : todayTransactionCalendarDay()
+
+  // Envelope names are plaintext; do not send Transaction.payee ciphertext to OpenAI.
+  // Payee canonicalization happens client-side via openNewTransaction → New Transaction dialog.
   const envelopes = await prisma.envelope.findMany({
     where: { userId: session.user.id, archived: false },
     select: { id: true, name: true },
   })
 
-  const recentPayees = await prisma.transaction.findMany({
-    where: { userId: session.user.id },
-    select: { payee: true },
-    distinct: ["payee"],
-    orderBy: { createdAt: "desc" },
-    take: 20,
-  })
-
   const envelopeNames = envelopes.map((e) => e.name)
-  const payeeNames = recentPayees.map((t) => t.payee)
 
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -61,13 +62,15 @@ export async function POST(req: NextRequest) {
             role: "user",
             content: `Extract transaction details from: "${transcript}"
 
-Available envelopes: ${envelopeNames.join(", ")}
-Recent payees: ${payeeNames.join(", ")}
+Today's date (local calendar): ${clientToday}
+Available envelopes: ${envelopeNames.join(", ") || "(none)"}
 
 Return JSON: {"payee":"<string>","amount":<number>,"envelope":"<exact envelope name or null>","date":"<YYYY-MM-DD or null>"}
 
 Rules:
-- Match payee and envelope names fuzzily to the lists provided.
+- Extract the payee/merchant name from the transcript as plain text (do not invent payees from the envelope list).
+- Match envelope names fuzzily to Available envelopes when possible.
+- If the user says "today", "yesterday", "tomorrow", or "N days ago", set date to the resolved YYYY-MM-DD relative to Today's date above.
 - If no date is mentioned, use null.
 - If no envelope matches, use null.
 - Amount should be a number (no currency symbols).`,
@@ -99,14 +102,20 @@ Rules:
       if (matched) envelopeId = matched.id
     }
 
-    const today = new Date().toISOString().split("T")[0]
+    const date = resolveVoiceTransactionDate({
+      transcript,
+      clientToday,
+      modelDate: typeof parsed.date === "string" ? parsed.date : null,
+    })
+
+    const payee = typeof parsed.payee === "string" ? parsed.payee.trim() : ""
 
     return NextResponse.json({
-      payee: parsed.payee || "",
-      amount: typeof parsed.amount === "number" ? parsed.amount : 0,
+      payee,
+      amount: coerceVoiceAmount(parsed.amount),
       envelopeId,
       envelopeName: parsed.envelope || null,
-      date: parsed.date || today,
+      date,
     })
   } catch (err) {
     console.error("voice parse error:", err)

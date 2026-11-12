@@ -75,7 +75,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           const parsedEvent = parseNostrAuthEvent(eventStr, pubkey)
           const { verifyEvent } = await import("nostr-tools")
           const isValid = verifyEvent(parsedEvent)
-          if (!isValid) return null
+          if (!isValid) {
+            if (process.env.NODE_ENV === "development") {
+              console.error("[nostr authorize] signature verification failed")
+            }
+            return null
+          }
 
           let user = await prisma.user.findUnique({ where: { nostrPubkey: pubkey } })
           if (!user) {
@@ -93,7 +98,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             }
           }
           return { id: user.id, name: user.name, email: user.email, image: user.image }
-        } catch {
+        } catch (err) {
+          if (process.env.NODE_ENV === "development") {
+            console.error("[nostr authorize]", err)
+          }
           return null
         }
       },

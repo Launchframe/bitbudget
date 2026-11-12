@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
   cadenceDisplayInteger,
+  formatAllotmentInputDisplay,
   fromMonthly,
   monthlyFromDigitOnlyInput,
+  monthlyFromMoneyInput,
+  parsePartialMoneyInput,
+  roundMoneyCents,
   toMonthly,
 } from "../allocation-cadence"
 
@@ -42,5 +46,44 @@ describe("cadenceDisplayInteger", () => {
 
   it("shows rounded cadence amount", () => {
     expect(cadenceDisplayInteger(500, "monthly")).toBe("500")
+  })
+})
+
+describe("parsePartialMoneyInput / monthlyFromMoneyInput", () => {
+  it("returns null for empty or lone decimal while typing", () => {
+    expect(parsePartialMoneyInput("")).toBeNull()
+    expect(parsePartialMoneyInput(".")).toBeNull()
+    expect(parsePartialMoneyInput("  ")).toBeNull()
+  })
+
+  it("parses partial amounts without forcing $5 snap (regression: typing 2 then 5)", () => {
+    expect(parsePartialMoneyInput("2")).toBe(2)
+    expect(parsePartialMoneyInput("25")).toBe(25)
+    expect(parsePartialMoneyInput("25.5")).toBe(25.5)
+    expect(parsePartialMoneyInput("25.50")).toBe(25.5)
+  })
+
+  it("commits penny amounts clamped to max", () => {
+    expect(monthlyFromMoneyInput("123.45", 500)).toBe(123.45)
+    expect(monthlyFromMoneyInput("999", 100)).toBe(100)
+    expect(monthlyFromMoneyInput("", 100)).toBe(0)
+  })
+
+  it("rounds to cents on commit", () => {
+    expect(roundMoneyCents(10.999)).toBe(11)
+    expect(formatAllotmentInputDisplay(12.5)).toBe("12.50")
+    expect(formatAllotmentInputDisplay(100)).toBe("100")
+  })
+
+  it("supports typing $1813.13 without per-keystroke $5 snap (regression)", () => {
+    const max = 5000
+    const keystrokes = ["1", "18", "181", "1813", "1813.", "1813.1", "1813.13"]
+    for (const partial of keystrokes) {
+      const parsed = parsePartialMoneyInput(partial)
+      expect(parsed).not.toBeNull()
+      expect(parsed!).toBeGreaterThan(0)
+    }
+    expect(monthlyFromMoneyInput("1813.13", max)).toBe(1813.13)
+    expect(formatAllotmentInputDisplay(1813.13)).toBe("1813.13")
   })
 })

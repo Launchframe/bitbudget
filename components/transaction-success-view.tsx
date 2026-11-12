@@ -31,7 +31,7 @@ export function TransactionSuccessView({
               Logged{" "}
               <span className="font-medium text-foreground">{payee}</span>
               {" · "}
-              <span className="font-ibm-plex-mono font-medium text-foreground">
+              <span className="font-mono font-medium text-foreground">
                 {formatUsdPrecise(amount)}
               </span>
             </p>

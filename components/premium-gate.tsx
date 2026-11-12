@@ -15,13 +15,17 @@ export function PremiumGate({ feature, children }: PremiumGateProps) {
   useEffect(() => {
     fetch("/api/user/settings")
       .then(r => r.json())
-      .then(data => setTier(data.subscriptionTier || "free"))
+      .then(data => {
+        const effective = (data as { effectiveTier?: string }).effectiveTier
+        const subscription = (data as { subscriptionTier?: string }).subscriptionTier
+        setTier(effective ?? subscription ?? "free")
+      })
       .catch(() => setTier("free"))
   }, [])
 
   if (tier === null) return null
 
-  if (tier !== "premium") {
+  if (tier === "free") {
     return (
       <>
         <div

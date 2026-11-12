@@ -55,13 +55,15 @@ model User {
   emailRecurringReminders   Boolean   @default(true)
   emailRenewalReminders     Boolean   @default(true)
   emailImportAlerts         Boolean   @default(true)
-  emailUnsubscribeToken     String    @unique @default(dbgenerated("gen_random_uuid()::text"))
+  emailUnsubscribeToken     String    @unique @default(dbgenerated("(gen_random_uuid())::text"))
   nostrDmEnabled            Boolean   @default(false)
   subscriptionTier          String    @default("free")
   // Set when a free user taps Upgrade to Premium (checkout not yet available).
   premiumInterestAt      DateTime?
   premiumGratisUntil     DateTime?
   premiumTrialUntil      DateTime?
+  // Paid membership end (Stripe); null with subscriptionTier premium = no expiry.
+  premiumMembershipUntil DateTime?
   referredByCodeId       String?
 
   createdAt DateTime @default(now())
@@ -89,9 +91,38 @@ model User {
   survey                     Survey?
   referredByCode             ReferralCode?              @relation("ReferredByCode", fields: [referredByCodeId], references: [id], onDelete: SetNull)
   notificationEmails         UserNotificationEmail[]
+  notificationIngestDedupes  NotificationIngestDedupe[]
   envelopeFundingBatches     EnvelopeFundingBatch[]
+  recurringFundingRules      RecurringFundingRule[]
   savingsGoals               SavingsGoal[]
   achievements               UserAchievement[]
+  pendingStatementBatches    PendingStatementBatch[]
+  premiumRenewalReminderLogs PremiumRenewalReminderLog[]
+}
+
+model PremiumRenewalReminderLog {
+  id        String   @id @default(cuid())
+  userId    String
+  logKey    String
+  channel   String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, logKey, channel])
+  @@index([userId])
+}
+
+/// Prevents duplicate Android notification-forward webhook deliveries (pending or live).
+model NotificationIngestDedupe {
+  userId         String
+  idempotencyKey String
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, idempotencyKey])
+  @@index([createdAt])
 }
 
 model UserNotificationEmail {
@@ -214,6 +245,8 @@ model Envelope {
   color              String   @default("#F7931A")
   icon               String?
   archived           Boolean  @default(false)
+  /// When set, envelope is hidden and transactions leave the active ledger until restored or purged.
+  deletedAt          DateTime?
   /// null | savings — system-managed Savings envelope
   systemRole         String?
   sweepPolicy        String   @default("reset") // reset | carry_forward | capped
@@ -246,6 +279,10 @@ model Transaction {
   satsAmount Int? // BTC equivalent in satoshis (1 BTC = 100,000,000 sats)
   source     String   @default("manual")
 
+  /// Client-computed HMAC fingerprint for idempotent CSV imports. Only set on imported rows.
+  /// The server cannot derive it (the HMAC key is the client-only privacy-key seed).
+  dedupeKey String?
+
   recurringId String?
 
   /// Hidden allocation legs excluded from global transaction history
@@ -267,11 +304,16 @@ model Transaction {
   @@index([fundingBatchId])
 }
 
+// NOTE: A partial unique index on (userId, dedupeKey) WHERE dedupeKey IS NOT NULL
+// is created via raw SQL in the migration (Prisma does not support partial unique
+// indexes in the schema DSL). It powers createMany({ skipDuplicates: true }) for imports.
+
 model EnvelopeFundingBatch {
   id        String   @id @default(cuid())
   userId    String
   periodKey String
-  kind      String   @default("fund") // fund | sweep
+  kind      String   @default("fund") // fund | sweep | rebalance | statement_import | move_funds | deficit_cover
+  config    Json?    // creation-time config; for statement_import: { institutionName, dateFrom, dateTo, format, transactionCount }
   createdAt DateTime @default(now())
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -279,6 +321,22 @@ model EnvelopeFundingBatch {
 
   @@unique([userId, periodKey, kind])
   @@index([userId])
+}
+
+model RecurringFundingRule {
+  id                 String    @id @default(cuid())
+  userId             String
+  kind               String // income_distribution | move_funds
+  frequency          String
+  distributionConfig Json
+  nextRunAt          DateTime
+  lastRunAt          DateTime?
+  enabled            Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, nextRunAt])
 }
 
 model SavingsGoal {
@@ -571,4 +629,25 @@ model ConnectedEmailAccount {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// Pending statement batch created when an email attachment is detected as a bank statement.
+/// Transactions are encrypted server-side with the user's public key and held here until
+/// the user reviews and imports them via StatementImporterDialog (pendingBatchId mode).
+model PendingStatementBatch {
+  id               String   @id @default(cuid())
+  userId           String
+  source           String   // "email_statement"
+  institutionName  String?  // encrypted ciphertext (user's pubkey)
+  format           String   // "fold_csv" | "fold_pdf" | ...
+  transactions     Json     // ParsedTransaction[] with payee/notes encrypted via server-encrypt
+  dateFrom         String?  // YYYY-MM-DD
+  dateTo           String?  // YYYY-MM-DD
+  transactionCount Int
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt])
 }

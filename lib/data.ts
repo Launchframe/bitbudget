@@ -17,11 +17,17 @@ export type TransactionSource =
   | "email_scan"
   | "plaid"
   | "paycheck"
+  | "retro_paycheck"
   | "irregular_income"
   | "envelope_funding_out"
   | "envelope_funding_in"
   | "income_import"
   | "envelope_sweep"
+  | "csv_import"
+  | "statement_import"
+  | "deficit_cover"
+  | "envelope_transfer_in"
+  | "envelope_transfer_out"
 
 export interface Transaction {
   id: string
@@ -40,6 +46,7 @@ export interface Transaction {
   excludeFromMainHistory?: boolean
   fundingBatchId?: string | null
   fundingBatchPeriodKey?: string | null
+  fundingBatchKind?: string | null
   /** Server creation timestamp for ordering same-day transactions. */
   createdAt?: string
   /** Server row version for delta sync (ISO 8601). */
@@ -75,6 +82,8 @@ export interface Envelope {
   sweepCapMultiplier?: number | null
   /** ISO date (YYYY-MM-DD) when the envelope was created — used as the balance genesis floor. */
   createdAt?: string
+  /** ISO timestamp when soft-deleted; transactions are excluded from the ledger until restore or purge. */
+  deletedAt?: string | null
 }
 
 export interface Tag {
@@ -299,7 +308,10 @@ export function getDefaultState(): AppState {
       importAlerts: true,
     },
     savingsExperience: "engaged",
-    walkthroughCompleted: false,
+    // Optimistic true until /api/user/settings hydrates — avoids flashing the tour
+    // for users who already completed it (default false fired the 800ms show timer
+    // before settings loaded).
+    walkthroughCompleted: true,
     setupGuideSnoozedUntil: null,
     setupGuideDismissed: false,
     setupGuideShowOnDashboard: true,

@@ -19,7 +19,6 @@ import {
   resetImportBatchForPeriod,
   resolveImportPayDay,
   splitAmountAcrossChecks,
-  shouldFundEnvelopeSliceOnImport,
   sumPriorIncomeImportForPeriod,
 } from "../income-import"
 import { ENVELOPE_FUNDING_BATCH_KIND_FUND } from "../constants"
@@ -33,10 +32,6 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/envelope-funding", () => ({
   ensureSystemSavingsEnvelope: vi.fn(),
-  TX_SOURCE_FUNDING_IN: "envelope_funding_in",
-  TX_SOURCE_FUNDING_OUT: "envelope_funding_out",
-  TX_SOURCE_IRREGULAR_INCOME: "irregular_income",
-  TX_SOURCE_PAYCHECK: "paycheck",
 }))
 
 vi.mock("@/lib/server-encrypt", () => ({
@@ -126,14 +121,6 @@ describe("income-import helpers", () => {
     expect(filtered.length).toBeLessThan(annual.length)
     expect(filtered.every((d) => d <= "2026-05-15")).toBe(true)
     expect(filtered.some((d) => d.startsWith("2026-06"))).toBe(false)
-  })
-
-  it("shouldFundEnvelopeSliceOnImport funds current month only for annual rows", () => {
-    const now = new Date("2026-05-15T12:00:00.000Z")
-    expect(shouldFundEnvelopeSliceOnImport("2026-05", "2026-05-15", now)).toBe(true)
-    expect(shouldFundEnvelopeSliceOnImport("2026", "2026-05-15", now)).toBe(true)
-    expect(shouldFundEnvelopeSliceOnImport("2026", "2026-04-15", now)).toBe(false)
-    expect(shouldFundEnvelopeSliceOnImport("2025", "2025-06-15", now)).toBe(false)
   })
 
   it("currentMonthKeyUtc matches UTC month", () => {

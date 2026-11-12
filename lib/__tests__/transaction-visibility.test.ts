@@ -29,6 +29,19 @@ describe("transaction-visibility", () => {
     ).toBe(false)
   })
 
+  it("isUserFacingExpense rejects move-funds and deficit-cover transfer expenses", () => {
+    expect(
+      isUserFacingExpense(
+        txn({ type: "expense", source: "envelope_transfer_out" }),
+      ),
+    ).toBe(false)
+    expect(
+      isUserFacingExpense(
+        txn({ type: "expense", source: "deficit_cover" }),
+      ),
+    ).toBe(false)
+  })
+
   it("filterUserFacingExpenses keeps only visible expenses", () => {
     const rows = [
       txn({ id: "a", type: "expense" }),

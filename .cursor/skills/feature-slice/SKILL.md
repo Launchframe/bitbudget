@@ -107,7 +107,7 @@ Each PR description:
 
 ## Plan doc
 
-For features expected to span 5+ slices, write a plan to `.cursor/plans/<feature>_<hash>.plan.md` before starting. Include:
+For features expected to span 5+ slices, write a plan to `~/.cursor/plans/<feature>_<hash>.plan.md` before starting (canonical home — not the repo’s `.cursor/plans/`). Include:
 
 - Goal (one paragraph)
 - Slice list with rough scope

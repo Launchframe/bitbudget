@@ -1,3 +1,8 @@
+// Network-only fetch handler — required for installability; no offline cache for this auth-heavy app.
+self.addEventListener("fetch", (event) => {
+  event.respondWith(fetch(event.request))
+})
+
 self.addEventListener("push", (event) => {
   const data = event.data ? event.data.json() : {}
   const title = data.title || "bitbudget"

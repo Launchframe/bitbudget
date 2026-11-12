@@ -28,6 +28,7 @@ describe("PUT /api/envelopes monthlyAllotment validation", () => {
       color: "#10B981",
       icon: null,
       archived: false,
+      deletedAt: null,
       sweepPolicy: "reset",
       sweepCapMultiplier: null,
     } as never)
@@ -40,6 +41,7 @@ describe("PUT /api/envelopes monthlyAllotment validation", () => {
       color: "#10B981",
       icon: null,
       archived: false,
+      deletedAt: null,
       sweepPolicy: "reset",
       sweepCapMultiplier: null,
       createdAt: new Date("2026-05-31T00:00:00Z"),
@@ -86,6 +88,48 @@ describe("PUT /api/envelopes monthlyAllotment validation", () => {
       data: { monthlyAllotment?: number }
     }
     expect(updateArg.data.monthlyAllotment).toBeUndefined()
+  })
+
+  it("rejects non-null deletedAt updates so deletes use server time", async () => {
+    const response = await PUT(putRequest({ deletedAt: "2026-05-31T12:00:00.000Z" }) as never)
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: "deletedAt can only be cleared with null",
+    })
+    expect(prisma.envelope.update).not.toHaveBeenCalled()
+  })
+
+  it("allows deletedAt null to restore a soft-deleted envelope", async () => {
+    const response = await PUT(putRequest({ deletedAt: null }) as never)
+    expect(response.status).toBe(200)
+    expect(prisma.envelope.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ deletedAt: null }),
+      }),
+    )
+  })
+
+  it("rejects restoring a deleted envelope after the grace window", async () => {
+    vi.mocked(prisma.envelope.findFirst).mockResolvedValue({
+      id: envelopeId,
+      userId,
+      systemRole: null,
+      monthlyAllotment: 100,
+      name: "Groceries",
+      color: "#10B981",
+      icon: null,
+      archived: false,
+      deletedAt: new Date("2000-01-01T00:00:00.000Z"),
+      sweepPolicy: "reset",
+      sweepCapMultiplier: null,
+    } as never)
+
+    const response = await PUT(putRequest({ deletedAt: null }) as never)
+    expect(response.status).toBe(410)
+    await expect(response.json()).resolves.toEqual({
+      error: "This envelope can no longer be restored.",
+    })
+    expect(prisma.envelope.update).not.toHaveBeenCalled()
   })
 
   it("accepts valid monthlyAllotment and rounds to two decimals", async () => {

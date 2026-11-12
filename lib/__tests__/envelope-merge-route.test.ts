@@ -81,7 +81,7 @@ describe("POST /api/envelopes/merge", () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({
-      error: "Archived envelopes cannot be merged.",
+      error: "Archived or deleted envelopes cannot be merged.",
     })
     expect(prisma.$transaction).not.toHaveBeenCalled()
     expect(mergeEnvelopeRecords).not.toHaveBeenCalled()
@@ -110,7 +110,7 @@ describe("POST /api/envelopes/merge", () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({
-      error: "Archived envelopes cannot be merged.",
+      error: "Archived or deleted envelopes cannot be merged.",
     })
     expect(prisma.$transaction).not.toHaveBeenCalled()
     expect(mergeEnvelopeRecords).not.toHaveBeenCalled()

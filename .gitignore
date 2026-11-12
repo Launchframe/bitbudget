@@ -17,6 +17,7 @@ transaction_history.csv
 # agents
 docs/plans
 .cursor/real-steel/
+.cursor/git-prune-status.md
 
 # debug
 npm-debug.log*

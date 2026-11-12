@@ -3,6 +3,7 @@ import {
   sendAdminDigestEmail,
   sendGratisExpiredEmail,
   sendGratisExpiringEmail,
+  sendPremiumRenewalReminderEmail,
   sendReferralAcceptedEmail,
   sendReferralActivatedEmail,
   sendSurveyCompletedAdminEmail,
@@ -14,6 +15,7 @@ import {
   sendAdminDigestDm,
   sendGratisExpiredDm,
   sendGratisExpiringDm,
+  sendPremiumRenewalReminderDm,
   sendReferralAcceptedDm,
   sendReferralActivatedDm,
   sendTrialExpiredDm,
@@ -28,6 +30,22 @@ import {
   outboundNotificationEmails,
   userAllowsNostrDm,
 } from "@/lib/notification-contact"
+import {
+  formatPremiumExpiryCalendarDate,
+  premiumRenewalLogKey,
+  sourceToPopulation,
+  type PremiumExpirySource,
+  type PremiumRenewalReminderKind,
+} from "@/lib/premium-expiry"
+import {
+  premiumRenewalCopy,
+  premiumRenewalEmailSubject,
+  premiumRenewalNostrBody,
+} from "@/lib/premium-renewal-copy"
+import {
+  recordRenewalReminderLog,
+  renewalReminderAlreadyLogged,
+} from "@/lib/premium-renewal-server"
 
 /** Playwright / CI: avoid real email/DM sends (e.g. seeded `*@bitbudget.test` referrers bounce). */
 function skipOutboundUserNotifications(): boolean {
@@ -264,4 +282,73 @@ export async function notifyTrialExpiredUser(userId: string): Promise<void> {
     (to, options) => sendTrialExpiredEmail(to, options),
     () => sendTrialExpiredDm(u.nostrPubkey!),
   )
+}
+
+function appUrlForNotify(): string | undefined {
+  const base = process.env.NEXTAUTH_URL?.replace(/\/$/, "")
+  return base || undefined
+}
+
+/** Cron: unified premium renewal reminder with per-channel dedup. */
+export async function notifyPremiumRenewalReminder(args: {
+  userId: string
+  source: PremiumExpirySource
+  expiry: Date
+  kind: PremiumRenewalReminderKind
+}): Promise<{ emailSent: boolean; nostrSent: boolean }> {
+  if (skipOutboundUserNotifications()) return { emailSent: false, nostrSent: false }
+
+  const u = await prisma.user.findUnique({
+    where: { id: args.userId },
+    select: COMMUNICATION_EMAIL_SELECT,
+  })
+  if (!u) return { emailSent: false, nostrSent: false }
+
+  const population = sourceToPopulation(args.source)
+  const expiryDate = formatPremiumExpiryCalendarDate(args.expiry)
+  const daysRemaining =
+    args.kind === "expired" ? undefined : args.kind
+  const copy = premiumRenewalCopy(population, args.kind, expiryDate, daysRemaining)
+  const subject = premiumRenewalEmailSubject(population, args.kind, daysRemaining)
+  const logKey = premiumRenewalLogKey(args.source, args.expiry, args.kind)
+  const appUrl = appUrlForNotify()
+  const nostrText = premiumRenewalNostrBody(population, args.kind, expiryDate, daysRemaining, appUrl)
+
+  let emailSent = false
+  let nostrSent = false
+
+  const emails = outboundNotificationEmails(u)
+  if (emails.length > 0 && userAllowsCommunicationEmail(u, "renewal_reminders")) {
+    const already = await renewalReminderAlreadyLogged(args.userId, logKey, "email")
+    if (!already) {
+      const options = { category: "renewal_reminders" as const, unsubscribeToken: u.emailUnsubscribeToken }
+      for (const to of emails) {
+        await sendPremiumRenewalReminderEmail(
+          to,
+          {
+            subject,
+            headline: copy.headline,
+            body: copy.body,
+            ctaRenew: copy.ctaRenew,
+            ctaRefer: copy.ctaRefer,
+            showReferCta: args.kind !== "expired",
+          },
+          options,
+        )
+      }
+      await recordRenewalReminderLog(args.userId, logKey, "email")
+      emailSent = true
+    }
+  }
+
+  if (userAllowsNostrDm(u) && u.nostrPubkey) {
+    const already = await renewalReminderAlreadyLogged(args.userId, logKey, "nostr")
+    if (!already) {
+      await sendPremiumRenewalReminderDm(u.nostrPubkey, nostrText)
+      await recordRenewalReminderLog(args.userId, logKey, "nostr")
+      nostrSent = true
+    }
+  }
+
+  return { emailSent, nostrSent }
 }

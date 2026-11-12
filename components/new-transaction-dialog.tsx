@@ -33,7 +33,9 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { X, Repeat, Tag, ChevronRight, FileText } from "lucide-react"
+import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 import { ShortcutsPanel, useTransactionShortcuts } from "@/components/shortcuts-panel"
 import {
   mergePayeeCandidates,
@@ -66,6 +68,45 @@ function stableTransactionPrefillKey(prefill: TransactionPrefill): string {
   const { receiptPreviewDataUrl: _r, ...rest } = prefill
   void _r
   return JSON.stringify(rest)
+}
+
+function receiptScanInputTypeLabel(inputType: ReceiptScanStats["inputType"]): string {
+  return inputType === "pdf" ? "PDF document" : "Photo"
+}
+
+function ReceiptScanStatsButton({ stats }: { stats: ReceiptScanStats }) {
+  const qualityPct = Math.round(stats.extractionConfidence * 100)
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="self-start text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline"
+        >
+          Show scan details
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[min(96vw,20rem)] border-[#333] bg-[#141414] text-foreground"
+        align="start"
+      >
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Reading quality</span>
+            <span className="font-medium tabular-nums">{qualityPct}%</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Source</span>
+            <span>{receiptScanInputTypeLabel(stats.inputType)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Model</span>
+            <span>{stats.model}</span>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 /** Many browsers fail on huge `data:application/pdf;base64,...` targets for `<a target=_blank>` / navigation; `blob:` URLs work reliably. */
@@ -354,9 +395,19 @@ export function NewTransactionDialog() {
     const key = stableTransactionPrefillKey(transactionPrefill)
     if (appliedPrefillKeyRef.current === key) return
     appliedPrefillKeyRef.current = key
+    prefillPayeeRawRef.current = null
+    emptyPayeePrefillResetDoneRef.current = false
+    skipCanonicalForPrefillRef.current = false
 
     if (transactionPrefill.amount) setAmount(transactionPrefill.amount)
     if (transactionPrefill.date) setDate(transactionPrefill.date)
+    const payeeRaw = transactionPrefill.payee?.trim()
+    if (payeeRaw) {
+      setPayee(payeeRaw)
+      setImportSourcePayee(payeeRaw)
+      prefillPayeeRawRef.current = payeeRaw
+      emptyPayeePrefillResetDoneRef.current = false
+    }
     if (transactionPrefill.notes) setNotes(transactionPrefill.notes)
     if (transactionPrefill.envelopeId) setEnvelopeId(transactionPrefill.envelopeId)
     if (transactionPrefill.type) setType(transactionPrefill.type)
@@ -432,7 +483,7 @@ export function NewTransactionDialog() {
       }
     }
 
-    if (prefillPayeeRawRef.current !== raw) {
+    if (prefillPayeeRawRef.current !== raw || !payee.trim()) {
       prefillPayeeRawRef.current = raw
       skipCanonicalForPrefillRef.current = false
       setImportSourcePayee(raw)
@@ -825,6 +876,9 @@ export function NewTransactionDialog() {
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-4">
               <ShortcutsPanel shortcuts={shortcuts} />
+              {transactionPrefill?.receiptScanStats ? (
+                <ReceiptScanStatsButton stats={transactionPrefill.receiptScanStats} />
+              ) : null}
               {receiptAttachmentPreview && (
                 <div className="rounded-xl border border-[#333] bg-[#141414] overflow-hidden shrink-0">
                   <div className="flex items-center justify-between gap-2 px-3 pt-2 pb-1">
@@ -1249,7 +1303,7 @@ export function NewTransactionDialog() {
                       <span className="text-foreground">{duplicateExisting.date}</span>
                       {": "}
                       <span className="text-foreground">{duplicateExisting.payee}</span>,{" "}
-                      <span className="font-ibm-plex-mono text-foreground">
+                      <span className="font-mono text-foreground">
                         {formatUsdPrecise(duplicateExisting.amount)}
                       </span>
                       {duplicateEnvelopeName ? (
