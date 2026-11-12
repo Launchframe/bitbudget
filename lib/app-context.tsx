@@ -81,6 +81,7 @@ import { filterTransactionsForActiveLedger } from "@/lib/envelope-ledger-visibil
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { transactionSyncUserMessage } from "@/lib/transaction-sync-user-message"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
+import { clearWallets, clearWalletDb } from "@/lib/wallet-watch-cleanup"
 
 export type PageId =
   | "dashboard"
@@ -95,6 +96,7 @@ export type PageId =
   | "profile"
   | "settings"
   | "review-inbox"
+  | "wallet"
 
 function pageToHash(page: PageId, envelopeId?: string | null): string {
   if (page === "envelope-detail" && envelopeId) return `#/envelope/${envelopeId}`
@@ -113,7 +115,7 @@ function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
 
   if (path.startsWith("settings/")) return { page: "settings" }
 
-  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox"]
+  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox", "wallet"]
   if (validPages.includes(path as PageId)) return { page: path as PageId }
 
   return { page: "dashboard" }
@@ -219,6 +221,14 @@ interface AppContextValue {
   memoTransactionCount: number | null
   encryption: EncryptionState
   unlockWithKey: (key: Uint8Array) => void
+  /**
+   * Returns a defensive copy of the unlocked privacy key (NaCl seed) for
+   * client-only features that need to AES-encrypt extra blobs at rest in
+   * `localStorage` (e.g. the xpub wallet integration). Returns `null` when
+   * the session is locked. Callers MUST NOT send this value to the server
+   * or log it.
+   */
+  getPrivacyKey: () => Uint8Array | null
 
   transactionEnvelopeFilter: Set<string>
   clearTransactionEnvelopeFilter: () => void
@@ -232,7 +242,8 @@ interface AppContextValue {
   setStatementImporterOpen: (open: boolean) => void
   openStatementImporter: (prefill?: StatementImporterPrefill) => void
 
-  addTransaction: (txn: Omit<Transaction, "id">) => Promise<boolean>
+  /** Persist a new transaction; resolves to the server-assigned id on success, or null on failure. */
+  addTransaction: (txn: Omit<Transaction, "id">) => Promise<string | null>
   editTransaction: (id: string, updates: Partial<Omit<Transaction, "id">>) => void
   deleteTransaction: (id: string) => void
   /** Delete many transactions by id (duplicate cleanup). Returns count deleted. */
@@ -1053,7 +1064,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     }
   }, [])
 
-  const addTransaction = useCallback(async (txn: Omit<Transaction, "id">) => {
+  const addTransaction = useCallback(async (txn: Omit<Transaction, "id">): Promise<string | null> => {
     const optimisticId = generateId()
     setState(prev => ({
       ...prev,
@@ -1061,11 +1072,13 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     }))
 
     try {
-      const payload = { ...txn }
+      const payload: Record<string, unknown> = { ...txn }
       if (publicKeyRef.current) {
         payload.payee = encryptFieldAsymmetric(txn.payee, publicKeyRef.current)
-        if (payload.notes) payload.notes = encryptFieldAsymmetric(payload.notes, publicKeyRef.current)
+        if (txn.notes) payload.notes = encryptFieldAsymmetric(txn.notes, publicKeyRef.current)
       }
+      if (txn.source) payload.source = txn.source
+      if (typeof txn.satsAmount === "number") payload.satsAmount = txn.satsAmount
 
       const res = await fetch("/api/transactions", {
         method: "POST",
@@ -1093,20 +1106,20 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
             clientTxn,
           ),
         }))
-        return true
+        return created.id
       } else {
         setState(prev => ({
           ...prev,
           transactions: prev.transactions.filter(t => t.id !== optimisticId),
         }))
-        return false
+        return null
       }
     } catch {
       setState(prev => ({
         ...prev,
         transactions: prev.transactions.filter(t => t.id !== optimisticId),
       }))
-      return false
+      return null
     }
   }, [])
 
@@ -1606,6 +1619,14 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       }
     }
     const uid = currentUserIdRef.current
+    if (uid) {
+      try {
+        clearWallets(uid)
+      } catch {
+        /* ignore */
+      }
+      void clearWalletDb(uid).catch(() => undefined)
+    }
     privacyKeyRef.current = null
     publicKeyRef.current = null
     currentUserIdRef.current = null
@@ -1802,6 +1823,10 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         memoTransactionCount,
         encryption,
         unlockWithKey,
+        getPrivacyKey: () => {
+          const k = privacyKeyRef.current
+          return k ? new Uint8Array(k) : null
+        },
         transactionEnvelopeFilter,
         clearTransactionEnvelopeFilter: () => setTransactionEnvelopeFilter(new Set()),
         navigateTo,

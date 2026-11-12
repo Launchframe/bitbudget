@@ -651,3 +651,116 @@ model PendingStatementBatch {
   @@index([userId])
   @@index([userId, createdAt])
 }
+
+model WalletAccount {
+  id                  String   @id @default(uuid())
+  userId              String
+  network             String
+  status              String   @default("provisioning")
+  outputKey           Bytes?
+  publicPackage       Bytes?
+  recoveryVerifiedAt  DateTime?
+  recoveryFileHash    String?
+  derivationContext   String   @default("base-output-v1")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  cosigner            WalletCosigner?
+  provisioning        WalletProvisioning?
+
+  @@index([userId, createdAt])
+}
+
+model WalletCredential {
+  id                  String   @id @default(uuid())
+  userId              String
+  credentialId        String   @unique
+  publicKey           Bytes
+  counter             BigInt
+  userHandle          String
+  rpId                String
+  deviceType          String
+  backedUp            Boolean
+  revision            Int      @default(0)
+  createdAt           DateTime @default(now())
+
+  @@unique([userId, rpId])
+}
+
+model WalletChallenge {
+  id                  String   @id @default(uuid())
+  userId              String
+  walletId            String?
+  operation           String
+  network             String
+  lineage             String?
+  profileId           String
+  digest              String?
+  challenge           String   @unique
+  payloadHash         String?
+  userHandle          String?
+  origin              String
+  rpId                String
+  expiresAt           DateTime
+  consumedAt          DateTime?
+  createdAt           DateTime @default(now())
+
+  @@index([userId, operation, expiresAt])
+  @@index([expiresAt])
+}
+
+model WalletGrant {
+  id                  String   @id @default(uuid())
+  userId              String
+  walletId            String?
+  credentialId        String
+  operation           String
+  network             String
+  lineage             String?
+  profileId           String
+  digest              String?
+  expiresAt           DateTime
+  consumedAt          DateTime?
+  createdAt           DateTime @default(now())
+
+  @@index([userId, walletId, operation, expiresAt])
+  @@index([expiresAt])
+}
+
+model WalletCosigner {
+  walletId            String   @id
+  encryptedShare      Bytes
+  encryptionVersion   Int      @default(1)
+  createdAt           DateTime @default(now())
+  wallet              WalletAccount @relation(fields: [walletId], references: [id], onDelete: Cascade)
+}
+
+model WalletProvisioning {
+  id                  String   @id @default(uuid())
+  walletId            String   @unique
+  grantId             String   @unique
+  requestHash         String
+  transcriptHash      String
+  encryptedState      Bytes?
+  encryptedResponse   Bytes
+  completionHash      String?
+  status              String   @default("round2")
+  version             Int      @default(0)
+  expiresAt           DateTime
+  createdAt           DateTime @default(now())
+  wallet              WalletAccount @relation(fields: [walletId], references: [id], onDelete: Cascade)
+}
+
+model WalletNonceUse {
+  id                  String   @id @default(uuid())
+  grantId             String   @unique
+  userId              String
+  walletId            String
+  network             String
+  lineage             String
+  profileId           String
+  digest              String
+  commitmentHash      String   @unique
+  consumedAt          DateTime @default(now())
+
+  @@index([userId, walletId])
+}

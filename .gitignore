@@ -4,15 +4,19 @@ transaction_history.csv
 
 # dependencies
 /node_modules
+/wallet-bridge/node_modules/
 /.pnpm-store
 
 # next.js
 /.next/
+/public/wallet-asset-manifest.json
+/public/wallet-asset-manifest.json.tmp
 /out/
 /.worktrees/
 
 # production
 /build
+/bitbudget-electrum-bridge-*.tgz
 
 # agents
 docs/plans

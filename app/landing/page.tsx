@@ -129,6 +129,7 @@ export default function LandingPage() {
           <p className="text-xs text-muted-foreground">
             Open-source Bitcoin opportunity cost tracker. Your data is encrypted end-to-end.
           </p>
+          <Link href="/faq" prefetch={false} className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors">FAQ</Link>
           <Link
             href="/privacy"
             className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"

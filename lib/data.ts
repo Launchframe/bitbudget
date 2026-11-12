@@ -28,6 +28,35 @@ export type TransactionSource =
   | "deficit_cover"
   | "envelope_transfer_in"
   | "envelope_transfer_out"
+  | "onchain_xpub"
+
+export const TRANSACTION_SOURCES: readonly TransactionSource[] = [
+  "manual",
+  "voice",
+  "receipt_scan",
+  "sms",
+  "notification_forward",
+  "email_forward",
+  "email_scan",
+  "plaid",
+  "paycheck",
+  "retro_paycheck",
+  "irregular_income",
+  "envelope_funding_out",
+  "envelope_funding_in",
+  "income_import",
+  "envelope_sweep",
+  "csv_import",
+  "statement_import",
+  "deficit_cover",
+  "envelope_transfer_in",
+  "envelope_transfer_out",
+  "onchain_xpub",
+] as const
+
+export function isTransactionSource(value: unknown): value is TransactionSource {
+  return typeof value === "string" && (TRANSACTION_SOURCES as readonly string[]).includes(value)
+}
 
 export interface Transaction {
   id: string

@@ -37,6 +37,10 @@ export const CASH_INFLOW_SOURCES = new Set([
   "sms",
   "receipt_scan",
   "voice",
+  // On-chain receives from a watched wallet are external deposits. They are
+  // deliberately *not* in MONTHLY_INCOME_SOURCES: they move balances but are
+  // not treated as income (many are transfers from the user's own exchange).
+  "onchain_xpub",
 ])
 
 function usdToSats(usd: number, btcPrice: number): number {

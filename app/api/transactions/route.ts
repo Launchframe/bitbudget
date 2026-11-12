@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
+import { isTransactionSource } from "@/lib/data"
 import {
   parseTransactionDateInput,
   transactionCalendarDay,
@@ -63,6 +64,9 @@ function jsonTxnRow(t: {
 
 const TXN_TYPES = new Set(["expense", "credit"])
 
+/** Sources where `satsAmount` is authoritative and must not be recomputed from USD on edit. */
+const SAT_NATIVE_SOURCES = new Set<string>(["onchain_xpub"])
+
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
@@ -122,7 +126,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { date, payee, amount, type, envelopeId, tags, notes } = body
+  const { date, payee, amount, type, envelopeId, tags, notes, source, satsAmount } = body
 
   if (!date || payee == null || amount == null || !type || !envelopeId) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
@@ -142,6 +146,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "tags must be an array of strings" }, { status: 400 })
     }
   }
+  if (source !== undefined && source !== null && !isTransactionSource(source)) {
+    return NextResponse.json({ error: "Invalid source" }, { status: 400 })
+  }
+  let explicitSats: number | null = null
+  if (satsAmount !== undefined && satsAmount !== null) {
+    const n = typeof satsAmount === "number" ? satsAmount : Number(satsAmount)
+    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+      return NextResponse.json({ error: "satsAmount must be a non-negative integer" }, { status: 400 })
+    }
+    explicitSats = n
+  }
 
   const envelope = await prisma.envelope.findFirst({
     where: { id: envelopeId, userId: session.user.id },
@@ -155,8 +170,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid date" }, { status: 400 })
   }
   const dateStr = transactionCalendarDay(String(date))
-  const btcPrice = await getBtcPriceForDate(dateStr)
   const absAmount = Math.abs(amountNum)
+  let resolvedSats: number | null
+  if (explicitSats !== null) {
+    resolvedSats = explicitSats
+  } else {
+    const btcPrice = await getBtcPriceForDate(dateStr)
+    resolvedSats = btcPrice ? usdToSats(absAmount, btcPrice) : null
+  }
 
   const transaction = await prisma.transaction.create({
     data: {
@@ -168,7 +189,8 @@ export async function POST(req: NextRequest) {
       type,
       tags: JSON.stringify(tags || []),
       notes: notes || null,
-      satsAmount: btcPrice ? usdToSats(absAmount, btcPrice) : null,
+      satsAmount: resolvedSats,
+      ...(source ? { source } : {}),
     },
   })
 
@@ -182,7 +204,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { id, date, payee, amount, type, envelopeId, tags, notes } = body
+  const { id, date, payee, amount, type, envelopeId, tags, notes, satsAmount: satsAmountInput } = body
 
   if (!id) {
     return NextResponse.json({ error: "Transaction ID required" }, { status: 400 })
@@ -231,6 +253,18 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "tags must be an array of strings" }, { status: 400 })
     }
   }
+  let explicitSats: number | null | undefined
+  if (satsAmountInput !== undefined) {
+    if (satsAmountInput === null) {
+      explicitSats = null
+    } else {
+      const n = typeof satsAmountInput === "number" ? satsAmountInput : Number(satsAmountInput)
+      if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+        return NextResponse.json({ error: "satsAmount must be a non-negative integer" }, { status: 400 })
+      }
+      explicitSats = n
+    }
+  }
 
   const newDate =
     date !== undefined ? parseTransactionDateInput(String(date))! : existing.date
@@ -238,12 +272,16 @@ export async function PUT(req: NextRequest) {
     amount !== undefined ? Math.abs(typeof amount === "number" ? amount : Number(amount)) : existing.amount
 
   let satsAmount: number | null = existing.satsAmount
-  if (date !== undefined || amount !== undefined) {
-    const dateStr = transactionCalendarDay(
-      date !== undefined ? String(date) : transactionDateFromDb(existing.date),
-    )
-    const btcPrice = await getBtcPriceForDate(dateStr)
-    satsAmount = btcPrice ? usdToSats(newAmount, btcPrice) : null
+  if (explicitSats !== undefined) {
+    satsAmount = explicitSats
+  } else if (date !== undefined || amount !== undefined) {
+    if (!SAT_NATIVE_SOURCES.has(existing.source)) {
+      const dateStr = transactionCalendarDay(
+        date !== undefined ? String(date) : transactionDateFromDb(existing.date),
+      )
+      const btcPrice = await getBtcPriceForDate(dateStr)
+      satsAmount = btcPrice ? usdToSats(newAmount, btcPrice) : null
+    }
   }
 
   const updated = await prisma.transaction.update({

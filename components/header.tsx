@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useSession } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
-import { Settings2, LogOut, Upload, ScanLine, Crown, User, FileText } from "lucide-react"
+import { Settings2, LogOut, Upload, ScanLine, Crown, User, FileText, Wallet } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import {
@@ -76,6 +76,15 @@ export function Header() {
                 <User className="mr-2 h-4 w-4 text-muted-foreground" />
                 <span>Profile</span>
               </DropdownMenuItem>
+              {state.opportunityCostEnabled ? (
+                <DropdownMenuItem
+                  onClick={() => navigateTo("wallet")}
+                  className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
+                >
+                  <Wallet className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Wallet</span>
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem
                 onClick={() => navigateTo("settings")}
                 className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"

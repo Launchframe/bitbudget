@@ -13,7 +13,7 @@ export default defineConfig({
     globals: true,
     passWithNoTests: true,
     setupFiles: ["./vitest.setup.ts"],
-    exclude: ["**/node_modules/**", "**/e2e/**", "**/.next/**"],
+    exclude: ["**/node_modules/**", "**/e2e/**", "**/.next/**", "wallet-bridge/**/*.test.mjs"],
     server: {
       deps: {
         // Mirror Next serverExternalPackages — bundling pdfjs breaks worker resolution.

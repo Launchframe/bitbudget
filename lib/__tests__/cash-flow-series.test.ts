@@ -29,6 +29,12 @@ describe("cash-flow-series", () => {
     ).toBe(false)
   })
 
+  it("isCashInflowCredit counts on-chain wallet receives as external deposits", () => {
+    expect(isCashInflowCredit(txn({ type: "credit", source: "onchain_xpub", amount: 70, date: "2024-04-01" }))).toBe(true)
+    // Spends from the same wallet are outflows, not inflows.
+    expect(isCashInflowCredit(txn({ type: "expense", source: "onchain_xpub", amount: 70, date: "2024-04-01" }))).toBe(false)
+  })
+
   it("buildDailyCashFlowDeltas ignores paycheck ledger credits", () => {
     const daily = buildDailyCashFlowDeltas([
       txn({ type: "credit", source: "paycheck", amount: 5000, date: "2024-03-01" }),

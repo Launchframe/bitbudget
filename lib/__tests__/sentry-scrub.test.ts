@@ -57,6 +57,28 @@ describe("scrubSentryEvent", () => {
     expect((event?.extra as Record<string, unknown>).payee).toBe("[redacted]")
   })
 
+  it("redacts wallet custody, transcript and watch material in structured diagnostics", () => {
+    const event = scrubSentryEvent({ extra: {
+      deviceShare: { ciphertextHex: "private" }, prfOutput: [1, 2, 3], credentialId: "credential-id",
+      aBroadcastHex: "public-but-linkable", bToAHex: "private-contribution", publicPackageHex: "wallet-graph",
+      scripthash: "script-id", descriptor: "descriptor-body", indexerUrl: "https://node.example.test/api",
+    } })
+    expect(Object.values(event!.extra!)).toEqual(Array(9).fill("[redacted]"))
+  })
+
+  it("redacts wallet byte strings, extended public keys and connection URLs in free text", () => {
+    const data = "ab".repeat(200)
+    const xpub = "xpub" + "1".repeat(107)
+    const event = scrubSentryEvent({
+      message: `Failed ${data} ${xpub}`,
+      breadcrumbs: [{ data: { url: "wss://private-node.example.test:50004/socket", error: "indexer unavailable" } }],
+    })
+    expect(event!.message).not.toContain(data)
+    expect(event!.message).not.toContain(xpub)
+    expect(event!.breadcrumbs![0].data!.url).not.toContain("private-node")
+    expect(event!.breadcrumbs![0].data!.error).toBe("indexer unavailable")
+  })
+
   it("redacts PII from exception message values", () => {
     const event = scrubSentryEvent({
       exception: {

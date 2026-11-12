@@ -1,0 +1,195 @@
+"use client"
+
+import { useEffect, useState, useSyncExternalStore } from "react"
+import dynamic from "next/dynamic"
+import { ArrowRight, Download, Eye, Fingerprint, ShieldCheck, Wallet, LockKeyhole, Plus, Sparkles } from "lucide-react"
+import { z } from "zod"
+import { useApp } from "@/lib/app-context"
+import { walletRequest } from "@/lib/wallet/client-http"
+import { cacheWalletAssets } from "@/lib/wallet-asset-cache"
+import { openWalletCustodyStore } from "@/lib/wallet/wallet-idb"
+import { decryptField } from "@/lib/crypto"
+import { Switch } from "@/components/ui/switch"
+import ElectrumConnectionTest from "@/components/wallet/electrum-connection-test"
+import {
+  getWalletFeaturePreference,
+  initializeWalletFeaturePreference,
+  setWalletFeaturePreference,
+  subscribeWalletFeaturePreference,
+} from "@/lib/wallet-feature-preference"
+
+const ExternalWallets = dynamic(
+  () => cacheWalletAssets("advanced", { enabled: true, reason: "demand" }).then(() => import("@/components/bitcoin-wallets-card")).then(module => module.BitcoinWalletsCard),
+  { ssr: false, loading: () => <p role="status" className="text-sm text-muted-foreground">Loading external wallet tools…</p> },
+)
+
+const PublicDataTools = dynamic(() => cacheWalletAssets("advanced", { enabled: true, reason: "demand" }).then(() => import("@/components/wallet/public-data-tools")), {
+  ssr: false,
+  loading: () => <p role="status" className="text-sm text-muted-foreground">Loading local data tools…</p>,
+})
+
+const WalletSetup = dynamic(() => cacheWalletAssets("signer", { enabled: true, reason: "demand" }).then(() => import("@/components/wallet/wallet-setup")), {
+  ssr: false,
+  loading: () => <p role="status" className="text-sm text-muted-foreground">Loading wallet setup…</p>,
+})
+const readinessMessages = {
+  "node-runtime": "The wallet server requires Node.js 22 or newer.",
+  "webauthn-config": "Configure WALLET_WEBAUTHN_RP_ID and WALLET_WEBAUTHN_ORIGINS for this deployment.",
+  "webauthn-origin": "This browser URL is not an allowed wallet passkey origin. Use the configured origin, not a preview proxy.",
+  "cosigner-key": "WALLET_COSIGNER_ENCRYPTION_KEY is missing or invalid. It must be a persistent 32-byte base64 secret, not your RPC password. Do not replace an existing key.",
+  "network-config": "WALLET_NETWORK must be signet, testnet4 or regtest. Mainnet wallet creation is not enabled yet.",
+  "wallet-schema": "Wallet tables or columns are missing from the configured database. A reviewed wallet migration is required before setup.",
+  "database": "The wallet database could not be queried. Check server database connectivity and permissions.",
+  "wasm": "The wallet cryptographic build could not load. Build wallet-mpc before building the application.",
+}
+const capabilitiesSchema = z.object({
+  issues: z.array(z.enum(["node-runtime", "webauthn-config", "webauthn-origin", "cosigner-key", "network-config", "wallet-schema", "database", "wasm"])).optional(),
+  creationAvailable: z.boolean(), custodyAllowed: z.boolean().optional(), network: z.enum(["signet", "testnet4", "regtest"]).optional(), hasCredential: z.boolean().optional(),
+  wallets: z.array(z.object({ id: z.string().uuid(), network: z.enum(["signet", "testnet4", "regtest"]), status: z.string(), signingAvailable: z.boolean(), recoveryVerifiedAt: z.string().nullable().optional() })),
+})
+type Capabilities = z.infer<typeof capabilitiesSchema>
+
+const explanations = [
+  { title: "Your device", description: "Your device holds one protected share. Device verification is required before signing.", Icon: Fingerprint },
+  { title: "A separate co-signer", description: "BitBudget holds a second share. It cannot spend with that share alone.", Icon: ShieldCheck },
+  { title: "Your recovery file", description: "An encrypted recovery share lets you recover with your device or the co-signer. One share alone cannot spend.", Icon: Download },
+]
+
+export default function WalletEntry({ userId, visible }: { userId: string; visible: boolean }) {
+  const [view, setView] = useState<"overview" | "external" | "tools" | "setup">("overview")
+  const [preferenceError, setPreferenceError] = useState(false)
+  const [capabilities, setCapabilities] = useState<Capabilities | null>(null)
+  const [serviceError, setServiceError] = useState(false)
+  const [refresh, setRefresh] = useState(0)
+  const [resumeWalletId, setResumeWalletId] = useState<string | undefined>()
+  const [names, setNames] = useState<Record<string, string>>({})
+  const { getPrivacyKey } = useApp()
+  const remembered = useSyncExternalStore(
+    subscribeWalletFeaturePreference,
+    () => getWalletFeaturePreference(userId),
+    () => false,
+  )
+
+  useEffect(() => {
+    if (visible) initializeWalletFeaturePreference(userId)
+  }, [userId, visible])
+
+  useEffect(() => {
+    let cancelled = false
+    const controller = new AbortController()
+    void walletRequest("/api/wallets", undefined, controller.signal).then(async response => {
+      const next = capabilitiesSchema.parse(response)
+      if (cancelled) return
+      setCapabilities(next); setServiceError(false)
+      const key = getPrivacyKey()
+      if (!key) return
+      let store
+      try {
+        store = await openWalletCustodyStore(userId)
+        const labels: Record<string, string> = {}
+        for (const wallet of next.wallets) {
+          const record = await store.getWallet(wallet.id)
+          if (record?.encryptedName) labels[wallet.id] = await decryptField(record.encryptedName, key)
+        }
+        if (!cancelled) setNames(labels)
+      } finally { key.fill(0); store?.close() }
+    }).catch(() => { if (!cancelled) setServiceError(true) })
+    return () => { cancelled = true; controller.abort() }
+  }, [userId, refresh, getPrivacyKey])
+
+  if (!visible) return null
+
+  return (
+    <div className={`grid w-full min-w-0 grid-cols-1 items-start gap-5 ${view === "setup" ? "lg:grid-cols-2" : ""}`} data-wallet-feature="entry" data-wallet-asset-group="bitbudget-wallet-assets:monitor:v1">
+      <header className="col-span-full flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-sm text-[#F7931A]"><Wallet className="h-4 w-4" aria-hidden /> BitBudget Wallet</div>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Your wallet. Both sides of the fork.</h1>
+        </div>
+        <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs text-amber-200">Research preview</span>
+      </header>
+
+      <nav aria-label="Wallet views" className={`col-span-full flex flex-wrap gap-2 ${view === "setup" ? "hidden" : ""}`}>
+        <button type="button" aria-pressed={view === "overview"} onClick={() => setView("overview")} className={`rounded-full border px-4 py-2 text-sm ${view === "overview" ? "border-[#F7931A] text-[#F7931A]" : "border-border text-muted-foreground"}`}>Overview</button>
+        <button type="button" aria-pressed={view === "external"} onClick={() => setView("external")} className={`rounded-full border px-4 py-2 text-sm ${view === "external" ? "border-[#F7931A] text-[#F7931A]" : "border-border text-muted-foreground"}`}>External wallet tracking</button>
+        <button type="button" aria-pressed={view === "tools"} onClick={() => setView("tools")} className={`rounded-full border px-4 py-2 text-sm ${view === "tools" ? "border-[#F7931A] text-[#F7931A]" : "border-border text-muted-foreground"}`}>Public data tools</button>
+      </nav>
+
+      {view === "setup" && capabilities?.network ? <WalletSetup userId={userId} network={capabilities.wallets.find(wallet => wallet.id === resumeWalletId)?.network ?? capabilities.network} hasCredential={capabilities.hasCredential === true} resumeWalletId={resumeWalletId} onChanged={() => setRefresh(value => value + 1)} onClose={() => { setView("overview"); setResumeWalletId(undefined); setRefresh(value => value + 1) }} /> : view === "external" ? <ExternalWallets /> : view === "tools" ? <PublicDataTools /> : (
+        <>
+          <section className="overflow-hidden rounded-2xl border border-[#F7931A]/20 bg-[#0D0D0D] p-4 sm:p-6">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+              <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl bg-[#F7931A]/10"><LockKeyhole className="h-12 w-12 text-[#F7931A]" aria-hidden /></div>
+              <div className="min-w-0">
+                <h2 className="text-xl font-semibold">Your bitcoin, inside your budget.</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Track a wallet you already own and its spending and receiving flow straight into your envelopes and Savings. Or create a BitBudget wallet that uses any two of three shares to spend, with no seed phrase to lose.</p>
+                <p role="status" className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-200">BitBudget wallets are a test-network preview: create and verify one with a passkey and recovery file. Sending and fundable receive addresses are not enabled yet.</p>
+              </div>
+            </div>
+          </section>
+
+          <div className="grid gap-3 md:grid-cols-2" aria-label="Wallet options">
+            <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:p-5">
+              <Eye className="mb-3 h-6 w-6 text-[#F7931A]" aria-hidden />
+              <h2 className="font-semibold">Track a wallet you already have</h2>
+              <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">Paste a public key (xpub). Spending shows up in an envelope you choose; receiving grows Savings. Your key never leaves this device. Included with every account.</p>
+              <button type="button" onClick={() => setView("external")} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#F7931A] px-4 py-2.5 text-sm font-semibold text-[#F7931A] sm:w-fit">Open wallet tracking <ArrowRight className="h-4 w-4" aria-hidden /></button>
+            </section>
+            <section className="flex min-w-0 flex-col rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:p-5">
+              <Sparkles className="mb-3 h-6 w-6 text-[#F7931A]" aria-hidden />
+              <h2 className="font-semibold">Create a BitBudget wallet</h2>
+              <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">A wallet protected by your device, a separate co-signer, and a recovery file. No seed phrase. Part of BitBudget Premium and the free trial.</p>
+              {capabilities?.custodyAllowed === false ? (
+                <p role="status" className="mt-4 rounded-xl border border-border bg-[#1A1A1A] p-3 text-sm text-muted-foreground">Creating a wallet is part of Premium. Wallet tracking above stays free, and any wallet you already created here stays yours.</p>
+              ) : (
+                <button type="button" disabled={!capabilities?.creationAvailable} onClick={() => { setResumeWalletId(undefined); setView("setup") }} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#F7931A] px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50 sm:w-fit"><Plus className="h-4 w-4" aria-hidden />{capabilities?.wallets.length ? "Create another wallet" : "Create wallet"}</button>
+              )}
+            </section>
+          </div>
+
+          <div>
+            {serviceError || capabilities?.creationAvailable === false ? <div role="status" className="mt-2 space-y-2 text-sm text-amber-200">
+              <p>Wallet creation is unavailable on this server. Its wallet configuration, build and database must be ready before setup.</p>
+              {capabilities?.issues?.length ? <ul className="list-disc space-y-1 pl-5">{capabilities.issues.map(issue => <li key={issue}>{readinessMessages[issue]}</li>)}</ul> : null}
+              <p className="text-muted-foreground">An Electrum connection does not satisfy these custody prerequisites. No database or environment settings are changed by this check.</p>
+              <button type="button" onClick={() => setRefresh(value => value + 1)} className="rounded-lg border border-border px-3 py-2 text-foreground">Recheck wallet setup</button>
+            </div> : !capabilities ? <p role="status" className="mt-2 text-sm text-muted-foreground">Checking wallet availability…</p> : null}
+          </div>
+          {capabilities?.wallets.length ? <section className="space-y-3" aria-label="Your wallets">{capabilities.wallets.map((wallet, index) => <div key={wallet.id} className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-[#0D0D0D] p-4">
+            <div className="min-w-0"><h2 className="truncate font-semibold">{names[wallet.id] ?? `Wallet ${index + 1}`}</h2><p className="mt-1 text-xs text-muted-foreground">{wallet.network} · one wallet, both lineages</p><p className={`mt-2 text-sm ${wallet.status === "ready" ? "text-green-400" : "text-amber-200"}`}>{wallet.status === "ready" ? "Recovery verified · signing locked" : "Recovery setup incomplete"}</p></div>
+            {wallet.status !== "ready" ? <button type="button" disabled={!capabilities.creationAvailable || capabilities.custodyAllowed === false} onClick={() => { setResumeWalletId(wallet.id); setView("setup") }} className="rounded-xl border border-border px-4 py-2 text-sm">Continue setup</button> : null}
+          </div>)}</section> : null}
+
+          <div className="grid gap-3 md:grid-cols-3">
+            {explanations.map(({ title, description, Icon }) => (
+              <section key={title} className="min-w-0 rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:p-5">
+                <Icon className="mb-4 h-6 w-6 text-[#F7931A]" aria-hidden />
+                <h3 className="font-semibold">{title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
+              </section>
+            ))}
+          </div>
+
+          <section className="rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:p-6" aria-labelledby="wallet-connections-title">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Security</p>
+            <h2 id="wallet-connections-title" className="mt-1 font-semibold">Connections</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Connect a Blake2b-compatible transaction indexer to watch and spend on that side of the fork.</p>
+            <p className="mt-3 text-sm text-amber-200">Wallet indexer integration is not enabled yet. You can test an Electrum bridge without enabling spending.</p>
+            <ElectrumConnectionTest />
+          </section>
+        </>
+      )}
+
+      <aside aria-label="Wallet workspace options" className="flex min-w-0 flex-col gap-5">
+        <section className="flex flex-col gap-4 rounded-2xl border border-border bg-[#0D0D0D] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="min-w-0">
+            <label htmlFor="wallet-remember" className="font-medium">Remember this wallet workspace</label>
+            <p className="mt-1 text-sm text-muted-foreground">Keep the workspace enabled for this account on this browser. This never unlocks signing or sends a transaction.</p>
+            {preferenceError ? <p role="alert" className="mt-2 text-sm text-red-300">Your browser could not save this preference.</p> : null}
+          </div>
+          <Switch id="wallet-remember" checked={remembered} onCheckedChange={enabled => setPreferenceError(!setWalletFeaturePreference(userId, enabled))} />
+        </section>
+      </aside>
+    </div>
+  )
+}
