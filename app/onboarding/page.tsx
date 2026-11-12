@@ -27,7 +27,7 @@ import {
   ONBOARDING_HINT_SAVINGS_SWEEP,
   OnboardingDismissibleHint,
 } from "@/components/onboarding-dismissible-hint"
-import { PlaidLinkButton } from "@/components/plaid-link-button"
+import { PlaidConnectionsSection } from "@/components/plaid-connections-section"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
@@ -86,16 +86,19 @@ import {
 } from "@/lib/onboarding-allocate-budget"
 import {
   isOnboardingDraftBudgetEnvelope,
+  isOnboardingVisibleServerEnvelope,
   withoutSystemSavingsEnvelope,
 } from "@/lib/onboarding-draft-envelopes"
 import {
   PAYDAY_LAST_OF_MONTH,
 } from "@/lib/payday-cadence"
 import {
+  ENVELOPE_DELETE_GRACE_DAYS,
   SAVINGS_EXPERIENCE_DISMISSED,
   SAVINGS_GOLD_ACCENT,
   SWEEP_POLICY_CARRY_FORWARD,
 } from "@/lib/constants"
+import { formatUsd } from "@/lib/data"
 import { SAVINGS_GOAL_DEFAULT_PERIOD } from "@/lib/savings-goal"
 import {
   cadenceDisplayInteger,
@@ -106,10 +109,17 @@ import {
 } from "@/lib/allocation-cadence"
 import { parseBitbudgetRefCookie } from "@/lib/bitbudget-ref-cookie"
 import { ONBOARDING_SESSION_STORAGE_KEY } from "@/lib/onboarding-session"
+import { normalizeUsdDraftInput, parseUsdDraftInput } from "@/lib/onboarding-income-input"
 import {
   REFEREE_PREMIUM_CARROT_FALLBACK,
   refereePremiumExperienceCarrot,
 } from "@/lib/subscription"
+import {
+  REFERRAL_REDEEM_SUCCESS_MESSAGE,
+  REFERRAL_VALIDATE_SUCCESS_HINT,
+  referralRedeemErrorMessage,
+  setReferralRedeemFlash,
+} from "@/lib/referral-redeem-messages"
 
 type Step =
   | "referral"
@@ -216,6 +226,7 @@ export default function OnboardingPage() {
   const [payDayOfWeek, setPayDayOfWeek] = useState(5)
   const [lastPaydayAt, setLastPaydayAt] = useState(() => new Date().toISOString().split("T")[0]!)
   const [estimatedAnnualIncome, setEstimatedAnnualIncome] = useState("")
+  const [incomeError, setIncomeError] = useState<string | null>(null)
 
   // Allocations
   const [allocPhase, setAllocPhase] = useState<AllocPhase>("budget")
@@ -292,6 +303,15 @@ export default function OnboardingPage() {
   const sliderRowRefs = useRef<(HTMLDivElement | null)[]>([])
   const allocSliderRangeInputRefs = useRef<(HTMLInputElement | null)[]>([])
   const allocSliderPointerRef = useRef<{ pointerId: number; idx: number } | null>(null)
+  const allocSliderPendingPointerRef = useRef<{
+    pointerId: number
+    idx: number
+    startX: number
+    startY: number
+    gestureMax: number
+    init: number
+    committed: boolean
+  } | null>(null)
   /** Coarse horizontal slider vs fine scroller — controls snap step and live display. */
   const allocSliderGestureKindRef = useRef<"coarse" | "fine" | null>(null)
   const allocSliderDragSessionRef = useRef<{
@@ -367,6 +387,7 @@ export default function OnboardingPage() {
   const [importResult, setImportResult] = useState<{
     imported: number
     skipped: number
+    duplicates: number
     newEnvelopes: string[]
   } | null>(null)
 
@@ -388,7 +409,7 @@ export default function OnboardingPage() {
   const [envelopeStepError, setEnvelopeStepError] = useState<string | null>(null)
   /** Server-side tx / recurring counts per envelope id — used for delete confirmation copy. */
   const [envelopeUsageById, setEnvelopeUsageById] = useState<
-    Record<string, { transactionCount: number; recurringCount: number }>
+    Record<string, { transactionCount: number; transactionTotalAmount: number; recurringCount: number }>
   >({})
   /** True while GET /api/envelopes?usage=1 is in flight — avoids treating unknown usage as zero. */
   const [envelopeUsageLoading, setEnvelopeUsageLoading] = useState(false)
@@ -414,6 +435,8 @@ export default function OnboardingPage() {
   const [refCodeInput, setRefCodeInput] = useState("")
   const [refValidating, setRefValidating] = useState(false)
   const [refError, setRefError] = useState<string | null>(null)
+  const [completeFinishError, setCompleteFinishError] = useState<string | null>(null)
+  const [setupApiError, setSetupApiError] = useState<string | null>(null)
 
   const refreshEnvelopeUsage = useCallback(async () => {
     setEnvelopeUsageLoading(true)
@@ -427,13 +450,16 @@ export default function OnboardingPage() {
       const rows = await res.json() as Array<{
         id: string
         transactionCount?: number
+        transactionTotalAmount?: number
         recurringCount?: number
       }>
-      const next: Record<string, { transactionCount: number; recurringCount: number }> = {}
+      const next: Record<string, { transactionCount: number; transactionTotalAmount: number; recurringCount: number }> = {}
       for (const r of rows) {
         if (!r.id) continue
         next[r.id] = {
           transactionCount: typeof r.transactionCount === "number" ? r.transactionCount : 0,
+          transactionTotalAmount:
+            typeof r.transactionTotalAmount === "number" ? r.transactionTotalAmount : 0,
           recurringCount: typeof r.recurringCount === "number" ? r.recurringCount : 0,
         }
       }
@@ -471,20 +497,25 @@ export default function OnboardingPage() {
             ...(typeof roe === "boolean" ? { referrerOpportunityCostEnabled: roe } : {}),
           })
         }
-        if (saved.income) setIncome(saved.income)
+        if (saved.income) setIncome(normalizeUsdDraftInput(String(saved.income)))
         if (saved.incomeMode) setIncomeMode(saved.incomeMode)
         if (saved.cadence) setCadence(saved.cadence)
         if (Array.isArray(saved.payDays) && saved.payDays.length > 0) setPayDays(saved.payDays)
         if (typeof saved.payDayOfWeek === "number") setPayDayOfWeek(saved.payDayOfWeek)
         if (typeof saved.lastPaydayAt === "string") setLastPaydayAt(saved.lastPaydayAt)
-        if (saved.estimatedAnnualIncome) setEstimatedAnnualIncome(saved.estimatedAnnualIncome)
+        if (saved.estimatedAnnualIncome) {
+          setEstimatedAnnualIncome(normalizeUsdDraftInput(String(saved.estimatedAnnualIncome)))
+        }
         if (saved.allocPhase) setAllocPhase(saved.allocPhase)
         if (typeof saved.savingsGoalAmount === "number") {
           setSavingsGoalAmount(saved.savingsGoalAmount)
         } else if (saved.allocPhase === "savings-goal") {
           const regular =
             saved.incomeMode !== "irregular"
-              ? monthlyBudgetForAllocation(parseFloat(saved.income) || 0, saved.cadence ?? "monthly")
+              ? monthlyBudgetForAllocation(
+                  parseUsdDraftInput(String(saved.income)) ?? 0,
+                  saved.cadence ?? "monthly",
+                )
               : 0
           const irregular =
             saved.incomeMode === "irregular" || saved.incomeMode === "mix"
@@ -531,17 +562,29 @@ export default function OnboardingPage() {
   }, [])
 
   useEffect(() => {
+    if (step !== "income") return
+    setIncome((prev) => {
+      const next = normalizeUsdDraftInput(prev)
+      return next === prev ? prev : next
+    })
+    setEstimatedAnnualIncome((prev) => {
+      const next = normalizeUsdDraftInput(prev)
+      return next === prev ? prev : next
+    })
+  }, [step])
+
+  useEffect(() => {
     if (!hydrated) return
     try {
       sessionStorage.setItem(ONBOARDING_SESSION_STORAGE_KEY, JSON.stringify({
         step,
-        income,
+        income: normalizeUsdDraftInput(income),
         incomeMode,
         cadence,
         payDays,
         payDayOfWeek,
         lastPaydayAt,
-        estimatedAnnualIncome,
+        estimatedAnnualIncome: normalizeUsdDraftInput(estimatedAnnualIncome),
         allocPhase,
         savingsGoalAmount,
         savingsGoalPct,
@@ -814,9 +857,11 @@ export default function OnboardingPage() {
   }
 
   /** Redeem referral from state or `bitbudget_ref` cookie (covers skipped referral step). */
-  async function redeemPendingReferralIfAny(): Promise<boolean> {
+  async function redeemPendingReferralIfAny(): Promise<
+    { ok: true } | { ok: false; message: string }
+  > {
     const payload = referralPayloadForRedeem()
-    if (!payload?.code) return false
+    if (!payload?.code) return { ok: true }
     try {
       const res = await fetch("/api/referral/redeem", {
         method: "POST",
@@ -826,10 +871,17 @@ export default function OnboardingPage() {
           shareMethod: payload.shareMethod,
         }),
       })
-      if (res.ok) clearBitbudgetRefCookie()
-      return res.ok
+      const j = (await res.json().catch(() => ({}))) as { error?: string; code?: string }
+      if (res.ok) {
+        clearBitbudgetRefCookie()
+        return { ok: true }
+      }
+      return { ok: false, message: referralRedeemErrorMessage(j) }
     } catch {
-      return false
+      return {
+        ok: false,
+        message: "We couldn't apply your referral code. Check your connection and try again.",
+      }
     }
   }
 
@@ -922,10 +974,27 @@ export default function OnboardingPage() {
   }
 
   async function handleIncomeSave() {
+    setIncomeError(null)
+    const parsedIncome = incomeMode !== "irregular" ? parseUsdDraftInput(income) : null
+    if (incomeMode !== "irregular") {
+      if (parsedIncome == null) {
+        setIncomeError("Enter a paycheck amount greater than zero.")
+        return
+      }
+      setIncome(String(parsedIncome))
+    }
+
+    const annualRaw = estimatedAnnualIncome.trim()
+    const parsedAnnual = annualRaw === "" ? 0 : parseUsdDraftInput(annualRaw)
+    if (annualRaw !== "" && parsedAnnual == null) {
+      setIncomeError("Enter a valid estimated annual income, or leave it blank.")
+      return
+    }
+
     setLoading(true)
     try {
-      const rawIncome = parseFloat(income) || 0
-      const annualEstimate = parseFloat(estimatedAnnualIncome) || 0
+      const rawIncome = parsedIncome ?? 0
+      const annualEstimate = parsedAnnual ?? 0
       const regularMonthly =
         incomeMode !== "irregular"
           ? monthlyBudgetForAllocation(rawIncome, cadence)
@@ -1057,6 +1126,7 @@ export default function OnboardingPage() {
       icon: string | null
       monthlyAllotment: number
       archived: boolean
+      deletedAt?: string | null
       systemRole: string | null
     }>
     try {
@@ -1069,12 +1139,13 @@ export default function OnboardingPage() {
         icon: string | null
         monthlyAllotment: number
         archived: boolean
+        deletedAt?: string | null
         systemRole: string | null
       }>
     } catch {
       return false
     }
-    const active = all.filter(e => !e.archived && isOnboardingDraftBudgetEnvelope(e))
+    const active = all.filter(isOnboardingVisibleServerEnvelope)
 
     setEnvelopes(prev => {
       const seenIds = new Set<string>()
@@ -1127,9 +1198,16 @@ export default function OnboardingPage() {
       if (listForSync.some(e => !e.id)) {
         const res = await fetch("/api/envelopes")
         if (res.ok) {
-          const server = await res.json() as Array<{ id: string; name: string }>
+          const server = await res.json() as Array<{
+            id: string
+            name: string
+            archived?: boolean
+            deletedAt?: string | null
+            systemRole?: string | null
+          }>
           const byName = new Map<string, string>()
           for (const s of server) {
+            if (!isOnboardingVisibleServerEnvelope(s)) continue
             const key = s.name.toLocaleLowerCase()
             if (!byName.has(key)) byName.set(key, s.id)
           }
@@ -1278,6 +1356,8 @@ export default function OnboardingPage() {
 
 
   async function handleComplete() {
+    setCompleteFinishError(null)
+    setSetupApiError(null)
     setLoading(true)
     try {
       const res = await fetch("/api/user/settings", {
@@ -1290,11 +1370,17 @@ export default function OnboardingPage() {
         return
       }
       if (!res.ok) {
+        setSetupApiError("We couldn't finish setup. Please try again.")
         return
       }
       const hadReferralCode = !!referralPayloadForRedeem()?.code
-      const redeemOk = await redeemPendingReferralIfAny()
-      if (hadReferralCode && redeemOk) {
+      if (hadReferralCode) {
+        const redeemResult = await redeemPendingReferralIfAny()
+        if (!redeemResult.ok) {
+          setCompleteFinishError(redeemResult.message)
+          return
+        }
+        setReferralRedeemFlash({ type: "success", message: REFERRAL_REDEEM_SUCCESS_MESSAGE })
         setStep("referral-bank")
         return
       }
@@ -1308,17 +1394,17 @@ export default function OnboardingPage() {
   const allocateMonthlyBudget = useMemo(() => {
     const regular =
       incomeMode !== "irregular"
-        ? monthlyBudgetForAllocation(parseFloat(income) || 0, cadence)
+        ? monthlyBudgetForAllocation(parseUsdDraftInput(income) ?? 0, cadence)
         : 0
     const irregular =
       incomeMode === "irregular" || incomeMode === "mix"
-        ? monthlyCapacityFromAnnualEstimate(parseFloat(estimatedAnnualIncome) || 0)
+        ? monthlyCapacityFromAnnualEstimate(parseUsdDraftInput(estimatedAnnualIncome) ?? 0)
         : 0
     return regular + irregular
   }, [incomeMode, income, cadence, estimatedAnnualIncome])
   const savingsGoalPaycheckPct = useMemo(() => {
     if (incomeMode === "irregular") return null
-    return savingsGoalPercentOfPaycheck(savingsGoalAmount, parseFloat(income) || 0)
+    return savingsGoalPercentOfPaycheck(savingsGoalAmount, parseUsdDraftInput(income) ?? 0)
   }, [incomeMode, income, savingsGoalAmount])
   const savings = Math.max(0, allocateMonthlyBudget - totalAllocated)
   const unboundedAlloc = isUnboundedOnboardingAllocation(allocateMonthlyBudget)
@@ -1415,6 +1501,7 @@ export default function OnboardingPage() {
     !envelopeUsageLoading &&
     Object.prototype.hasOwnProperty.call(envelopeUsageById, pendingDeleteEnvId)
   const pendingDeleteTxs = pendingDeleteUsageReady ? (pendingDeleteUsage?.transactionCount ?? 0) : 0
+  const pendingDeleteTxTotal = pendingDeleteUsageReady ? (pendingDeleteUsage?.transactionTotalAmount ?? 0) : 0
   const pendingDeleteRec = pendingDeleteUsageReady ? (pendingDeleteUsage?.recurringCount ?? 0) : 0
 
   /**
@@ -1665,7 +1752,11 @@ export default function OnboardingPage() {
 
         <Progress value={progress} className="h-1.5" />
 
-        <div className="bg-[#0D0D0D] rounded-2xl p-2">
+        <div
+          className={`bg-[#0D0D0D] rounded-2xl ${
+            step === "allocations" && allocPhase === "budget" ? "p-2 sm:py-8 sm:p-8" : "py-8 px-4 sm:p-8"
+          }`}
+        >
           {restoredSession && !isNostr && step !== "referral" && step !== "security" && step !== "complete" && step !== "referral-bank" && (
             <div className="flex items-start gap-3 p-3 rounded-xl bg-[#3B82F6]/10 border border-[#3B82F6]/20 mb-6">
               <ShieldCheck className="h-5 w-5 text-[#3B82F6] shrink-0 mt-0.5" />
@@ -1717,7 +1808,8 @@ export default function OnboardingPage() {
               </div>
               {pendingReferral ? (
                 <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 text-sm text-[#86EFAC]">
-                  Referral code applied: <span className="font-mono font-semibold">{pendingReferral.code}</span>
+                  {REFERRAL_VALIDATE_SUCCESS_HINT}{" "}
+                  <span className="font-mono font-semibold">{pendingReferral.code}</span>
                   <button
                     type="button"
                     className="ml-2 text-xs underline text-[#BBF7D0]"
@@ -1962,9 +2054,9 @@ export default function OnboardingPage() {
           {/* Income Step */}
           {step === "income" && (
             <form
-              onSubmit={e => {
+              onSubmit={(e) => {
                 e.preventDefault()
-                if (incomeMode === "irregular" || income) handleIncomeSave()
+                void handleIncomeSave()
               }}
               className="flex flex-col gap-6"
             >
@@ -1974,7 +2066,7 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">Your income</h2>
-                  <p className="text-sm text-muted-foreground">Tell us how money arrives so your budget refills on your actual paydays</p>
+                  <p className="text-sm text-muted-foreground">Tell us how money arrives — paydays grow Savings; envelopes refill on the 1st of each month</p>
                 </div>
               </div>
 
@@ -2012,13 +2104,18 @@ export default function OnboardingPage() {
                       <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
                         <Input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
                           value={income}
-                          onChange={e => setIncome(e.target.value)}
+                          onChange={(e) => {
+                            setIncomeError(null)
+                            setIncome(normalizeUsdDraftInput(e.target.value))
+                          }}
+                          onBlur={() => setIncome((prev) => normalizeUsdDraftInput(prev))}
                           placeholder="2,500"
                           className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7 text-lg"
-                          min="0"
-                          step="any"
+                          aria-invalid={incomeError != null}
                         />
                       </div>
                     </div>
@@ -2141,13 +2238,20 @@ export default function OnboardingPage() {
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
                       <Input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
                         value={estimatedAnnualIncome}
-                        onChange={e => setEstimatedAnnualIncome(e.target.value)}
+                        onChange={(e) => {
+                          setIncomeError(null)
+                          setEstimatedAnnualIncome(normalizeUsdDraftInput(e.target.value))
+                        }}
+                        onBlur={() =>
+                          setEstimatedAnnualIncome((prev) => normalizeUsdDraftInput(prev))
+                        }
                         placeholder="60,000"
                         className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555] pl-7"
-                        min="0"
-                        step="any"
+                        aria-invalid={incomeError != null}
                       />
                     </div>
                     <p className="text-[11px] text-muted-foreground">
@@ -2156,6 +2260,12 @@ export default function OnboardingPage() {
                   </div>
                 )}
               </div>
+
+              {incomeError ? (
+                <p className="text-sm text-amber-400/95" role="alert">
+                  {incomeError}
+                </p>
+              ) : null}
 
               <div className="flex gap-3">
                 <button
@@ -2169,7 +2279,10 @@ export default function OnboardingPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || (incomeMode !== "irregular" && !income)}
+                  disabled={
+                    loading ||
+                    (incomeMode !== "irregular" && parseUsdDraftInput(income) == null)
+                  }
                   className="flex-1 py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {loading ? "Saving..." : "Continue"}
@@ -2444,7 +2557,10 @@ export default function OnboardingPage() {
                   border-radius: 3px;
                   outline: none;
                   cursor: pointer;
-                  touch-action: pan-y;
+                  touch-action: pan-x;
+                  padding: 0;
+                  margin: 0;
+                  background: transparent;
                 }
                 input[type="range"].alloc-slider::-webkit-slider-thumb {
                   -webkit-appearance: none;
@@ -2526,12 +2642,43 @@ export default function OnboardingPage() {
                     }}
                   >
                     <p className="text-sm text-muted-foreground leading-relaxed">
-                      BitBudget is a full ledger-style budgeting app. Your income goes right into Savings, and then Savings is drawn down to cover expenses and to fill your envelopes each month.
+                      BitBudget maintains a continuous ledger to help you budget. Your income goes directly 
+                      into Savings, and then Savings is drawn down each month to fill your
+                      budget envelopes.
                     </p>
                     <p className="text-sm text-muted-foreground leading-relaxed">
                       Pick a ballpark target for now. You can adjust it anytime as your budget takes shape.
                     </p>
                   </OnboardingDismissibleHint>
+
+                  {!unboundedAlloc && allocateMonthlyBudget > 0 && (
+                    <div className="rounded-xl border border-[#252525] bg-[#1A1A1A] px-4 py-3 flex flex-col gap-2">
+                      <div className="flex items-baseline justify-between gap-4">
+                        <span className="text-xs text-muted-foreground">Your income</span>
+                        <span className="text-sm font-semibold text-foreground tabular-nums">
+                          ${Math.round(allocateMonthlyBudget).toLocaleString()}<span className="text-xs font-normal text-muted-foreground">/mo</span>
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-4">
+                        <span className="text-xs text-muted-foreground">Your estimated expenses</span>
+                        <span className="text-sm text-muted-foreground tabular-nums">
+                          − ${Math.round(totalAllocated).toLocaleString()}<span className="text-xs">/mo</span>
+                        </span>
+                      </div>
+                      <div
+                        className="border-t pt-2 mt-0.5 flex items-center justify-between gap-3"
+                        style={{ borderColor: `${SAVINGS_GOLD_ACCENT}44` }}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <PiggyBank className="h-4 w-4" style={{ color: SAVINGS_GOLD_ACCENT }} />
+                          <span className="text-sm font-semibold" style={{ color: SAVINGS_GOLD_ACCENT }}>Savings</span>
+                        </div>
+                        <span className="text-lg font-bold tabular-nums" style={{ color: SAVINGS_GOLD_ACCENT }}>
+                          ${Math.round(savings).toLocaleString()}<span className="text-sm font-normal text-muted-foreground">/mo</span>
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="rounded-xl border border-[#252525] bg-[#1A1A1A] p-5 flex flex-col gap-4">
                     <div className="flex items-baseline justify-between gap-3">
@@ -2647,7 +2794,7 @@ export default function OnboardingPage() {
               </div>
 
               {/* Stacked bar + sliders — scrollable on small screens so Continue stays reachable */}
-              <div className="flex min-w-0 flex-col gap-4 max-md:max-h-[calc(100dvh-13rem)] max-md:overflow-x-hidden max-md:overflow-y-auto max-md:overscroll-y-contain max-md:[-webkit-overflow-scrolling:touch]">
+              <div className="flex min-w-0 flex-col max-md:max-h-[calc(100dvh-13rem)] max-md:space-y-4 max-md:overflow-x-hidden max-md:overflow-y-scroll max-md:overscroll-y-contain max-md:touch-pan-y max-md:[-webkit-overflow-scrolling:touch]">
               {showAllocStackBar && (
                 <div
                   className="sticky top-0 z-20 max-md:mx-0 max-md:px-0 -mx-8 px-8 py-3 -mt-2 mb-2 bg-[#0D0D0D] border-b border-[#1F1F1F] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
@@ -2760,8 +2907,8 @@ export default function OnboardingPage() {
                 </div>
               )}
 
-              {/* Per-envelope slider rows */}
-              <div className="flex min-w-0 flex-col gap-4">
+              {/* Per-envelope slider rows — space-y (not gap) so iOS can scroll between rows */}
+              <div className="flex min-w-0 flex-col max-md:space-y-4">
                 {envelopes.map((env, idx) => {
                   const lockedGestureMax =
                     unboundedAlloc && allocSliderLockedMax?.idx === idx
@@ -2832,16 +2979,16 @@ export default function OnboardingPage() {
                     <div
                       key={idx}
                       ref={el => { sliderRowRefs.current[idx] = el }}
-                      className={`flex min-w-0 flex-col gap-2 p-3 rounded-xl transition-colors ${
+                      className={`flex min-w-0 flex-col gap-2 p-3 rounded-xl transition-colors max-md:pointer-events-none ${
                         activeEnvIdx === idx ? "bg-[#1A1A1A]" : "bg-transparent"
                       }`}
                       onClick={() => setActiveEnvIdx(idx)}
                     >
                       {/* Narrow screens: title row so name isn&apos;t squeezed out by amount controls */}
-                      <p className="sm:hidden text-xs font-semibold text-foreground leading-snug truncate">
+                      <p className="sm:hidden text-xs font-semibold text-foreground leading-snug truncate max-md:pointer-events-auto">
                         {env.name}
                       </p>
-                      <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3 max-md:pointer-events-auto">
                         <div
                           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                           style={{ backgroundColor: `${env.color}22` }}
@@ -2920,7 +3067,8 @@ export default function OnboardingPage() {
                         </div>
                       </div>
 
-                      <div className="flex min-w-0 items-center gap-2">
+                      <div className="flex min-w-0 items-center gap-2 max-md:pointer-events-auto">
+                      <div className="relative flex h-8 min-w-0 flex-1 items-center overflow-hidden">
                       <input
                         type="range"
                         ref={el => { allocSliderRangeInputRefs.current[idx] = el }}
@@ -2955,33 +3103,74 @@ export default function OnboardingPage() {
                           const init = Number.isFinite(rawInit)
                             ? Math.min(gestureMax, Math.max(0, rawInit))
                             : 0
-                          beginAllocSliderGesture(idx, init, gestureMax)
-                          allocSliderGestureKindRef.current = "coarse"
-                          allocSliderPointerRef.current = { pointerId: e.pointerId, idx }
-                          try {
-                            e.currentTarget.setPointerCapture(e.pointerId)
-                          } catch {
-                            /* noop */
+                          allocSliderPendingPointerRef.current = {
+                            pointerId: e.pointerId,
+                            idx,
+                            startX: e.clientX,
+                            startY: e.clientY,
+                            gestureMax,
+                            init,
+                            committed: false,
                           }
                         }}
+                        onPointerMove={e => {
+                          const pending = allocSliderPendingPointerRef.current
+                          if (!pending || pending.pointerId !== e.pointerId || pending.idx !== idx) return
+                          if (pending.committed) return
+
+                          const dx = e.clientX - pending.startX
+                          const dy = e.clientY - pending.startY
+                          if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 8) {
+                            allocSliderPendingPointerRef.current = null
+                            return
+                          }
+                          if (Math.abs(dx) <= Math.abs(dy) || Math.abs(dx) <= 8) return
+
+                          pending.committed = true
+                          const currentNativeRaw = parseInt(e.currentTarget.value, 10)
+                          const currentInit = Number.isFinite(currentNativeRaw)
+                            ? Math.min(pending.gestureMax, Math.max(0, currentNativeRaw))
+                            : pending.init
+                          beginAllocSliderGesture(idx, currentInit, pending.gestureMax)
+                          allocSliderGestureKindRef.current = "coarse"
+                          allocSliderPointerRef.current = { pointerId: e.pointerId, idx }
+                        }}
                         onPointerUp={e => {
-                          if (allocSliderPointerRef.current?.pointerId === e.pointerId) {
-                            try {
-                              e.currentTarget.releasePointerCapture(e.pointerId)
-                            } catch {
-                              /* noop */
-                            }
+                          const pending = allocSliderPendingPointerRef.current
+                          if (
+                            pending?.pointerId === e.pointerId &&
+                            pending.idx === idx &&
+                            !pending.committed
+                          ) {
+                            allocSliderPendingPointerRef.current = null
+                            return
+                          }
+                          allocSliderPendingPointerRef.current = null
+                          if (allocSliderPointerRef.current?.pointerId !== e.pointerId) return
+                          try {
+                            e.currentTarget.releasePointerCapture(e.pointerId)
+                          } catch {
+                            /* noop */
                           }
                           releaseAllocSliderRow(idx, e.currentTarget, unboundedAlloc)
                           allocSliderSkipBlurCommitRef.current = idx
                         }}
                         onPointerCancel={e => {
-                          if (allocSliderPointerRef.current?.pointerId === e.pointerId) {
-                            try {
-                              e.currentTarget.releasePointerCapture(e.pointerId)
-                            } catch {
-                              /* noop */
-                            }
+                          const pending = allocSliderPendingPointerRef.current
+                          if (
+                            pending?.pointerId === e.pointerId &&
+                            pending.idx === idx &&
+                            !pending.committed
+                          ) {
+                            allocSliderPendingPointerRef.current = null
+                            return
+                          }
+                          allocSliderPendingPointerRef.current = null
+                          if (allocSliderPointerRef.current?.pointerId !== e.pointerId) return
+                          try {
+                            e.currentTarget.releasePointerCapture(e.pointerId)
+                          } catch {
+                            /* noop */
                           }
                           releaseAllocSliderRow(idx, e.currentTarget, unboundedAlloc)
                           allocSliderSkipBlurCommitRef.current = idx
@@ -2999,6 +3188,7 @@ export default function OnboardingPage() {
                           "--slider-pct": `${sliderPct}%`,
                         } as React.CSSProperties}
                       />
+                      </div>
                       <OnboardingAllocFineScroller
                         accentColor={env.color}
                         ariaLabel={`Fine adjust ${env.name} monthly allotment`}
@@ -3126,7 +3316,7 @@ export default function OnboardingPage() {
                 className="border border-[#252525] bg-[#1A1A1A]/60"
               >
                 <p className="text-xs text-muted-foreground text-center leading-relaxed">
-                  We&apos;ll sweep leftover envelope balances to Savings on each payday — you can change this in Settings anytime.
+                  We&apos;ll sweep leftover envelope balances to Savings on the 1st of each month — you can change this in Settings anytime.
                 </p>
               </OnboardingDismissibleHint>
 
@@ -3217,6 +3407,27 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground text-center">
                 Your envelopes are ready and your data is secured.
               </p>
+              {setupApiError ? (
+                <div
+                  role="alert"
+                  className="w-full rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300 text-left"
+                >
+                  {setupApiError}
+                </div>
+              ) : null}
+              {completeFinishError ? (
+                <div
+                  role="alert"
+                  className="w-full rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300 space-y-2 text-left"
+                >
+                  <p className="font-medium text-red-200">Referral code couldn&apos;t be applied</p>
+                  <p>{completeFinishError}</p>
+                  <p className="text-xs text-red-300/90">
+                    Go <strong className="text-red-200">Back</strong> to check the code, or apply it later under{" "}
+                    <strong className="text-red-200">Settings → Referrals</strong> (within 7 days of finishing setup).
+                  </p>
+                </div>
+              ) : null}
               {refereeTrialExplainerOnComplete ? (
                 <OnboardingDismissibleHint
                   hintId={ONBOARDING_HINT_REFERRAL_COMPLETE}
@@ -3257,6 +3468,13 @@ export default function OnboardingPage() {
 
           {step === "referral-bank" && (
             <div className="flex flex-col gap-6 py-2">
+              <div className="rounded-xl border border-[#22C55E]/30 bg-[#22C55E]/10 px-4 py-3 flex items-start gap-3">
+                <Gift className="h-5 w-5 text-[#22C55E] shrink-0 mt-0.5" aria-hidden />
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-[#86EFAC]">Referral code applied!</p>
+                  <p className="text-sm text-[#BBF7D0]/90">{REFERRAL_REDEEM_SUCCESS_MESSAGE}</p>
+                </div>
+              </div>
               <div className="flex items-center gap-3">
                 <div className="p-3 rounded-xl bg-[#F7931A]/10">
                   <Building2 className="h-6 w-6 text-[#F7931A]" />
@@ -3286,12 +3504,7 @@ export default function OnboardingPage() {
                   Integrations.
                 </p>
               </OnboardingDismissibleHint>
-              <div className="flex flex-col items-stretch gap-2">
-                <p className="text-xs text-muted-foreground text-center">Bank sync (Plaid)</p>
-                <div className="flex justify-center">
-                  <PlaidLinkButton />
-                </div>
-              </div>
+              <PlaidConnectionsSection canConnect connectAlign="center" />
               <div className="flex flex-col gap-3">
                 <div className="grid grid-cols-2 gap-3">
                   <button
@@ -3358,9 +3571,9 @@ export default function OnboardingPage() {
                 ) : !pendingDeleteUsageReady ? (
                   <div className="space-y-3">
                     <p>
-                      We couldn&apos;t load usage for this envelope yet. Removing it may permanently delete
-                      associated transactions and recurring rules. Try loading usage again, or cancel and
-                      continue once your connection is stable.
+                      We couldn&apos;t load usage for this envelope yet. Removing it may delete
+                      associated transactions and recurring rules from your budget. Try loading usage
+                      again, or cancel and continue once your connection is stable.
                     </p>
                     <Button
                       type="button"
@@ -3377,14 +3590,18 @@ export default function OnboardingPage() {
                   </div>
                 ) : pendingDeleteTxs === 0 && pendingDeleteRec === 0 ? (
                   <p>
-                    This envelope will be removed from your list. You can add it again before you continue.
+                    This envelope will be removed from your list. You can add it again before you
+                    continue, or restore it from Envelopes for {ENVELOPE_DELETE_GRACE_DAYS} days after
+                    setup.
                   </p>
                 ) : (
                   <p>
-                    This will permanently delete{" "}
+                    This will remove{" "}
+                    <span className="font-medium text-foreground">{pendingDeleteEnv.name}</span> and
+                    delete{" "}
                     {[
                       pendingDeleteTxs > 0
-                        ? `${pendingDeleteTxs} transaction${pendingDeleteTxs === 1 ? "" : "s"}`
+                        ? `${pendingDeleteTxs} transaction${pendingDeleteTxs === 1 ? "" : "s"} totaling ${formatUsd(pendingDeleteTxTotal)}`
                         : null,
                       pendingDeleteRec > 0
                         ? `${pendingDeleteRec} recurring rule${pendingDeleteRec === 1 ? "" : "s"}`
@@ -3392,7 +3609,8 @@ export default function OnboardingPage() {
                     ]
                       .filter(Boolean)
                       .join(" and ")}{" "}
-                    in this envelope. This cannot be undone.
+                    from your budget. You can restore it from Envelopes for {ENVELOPE_DELETE_GRACE_DAYS}{" "}
+                    days after you finish setup.
                   </p>
                 )}
               </div>

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useSession } from "next-auth/react"
 import { BitbudgetLogo } from "@/components/bitbudget-logo"
-import { Settings2, LogOut, Upload, ScanLine, Crown, User } from "lucide-react"
+import { Settings2, LogOut, Upload, ScanLine, Crown, User, FileText } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
 import {
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function Header() {
-  const { navigateTo, refreshData, encryptForStorage, logout, subscriptionTier, state, setInputModeSheetOpen } = useApp()
+  const { navigateTo, refreshData, encryptForStorage, makeImportDedupeKeyComputer, logout, subscriptionTier, state, setInputModeSheetOpen, openStatementImporter } = useApp()
   const { data: session } = useSession()
   const userImage = session?.user?.image
   const userName = session?.user?.name
@@ -47,6 +47,7 @@ export function Header() {
             onClick={() => setInputModeSheetOpen(true)}
             className="h-10 w-10 rounded-full flex items-center justify-center bg-[#1A1A1A] border border-[#333] hover:bg-[#222] transition-colors md:hidden"
             aria-label="Input mode"
+            data-walkthrough="transaction-mode-btn"
           >
             <ScanLine className="h-4 w-4 text-[#F7931A]" />
           </button>
@@ -97,6 +98,13 @@ export function Header() {
                 <span>Import CSV</span>
               </DropdownMenuItem>
               <DropdownMenuItem
+                onClick={() => openStatementImporter()}
+                className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
+              >
+                <FileText className="mr-2 h-4 w-4 text-muted-foreground" />
+                <span>Import Statement</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 onClick={logout}
                 className="focus:bg-[#1F1F1F] focus:text-foreground cursor-pointer text-muted-foreground"
               >
@@ -124,6 +132,7 @@ export function Header() {
         onRequestAllocations={() => navigateTo("envelopes", undefined, { openAllocations: true })}
         onTryAnotherFile={() => setImportFile(null)}
         encryptFn={encryptForStorage}
+        makeDedupeKeyComputer={makeImportDedupeKeyComputer}
       />
     </>
   )

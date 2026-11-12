@@ -1,3 +1,8 @@
+import type { CommunicationPreferences } from "./communication-preferences"
+import { transactionCalendarDay } from "@/lib/transaction-dates"
+
+export type { CommunicationPreferenceKey, CommunicationPreferences } from "./communication-preferences"
+
 // ─── Types ───────────────────────────────────────────────────────────
 
 export type TransactionType = "expense" | "credit"
@@ -7,19 +12,27 @@ export type TransactionSource =
   | "voice"
   | "receipt_scan"
   | "sms"
+  | "notification_forward"
   | "email_forward"
   | "email_scan"
   | "plaid"
   | "paycheck"
+  | "retro_paycheck"
   | "irregular_income"
   | "envelope_funding_out"
   | "envelope_funding_in"
   | "income_import"
   | "envelope_sweep"
+  | "csv_import"
+  | "statement_import"
+  | "deficit_cover"
+  | "envelope_transfer_in"
+  | "envelope_transfer_out"
 
 export interface Transaction {
   id: string
-  date: string // ISO date string YYYY-MM-DD
+  /** Calendar `YYYY-MM-DD` or full ISO 8601 when a capture timestamp is stored. */
+  date: string
   payee: string
   amount: number
   type: TransactionType
@@ -32,6 +45,8 @@ export interface Transaction {
   /** Funding allocation legs hidden from global transaction lists */
   excludeFromMainHistory?: boolean
   fundingBatchId?: string | null
+  fundingBatchPeriodKey?: string | null
+  fundingBatchKind?: string | null
   /** Server creation timestamp for ordering same-day transactions. */
   createdAt?: string
   /** Server row version for delta sync (ISO 8601). */
@@ -65,6 +80,10 @@ export interface Envelope {
   systemRole?: string | null
   sweepPolicy?: string
   sweepCapMultiplier?: number | null
+  /** ISO date (YYYY-MM-DD) when the envelope was created — used as the balance genesis floor. */
+  createdAt?: string
+  /** ISO timestamp when soft-deleted; transactions are excluded from the ledger until restore or purge. */
+  deletedAt?: string | null
 }
 
 export interface Tag {
@@ -102,7 +121,12 @@ export interface AppState {
   monthlyIncome: number
   btcDisplayUnit: BtcDisplayUnit
   opportunityCostEnabled: boolean
+  communicationPreferences: CommunicationPreferences
   savingsExperience: string
+  walkthroughCompleted: boolean
+  setupGuideSnoozedUntil: string | null
+  setupGuideDismissed: boolean
+  setupGuideShowOnDashboard: boolean
 }
 
 export function compareTransactionsDesc(a: Transaction, b: Transaction): number {
@@ -276,7 +300,21 @@ export function getDefaultState(): AppState {
     monthlyIncome: 0,
     btcDisplayUnit: "sats",
     opportunityCostEnabled: false,
+    communicationPreferences: {
+      featureUpdates: true,
+      feedbackRequests: true,
+      recurringReminders: true,
+      renewalReminders: true,
+      importAlerts: true,
+    },
     savingsExperience: "engaged",
+    // Optimistic true until /api/user/settings hydrates — avoids flashing the tour
+    // for users who already completed it (default false fired the 800ms show timer
+    // before settings loaded).
+    walkthroughCompleted: true,
+    setupGuideSnoozedUntil: null,
+    setupGuideDismissed: false,
+    setupGuideShowOnDashboard: true,
   }
 }
 
@@ -286,8 +324,44 @@ export function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
+/** True for temporary client ids from {@link generateId} (not server cuid). */
+export function isClientOptimisticId(id: string): boolean {
+  return /^\d+-[a-z0-9]+$/.test(id)
+}
+
+/** After a full server txn sync, keep in-flight optimistic rows not yet on the server. */
+export function transactionsAfterFullServerSync<T extends { id: string }>(
+  transactions: T[],
+  serverIds: ReadonlySet<string>,
+): T[] {
+  return transactions.filter((t) => serverIds.has(t.id) || isClientOptimisticId(t.id))
+}
+
+/**
+ * Apply a successful create: replace the optimistic row, or append if sync already
+ * dropped it. Removes duplicate server-id rows when refresh merged the txn first.
+ */
+export function applyServerTransactionAfterOptimisticCreate<T extends { id: string }>(
+  transactions: readonly T[],
+  optimisticId: string,
+  serverRow: T,
+): T[] {
+  const idx = transactions.findIndex((t) => t.id === optimisticId)
+  if (idx >= 0) {
+    const next = transactions.filter(
+      (t) => t.id !== optimisticId && t.id !== serverRow.id,
+    )
+    const insertAt = Math.min(idx, next.length)
+    return [...next.slice(0, insertAt), serverRow, ...next.slice(insertAt)]
+  }
+  if (transactions.some((t) => t.id === serverRow.id)) {
+    return [...transactions]
+  }
+  return [serverRow, ...transactions]
+}
+
 export function getMonthKey(date: string): string {
-  return date.slice(0, 7)
+  return transactionCalendarDay(date).slice(0, 7)
 }
 
 export function getCurrentMonthKey(): string {
@@ -295,15 +369,33 @@ export function getCurrentMonthKey(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
 }
 
+/**
+ * Genesis floor for an envelope balance: one calendar day before the UTC creation date.
+ *
+ * Subtracting one day handles western-hemisphere users who create envelopes in the
+ * evening — their local date is one day behind UTC, so a UTC date of "2026-06-01"
+ * resolves to a floor of "2026-05-31", ensuring same-day transactions are always
+ * included regardless of timezone.  The one-day margin means at most one extra
+ * pre-genesis day could count, which is inconsequential compared to years of
+ * historical CSV data being excluded.
+ */
+export function envelopeGenesisFloor(createdAtIso: string): string {
+  const d = new Date(createdAtIso)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
 export function getTransactionsForEnvelope(
   transactions: readonly Transaction[],
   envelopeId: string,
   monthKey?: string,
+  genesisDateIso?: string,
 ): Transaction[] {
   return transactions.filter(
     t =>
       t.envelopeId === envelopeId &&
-      (monthKey ? getMonthKey(t.date) === monthKey : true),
+      (monthKey ? getMonthKey(t.date) === monthKey : true) &&
+      (genesisDateIso ? t.date >= genesisDateIso : true),
   )
 }
 
@@ -311,19 +403,26 @@ export function getEnvelopeBalance(
   transactions: readonly Transaction[],
   envelopeId: string,
   monthKey: string,
+  genesisDateIso?: string,
 ): number {
-  const monthTxns = getTransactionsForEnvelope(transactions, envelopeId, monthKey)
+  const monthTxns = getTransactionsForEnvelope(transactions, envelopeId, monthKey, genesisDateIso)
   const expenses = monthTxns.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0)
   const credits = monthTxns.filter(t => t.type === "credit").reduce((sum, t) => sum + t.amount, 0)
   return credits - expenses
 }
 
-/** All-time envelope balance (Savings hub total; not month-scoped). */
+/**
+ * All-time envelope balance (Savings hub total; not month-scoped).
+ * Pass `genesisDateIso` (from `envelopeGenesisFloor(envelope.createdAt)`) to
+ * exclude transactions that pre-date envelope creation — prevents historical CSV
+ * imports from driving new envelopes deeply negative.
+ */
 export function getEnvelopeBalanceAllTime(
   transactions: readonly Transaction[],
   envelopeId: string,
+  genesisDateIso?: string,
 ): number {
-  const txns = getTransactionsForEnvelope(transactions, envelopeId)
+  const txns = getTransactionsForEnvelope(transactions, envelopeId, undefined, genesisDateIso)
   const expenses = txns.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0)
   const credits = txns.filter(t => t.type === "credit").reduce((sum, t) => sum + t.amount, 0)
   return credits - expenses

@@ -8,12 +8,15 @@ import {
   getPayeeMappingReviewClusters,
   normalizePayeeKey,
   type PayeeNameCluster,
-  type PayeeNameVariant,
 } from "@/lib/payee-canonical"
-import { loadIgnoredPayeeMappingSuggestions } from "@/lib/payee-mapping-dismissals"
+import {
+  loadIgnoredPayeeMappingSuggestions,
+  addIgnoredPayeeMappingSuggestions,
+} from "@/lib/payee-mapping-dismissals"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Trash2, Link2, Loader2 } from "lucide-react"
+import { Trash2, Link2, Loader2, X, ChevronDown } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 type AliasRow = { id: string; sourceNormalized: string; canonicalPayee: string }
 
@@ -57,6 +60,13 @@ export function PayeeMappingsSettings() {
 
   useEffect(() => {
     loadAliases()
+  }, [loadAliases])
+
+  // Reload when the new-transaction dialog saves a mapping so the list stays current.
+  useEffect(() => {
+    const handler = () => loadAliases()
+    window.addEventListener("payee-aliases-updated", handler)
+    return () => window.removeEventListener("payee-aliases-updated", handler)
   }, [loadAliases])
 
   useEffect(() => {
@@ -147,6 +157,17 @@ export function PayeeMappingsSettings() {
     }
   }
 
+  function handleDismissCluster(cluster: PayeeNameCluster) {
+    if (!currentUserId) return
+    const keys = cluster.variants.map((v) => v.normalized)
+    addIgnoredPayeeMappingSuggestions(currentUserId, keys)
+    setIgnored((prev) => {
+      const next = new Set(prev)
+      for (const k of keys) next.add(k)
+      return next
+    })
+  }
+
   function displaySource(a: AliasRow): string {
     const hit = distinctPayeeNames.find((n) => normalizePayeeKey(n) === a.sourceNormalized)
     return hit ?? a.sourceNormalized
@@ -166,26 +187,23 @@ export function PayeeMappingsSettings() {
       <div>
         <h3 className="text-lg font-semibold text-foreground">Payee name mappings</h3>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          Imports (receipt scan, CSV, bank text) may spell the same merchant differently than your manual
-          entries. The <span className="text-foreground">source payee</span> is the text BitBudget sees
-          from an import or scan; the <span className="text-foreground">destination payee</span> is the
-          name BitBudget should use instead. You decide every mapping:
-          similar spellings are only merged automatically when they differ by spaces or punctuation (e.g.
-          Wal-Mart vs Walmart). Names like <span className="text-foreground">Walmart</span> and{" "}
-          <span className="text-foreground">Walmart Pharmacy</span> stay separate unless you add a mapping.
+          Imports (receipt scan, CSV, bank text) may spell the same merchant differently than your
+          manual entries. Tap a spelling to choose which one to keep — the others will map to it
+          automatically on future imports.
         </p>
       </div>
 
+      {/* Similar spellings — suggestion cards */}
       <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-6">
-        <div className="flex items-center gap-2 text-foreground">
+        <div className="flex items-center gap-2">
           <Link2 className="h-4 w-4 text-btc-orange" />
           <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Similar spellings in your data
           </h4>
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
-          These groups share the same letters (ignoring spaces and hyphens). Pick one destination payee to map
-          the others to, or leave them separate if they are different businesses for you.
+          These groups share the same letters (ignoring spaces and hyphens). Tap a spelling to keep it;
+          the rest will map to it. If they&apos;re different businesses, dismiss the card.
         </p>
         {loading ? (
           <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
@@ -195,24 +213,26 @@ export function PayeeMappingsSettings() {
         ) : pendingClusters.length === 0 ? (
           <p className="mt-4 text-sm text-muted-foreground">No spelling-only duplicates found.</p>
         ) : (
-          <ul className="mt-4 flex flex-col gap-4">
+          <ul className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {pendingClusters.map((cluster) => (
-              <ClusterRow
+              <ClusterCard
                 key={cluster.softKey}
                 cluster={cluster}
                 busy={clusterBusyKey === cluster.softKey}
                 onApply={(canonical) => void applyClusterMappings(cluster, canonical)}
+                onDismiss={() => handleDismissCluster(cluster)}
               />
             ))}
           </ul>
         )}
       </div>
 
+      {/* Saved mappings grid */}
       <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-6">
         <h4 className="text-sm font-semibold text-foreground">Saved mappings</h4>
         <p className="mt-1 text-sm text-muted-foreground">
-          When an import matches the left text, BitBudget uses the right payee. Existing transactions are not
-          rewritten—only new imports and scans.
+          When an import matches the left text, BitBudget uses the right payee. Existing transactions
+          are not rewritten—only new imports and scans.
         </p>
         {loading ? (
           <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
@@ -222,25 +242,28 @@ export function PayeeMappingsSettings() {
         ) : aliases.length === 0 ? (
           <p className="mt-4 text-sm text-muted-foreground">No saved mappings yet.</p>
         ) : (
-          <ul className="mt-4 divide-y divide-[#1F1F1F] border border-[#333] rounded-lg overflow-hidden">
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {aliases.map((a) => (
               <li
                 key={a.id}
-                className="flex flex-wrap items-center justify-between gap-3 bg-[#1A1A1A] px-4 py-3"
+                className="flex items-center gap-3 rounded-xl border border-[#222] bg-[#111] px-4 py-3"
               >
-                <div className="text-sm">
-                  <span className="text-muted-foreground">From </span>
-                  <span className="font-medium text-foreground">{displaySource(a)}</span>
-                  <span className="text-muted-foreground"> → </span>
-                  <span className="font-medium text-foreground">{a.canonicalPayee}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {displaySource(a)}
+                  </p>
+                  <div className="mt-1 flex items-center gap-1">
+                    <span className="text-[11px] text-muted-foreground/60">→</span>
+                    <p className="truncate text-xs text-muted-foreground">{a.canonicalPayee}</p>
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => void handleDelete(a.id)}
-                  className="rounded-md p-2 text-muted-foreground hover:bg-[#252525] hover:text-red-400"
+                  className="shrink-0 rounded-md p-1.5 text-muted-foreground/40 transition-colors hover:bg-white/5 hover:text-red-400"
                   title="Remove mapping"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </li>
             ))}
@@ -248,14 +271,15 @@ export function PayeeMappingsSettings() {
         )}
       </div>
 
+      {/* Manual add form */}
       <form
         onSubmit={(e) => void handleAddMapping(e)}
         className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-6"
       >
         <h4 className="text-sm font-semibold text-foreground">Add mapping</h4>
         <p className="mt-1 text-sm text-muted-foreground">
-          e.g. source payee <span className="text-foreground">WM SUPERCENTER</span> → destination payee{" "}
-          <span className="text-foreground">Walmart</span>
+          e.g. Receipts from <span className="text-foreground">WM SUPERCENTER</span> → show up in your budget
+          as <span className="text-foreground">Walmart</span>
         </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
@@ -264,7 +288,7 @@ export function PayeeMappingsSettings() {
               id="payee-map-source"
               value={newSource}
               onChange={(e) => setNewSource(e.target.value)}
-              placeholder="As it appears on receipts or imports"
+              placeholder="As it appears on receipts or statements"
               className="border-[#333] bg-[#1A1A1A] text-foreground"
               autoComplete="off"
             />
@@ -275,7 +299,7 @@ export function PayeeMappingsSettings() {
               id="payee-map-canonical"
               value={newCanonical}
               onChange={(e) => setNewCanonical(e.target.value)}
-              placeholder="How you want it to appear in BitBudget"
+              placeholder="How you want it spelled in BitBudget"
               className="border-[#333] bg-[#1A1A1A] text-foreground"
               list="payee-canonical-options"
               autoComplete="off"
@@ -300,60 +324,91 @@ export function PayeeMappingsSettings() {
   )
 }
 
-function ClusterRow({
+function ClusterCard({
   cluster,
   busy,
   onApply,
+  onDismiss,
 }: {
   cluster: PayeeNameCluster
   busy: boolean
   onApply: (canonical: string) => void
+  onDismiss: () => void
 }) {
-  const [canonicalPick, setCanonicalPick] = useState(cluster.variants[0]?.displayName ?? "")
+  // Default to the highest-count variant as the initial canonical pick
+  const [canonical, setCanonical] = useState(cluster.variants[0]?.displayName ?? "")
 
   return (
-    <li className="rounded-lg border border-[#333] bg-[#1A1A1A] p-4">
-      <ul className="flex flex-wrap gap-2 text-sm">
-        {cluster.variants.map((v: PayeeNameVariant) => (
-          <li
-            key={v.normalized}
-            className="rounded-md border border-[#333] bg-[#0D0D0D] px-2 py-1 text-foreground"
-          >
-            {v.displayName}{" "}
-            <span className="text-muted-foreground">({v.count} tx)</span>
-          </li>
-        ))}
-      </ul>
-      <div className="mt-3 flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1">
-          <Label className="text-xs text-muted-foreground">Destination payee for this group</Label>
-          <select
-            value={canonicalPick}
-            onChange={(e) => setCanonicalPick(e.target.value)}
-            className="rounded-md border border-[#333] bg-[#0D0D0D] px-3 py-2 text-sm text-foreground"
-          >
-            {cluster.variants.map((v) => (
-              <option key={v.normalized} value={v.displayName}>
-                {v.displayName} ({v.count} tx)
-              </option>
-            ))}
-          </select>
-        </div>
+    <li className="relative flex flex-col rounded-xl border border-[#222] bg-[#0F0F0F]">
+      {/* Dismiss button */}
+      <button
+        type="button"
+        onClick={onDismiss}
+        title="Skip — these are different businesses"
+        aria-label="Dismiss this suggestion"
+        className="absolute right-2.5 top-2.5 rounded p-1 text-muted-foreground/40 transition-colors hover:bg-white/5 hover:text-muted-foreground"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+
+      {/* Tappable spelling chips — tap to pick the canonical */}
+      <div className="flex flex-wrap gap-2 p-4 pb-3 pr-9">
+        {cluster.variants.map((v) => {
+          const isCanon = v.displayName === canonical
+          return (
+            <button
+              key={v.normalized}
+              type="button"
+              onClick={() => setCanonical(v.displayName)}
+              aria-pressed={isCanon}
+              className={cn(
+                "flex flex-col rounded-lg border px-3 py-2 text-left text-sm transition-all",
+                isCanon
+                  ? "border-btc-orange/50 bg-btc-orange/10 text-foreground"
+                  : "border-[#2A2A2A] bg-[#181818] text-muted-foreground hover:border-[#3A3A3A] hover:text-foreground",
+              )}
+            >
+              <span className="font-medium leading-none">{v.displayName}</span>
+              <span className="mt-1.5 text-[11px] opacity-50">
+                {v.count} {v.count === 1 ? "use" : "uses"}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Visual funnel: converges chips → arrow → destination */}
+      <div className="flex flex-col items-center gap-0 px-4">
+        {/* Dashed connector line */}
+        <div className="h-5 w-px border-l border-dashed border-[#2A2A2A]" />
+
+        {/* Save button — centered, bridging source chips and destination */}
         <button
           type="button"
-          disabled={busy || !canonicalPick}
-          onClick={() => onApply(canonicalPick)}
-          className="rounded-lg border border-[#333] bg-[#252525] px-3 py-2 text-sm font-medium text-foreground hover:bg-[#333] disabled:opacity-50"
+          onClick={() => onApply(canonical)}
+          disabled={busy}
+          className="rounded-full border border-btc-orange/30 bg-btc-orange hover:bg-btc-orange/90 px-5 py-1.5 text-xs font-medium text-[#0D0D0D] transition-colors disabled:opacity-50"
         >
           {busy ? (
-            <span className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin" />
               Saving…
             </span>
           ) : (
-            "Map variants to destination"
+            "Save"
           )}
         </button>
+
+        {/* Arrow pointing to destination */}
+        <ChevronDown className="h-4 w-4 text-[#333]" />
+      </div>
+
+      {/* Destination chip */}
+      <div className="px-4 pb-4 pt-0">
+        <div className="rounded-lg border border-[#2A2A2A] bg-[#181818] px-4 py-3 text-center">
+          <p className="text-[11px] uppercase tracking-widest text-muted-foreground/80">merge into</p>
+          <p className="mt-1 font-semibold text-foreground">{canonical}</p>
+        </div>
       </div>
     </li>
   )

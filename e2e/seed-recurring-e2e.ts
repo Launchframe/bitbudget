@@ -21,6 +21,7 @@ export async function seedRecurringE2eData(): Promise<void> {
       email: E2E_RECURRING_USER_EMAIL,
       name: "E2E Recurring QA",
       onboardingComplete: true,
+      walkthroughCompleted: true,
       monthlyIncome: 5000,
       opportunityCostEnabled: false,
     },

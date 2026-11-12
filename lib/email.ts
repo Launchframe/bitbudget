@@ -1,4 +1,9 @@
 import nodemailer from "nodemailer"
+import { resolveEmailAppUrl } from "@/lib/app-url"
+import {
+  type CommunicationEmailCategory,
+  communicationPreferenceForCategory,
+} from "@/lib/communication-preferences"
 
 const GMAIL_USER = process.env.GMAIL_USER
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD
@@ -11,6 +16,35 @@ function getTransport() {
     })
   }
   return null
+}
+
+export async function sendNotificationEmailVerificationCode(email: string, code: string): Promise<void> {
+  const subject = `${code} is your BitBudget notification verification code`
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+      <h2 style="color: #F7931A; margin-bottom: 8px;">BitBudget</h2>
+      <p style="color: #666; font-size: 14px; margin-bottom: 24px;">Enter this code in Settings to verify your notification email. This does not change how you sign in.</p>
+      <div style="background: #0D0D0D; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 24px;">
+        <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #F7931A;">${code}</span>
+      </div>
+      <p style="color: #999; font-size: 12px;">This code expires in 10 minutes. If you didn't request this, you can safely ignore it.</p>
+    </div>
+  `
+
+  const transport = getTransport()
+  if (transport) {
+    await transport.sendMail({
+      from: `BitBudget <${GMAIL_USER}>`,
+      to: email,
+      subject,
+      html,
+    })
+    return
+  }
+
+  console.log(`\n━━━ Notification email code for ${email} ━━━`)
+  console.log(`  Code: ${code}`)
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
 }
 
 export async function sendVerificationCode(email: string, code: string): Promise<void> {
@@ -42,14 +76,54 @@ export async function sendVerificationCode(email: string, code: string): Promise
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
 }
 
-async function sendHtmlMail(to: string, subject: string, html: string): Promise<boolean> {
+export interface PreferenceEmailOptions {
+  category?: CommunicationEmailCategory
+  unsubscribeToken?: string | null
+}
+
+export function unsubscribeUrl(token: string, category: CommunicationEmailCategory): string | null {
+  const trimmed = token.trim()
+  const base = resolveEmailAppUrl()
+  if (!trimmed || !base) return null
+  const url = new URL("/api/user/unsubscribe", base)
+  url.searchParams.set("token", trimmed)
+  url.searchParams.set("category", category)
+  return url.toString()
+}
+
+/** Inserts markup immediately before the last `</div>` (outer email wrapper). */
+export function insertBeforeLastClosingDiv(html: string, insertion: string): string {
+  const closeIdx = html.lastIndexOf("</div>")
+  if (closeIdx === -1) return html
+  return html.slice(0, closeIdx) + insertion + html.slice(closeIdx)
+}
+
+function withEmailFooter(html: string, options?: PreferenceEmailOptions): string {
+  const category = options?.category
+  const token = options?.unsubscribeToken?.trim()
+  if (!category || !token) return html
+  const url = unsubscribeUrl(token, category)
+  if (!url) return html
+  const preference = communicationPreferenceForCategory(category)
+  const footer = `
+      <div style="border-top: 1px solid #333; margin-top: 28px; padding-top: 16px;">
+        <p style="color: #999; font-size: 12px; line-height: 1.5; margin: 0 0 12px;">
+          You are receiving this because ${escapeHtml(preference.emailReason)}.
+        </p>
+        <a href="${escapeHtml(url)}" style="display: inline-block; background: #1A1A1A; color: #F7931A; border: 1px solid #333; border-radius: 10px; padding: 10px 14px; font-size: 13px; text-decoration: none;">Unsubscribe</a>
+      </div>`
+  return insertBeforeLastClosingDiv(html, footer)
+}
+
+async function sendHtmlMail(to: string, subject: string, html: string, options?: PreferenceEmailOptions): Promise<boolean> {
+  const htmlWithFooter = withEmailFooter(html, options)
   const transport = getTransport()
   if (transport && GMAIL_USER) {
     await transport.sendMail({
       from: `BitBudget <${GMAIL_USER}>`,
       to,
       subject,
-      html,
+      html: htmlWithFooter,
     })
     return true
   }
@@ -57,7 +131,7 @@ async function sendHtmlMail(to: string, subject: string, html: string): Promise<
   return false
 }
 
-export async function sendReferralAcceptedEmail(to: string, refereeName: string): Promise<void> {
+export async function sendReferralAcceptedEmail(to: string, refereeName: string, options?: PreferenceEmailOptions): Promise<void> {
   const subject = "Someone joined BitBudget with your referral"
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
@@ -65,7 +139,7 @@ export async function sendReferralAcceptedEmail(to: string, refereeName: string)
       <p style="color: #ccc; font-size: 15px;">${escapeHtml(refereeName)} created an account using your referral link.</p>
       <p style="color: #999; font-size: 13px;">When they connect their bank and complete a first sync, you&apos;ll earn bonus premium time.</p>
     </div>`
-  await sendHtmlMail(to, subject, html)
+  await sendHtmlMail(to, subject, html, options)
 }
 
 export async function sendReferralActivatedEmail(
@@ -73,6 +147,7 @@ export async function sendReferralActivatedEmail(
   refereeName: string,
   rewardMonths: number,
   newExpiryDate: string,
+  options?: PreferenceEmailOptions,
 ): Promise<void> {
   const subject = "Referral activated — you earned premium time"
   const html = `
@@ -81,47 +156,78 @@ export async function sendReferralActivatedEmail(
       <p style="color: #ccc; font-size: 15px;">${escapeHtml(refereeName)} connected their bank.</p>
       <p style="color: #ccc; font-size: 15px;">You earned <strong>${rewardMonths}</strong> month(s) of premium. Access now runs through <strong>${escapeHtml(newExpiryDate)}</strong>.</p>
     </div>`
-  await sendHtmlMail(to, subject, html)
+  await sendHtmlMail(to, subject, html, options)
 }
 
-export async function sendGratisExpiringEmail(to: string, expiryDate: string, daysRemaining: number): Promise<void> {
+export async function sendGratisExpiringEmail(to: string, expiryDate: string, daysRemaining: number, options?: PreferenceEmailOptions): Promise<void> {
   const subject = `Your bonus premium ends in ${daysRemaining} day(s)`
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
       <h2 style="color: #F7931A;">Premium ending soon</h2>
       <p style="color: #ccc;">Your referral bonus premium access ends on <strong>${escapeHtml(expiryDate)}</strong> (${daysRemaining} day(s) left).</p>
     </div>`
-  await sendHtmlMail(to, subject, html)
+  await sendHtmlMail(to, subject, html, options)
 }
 
-export async function sendGratisExpiredEmail(to: string): Promise<void> {
+export async function sendGratisExpiredEmail(to: string, options?: PreferenceEmailOptions): Promise<void> {
   const subject = "Your bonus premium period has ended"
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
       <h2 style="color: #F7931A;">Bonus premium ended</h2>
       <p style="color: #ccc;">Your referral bonus premium access has ended. Thanks for growing BitBudget.</p>
     </div>`
-  await sendHtmlMail(to, subject, html)
+  await sendHtmlMail(to, subject, html, options)
 }
 
-export async function sendTrialEndingEmail(to: string, expiryDate: string, daysRemaining: number): Promise<void> {
+export async function sendTrialEndingEmail(to: string, expiryDate: string, daysRemaining: number, options?: PreferenceEmailOptions): Promise<void> {
   const subject = `Your premium trial ends in ${daysRemaining} day(s)`
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
       <h2 style="color: #F7931A;">Trial ending</h2>
       <p style="color: #ccc;">Your premium trial ends on <strong>${escapeHtml(expiryDate)}</strong> (${daysRemaining} day(s) left).</p>
     </div>`
-  await sendHtmlMail(to, subject, html)
+  await sendHtmlMail(to, subject, html, options)
 }
 
-export async function sendTrialExpiredEmail(to: string): Promise<void> {
+export async function sendTrialExpiredEmail(to: string, options?: PreferenceEmailOptions): Promise<void> {
   const subject = "Your premium trial has ended"
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
       <h2 style="color: #F7931A;">Trial ended</h2>
       <p style="color: #ccc;">Your premium trial has ended. Upgrade anytime to keep Plaid, receipt inbox, and SMS alerts.</p>
     </div>`
-  await sendHtmlMail(to, subject, html)
+  await sendHtmlMail(to, subject, html, options)
+}
+
+function appOriginForEmail(): string {
+  const base = process.env.NEXTAUTH_URL?.replace(/\/$/, "")
+  return base ?? "https://bitbudget.app"
+}
+
+export async function sendPremiumRenewalReminderEmail(
+  to: string,
+  args: {
+    subject: string
+    headline: string
+    body: string
+    ctaRenew: string
+    ctaRefer: string
+    showReferCta: boolean
+  },
+  options?: PreferenceEmailOptions,
+): Promise<void> {
+  const origin = appOriginForEmail()
+  const referBlock = args.showReferCta
+    ? `<p style="margin: 24px 0 0;"><a href="${origin}/#/settings/general" style="color: #F7931A; font-weight: 600;">${escapeHtml(args.ctaRefer)}</a></p>`
+    : ""
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+      <h2 style="color: #F7931A;">${escapeHtml(args.headline)}</h2>
+      <p style="color: #ccc; font-size: 15px; line-height: 1.5;">${escapeHtml(args.body)}</p>
+      <p style="margin: 24px 0 0;"><a href="${origin}" style="display: inline-block; background: #F7931A; color: #0D0D0D; text-decoration: none; font-weight: 600; padding: 12px 20px; border-radius: 8px;">${escapeHtml(args.ctaRenew)}</a></p>
+      ${referBlock}
+    </div>`
+  await sendHtmlMail(to, args.subject, html, options)
 }
 
 export interface SurveyCompletedEmailPayload {
@@ -158,6 +264,15 @@ export async function sendAdminDigestEmail(to: string, bodyHtml: string): Promis
       ${bodyHtml}
     </div>`
   await sendHtmlMail(to, subject, html)
+}
+
+export async function sendOpsAlertEmail(to: string, subject: string, bodyHtml: string): Promise<boolean> {
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 640px; margin: 0 auto; padding: 24px;">
+      <h2 style="color: #F7931A;">Ops alert</h2>
+      <p style="color: #ccc; font-size: 14px;">${bodyHtml}</p>
+    </div>`
+  return sendHtmlMail(to, subject, html)
 }
 
 function escapeHtml(s: string): string {

@@ -1,89 +1,66 @@
-import { NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/db"
+import { NextRequest } from "next/server"
+import { cronAuthFailureResponse } from "@/lib/cron-auth"
+import { notifyPremiumRenewalReminder } from "@/lib/notify"
 import {
-  notifyGratisExpiredUser,
-  notifyGratisNearingExpiry,
-  notifyTrialExpiredUser,
-  notifyTrialNearingExpiry,
-} from "@/lib/notify"
-
-function startOfUtcDay(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
-}
-
-function addUtcDays(d: Date, days: number): Date {
-  const x = new Date(d.getTime())
-  x.setUTCDate(x.getUTCDate() + days)
-  return x
-}
+  PREMIUM_EXPIRY_SOURCES,
+  PREMIUM_RENEWAL_REMINDER_DAYS,
+  clearExpiredTimedPremiumField,
+  findUsersForExpiredNotification,
+  findUsersForExpiryReminderWindow,
+} from "@/lib/premium-renewal-server"
+import { runCron } from "@/lib/run-cron"
 
 export async function GET(req: NextRequest) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const authFailure = cronAuthFailureResponse(req.headers.get("authorization"))
+  if (authFailure) return authFailure
 
-  const now = new Date()
-  const todayStart = startOfUtcDay(now)
-  const in7 = addUtcDays(todayStart, 7)
-  const in8 = addUtcDays(todayStart, 8)
-  const yStart = addUtcDays(todayStart, -1)
-  const yEnd = todayStart
+  return runCron("referral-expiry", async () => {
+    const now = new Date()
+    let nearingSent = 0
+    let expiredSent = 0
+    let trialFieldsCleared = 0
+    let gratisFieldsCleared = 0
 
-  const [gratisWarn, gratisExpired, trialWarn, trialExpired] = await Promise.all([
-    prisma.user.findMany({
-      where: {
-        subscriptionTier: { not: "premium" },
-        premiumGratisUntil: { gte: in7, lt: in8 },
-      },
-      select: { id: true, premiumGratisUntil: true },
-    }),
-    prisma.user.findMany({
-      where: {
-        subscriptionTier: { not: "premium" },
-        premiumGratisUntil: { gte: yStart, lt: yEnd },
-      },
-      select: { id: true },
-    }),
-    prisma.user.findMany({
-      where: {
-        premiumTrialUntil: { gte: in7, lt: in8 },
-      },
-      select: { id: true, premiumTrialUntil: true },
-    }),
-    prisma.user.findMany({
-      where: {
-        premiumTrialUntil: { gte: yStart, lt: yEnd },
-      },
-      select: { id: true },
-    }),
-  ])
+    for (const source of PREMIUM_EXPIRY_SOURCES) {
+      for (const daysBefore of PREMIUM_RENEWAL_REMINDER_DAYS) {
+        const users = await findUsersForExpiryReminderWindow(source, daysBefore, now)
+        for (const u of users) {
+          const result = await notifyPremiumRenewalReminder({
+            userId: u.id,
+            source,
+            expiry: u.expiry,
+            kind: daysBefore,
+          })
+          if (result.emailSent || result.nostrSent) nearingSent += 1
+        }
+      }
 
-  for (const u of gratisWarn) {
-    if (u.premiumGratisUntil) {
-      await notifyGratisNearingExpiry(u.id, u.premiumGratisUntil, 7)
+      const expiredUsers = await findUsersForExpiredNotification(source, now)
+      for (const u of expiredUsers) {
+        const result = await notifyPremiumRenewalReminder({
+          userId: u.id,
+          source,
+          expiry: u.expiry,
+          kind: "expired",
+        })
+        if (result.emailSent || result.nostrSent) expiredSent += 1
+
+        if (source === "trial") {
+          await clearExpiredTimedPremiumField(u.id, source)
+          trialFieldsCleared += 1
+        } else if (source === "gratis") {
+          await clearExpiredTimedPremiumField(u.id, source)
+          gratisFieldsCleared += 1
+        }
+      }
     }
-  }
-  for (const u of gratisExpired) {
-    await notifyGratisExpiredUser(u.id)
-  }
-  for (const u of trialWarn) {
-    if (u.premiumTrialUntil) {
-      await notifyTrialNearingExpiry(u.id, u.premiumTrialUntil, 7)
-    }
-  }
-  for (const u of trialExpired) {
-    await notifyTrialExpiredUser(u.id)
-    await prisma.user.update({
-      where: { id: u.id },
-      data: { premiumTrialUntil: null },
-    })
-  }
 
-  return NextResponse.json({
-    ok: true,
-    gratisNearing: gratisWarn.length,
-    gratisExpiredNotified: gratisExpired.length,
-    trialNearing: trialWarn.length,
-    trialExpiredCleared: trialExpired.length,
+    return {
+      nearingSent,
+      expiredSent,
+      trialFieldsCleared,
+      gratisFieldsCleared,
+      reminderDays: [...PREMIUM_RENEWAL_REMINDER_DAYS],
+    }
   })
 }

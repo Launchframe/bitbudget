@@ -8,6 +8,7 @@ import { BtcPriceProvider } from "@/lib/btc-price-context"
 import { Sidebar } from "@/components/sidebar"
 import { Header } from "@/components/header"
 import { NewTransactionDialog } from "@/components/new-transaction-dialog"
+import { StatementImporterDialog } from "@/components/statement-importer-dialog"
 import { DashboardPage } from "@/components/dashboard-page"
 import { AnalyticsPage } from "@/components/analytics-page"
 import { EnvelopesPage } from "@/components/envelopes-page"
@@ -26,24 +27,35 @@ import { NotificationBanner } from "@/components/notification-banner"
 import { TransactionLoadingIndicator } from "@/components/transaction-loading-indicator"
 import { TrialWelcomeBanner } from "@/components/trial-welcome-banner"
 import { ReferralPlaidReminderBanner } from "@/components/referral-plaid-reminder-banner"
+import { ReferralRedeemFlashBanner } from "@/components/referral-redeem-flash-banner"
+import { PremiumRenewalUiHost } from "@/components/premium-renewal-ui-host"
 import { SurveySheetHost } from "@/components/survey-sheet"
+import { WalkthroughOverlay } from "@/components/walkthrough-overlay"
+import { AchievementCelebrationHost } from "@/components/achievement-celebration-host"
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [checking, setChecking] = useState(true)
+  const [gateError, setGateError] = useState<string | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
+    let cancelled = false
+
     async function check() {
+      setChecking(true)
+      setGateError(null)
       try {
         const res = await fetch("/api/user/settings")
+        if (cancelled) return
         if (res.status === 401 || res.status === 403) {
           signOut({ callbackUrl: "/auth" })
           return
         }
         if (!res.ok) {
-          // Session may be valid while settings fails (e.g. schema/client mismatch).
-          // Sign out to avoid / ↔ /auth redirect loop with middleware.
-          signOut({ callbackUrl: "/auth?error=Configuration" })
+          setGateError(
+            "We could not load your account settings. This is usually a temporary server issue — not a sign-in problem.",
+          )
           return
         }
         const data = await res.json()
@@ -59,13 +71,36 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
           return
         }
       } catch {
-        signOut({ callbackUrl: "/auth?error=Configuration" })
+        if (!cancelled) {
+          setGateError("Could not reach the server. Check your connection and try again.")
+        }
         return
       }
-      setChecking(false)
+      if (!cancelled) setChecking(false)
     }
-    check()
-  }, [router])
+
+    void check()
+    return () => {
+      cancelled = true
+    }
+  }, [router, retryCount])
+
+  if (gateError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6 text-center">
+        <p className="max-w-md text-sm text-red-300" role="alert">
+          {gateError}
+        </p>
+        <button
+          type="button"
+          onClick={() => setRetryCount(c => c + 1)}
+          className="rounded-xl bg-[#F7931A] px-6 py-3 text-sm font-semibold text-[#0D0D0D] hover:bg-[#F7931A]/90"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
 
   if (checking) {
     return (
@@ -160,6 +195,35 @@ function PageContent() {
   }
 }
 
+function StatementImporterHost() {
+  const {
+    statementImporterOpen,
+    statementImporterPrefill,
+    statementImporterKey,
+    setStatementImporterOpen,
+    activeTransactions,
+    refreshData,
+  } = useApp()
+  return (
+    <StatementImporterDialog
+      key={statementImporterKey}
+      open={statementImporterOpen}
+      onOpenChange={setStatementImporterOpen}
+      existingTransactions={activeTransactions}
+      onImportComplete={refreshData}
+      initialData={
+        statementImporterPrefill?.transactions
+          ? {
+              transactions: statementImporterPrefill.transactions,
+              meta: statementImporterPrefill.meta,
+            }
+          : null
+      }
+      pendingBatchId={statementImporterPrefill?.pendingBatchId ?? null}
+    />
+  )
+}
+
 export default function Dashboard() {
   return (
     <OnboardingGate>
@@ -174,7 +238,9 @@ export default function Dashboard() {
                   <Sidebar />
                   <div className="flex-1 flex flex-col gap-4 md:gap-6 min-w-0">
                     <NotificationBanner />
+                    <ReferralRedeemFlashBanner />
                     <ReferralPlaidReminderBanner />
+                    <PremiumRenewalUiHost />
                     <TrialWelcomeBanner />
                     <TransactionLoadingIndicator />
                     <PageContent />
@@ -182,7 +248,10 @@ export default function Dashboard() {
                 </main>
               </div>
               <MobileNav />
+              <WalkthroughOverlay />
+              <AchievementCelebrationHost />
               <NewTransactionDialog />
+              <StatementImporterHost />
               <SurveySheetHost />
             </div>
           </BtcPriceShell>

@@ -1,5 +1,6 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 transaction_history.csv
+*.DS_Store
 
 # dependencies
 /node_modules
@@ -15,6 +16,8 @@ transaction_history.csv
 
 # agents
 docs/plans
+.cursor/real-steel/
+.cursor/git-prune-status.md
 
 # debug
 npm-debug.log*
@@ -44,3 +47,4 @@ package-lock.json
 /test-results/
 /blob-report/
 /playwright/.cache/
+.cursor/real-steel/

@@ -44,6 +44,36 @@ describe("savingsBalance", () => {
     ]
     expect(savingsBalance(txns, savingsEnvelope)).toBe(650)
   })
+
+  it("excludes pre-genesis imported income when envelope has createdAt", () => {
+    const envelopeWithGenesis: Envelope = {
+      ...savingsEnvelope,
+      createdAt: "2026-05-31",
+    }
+    const txns: Transaction[] = [
+      {
+        id: "hist",
+        date: "2022-01-15",
+        payee: "Imported income",
+        amount: 50_000,
+        type: "credit",
+        envelopeId: "sav-1",
+        tags: [],
+        source: "income_import",
+      },
+      {
+        id: "live",
+        date: "2026-06-01",
+        payee: "Paycheck",
+        amount: 2000,
+        type: "credit",
+        envelopeId: "sav-1",
+        tags: [],
+        source: "paycheck",
+      },
+    ]
+    expect(savingsBalance(txns, envelopeWithGenesis)).toBe(2000)
+  })
 })
 
 describe("sumMonthlyIncomeCredits", () => {
@@ -157,6 +187,46 @@ describe("sumRemainingDiscretionary", () => {
     ]
     expect(sumRemainingDiscretionary(txns, [groceries])).toBe(500)
   })
+
+  it("excludes pre-genesis historical CSV expenses when envelope has createdAt", () => {
+    const envelopeWithGenesis: Envelope = {
+      ...groceries,
+      createdAt: "2026-05-31",
+    }
+    const txns: Transaction[] = [
+      {
+        id: "hist",
+        envelopeId: "food",
+        date: "2021-04-10",
+        payee: "Old store",
+        amount: 500,
+        type: "expense",
+        tags: [],
+      },
+      {
+        id: "fund",
+        envelopeId: "food",
+        date: "2026-06-01",
+        payee: "Funding",
+        amount: 400,
+        type: "credit",
+        tags: [],
+        source: "envelope_funding_in",
+        excludeFromMainHistory: true,
+      },
+      {
+        id: "spend",
+        envelopeId: "food",
+        date: "2026-06-05",
+        payee: "Store",
+        amount: 120,
+        type: "expense",
+        tags: [],
+      },
+    ]
+    // 400 - 120 = 280 (historical $500 excluded)
+    expect(sumRemainingDiscretionary(txns, [envelopeWithGenesis])).toBe(280)
+  })
 })
 
 describe("avgMonthlySpendLastNMonths", () => {
@@ -176,11 +246,11 @@ describe("avgMonthlySpendLastNMonths", () => {
     const realDate = Date
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- vitest Date mock
     ;(global as any).Date = class extends realDate {
-      constructor(...args: ConstructorParameters<typeof realDate>) {
+      constructor(...args: unknown[]) {
         if (args.length === 0) {
           super(Date.UTC(2026, 4, 23, 12, 0, 0))
         } else {
-          super(...args)
+          super(...(args as ConstructorParameters<typeof realDate>))
         }
       }
       static UTC = realDate.UTC

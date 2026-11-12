@@ -8,7 +8,9 @@ import {
   incomeTransactionsByFundingBatchId,
   isEnvelopeFundingLeg,
   transactionMatchesTypeFilter,
+  typeBadgeClassForTransaction,
 } from "../ledger-funding-display"
+import { TX_SOURCE_ENVELOPE_TRANSFER_OUT } from "../constants"
 import { transactionsForTransactionList } from "../data"
 
 function txn(partial: Partial<Transaction> & Pick<Transaction, "id">): Transaction {
@@ -109,6 +111,21 @@ describe("ledger-funding-display", () => {
   it("detects funding legs", () => {
     expect(isEnvelopeFundingLeg({ source: "envelope_funding_in" })).toBe(true)
     expect(isEnvelopeFundingLeg({ source: "manual" })).toBe(false)
+  })
+
+  it("labels rebalance transfer legs as Rebalance and only matches All Types filter", () => {
+    const leg = txn({
+      id: "rb",
+      type: "expense",
+      source: TX_SOURCE_ENVELOPE_TRANSFER_OUT,
+      fundingBatchId: "batch-rb",
+      fundingBatchKind: "rebalance",
+    })
+    expect(displayTypeLabelForTransaction(leg)).toBe("Rebalance")
+    expect(typeBadgeClassForTransaction(leg)).toContain("6366F1")
+    expect(transactionMatchesTypeFilter(leg, "all")).toBe(true)
+    expect(transactionMatchesTypeFilter(leg, "expense")).toBe(false)
+    expect(transactionMatchesTypeFilter(leg, "income")).toBe(false)
   })
 
   it("filters by display type including Income", () => {

@@ -98,25 +98,29 @@ describe("closePreviousPeriodGoal", () => {
       closedAt: null,
     } as never)
 
-    vi.mocked(prisma.transaction.aggregate).mockImplementation(async (args) => {
+    vi.mocked(prisma.transaction.aggregate).mockImplementation(((
+      args,
+    ) => {
       const where = args?.where as { type?: string; date?: { lt?: Date; gte?: Date } }
       if (where.type === "credit" && where.date && "lt" in where.date) {
-        return { _sum: { amount: 1200 } } as never
+        return Promise.resolve({ _sum: { amount: 1200 } } as never)
       }
       if (where.type === "expense" && where.date && "lt" in where.date) {
-        return { _sum: { amount: 0 } } as never
+        return Promise.resolve({ _sum: { amount: 0 } } as never)
       }
-      return { _sum: { amount: 0 } } as never
-    })
+      return Promise.resolve({ _sum: { amount: 0 } } as never)
+    }) as typeof prisma.transaction.aggregate)
 
-    vi.mocked(prisma.transaction.findMany).mockImplementation(async (args) => {
+    vi.mocked(prisma.transaction.findMany).mockImplementation(((
+      args,
+    ) => {
       const where = args?.where as { type?: string; date?: { gte?: Date } }
       if (where.date && "gte" in where.date) {
-        if (where.type === "credit") return [{ amount: 500 }] as never
-        return [{ amount: 100 }] as never
+        if (where.type === "credit") return Promise.resolve([{ amount: 500 }] as never)
+        return Promise.resolve([{ amount: 100 }] as never)
       }
-      return [] as never
-    })
+      return Promise.resolve([] as never)
+    }) as typeof prisma.transaction.findMany)
 
     const closed = await closePreviousPeriodGoal("u1", new Date(Date.UTC(2026, 4, 1)))
     expect(closed).toBe(true)
@@ -168,11 +172,13 @@ describe("openCurrentPeriodGoal", () => {
     vi.mocked(prisma.savingsGoal.findUnique).mockResolvedValue(null)
     vi.mocked(prisma.user.findUnique).mockResolvedValue({ createdAt: new Date(Date.UTC(2026, 4, 1)) } as never)
     vi.mocked(prisma.envelope.findFirst).mockResolvedValue({ id: "sav-1" } as never)
-    vi.mocked(prisma.transaction.aggregate).mockImplementation(async (args) => {
+    vi.mocked(prisma.transaction.aggregate).mockImplementation(((
+      args,
+    ) => {
       const type = (args?.where as { type?: string })?.type
-      if (type === "credit") return { _sum: { amount: 800 } } as never
-      return { _sum: { amount: 0 } } as never
-    })
+      if (type === "credit") return Promise.resolve({ _sum: { amount: 800 } } as never)
+      return Promise.resolve({ _sum: { amount: 0 } } as never)
+    }) as typeof prisma.transaction.aggregate)
     vi.mocked(resolveSavingsGoalTarget).mockResolvedValue(250)
 
     const opened = await openCurrentPeriodGoal("u1", new Date(Date.UTC(2026, 4, 3)))
@@ -194,16 +200,21 @@ describe("openCurrentPeriodGoal", () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue({
       createdAt: new Date(Date.UTC(2026, 3, 1)),
     } as never)
-    vi.mocked(prisma.envelope.findFirst).mockResolvedValue({ id: "sav-1" } as never)
-    vi.mocked(prisma.transaction.aggregate).mockImplementation(async (args) => {
-      const where = args?.where as { type?: string; date?: { lt?: Date } }
+    vi.mocked(prisma.envelope.findFirst).mockResolvedValue({
+      id: "sav-1",
+      createdAt: new Date(Date.UTC(2026, 3, 1)),
+    } as never)
+    vi.mocked(prisma.transaction.aggregate).mockImplementation(((
+      args,
+    ) => {
+      const where = args?.where as { type?: string; date?: { lt?: Date; gte?: Date } }
       if (where.type === "credit" && where.date?.lt) {
         const lt = where.date.lt.getTime()
         const mayStart = Date.UTC(2026, 4, 1)
-        return { _sum: { amount: lt <= mayStart ? 500 : 900 } } as never
+        return Promise.resolve({ _sum: { amount: lt <= mayStart ? 500 : 900 } } as never)
       }
-      return { _sum: { amount: 0 } } as never
-    })
+      return Promise.resolve({ _sum: { amount: 0 } } as never)
+    }) as typeof prisma.transaction.aggregate)
     vi.mocked(resolveSavingsGoalTarget).mockResolvedValue(250)
 
     await openCurrentPeriodGoal("u1", new Date(Date.UTC(2026, 4, 15)))
@@ -212,6 +223,50 @@ describe("openCurrentPeriodGoal", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           startBalance: new Prisma.Decimal(500),
+        }),
+      }),
+    )
+  })
+
+  it("excludes pre-genesis imported income from startBalance snapshot", async () => {
+    vi.mocked(prisma.savingsGoal.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      createdAt: new Date(Date.UTC(2026, 5, 1)),
+    } as never)
+    vi.mocked(prisma.envelope.findFirst).mockResolvedValue({
+      id: "sav-1",
+      createdAt: new Date(Date.UTC(2026, 5, 1)),
+    } as never)
+    vi.mocked(prisma.transaction.aggregate).mockImplementation(((
+      args,
+    ) => {
+      const where = args?.where as { type?: string; date?: { lt?: Date; gte?: Date } }
+      const genesisGte = new Date("2026-05-31T00:00:00.000Z").getTime()
+      const hasGenesisFloor = where.date?.gte?.getTime() === genesisGte
+      if (!hasGenesisFloor && where.type === "credit") {
+        // Without genesis filter the DB would include years of imported income.
+        return Promise.resolve({ _sum: { amount: 50_000 } } as never)
+      }
+      return Promise.resolve({ _sum: { amount: 0 } } as never)
+    }) as typeof prisma.transaction.aggregate)
+    vi.mocked(resolveSavingsGoalTarget).mockResolvedValue(250)
+
+    await openCurrentPeriodGoal("u1", new Date(Date.UTC(2026, 5, 3)))
+
+    expect(prisma.transaction.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: expect.objectContaining({
+            gte: new Date("2026-05-31T00:00:00.000Z"),
+          }),
+        }),
+      }),
+    )
+    expect(prisma.savingsGoal.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          periodKey: "2026-06",
+          startBalance: new Prisma.Decimal(0),
         }),
       }),
     )

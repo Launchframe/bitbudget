@@ -1,14 +1,15 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
 import { backfillBtcPrices, fetchBtcPriceHistory } from "@/lib/btc-price"
+import { cronAuthFailureResponse } from "@/lib/cron-auth"
+import { runCron } from "@/lib/run-cron"
 
 export const maxDuration = 60
 
 export async function GET(req: NextRequest) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const authFailure = cronAuthFailureResponse(req.headers.get("authorization"))
+  if (authFailure) return authFailure
 
-  try {
+  return runCron("btc-backfill", async () => {
     await fetchBtcPriceHistory(365)
 
     let status: "in_progress" | "complete" = "in_progress"
@@ -20,12 +21,6 @@ export async function GET(req: NextRequest) {
       chunks++
     }
 
-    return NextResponse.json({ status, chunks })
-  } catch (err) {
-    console.error("[cron/btc-backfill] Error:", err)
-    return NextResponse.json(
-      { error: "Backfill failed", message: String(err) },
-      { status: 500 },
-    )
-  }
+    return { status, chunks }
+  })
 }

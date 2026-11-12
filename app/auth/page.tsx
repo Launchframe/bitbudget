@@ -11,7 +11,7 @@ import { Github, Mail, KeyRound, Zap, AlertCircle, ArrowLeft, HelpCircle, Chevro
 import {
   buildAuthEventTemplate,
   decodeNsec,
-  fetchNostrProfile,
+  fetchNostrProfileWithRetry,
   normalizeHexPubkey,
   NostrExtensionTimeoutError,
   NOSTR_EXTENSION_TIMEOUT_MS,
@@ -256,17 +256,27 @@ export default function AuthPage() {
       const signedPubkey = normalizeHexPubkey(
         String((signed as { pubkey?: string }).pubkey ?? pubkey),
       )
+      // Single short-timeout attempt only — keeps extension login snappy.
+      // NostrProfileSync handles retries in the background after login.
+      const profile = await fetchNostrProfileWithRetry(signedPubkey, {
+        maxAttempts: 1,
+        timeoutMs: 2000,
+      })
 
       const result = await signIn("nostr", {
         pubkey: signedPubkey,
         event: JSON.stringify(signed),
-        profileName: "",
-        profileImage: "",
+        profileName: profile.name ?? "",
+        profileImage: profile.image ?? "",
         redirect: false,
       })
 
       if (result?.error) {
-        setError(`Nostr authentication failed: ${result.error}`)
+        setError(
+          result.error === "CredentialsSignin"
+            ? "We couldn\u2019t verify your Nostr sign-in. Click Continue with Nostr again, or use Sign in with nsec below."
+            : `Nostr authentication failed: ${result.error}`,
+        )
         return
       }
 
@@ -324,7 +334,11 @@ export default function AuthPage() {
     try {
       const { secretKey, pubkey } = decodeNsec(nsecValue)
       const signed = signAuthEvent(secretKey, window.location.origin)
-      const profile = await fetchNostrProfile(pubkey)
+      // Single short-timeout attempt only — NostrProfileSync retries in the background.
+      const profile = await fetchNostrProfileWithRetry(pubkey, {
+        maxAttempts: 1,
+        timeoutMs: 2000,
+      })
       const result = await signIn("nostr", {
         pubkey,
         event: JSON.stringify(signed),

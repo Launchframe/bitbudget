@@ -4,6 +4,8 @@ import Credentials from "next-auth/providers/credentials"
 import Google from "next-auth/providers/google"
 import GitHub from "next-auth/providers/github"
 import { prisma } from "@/lib/db"
+import { computeNostrProfileUpdates, sanitizeNostrProfileImage, sanitizeNostrProfileName } from "@/lib/nostr-profile"
+import { parseNostrAuthEvent } from "@/lib/sign-in-methods"
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -36,7 +38,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         let user = await prisma.user.findUnique({ where: { email } })
         if (!user) {
           user = await prisma.user.create({
-            data: { email, name: email.split("@")[0] },
+            data: { email, emailVerified: new Date(), name: email.split("@")[0] },
+          })
+        } else if (!user.emailVerified) {
+          user = await prisma.user.update({
+            where: { id: user.id },
+            data: { emailVerified: new Date() },
           })
         }
 
@@ -59,33 +66,42 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const eventStr = credentials.event as string
         const profileName = (credentials.profileName as string) || ""
         const profileImage = (credentials.profileImage as string) || ""
+        const sanitizedProfile = {
+          name: sanitizeNostrProfileName(profileName),
+          image: sanitizeNostrProfileImage(profileImage),
+        }
 
         try {
+          const parsedEvent = parseNostrAuthEvent(eventStr, pubkey)
           const { verifyEvent } = await import("nostr-tools")
-          const event = JSON.parse(eventStr)
-          const isValid = verifyEvent(event)
-          if (!isValid) return null
-          if (typeof event.pubkey !== "string" || event.pubkey.toLowerCase() !== pubkey) return null
+          const isValid = verifyEvent(parsedEvent)
+          if (!isValid) {
+            if (process.env.NODE_ENV === "development") {
+              console.error("[nostr authorize] signature verification failed")
+            }
+            return null
+          }
 
           let user = await prisma.user.findUnique({ where: { nostrPubkey: pubkey } })
           if (!user) {
             user = await prisma.user.create({
               data: {
                 nostrPubkey: pubkey,
-                name: profileName || `nostr:${pubkey.slice(0, 8)}`,
-                image: profileImage || null,
+                name: sanitizedProfile.name || `nostr:${pubkey.slice(0, 8)}`,
+                image: sanitizedProfile.image || null,
               },
             })
-          } else if (profileName || profileImage) {
-            const updates: { name?: string; image?: string } = {}
-            if (profileName && user.name?.startsWith("nostr:")) updates.name = profileName
-            if (profileImage && user.image !== profileImage) updates.image = profileImage
-            if (Object.keys(updates).length > 0) {
+          } else {
+            const updates = computeNostrProfileUpdates(user, sanitizedProfile)
+            if (updates) {
               user = await prisma.user.update({ where: { id: user.id }, data: updates })
             }
           }
           return { id: user.id, name: user.name, email: user.email, image: user.image }
-        } catch {
+        } catch (err) {
+          if (process.env.NODE_ENV === "development") {
+            console.error("[nostr authorize]", err)
+          }
           return null
         }
       },
@@ -109,10 +125,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id
+        token.name = user.name ?? undefined
         token.picture = user.image ?? undefined
+      }
+      if (trigger === "update" && session) {
+        const next = session as { name?: string; image?: string }
+        if (typeof next.name === "string") token.name = next.name
+        if (typeof next.image === "string") token.picture = next.image
       }
       return token
     },
@@ -120,8 +142,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (token?.id) {
         session.user.id = token.id as string
       }
-      if (token?.picture) {
-        session.user.image = token.picture as string
+      if (typeof token?.name === "string") {
+        session.user.name = token.name
+      }
+      if (typeof token?.picture === "string") {
+        session.user.image = token.picture
       }
       return session
     },

@@ -45,6 +45,66 @@ Use two scopes consistently:
 
 **Do not** use month-scoped balance for remaining labels — it ignores prior-month carryover and diverges from sweep/funding behavior.
 
+### Ledger periods (agent vocabulary)
+
+Two automatic rhythms — **do not** use these terms in user-facing UI:
+
+| Period | When (UTC) | What moves | Helpers / idempotency |
+|--------|------------|------------|------------------------|
+| **PayPeriod** | User paydays (`isPaydayForUser`) | Paycheck slice → **Savings only** (no allocation legs) | `creditPaycheckToSavings` in `lib/envelope-funding.ts`; batch keys `pay-YYYY-MM-DD` (legacy `fund-YYYY-MM-DD` guarded) |
+| **BudgetPeriod** | Calendar **day 1** | Auto sweep (policy) then **gap-only** top-up Savings → envelopes | `sweepDiscretionaryEnvelopesForUser` + `processMonthlyBudgetAllocations`; keys `sweep-YYYY-MM`, `alloc-YYYY-MM` via `lib/budget-period.ts` |
+
+**User-facing copy:** paydays grow Savings; spending envelopes refill on the **1st**. Progress bars use **calendar-month** balance ÷ `monthlyAllotment` (`lib/envelope-card-metrics.ts`).
+
+**Manual flows (separate from cron):**
+
+- **Extra income** — default Savings (`distributionMode: "savings"`); optional envelope legs via `lib/move-funds-math.ts` + irregular-income API.
+- **Move funds** — `POST /api/transactions/move-funds`; sources `envelope_transfer_in` / `out` or Savings legs (`move_funds` batch kind).
+- **Deficit cover** — manual only, month balance → **$0** (`deficitCoverAmount`, `TX_SOURCE_DEFICIT_COVER`); not a full refill.
+- **Income import** — Savings credits only; no immediate envelope legs (wait for next BudgetPeriod cron).
+
+**Cron:** `lib/envelope-funding-cron.ts` — on 1st: sweep → alloc; on paydays: paycheck only. Goal maintenance stays on UTC 1st (`lib/funding-cron-schedule.ts`).
+
+### Transaction visibility, analytics, and lifecycle
+
+Not every `Transaction` row belongs in every feed. Ledger funding creates **batches**: an income header (`income_import`, `irregular_income`, etc.) plus hidden allocation legs (`envelope_funding_out` / `envelope_funding_in`). Getting visibility wrong leaks allocation legs into spend charts or leaves orphan legs after delete.
+
+**Visibility scopes (use the right helper — do not re-filter ad hoc):**
+
+| Scope | Meaning | Helpers |
+|--------|---------|---------|
+| **Main history** | Global transaction lists, dashboard recent, exports default | `transactionsVisibleInMainHistory()` — `excludeFromMainHistory === false` |
+| **Envelope list** | Envelope detail / filtered Transactions; shows funding legs tied to that envelope | `transactionsForTransactionList()` |
+| **User-facing spend** | Monthly Spend, OC/spending chart, top opportunity costs | `isUserFacingExpense()` / `filterUserFacingExpenses()` in `lib/transaction-visibility.ts` |
+| **Cash flow chart** | Signed net of external inflows minus user-facing outflows (excludes paycheck ledger credits) | `buildCumulativeCashFlowSeries()` — uses `isCashInflowCredit` + `isUserFacingExpense`; USD only |
+| **Spending chart** | Cumulative user expenses only | `buildCumulativeSpendingSeries()` in `lib/cumulative-spending-series.ts` |
+| **Envelope balance** | All credits/expenses for an envelope (includes funding legs) | `getEnvelopeBalanceAllTime()` / server batch helpers — **never** filter `excludeFromMainHistory` here |
+
+**Chart time bounds:** Dashboard series are **historical through today (UTC calendar date)** only. Never plot future-dated rows (`todayUtcIso()` / `todayIso` param). Future-dated funding legs from bad imports must not extend the x-axis.
+
+**Deleting income headers:** Deleting a credit that is an **income header** with a `fundingBatchId` must remove the **entire batch** (header + all legs) on server (`deleteTransactionForUser` in `lib/transaction-batch-delete-server.ts`) and optimistically on client (`AppContext.deleteTransaction`). UI must confirm when funding legs exist (`useTransactionDeleteConfirm`). Users cannot delete individual funding legs from the detail dialog — they are managed by the income row.
+
+**Checklist when adding or changing `Transaction.source` or row shapes:**
+
+1. Set **`excludeFromMainHistory`** correctly on create (allocation legs: `true`; user-visible income/expense: `false`).
+2. If rows form a batch, set shared **`fundingBatchId`** and implement batch reset on re-import / overwrite (see `lib/income-import.ts`).
+3. Declare which feeds include the new source (main history, envelope list, spend analytics, cash flow, savings inflow) and wire through the helpers above — **do not** assume `type === "expense"` means user spending.
+4. Add or extend **Vitest** coverage for visibility helpers and any new series builder.
+5. If delete semantics apply, extend **`shouldCascadeDeleteFundingBatch`** / server delete and the confirm dialog copy.
+6. Run dashboard + Transactions manually after changes — funding legs are the most common source of chart spikes and orphan rows.
+
+**`csv_import` source:** CSV imports create plain user-facing rows (`source: "csv_import"`, `excludeFromMainHistory: false`, no `fundingBatchId`). They count in main history, envelope lists, spend analytics, and cash flow like any manual expense/credit.
+
+### CSV import: chunking + privacy-preserving idempotency
+
+Large imports (thousands of rows) used to time out the serverless function and leave partial, then duplicated, data on client retries. The hardened flow:
+
+- **Chunked upload.** `components/csv-import-dialog.tsx` encrypts every row, computes a dedupe key, then POSTs `/api/import` in sequential chunks (`IMPORT_CHUNK_SIZE`, ~250). Each chunk is small enough to finish well under the timeout; envelopes created by an earlier chunk are visible to later chunks. `/api/import` also sets `export const maxDuration = 60` as a safety net.
+- **HMAC dedupe key (`Transaction.dedupeKey`, nullable).** The client derives `HMAC-SHA256(privacyKeySeed, "bitbudget-dedupe-v1|" + transactionCollisionKey + "#" + occurrence)` (`lib/import-dedupe-key.ts`, truncated to 128 bits). The server **cannot** recompute it (the HMAC key is the client-only privacy-key seed), so it stays privacy-preserving while still being deterministic for the same row from the same client. An **occurrence counter** keeps genuinely-identical in-file repeats distinct while re-imports of the same file map to the same keys.
+- **Server idempotency.** A **partial unique index** `(userId, dedupeKey) WHERE dedupeKey IS NOT NULL` + `createMany({ skipDuplicates: true })` makes chunk retries and whole-file re-imports no-ops. The route returns `{ imported, skipped, duplicates }` (`duplicates = data.length − inserted`); null-key rows are never deduped. BTC prices are looked up once per distinct date. The index lives in committed migration SQL (`prisma/migrations/20260531130000_transaction_dedupe_key/`) — Prisma schema cannot express partial unique indexes, so **do not use `db push` to sync this table** (see **Database → Local schema sync**).
+- **Seed access.** `resolveImportCrypto()` (`lib/resolve-import-encrypt-fn.ts`) returns `{ encrypt, seedHex }` for the onboarding/standalone path; signed-in callers pass `AppContext.makeImportDedupeKeyComputer()` (built from the cached seed) to the dialog. Never send the seed or raw key to the server.
+- **Manual cleanup.** Existing duplicate messes are fixed in-app: Settings → Data & Security → **Find duplicate transactions** (`components/duplicate-cleanup-card.tsx`, clustering in `lib/duplicate-clusters.ts`) groups decrypted rows by `transactionCollisionKey`, keeps the earliest by default, and bulk-deletes the rest via `POST /api/transactions/bulk-delete` + `AppContext.bulkDeleteTransactions`. Locked rows and funding-batch rows are excluded so plain bulk delete never orphans paired ledger entries.
+
 ## Project Structure
 
 ```
@@ -65,7 +125,50 @@ lib/                     Shared logic — types, crypto, contexts, helpers
 prisma/                  Schema, migrations, seeds
 public/                  Static assets (icons, onboarding screenshots)
 styles/                  Tailwind globals
+docs/                    Operator and integrator guides (see Outbound messaging below)
 ```
+
+### Outbound messaging (email & Nostr)
+
+Product notifications (referrals, premium trial/gratis reminders, notification-email verification, login OTP) use **Gmail SMTP** (`lib/email.ts`) and/or **NIP-04 DMs** (`lib/nostr-dm.ts`), orchestrated by `lib/notify.ts`. Users opt in under **Settings → Communications**; Nostr users may link **multiple** verified notification emails (`UserNotificationEmail`) **and** enable Nostr DMs independently (both channels can fire for the same event).
+
+**Integrator / maintainer guide:** [docs/outbound-messaging.md](docs/outbound-messaging.md) — env vars, local setup, preview vs production on Vercel, deployment checklist, manual tests, troubleshooting.
+
+**Env vars (see also `.env.example`):** `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `NEXTAUTH_URL` (unsubscribe + auth URLs), `BITBUDGET_NOSTR_NSEC`, optional `BITBUDGET_NOSTR_RELAYS`, `CRON_SECRET` for `/api/cron/referral-expiry`. Without Gmail vars, `lib/email.ts` logs to the console (subject/recipient for HTML mail; 6-digit code only for OTP/verify — not full bodies). Without `BITBUDGET_NOSTR_NSEC`, DMs are skipped with a warning.
+
+**Local dev quick start:** Postgres + `AUTH_SECRET` in `.env.local` → `pnpm prisma migrate deploy` → `pnpm dev`. Add Gmail and/or Nostr vars only when testing real delivery. Never set `E2E_TEST` in `.env.local` for manual messaging tests (Playwright sets it automatically).
+
+**Preview vs production:** Use separate databases, Gmail senders, and Nostr service `nsec` values per environment; set `NEXTAUTH_URL` to each deploy’s canonical HTTPS origin so unsubscribe links work. Full checklist in the doc above.
+
+**Nostr relays (MVP):** Publish DMs through default or well-known **public** clearnet relays (`BITBUDGET_NOSTR_RELAYS` optional). **Tor-only / `.onion` relays are not supported** in code today (no SOCKS/Tor WebSocket); they are documented as post-MVP for operators who want a non-discoverable relay — see [Tor-only relays (post-MVP)](docs/outbound-messaging.md#tor-only-relays-post-mvp).
+
+**Agents:** When helping developers set up outbound messaging, walk through [docs/outbound-messaging.md](docs/outbound-messaging.md) in order (local → preview → production). Do not put service `nsec` or app passwords in client code, logs, or PR descriptions. Do not promise Tor relay publish on Vercel without custom Tor-capable infrastructure.
+
+### Android bank notification forwarding (DIY ingest)
+
+BitBudget **cannot** read other apps’ notifications from the web app. Users on Android may forward **bank app notifications** to BitBudget via **Tasker**, **MacroDroid**, or **Automate** (notification listener + HTTP POST). This is a **premium/trial** capture path; transaction source is `notification_forward`.
+
+**Integrator / support / chatbot guide:** [docs/android-notification-forwarding.md](docs/android-notification-forwarding.md) — prerequisites, privacy warnings, per-app setup (Tasker / MacroDroid / Automate), webhook JSON contract, troubleshooting playbook, curl tests.
+
+**API surface:**
+
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `GET` / `POST` `/api/user/notification-ingest` | Session | Issue or rotate `notificationIngestToken`; returns `webhookUrl` |
+| `POST` `/api/webhooks/notification-ingest` | `Authorization: Bearer <token>` or `X-BitBudget-Ingest-Token` | Ingest alert JSON → parse → `routeTransaction` (pending or live) |
+
+**Code:** `lib/bank-alert-parser.ts`, `lib/notification-ingest.ts`, `lib/ingest-token.ts`, `User.notificationIngestToken` in Prisma. Trial monthly cap uses the same bucket as email/SMS (`PREMIUM_CAPTURE_SOURCES` in `lib/subscription.ts`).
+
+**Agents helping users:**
+
+1. Confirm **premium or trial**, encryption setup, and that the bank app actually posts **notifications** (not toast-only).
+2. Walk through the **privacy** section — notification access is granted to the automation app, not BitBudget.
+3. Use the doc’s **Tasker / MacroDroid / Automate** sections; adapt variable names to the user’s app version.
+4. Token via authenticated `GET /api/user/notification-ingest` (Settings UI may not exist yet — do not invent URLs).
+5. Test with **curl** from the doc before debugging phone automation.
+6. Never ask users to paste ingest tokens in public channels; never log notification bodies or tokens.
+
+**Not supported:** iOS notification forwarding (no equivalent user automation to a custom webhook without a native helper app), reading **toasts**, BitBudget listening without user-installed automation.
 
 ## Tech Stack
 
@@ -91,14 +194,47 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 
 ### End-to-end (Playwright)
 
-- **Layout:** Specs live under `e2e/` (see `playwright.config.ts`). Referral-program coverage is in `e2e/referrals.program.spec.ts` (validate/redeem flows, settings flags, `activateReferral` / trial months, referral-code API, auth via email OTP). **`e2e/new-transaction.manual-entry.spec.ts`** covers opening New Transaction with **no payee prefill** and typing in the payee field (guards against regressions where keystrokes were cleared). **`e2e/receipt-scan.prefill.spec.ts`** mocks **`POST /api/receipts/scan`** and asserts PNG/PDF upload flows open New Transaction with prefilled fields (and image receipt preview for PNG).
+- **Layout:** Specs live under `e2e/` (see `playwright.config.ts` and [docs/testing/e2e-v1-coverage-plan.md](docs/testing/e2e-v1-coverage-plan.md)). **Current specs on `main`:** Referral-program coverage is in `e2e/referrals.program.spec.ts` (validate/redeem flows, settings flags, `activateReferral` / trial months, referral-code API, auth via email OTP). **`e2e/new-transaction.manual-entry.spec.ts`** covers opening New Transaction with **no payee prefill** and typing in the payee field (guards against regressions where keystrokes were cleared). **`e2e/receipt-scan.prefill.spec.ts`** mocks **`POST /api/receipts/scan`** and asserts PNG/PDF upload flows open New Transaction with prefilled fields (and image receipt preview for PNG). `e2e/recurring.lifecycle.spec.ts` covers a signed-in `@bitbudget.test` user with a due seeded rule. `e2e/walkthrough.per-user.spec.ts` covers per-user `walkthroughCompleted` persistence. Onboarding/landing coverage is in `e2e/landing-auth.smoke.spec.ts`, `e2e/onboarding.income-matrix.spec.ts`, and `e2e/onboarding.import-branches.spec.ts`. Envelope coverage is in `e2e/envelopes.lifecycle.spec.ts` and `e2e/envelopes.archive.spec.ts`. **`e2e/income-importer.spec.ts`** covers the income calendar importer (paint range, cell edit, review/confirm, draft persistence, Clear All, past-only vs current-month Monthly Income gate, success → Dashboard Savings + All range). **Planned specs (in stacked e2e implementation PRs, not yet on `main`):** transactions (`transactions.filters.spec.ts`, `new-transaction.features.spec.ts`), payee mappings (`payee-mappings.spec.ts`), analytics/settings (`analytics.ranges.spec.ts`, `settings.tabs.spec.ts`). See the coverage plan for the full phased roadmap.
 - **Commands:** `pnpm exec playwright install` once per machine (CI installs Chromium automatically). Run `pnpm test:e2e` (or `pnpm test:e2e:ui`). Locally Playwright runs `next build` then `next start` on port **3100** by default (see `playwright.config.ts`) so it does not fight `next dev`’s `.next/dev/lock` — **GitHub Actions** runs **`pnpm exec next build`** as its own workflow step (clear failure logs) and sets **`PW_WEBSERVER_SKIP_BUILD`** so Playwright only runs **`next start`** — **avoid running `pnpm test:e2e` while `pnpm dev` is building/watching the same tree**, or override `PW_WEBSERVER_COMMAND` (e.g. `PW_WEBSERVER_COMMAND="pnpm dev"` on port `PW_SERVER_PORT` after stopping the other dev). **`config.webServer` uses stdout/stderr `pipe`** so `next build` / `next start` logs appear in the test runner (Playwright does not forward `inherit` for web servers). Use **`PW_WEBSERVER_STDIO=ignore`** to silence them; **`DEBUG=pw:webserver`** adds Playwright web-server debug logs. If you see “Process from config.webServer was not able to start”, check `.env`/`.env.local` for **`DATABASE_URL`** (global setup), **`AUTH_SECRET`** (≥32 chars), and **`DATABASE_URL_UNPOOLED`** per CI; confirm nothing else is bound to **`PW_SERVER_PORT`** (default **3100**). The server runs with `E2E_TEST=true` so `/api/auth/send-code` accepts fixed OTPs for addresses ending in `@bitbudget.test` (see `app/api/auth/send-code/route.ts`), and `lib/notify.ts` skips all outbound email/Nostr DMs so referral and cron-style notifications do not hit real inboxes. **Never set `E2E_TEST` in production.**
-- **Database:** E2E requires PostgreSQL (`DATABASE_URL` and `DATABASE_URL_UNPOOLED`; `AUTH_SECRET` ≥ 32 chars). Global setup runs `prisma migrate deploy` and reseeds referral fixtures (`e2e/seed-referral-e2e.ts`) plus recurring QA fixtures (`e2e/seed-recurring-e2e.ts`).
+- **Database:** E2E requires PostgreSQL (`DATABASE_URL` and `DATABASE_URL_UNPOOLED`; `AUTH_SECRET` ≥ 32 chars). Global setup runs `prisma migrate deploy` and reseeds referral fixtures (`e2e/seed-referral-e2e.ts`), recurring QA fixtures (`e2e/seed-recurring-e2e.ts`), app-user fixtures (`e2e/seed-app-e2e.ts`), and income-importer fixtures (`e2e/seed-income-importer-e2e.ts`).
 - **Manual recurring QA:** See [docs/testing/recurring-qa.md](docs/testing/recurring-qa.md) (staging DB bump, `pnpm qa:recurring:bump`, and the checklist). **`pnpm test`** includes `lib/__tests__/recurring.test.ts`; **`e2e/recurring.lifecycle.spec.ts`** covers a signed-in `@bitbudget.test` user with a due seeded rule.
 - **Local referral code (manual QA):** When asked for a referral code for local/staging testing, run **`pnpm referral:admin-code`** (`scripts/print-admin-referral-code.ts`). It ensures a valid user referral code owned by the earliest `createdAt` admin (reuses an active unused code or creates one via `ensureUserReferralCode`). Prints the code on **stdout** (owner line on stderr); capture with `CODE=$(pnpm referral:admin-code 2>/dev/null)`. Requires **`DATABASE_URL`**. If no admin exists, promote one with **`ADMIN_EMAILS`** + **`pnpm db:seed-admin`** first.
-- **Maintenance:** When you change referral rules, Plaid activation, onboarding gates, auth email flow, **transaction dialog prefill / payee canonicalization**, manual entry UX, or **layout/navigation on core pages** (settings tabs, mobile nav, onboarding steps), **update or extend the Playwright specs and seed constants** so CI keeps enforcing the product contract. Treat failing e2e the same as failing unit tests.
+- **Maintenance:** When you change referral rules, Plaid activation, onboarding gates, auth email flow, **transaction dialog prefill / payee canonicalization**, or manual entry UX, **update or extend the Playwright specs and seed constants** so CI keeps enforcing the product contract. Treat failing e2e the same as failing unit tests. Once the stacked e2e implementation PRs land, this also applies to **layout/navigation on core pages** (settings tabs, mobile nav, onboarding steps).
 - **Responsive checks:** Playwright runs at a desktop viewport by default. For layout-heavy UI changes, **manually verify at 390px and 320px** (DevTools device mode) before merge; add or extend e2e viewport coverage when a regression has happened or the layout contract is easy to assert (e.g. no document scroll width exceeding viewport on settings).
 - **Pull requests:** **`pnpm lint`, `pnpm test`, and `pnpm test:e2e` should all pass** before a change is considered ready to merge (unless a PR explicitly documents an exception and follow-up).
+- **Outbound messaging QA:** Changing `lib/notify.ts`, `lib/email.ts`, `lib/nostr-dm.ts`, notification-email APIs, or communication preferences requires updating [docs/outbound-messaging.md](docs/outbound-messaging.md) when behavior or env vars change, and extending `lib/__tests__/notify-e2e-skip.test.ts` (or related tests) for routing regressions.
+
+## Cursor Cloud specific instructions
+
+Cloud agents use the saved environment **update script for dependency install only** — do **not** put `prisma migrate deploy` in the update script. Migrations need a live DB and block every agent boot when the database is unreachable.
+
+**Update script (dashboard / `environment.json` `install`):**
+
+```bash
+pnpm install
+```
+
+`postinstall` runs `prisma generate`; that does not require a database connection.
+
+**Run migrations on demand** when the task needs a synced schema (dev server, API routes, e2e, seed scripts):
+
+```bash
+pnpm exec prisma migrate deploy
+```
+
+Run this **before** `pnpm dev`, manual DB work, or `pnpm test:e2e` if migrations may be pending. Playwright global setup also runs `migrate deploy`, but a cloud agent starting the app directly should migrate first.
+
+**Secrets** (Cursor Cloud Agents → Secrets — not committed `.env` files):
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Pooled Postgres URL (app runtime) |
+| `DATABASE_URL_UNPOOLED` | Direct Postgres URL (required by `prisma/schema.prisma` `directUrl`; use Neon/Vercel **non-pooler** host for migrations) |
+| `AUTH_SECRET` | Auth.js secret (≥ 32 characters) |
+
+Both DB URLs are required for `migrate deploy`. If `DATABASE_URL_UNPOOLED` is missing, Prisma fails with **P1012** before connecting.
+
+**Typical cloud workflow:** `pnpm install` (update script) → `pnpm exec prisma migrate deploy` (when DB needed) → `pnpm dev` or targeted tests.
 
 ## Code Conventions
 
@@ -110,6 +246,7 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 - Components that use React hooks, local state, or browser-only APIs must be client components (include the `"use client"` directive at the top of the file). Purely presentational components that don't rely on client-only features can be server components.
 - Page-level components live in `components/` (e.g. `dashboard-page.tsx`, `transactions-page.tsx`).
 - The app uses hash-based routing managed by `AppContext` (`navigateTo`, `currentPage`), not the Next.js file-based router, for in-app navigation after auth.
+- **Envelope transaction drill-ins** use **`#/envelope/<id>`** (`navigateTo("envelope-detail", envelopeId)`). Do not rewrite these to `#/transactions` with an envelope filter; the scoped envelope view reuses the main Transactions list behavior.
 - `app/page.tsx` is the shell: `OnboardingGate → AppProvider → EncryptionGate → BtcPriceProvider → layout`.
 - When changing interactive UI, keep accessibility state and labels current: update `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-pressed`, `aria-selected`, and related screen-reader text alongside visible labels and control state.
 
@@ -124,6 +261,62 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 - `AppContext` (`lib/app-context.tsx`) is the single source of truth for app state. It holds transactions, envelopes, tags, user settings, encryption state, and navigation.
 - Prefer optimistic UI updates (update local state immediately, then fire the API call) with rollback on failure.
 - `BtcPriceContext` is a separate provider for BTC price data. `useBtcPrices()` **should** be called within `BtcPriceProvider`. If it runs outside the provider (e.g. vanilla mode or a missing wrapper), it returns **`NOOP_PRICES`** (zeros / no-op helpers) and logs a **dev-time warning** — it does not throw. Still wrap components that need real BTC data in `BtcPriceProvider` when `opportunityCostEnabled` is on.
+
+### Transaction dates (calendar day vs instant; agents)
+
+- **Display and filters in the browser:** use `lib/transaction-dates.ts` (`transactionCalendarDay`, `formatTransactionTableDate`, `todayTransactionCalendarDay`, etc.) so list and filter “days” match the **user’s local calendar** where those helpers run client-side.
+- **Storage for calendar-only semantics:** prefer `calendarDateToStorageInstant` / `parseTransactionDateInput` for `YYYY-MM-DD` inputs so the DB instant is not naive-UTC-midnight drift (see comments in `transaction-dates.ts`).
+- **User-initiated server writes** (rebalance, move-funds, manual transaction POST bodies, etc.): the server **must not** infer the user’s posting calendar day from `new Date().toISOString().slice(0, 10)` (UTC day). Send an explicit calendar string from the client (`postedOn`, `date`, etc.) validated like other transaction inputs, or document a single timezone contract for the endpoint.
+- **Cron / BudgetPeriod / payday automation** intentionally uses **UTC calendar boundaries** for schedule math where documented in this file — do not conflate that with interactive posting-date UX.
+
+### Smart defaults must never overwrite explicit user choices
+
+Any feature that infers or suggests a value — envelope auto-assignment from payee history, payee alias inference, smart duplicate detection, AI/LLM categorization — **must not overwrite a value the user has already set**. User intent is sacrosanct.
+
+**The rule:** track which values the user has explicitly touched (e.g. a `manuallySetRows: Set<number>` exclusion set, an `overrides` map, or a boolean "touched" flag per field) and gate every automated update behind it. If a field is in the user-touched set, no background inference may alter it.
+
+**Propagation:** smart defaults that apply to multiple rows (e.g. "all rows with the same payee inherit the same envelope") must still respect the exclusion set for each individual row. Changing one row should propagate to all sibling rows that have NOT been manually set; it must never overwrite a row the user individually changed.
+
+**UI hint:** when a value was set by inference (not the user), show a subtle source label (e.g. "From Whole Foods Market history") so the user understands where it came from and can override it. Once the user changes the value, treat it as manually set — clear the hint and add it to the exclusion set.
+
+**Implementation pattern:**
+- Keep a `manuallySetRows` (or `touched`) set/map in component state.
+- When a smart default fires, check `!touched.has(id)` before applying.
+- When a user event fires (onChange, onClick accept), add the id to `touched` before writing the value.
+- Never reset `touched` due to background re-computation (e.g. re-loading envelope suggestions).
+- When the draft is hydrated from sessionStorage, restore `touched` alongside the values.
+
+### Input persistence for multi-field flows
+
+Any multi-step or multi-field input flow (onboarding, income import, transaction batch entry, future wizards) **must** cache in-progress state so accidentally closing the dialog or refreshing the page does not destroy the user's work.
+
+- **Default storage tier:** `sessionStorage` via [`lib/draft-storage.ts`](lib/draft-storage.ts). Survives accidental close + page refresh; dies on browser close. Use `localStorage` only when the value is explicitly meant to persist across sessions (e.g. dashboard chart prefs).
+- **Required UI affordance:** a visible **Clear All** (or **Reset**) button whenever working state diverges from defaults. It must trigger an `<AlertDialog>` confirmation explaining what will be discarded before clearing.
+- **Lifecycle:** save on every change (debounced ~400ms); hydrate on open; clear on successful submit, on Clear All confirm, and on logout (`clearAllDrafts()` in `AppContext.logout`).
+- **Privacy:** never persist decrypted sensitive data (PINs, raw nsec, decrypted transaction notes) in drafts. Source labels and amounts are fine.
+- **Validation:** load helpers must validate the deserialized shape and silently drop drafts that fail (schema bumps must not break the dialog).
+- **Examples:** [`app/onboarding/page.tsx`](app/onboarding/page.tsx) (`ONBOARDING_SESSION_STORAGE_KEY`), [`components/income-importer/income-importer-dialog.tsx`](components/income-importer/income-importer-dialog.tsx) (`bitbudget-income-importer-draft`).
+
+### Nested dialogs and modal stacks
+
+Stacked dialogs (edit sheet on top of a wizard, confirm on top of a form) are easy to get wrong. **Dismissal on the child must never close the parent** unless that is explicit product intent.
+
+- **Nest child dialogs inside the parent `DialogContent`** when they belong to the same flow (see income importer cell edit).
+- **Guard the parent `onOpenChange`:** if a child modal is open, ignore `false` from the parent root (`if (!next && childOpen) return`).
+- **On the child `DialogContent`:** call `e.preventDefault()` on `onInteractOutside` and `onPointerDownOutside` so overlay clicks do not fall through to the parent; call `e.stopPropagation()` on `onEscapeKeyDown`.
+- **Cancel / Save buttons:** use `type="button"`, `e.stopPropagation()` on handlers, and never rely on unscoped `DialogClose` for nested layers.
+- **Header actions vs. close (X):** reserve space for the built-in close control (`pr-10` on `DialogHeader` or similar) so custom buttons (e.g. Clear All) do not overlap the X.
+
+### Setup guide & walkthrough
+
+- **Checklist UI is server-authoritative.** Task completion comes from `GET` / `POST` `/api/user/setup-status` (`lib/setup-guide-status-api.ts`, `lib/setup-guide-server.ts`). The client hook `useSetupGuideStatus` (`lib/use-setup-guide-status.ts`) refetches when relevant local signals change; do not drive checklist completion from client-only guesses.
+- **Editing transactions can change setup tasks without changing txn count.** `editTransaction` keeps `activeTransactions.length` the same; refetch deps must not rely on length alone.
+- **`SETUP_GUIDE_TRANSACTION_TASK_IDS`** (`lib/setup-guide-status.ts`) lists tasks whose completion can change when transaction fields change (`type`, `date`, `source`, `excludeFromMainHistory`, `envelopeId`, etc.). `needsTransactionSetupTracking()` uses it to decide whether `activeTransactionSetupSignature()` runs (full **O(n)** scan on each txn list change).
+  - **New transaction-related setup goal → add its task id to `SETUP_GUIDE_TRANSACTION_TASK_IDS`.** Otherwise edits (e.g. recategorizing an expense as a paycheck) will not refetch setup status and the checklist can stay stale (same class of bug as refetching on `activeTransactions.length` only).
+  - **New non–transaction-related setup goal (e.g. a future multi-week streak) → do not add it to `SETUP_GUIDE_TRANSACTION_TASK_IDS`.** If it is listed, users pay txn signature overhead for the whole time that goal stays open, even after all txn tasks are done.
+  - **`income` is special:** tracking continues while income is complete but only via paycheck credits (`monthlyIncome` still zero), so edits can revoke completion; once settings income is set, txn scanning for income stops.
+- **Other client refetch gates:** `needsAllotmentSetupTracking()` (open `allocations` task) drives allotment signature; `needsMonthlyIncomeSetupTracking()` drives `state.monthlyIncome` refetch. Auto polling stops when `remote.allComplete`; manual `loadStatus()` still works for snooze/dismiss prefs.
+- **Walkthrough** is separate: per-user `walkthroughCompleted`, `components/walkthrough-overlay.tsx`, `lib/walkthrough-steps.ts`. Use distinct `data-walkthrough` ids for nav vs in-page anchors (`lib/walkthrough-target.ts` prefers visible nodes in `<main>`).
 
 ### React effects and `setState` (`react-hooks/set-state-in-effect`)
 
@@ -150,7 +343,8 @@ ESLint flags **calling `setState` synchronously inside `useEffect` or `useLayout
 - Accent color: `#F7931A` (Bitcoin orange), used for CTAs, active states, and BTC-related highlights.
 - **Savings gold accent:** `SAVINGS_GOLD_ACCENT` (`#D4AF37` in `lib/constants.ts`) — use sparingly for Savings hero card border, pinned Savings filter pill, savings-mode chart lines, and Savings dashboard tile highlights. Distinct from Bitcoin orange.
 - Success/credit color: `#22C55E`. Blue accent: `#3B82F6`.
-- BTC numeric values use `font-ibm-plex-mono` class for monospace rendering.
+- Monospace text (BTC/sats, codes, tabular numbers) uses `font-mono` (JetBrains Mono via `next/font/google`).
+- **Use `Switch` for boolean settings**, not `<input type="checkbox">`. Native checkboxes are off-brand; the shadcn `Switch` component (`components/ui/switch.tsx`) fits the dark-theme design language.
 - **Mobile-first responsive design is required**, not optional. Default styles target narrow viewports; use Tailwind breakpoints (`sm:`, `md:`, `lg:`) to enhance layout on larger screens. Most signed-in users reach the app on phones — a page that only looks correct on desktop is a bug.
 
 ### Responsive UI (mobile-first)
@@ -175,6 +369,15 @@ Treat horizontal overflow, clipped controls, and fixed-width layouts on small sc
 - Below `md`, navigation is **`MobileNav`** (bottom bar) + **`Header`**; the sidebar is hidden. Pages must not depend on desktop-only chrome for core actions.
 - Dialogs and sheets: use responsive max widths (`max-w-[min(96vw,…)]`, `sm:max-w-lg`) and scrollable bodies (`max-h-[…] overflow-y-auto`) so content fits short viewports.
 - Data tables may scroll horizontally inside a **`overflow-x-auto`** wrapper scoped to the table — not by widening the entire page. Update empty-state `colSpan` when columns are conditionally hidden.
+- **Stable chrome:** Prefer **fixed-height** or **always-present** regions for **dialog headers, footers, and summary strips** so lists and charts do not jump vertically when helper text appears or values update.
+- **Layout shift (CLS):** Avoid **per-row conditional blocks** that grow only some rows (for example funding hints on envelope cards). Put summaries **once** at the top or bottom of a list, or reserve **`min-height`** when optional copy must stay inline.
+- **Charts:** Summary lines above a plot (for example **Saved** / cumulative totals on `components/opportunity-cost-chart.tsx`) should use a **reserved band** so toggling overlay data does not resize the chart body.
+
+### Power users (hash routing, drafts, keyboard)
+
+- **Signed-in navigation** uses hash routes in the shell (for example `/#/envelopes/allocations`, `/#/transactions`, `/#/envelope/<envelopeId>`). When linking from static routes into the app, use `next/link` with `href="/#/<page>"` so it matches `AppContext` navigation.
+- **Draft persistence:** Multi-step flows may cache in `sessionStorage` under keys like `bitbudget-<feature>-draft`. Irregular income uses `bitbudget-irregular-income-draft` (`lib/irregular-income-draft.ts`). Logout runs `clearAllDrafts()` in `lib/draft-storage.ts`, which removes `bitbudget-*-draft` keys.
+- **Enter to submit:** On supported dialogs, **Enter** (without Shift) triggers the primary action for the current step when focus is not in a `TEXTAREA`, a `contentEditable` region, or an element inside `[data-no-enter-submit]`. Shared helper: `handleDialogEnterToPrimary` in `lib/dialog-enter-submit.ts`. Initial coverage: irregular income, rebalance, and fill-envelope preview confirm.
 
 **Before finishing UI work**
 - Resize the browser (or DevTools device mode) to **390px and 320px** on every touched screen, dialog, and banner — including Settings, onboarding steps, and modals.
@@ -195,31 +398,48 @@ Treat horizontal overflow, clipped controls, and fixed-width layouts on small sc
 
 ### Database
 
-- Prisma schema is the source of truth. **Merged** schema changes must ship with a committed migration; **in-progress** work uses `db push` first (see below).
+- Prisma schema is the source of truth for **columns and relations**. **Merged** schema changes must ship with a committed migration. Some constraints (partial unique indexes, guarded DDL) live only in migration SQL — see **Local schema sync** below.
 - Migrations must be **idempotent** (`ADD COLUMN IF NOT EXISTS`, etc.) to survive re-runs during deployment.
 - After changing `schema.prisma`, always run `pnpm prisma generate` before testing types.
 - Use `cuid()` for IDs. Dates are stored as `DateTime` and formatted as `YYYY-MM-DD` strings at the API boundary.
 - **System Savings envelope:** created idempotently via `ensureSystemSavingsEnvelope()` on first session (see `lib/auth.ts`). Prisma `Envelope.systemRole = 'savings'`; reserved name `"Savings"`. Protected from rename, archive, merge, and delete in envelope API routes. **`activeEnvelopes`** includes Savings; **`discretionaryEnvelopes`** (`AppContext`) excludes it — use `discretionaryEnvelopes` for budget grids, sweep targets, and allotment totals.
 - **`SavingsGoal`** rows keyed by `periodKey` (`'YYYY-MM'` or `'default'`). Per-period lifecycle (grace, upward-only edits, close snapshots) is enforced in `lib/savings-goal.ts` and the savings-goal API routes.
 
-#### Schema changes during development (`db push`)
+#### Local schema sync (`migrate deploy`, not `db push`)
+
+**Default for local dev, CI, staging, and production:** apply committed migrations with **`pnpm exec prisma migrate deploy`** (requires `DATABASE_URL` and `DATABASE_URL_UNPOOLED` in `.env` / `.env.local`).
+
+Use **`migrate deploy`** — not **`pnpm db:push`** — when:
+
+- Pulling `main` or any branch with new migration folders.
+- Starting the dev server, running e2e, or testing API routes against Postgres.
+- The feature adds **raw SQL** Prisma cannot model (e.g. partial unique index on `Transaction.dedupeKey` for CSV import idempotency). `db push` syncs from `schema.prisma` only and may **drop** indexes/constraints that exist in the DB but not in the schema file.
+
+**`db push` is only for rapid WIP iteration** on schema-only changes while a feature is still evolving and **before** a migration is committed — and only when you are not relying on migration-only DDL. Once a migration folder exists on the branch, switch to **`migrate deploy`**.
+
+#### Schema changes during development
 
 While a feature is still evolving, **do not** run `pnpm db:migrate` on every schema tweak. That creates migration files and checksum history that are painful to revise.
 
-**Default loop:**
+**Default loop (schema-only WIP, no committed migration yet):**
 
 1. Edit `prisma/schema.prisma`.
-2. Apply locally with **`pnpm db:push`** (updates the dev DB without migration files).
+2. Apply locally with **`pnpm db:push`** (optional shortcut — see **Local schema sync** for when to skip it).
 3. Run **`pnpm prisma generate`** and continue building/testing.
+
+**Once the shape is stable or includes raw SQL:**
+
+1. Add an idempotent migration folder (hand-written or `pnpm db:migrate --name <descriptive_name>` with SQL edited for idempotency).
+2. Apply with **`pnpm exec prisma migrate deploy`** locally and in CI — do not rely on `db push` afterward.
 
 **Before creating a migration file, ask the maintainer:**
 
-- **Create migration now** — schema shape is stable enough for CI, another developer, or a shared environment. Run `pnpm db:migrate --name <descriptive_name>`, then hand-edit the generated SQL for idempotency if needed.
-- **Wait until later** — still iterating; keep using `db push` only and defer migration files until PR finalization.
-
-**Never edit a migration after it has been applied** (local, CI, staging, or prod). Prisma stores a checksum in `_prisma_migrations`; changing the file causes “migration was modified after it was applied” errors. For fixes after apply, add a **new** migration instead.
+- **Create migration now** — schema shape is stable enough for CI, another developer, or a shared environment. Run `pnpm db:migrate --name <descriptive_name>`, then hand-edit the generated SQL for idempotency if needed (partial indexes, `IF NOT EXISTS`, etc.).
+- **Wait until later** — still iterating on columns Prisma models directly; keep using `db push` only until PR finalization, then consolidate into committed migrations and use **`migrate deploy`**.
 
 #### PR finalization: migrations (without resetting local dev data)
+
+**Never edit a migration after it has been applied** (local, CI, staging, or prod). Prisma stores a checksum in `_prisma_migrations`; changing the file causes “migration was modified after it was applied” errors. For fixes after apply, add a **new** migration instead.
 
 Before merge, the branch must have clean, reviewable migration(s) that match final `schema.prisma`. Consolidate WIP history **without** asking the developer to wipe their database:
 
@@ -232,10 +452,10 @@ Before merge, the branch must have clean, reviewable migration(s) that match fin
    - If their DB already has the columns (from `db push` and/or WIP migrations), the consolidated migration should be a **no-op** on apply.
    - Delete `_prisma_migrations` rows for removed WIP migration names.
    - Mark the consolidated migration applied: `pnpm exec prisma migrate resolve --applied <migration_folder_name>`, or update the checksum row if the migration was already applied manually (see **Common Pitfalls**).
-   - Verify with **`pnpm db:migrate`** — expect “Already in sync”, not a reset prompt.
-4. **PR checklist** — migration(s) committed with schema + code; PR description notes `pnpm prisma migrate deploy` for deploy targets.
+   - Verify with **`pnpm exec prisma migrate deploy`** — expect pending migrations to apply cleanly or “Already in sync”, not a reset prompt.
+4. **PR checklist** — migration(s) committed with schema + code; PR description notes **`pnpm exec prisma migrate deploy`** for deploy targets and local setup after merge.
 
-CI and fresh clones use `prisma migrate deploy`; idempotent consolidated migrations must apply cleanly from `main`'s baseline.
+CI, fresh clones, and **local dev after merge** use **`prisma migrate deploy`**; idempotent consolidated migrations must apply cleanly from `main`'s baseline.
 
 ## Feature Gating: Opportunity Cost
 
@@ -304,25 +524,78 @@ If keys are **lost** or **mismatched** (undecryptable blob), the generic onboard
 
 When designing new endpoints, **never** allow replacing `encryptedPrivacyKey` without explicit recovery semantics and user understanding of data loss or migration.
 
-## Envelope Archiving
+## Envelope Archiving and Deletion
 
-Deleting an envelope **archives** it (`archived: true`). Archived envelopes and their transactions are filtered out of active views via `activeEnvelopes` and `activeTransactions` in `AppContext`. Users can view, restore, or permanently delete archived envelopes from the Envelopes page.
+These are two distinct operations with different ledger semantics:
+
+- **Archive** (`archived: true`) — hides the envelope from the active budget grid (`activeEnvelopes` excludes it) but **keeps its transactions in the ledger**. Archived-envelope transactions remain in `activeTransactions` and therefore count toward Monthly Spend, charts, and analytics. Users can restore or permanently delete archived envelopes from the Envelopes page.
+- **Soft-delete** (`deletedAt: DateTime`) — initiated by "Delete" from the archived section. Sets a server-side timestamp and **excludes the envelope's transactions from `activeTransactions`** (and therefore from all spend analytics and charts). The envelope is hidden from all active views and shows in a "Recently deleted" section for up to 30 days (`ENVELOPE_DELETE_GRACE_DAYS`). Restoring clears `deletedAt` and returns the envelope and its transactions to the ledger. A daily purge cron (`/api/cron/envelope-purge`) hard-deletes envelopes whose `deletedAt` is older than the grace window.
+- **Hard-delete** (cron purge only, or `DELETE ?all=true` for full data reset) — permanently removes the envelope and cascades to transactions, recurring rules, and payee mappings. `TransactionShortcut` and `PendingTransaction.suggestedEnvelopeId` are cleaned up explicitly (no cascade).
+
+**Key invariants:**
+- `activeEnvelopes` = envelopes where `!archived && !deletedAt`
+- `activeTransactions` = transactions whose envelope does not have `deletedAt` set
+- The system Savings envelope cannot be archived, soft-deleted, or hard-deleted via user-facing routes.
+- `DELETE /api/envelopes?id=` performs a soft-delete (sets server-timestamped `deletedAt`); `PUT /api/envelopes` with `deletedAt: null` restores; non-null `deletedAt` values are rejected (clients cannot back-date deletes).
+- Restoring an envelope whose `deletedAt` is older than `envelopeDeletePurgeCutoff()` returns HTTP 410.
+
+## Observability and alerting
+
+Production ops visibility uses **Sentry** (stack traces), **`GET /api/health`** (uptime monitors), and **`lib/alert.ts`** (Discord, Telegram, email to DB admins). See [docs/ops/triage.md](docs/ops/triage.md) and the **triage** Cursor skill (`.cursor/skills/triage/SKILL.md`).
+
+**Privacy guardrails (non-negotiable for ops telemetry):**
+
+- Never log or alert on decrypted payee/notes, encryption keys, PINs, `encryptedPrivacyKey`, or raw request bodies.
+- Sentry `beforeSend` and `scrubAlertText` in `lib/sentry-scrub.ts` redact emails, npubs/nsecs, tokens, and sensitive header names.
+- Health checks and ops events must not include user identifiers beyond hashed/internal IDs when absolutely necessary.
+- `E2E_TEST=true` skips outbound Discord/Telegram/email alerts but still persists `OpsEvent` rows for CI.
+
+**When investigating production issues:** use `pnpm ops:health`, `pnpm ops:errors`, and `pnpm ops:crons` (see runbook). Admin ops dashboard: `/admin/ops`.
+
+## Parallel agents and git isolation
+
+Work in the **primary clone** by default (dev server + IDE). **One task → one branch → one concern**. **Worktrees are opt-in**: use one only when the maintainer asks, or when colliding sessions would clobber a shared tree — when unsure, stay primary and ask. Do not use `git stash` as agent handoff — commit WIP to a topic branch instead. Detail: [`.cursor/rules/agent-git-hygiene.mdc`](.cursor/rules/agent-git-hygiene.mdc).
+
+Passive maintenance: `.cursor/hooks.json` runs a **dry-run** `git-prune` on session start and writes `.cursor/git-prune-status.md`. Never auto-`--apply`.
 
 ## Commit and PR Workflow
 
+### Branches and commits
+
 - **Commit often.** Each logical unit of work (a bug fix, a feature slice, a refactor) gets its own commit. Don't batch unrelated changes.
 - **Commit messages** should be concise and describe the "what" and "why": `fix(receipts): validate file type from magic bytes, not Content-Type` or `feat: add vanilla "Your Expenses" chart for non-OC users`.
-- **When the maintainer says a code change "looks good" or otherwise approves the work, push the committed changes to the upstream branch.**
+- **Agents: commit only when the maintainer asks.** Do not create commits proactively; if intent is unclear, ask first.
 - **Do not continue work directly on non-feature branches.** If the current branch is not a feature branch (for example `main`, a release branch, or another shared integration branch), create a feature branch from the tip of `main` before committing/pushing.
+- **Large features:** slice into stacked, reviewable PRs per the [feature-slice skill](.cursor/skills/feature-slice/SKILL.md); keep each commit scoped to one layer or one slice.
+
+### Push and pull requests
+
+- **When the maintainer says a code change "looks good" or otherwise approves the work, push the committed changes to the upstream branch.**
 - **After pushing a feature branch, ensure a PR exists.** If there is no open PR for the branch, open one against `main`.
 - **Keep PR descriptions current.** If newly pushed changes are not described in the PR body, update the PR description to explain what changed and how it fits the broader purpose of the branch.
-- **Run `pnpm lint`, `pnpm test`, and `pnpm test:e2e` before pushing** (e2e needs Postgres + env; CI runs all three).
-- **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don’t rely on manual checks alone for production-critical behavior.
 - **PR descriptions** should have a Summary (bullet points of what changed) and a Test Plan (checkboxes).
 - **Never force-push to main.**
-- **Schema during development:** use **`pnpm db:push`**; ask the maintainer whether to **`pnpm db:migrate`** now or defer until PR finalization (see **Database → Schema changes during development**).
+
+### Before you push
+
+- **Run `pnpm lint`, `pnpm test`, and `pnpm test:e2e`** (e2e needs Postgres + env; CI runs all three).
+- **Unit-test incrementally** — add or update tests alongside the code (see **Testing**); don't rely on manual checks alone for production-critical behavior.
+- **Never commit secrets or user data** — no `.env` / `.env.local`, nsec, privacy keys, service tokens, decrypted exports, or personal transaction CSVs.
+
+### Schema and migrations
+
+- **Schema during development:** optional **`pnpm db:push`** only for early WIP on schema-modeled columns before a migration exists; once migrations are committed (especially raw SQL / partial indexes), use **`pnpm exec prisma migrate deploy`** locally (see **Database → Local schema sync**). Ask the maintainer whether to **`pnpm db:migrate`** now or defer until PR finalization.
 - **Before merge:** consolidate branch migrations into clean idempotent file(s) and reconcile the maintainer's local `_prisma_migrations` without a full DB reset (see **Database → PR finalization**).
 - **Database migrations** on the merged branch must be committed alongside the schema change and the code that uses the new field.
+
+### Cursor plan bookkeeping
+
+When a Cursor plan is **fully implemented** (all todos done, verification passed):
+
+1. **Rename the plan file** by inserting `_done` before the `.plan.md` extension — e.g. `fix_review-inbox_build_607a6e40.plan.md` → `fix_review-inbox_build_607a6e40_done.plan.md`.
+2. Do this **at the end of the session** that completes the plan, before moving on to unrelated work.
+3. **Do not edit the plan body** to mark completion; the `_done` suffix is the source of truth for backlog tracking.
+4. Plans live under **`~/.cursor/plans/`** (Cursor’s user-level plan directory — canonical home for BitBudget). Do **not** write plans under the repo’s `.cursor/plans/` unless the user explicitly asks for a workspace copy. Leave unimplemented plans unchanged so the maintainer can tell at a glance which backlog items remain.
 
 ### Addressing open PR review comments
 
@@ -344,15 +617,77 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 - **`activeEnvelopes` vs `discretionaryEnvelopes`** — `activeEnvelopes` includes the system Savings envelope; `discretionaryEnvelopes` filters `systemRole !== 'savings'`. Use the latter for budget envelopes; use Savings-specific helpers (`findSavingsEnvelope`, hero card) for the hub.
 - **Gating ledger funding or Savings accounting** — there is no ledger toggle. Gate motivational Savings UI with `state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED`; never tie funding to `opportunityCostEnabled`.
 - **Month-scoped balance for “remaining”** — `getEnvelopeBalance(..., monthKey)` only counts the current calendar month, so it **under-reports spendable money** when carry-forward or capped policy leaves balance from prior months (and diverges from server sweep math). Use `getEnvelopeBalanceAllTime` for “$X left”, dashboard **Remaining**, Savings totals, and sweep UI; reserve month scope for Monthly Income/Spend, goal periods, and pacing markers (see **Envelope balances: remaining vs current month**).
+- **Counting funding legs as user spending** — `envelope_funding_out` rows are `type: "expense"` with `excludeFromMainHistory: true`. Never feed them into spend charts, Monthly Spend, or OC totals. Use `isUserFacingExpense()` / `buildCumulativeSpendingSeries()` and cap series at `todayUtcIso()`. Deleting an income header must cascade the whole `fundingBatchId` (see **Transaction visibility, analytics, and lifecycle**).
 - **Forgetting to encrypt a new sensitive field** — if you add a field to `Transaction` that contains user-identifiable data, it must be encrypted client-side before storage.
 - **Non-idempotent migrations** — `ALTER TABLE ... ADD COLUMN` will fail on re-deploy if the column already exists. Always use `IF NOT EXISTS`.
-- **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During dev, prefer **`db push`**; at PR time, consolidate into a new migration. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.
-- **`db:migrate` on every schema tweak** — creates migration churn and checksum traps. Use **`db push`** while iterating; create migration files when the maintainer agrees or at PR finalization.
+- **Editing an applied migration** — Prisma checksums migration files; edits after apply block `migrate dev` / `migrate deploy`. Do not rewrite shipped migrations. During early dev, `db push` is optional for schema-only tweaks; after migrations land, use **`migrate deploy`**. If only the file changed but DDL is unchanged, updating `_prisma_migrations.checksum` is a local-dev escape hatch — not a substitute for adding a new migration when schema DDL actually changed.
+- **`db push` after partial-index migrations** — `db push` syncs from `schema.prisma` only. It can **drop** migration-only objects (e.g. `Transaction_userId_dedupeKey_key` partial unique index on CSV import dedupe). Use **`pnpm exec prisma migrate deploy`** instead.
+- **`db:migrate` on every schema tweak** — creates migration churn and checksum traps. Use **`db push`** only for early schema-only iteration; create migration files when the maintainer agrees or at PR finalization, then **`migrate deploy`**.
 - **Stale encryption keys** — switching accounts or clearing data can leave cached keys in `sessionStorage`. The `EncryptionGate` and `PinUnlockDialog` handle re-prompting; don't bypass them.
 - **`POST /api/user/encryption` and existing keys** — see **Privacy key custody & safeguard**; 409 prevents overwrites. Onboarding must handle 409 in `handleSecuritySetup`. Nostr nsec storage: intent `bitbudget-nsec-onboarding-intent`; pending raw key is **in-memory only** until PIN encrypts to `bitbudget-nsec` (JSON iv+ciphertext in localStorage). Legacy `bitbudget-pending-nsec` session key is cleared on `clearPendingNsec`. Logout clears pending/intent and localStorage nsec keys.
 - **`colSpan` mismatch** — when conditionally rendering table columns (e.g. hiding BTC columns in vanilla mode), update the empty-state row's `colSpan` accordingly.
+- **New setup guide tasks and `SETUP_GUIDE_TRANSACTION_TASK_IDS`** — transaction-driven goals must be listed there or txn edits won’t refresh the checklist; long-running non-txn goals must stay off the list or every txn change rescans until 100%. See **Setup guide & walkthrough** under Code Conventions.
 - **`react-hooks/set-state-in-effect`** — don’t call `setState` synchronously inside `useEffect` / `useLayoutEffect`; it triggers lint and risks extra renders or cascading updates. See **React effects and `setState`** under Code Conventions for patterns (derive during render, defer with `requestAnimationFrame` / `setTimeout(0)`, refs).
 - **Resetting `onboardingComplete` for users who already have `encryptedPrivacyKey`** — never rely on onboarding to rotate keys. `PUT /api/user/settings` must not accept `encryptedPrivacyKey` / `privacyKeySalt`. Prefer **Skip onboarding** and correct step routing; corrupt keys need a **recovery** path, not a silent `POST` overwrite.
+- **`E2E_TEST` in Vercel Preview/Production** — disables all `lib/notify.ts` outbound email/DM; leaves users thinking notifications are broken. Only Playwright should set it (see `playwright.config.ts`).
+- **Conflating notification email with sign-in email** — notification addresses use `UserNotificationEmail` and `/api/user/notification-email`; sign-in linking uses `/api/user/sign-in-methods` and `User.email`. Nostr-only users linking mail for **notifications** does not require the sign-in privacy dialog.
+- **`BITBUDGET_NOSTR_NSEC` exposure** — server-only env; never `NEXT_PUBLIC_` or client bundles. Rotate if leaked.
 - **Missing `min-w-0` in flex/grid layouts** — a child row (tabs, toolbars, input+button pairs) expands the page horizontally on phones. Add `min-w-0 w-full max-w-full` down the layout chain, or stack on mobile. **`overflow-x-auto` without a bounded parent does not fix this.**
+- **Smart defaults silently overwriting user choices** — envelope suggestions, payee inference, and similar features must never update a value the user has already set. Always maintain a `manuallySetRows` / `touched` exclusion set and gate all automated writes behind it. See **Smart defaults must never overwrite explicit user choices** under Code Conventions.
 - **Desktop-first breakpoints** — building a wide horizontal layout by default and only wrapping at `lg`/`md` often breaks between 320–640px. Default to mobile layout; enhance upward with `sm:` / `md:` / `lg:`.
 - **Fixed padding and min-widths on cards** — uniform `p-6` plus wide inner flex rows can clip buttons and text on 390px-wide screens. Use responsive padding and `flex-col sm:flex-row` for compound controls.
+- **Multi-field flow without draft persistence** — any non-trivial input flow must follow the **Input persistence for multi-field flows** convention. Closing a dialog must not silently destroy in-progress work; provide **Clear All** with confirmation.
+- **Nested dialog dismiss closes the parent** — guarding the parent with `editOpen` state alone is not enough: Radix may call the parent `onOpenChange(false)` after the child already set state to closed. Use a **ref updated synchronously** when opening/closing children, defer clearing it with `setTimeout(0)`, and follow **Nested dialogs and modal stacks** (nest inside parent content, `preventDefault` on outside interact, `stopPropagation` on Cancel/Escape).
+
+## Cursor Cloud-specific instructions
+
+### Services overview
+
+| Service | How to run | Notes |
+|---------|-----------|-------|
+| PostgreSQL | `sudo pg_ctlcluster 16 main start` | Required. Must be running before dev server or tests. |
+| Next.js dev server | `pnpm dev` | Runs on port 3000. |
+| Unit tests | `pnpm test` | Vitest; no DB required. |
+| Lint | `pnpm lint` | ESLint with `--max-warnings 0`. |
+| E2E tests | `pnpm test:e2e` | Requires PostgreSQL + Playwright browsers. Builds and runs on port 3100. Do not run while `pnpm dev` is active (lock conflict). |
+
+### Environment setup
+
+- **PostgreSQL** is required but not Docker-based. Install via `apt-get install postgresql postgresql-client` and start with `sudo pg_ctlcluster 16 main start` (no systemd in Cloud VMs).
+- **Prisma CLI** reads `.env` (not `.env.local`). Create a symlink once so CLI commands pick up `.env.local`: `ln -sf .env.local .env` (skip if `.env` already exists and points at the right file).
+- **`.env.local`** must contain at minimum: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`. For E2E testing, also add `E2E_TEST="true"` and `E2E_EMAIL_CODE="424242"`.
+- After `pnpm install`, run `prisma migrate deploy` (not `prisma migrate dev`, which prompts interactively) to apply pending migrations non-interactively.
+
+### Testing with E2E mode
+
+- Set `E2E_TEST="true"` and `E2E_EMAIL_CODE="424242"` in `.env.local` to enable fixed OTP login for `@bitbudget.test` email addresses. This also suppresses outbound email/Nostr DM notifications.
+- Playwright e2e global setup runs `prisma migrate deploy` and seeds fixtures automatically.
+- Install Playwright browsers once. Use the same command as in **End-to-end (Playwright)** (`pnpm exec playwright install`); on Cursor Cloud VMs, use **`pnpm exec playwright install chromium --with-deps`** so Chromium’s system libraries are installed via apt, matching CI.
+
+### Gotchas
+
+- The `pnpm install` postinstall hook runs `prisma generate` automatically, so no separate generate step is needed after install.
+- `pnpm.onlyBuiltDependencies` in `package.json` handles native dependency build approvals non-interactively — do not run `pnpm approve-builds`.
+- The Next.js dev server hot-reloads code changes but does **not** pick up new `.env.local` values without a restart.
+
+## Learned User Preferences
+
+- When implementing from a Cursor plan file (`~/.cursor/plans/*.plan.md`), do not edit the plan — use the pre-created todos and mark them in_progress/completed as you work.
+- For large feature branches, split work into logical commits before push and opening a PR.
+- When test-coverage gaps are identified for new shared logic, write the missing unit and e2e tests in the same session rather than deferring (if the user asks to write tests, implement them — do not stop at a coverage summary).
+- Onboarding and similar money inputs should normalize on blur or when changing steps (strip meaningless leading zeros, coerce empty to zero) so values like `000100000` cannot persist after navigating forward and back.
+
+## Learned Workspace Facts
+
+- Local dev pins Node 22 via `.nvmrc`; run `nvm use` before `pnpm` when the shell reports Node 18 or below (Playwright and the app require Node ≥ 20).
+- Remaining (all-time) discretionary and Savings balances apply a **genesis floor**: only transactions with `date >= envelopeGenesisFloor(envelope.createdAt)` count. `envelopeGenesisFloor` in `lib/data.ts` is one UTC calendar day before `createdAt` (timezone cushion). Pre-genesis rows stay in transaction lists but must not drive new envelopes negative after historical CSV or income imports.
+- Client remaining UI passes `envelopeGenesisFloor(createdAt)` into `getEnvelopeBalanceAllTime` (see `lib/savings-ui-metrics.ts`, envelope pages, sweep dialog). Server sweep/funding uses the same rule in `lib/envelope-balance-server.ts` (`envelopeBalancesBeforeBatch`, `savingsEnvelopeBalanceAllTime`, `savingsEnvelopeBalanceBefore`, month-end batch helpers).
+- Envelope API responses include `createdAt` as `YYYY-MM-DD` so clients can compute the genesis floor.
+- CSV import idempotency: the client derives a per-row `dedupeKey` via HMAC in `lib/import-dedupe-key.ts` using the privacy-key seed hex (server never sees the seed); large imports POST in chunks; the server skips rows with an existing key.
+- `@noble/hashes` v2 subpath imports must use explicit `.js` suffixes (e.g. `@noble/hashes/hmac.js`).
+- Ledger `TX_SOURCE_*` constants belong in `lib/constants.ts`, not `envelope-funding.ts`, to avoid circular imports with `envelope-balance-server.ts`.
+- Rules engine: `AccountRule` + `/api/account-rules`; logic in `lib/account-rules.ts` and `lib/rule-engine-client.ts`; Settings Rules UI at `#/settings/payee-rules` (`components/rules-settings.tsx`).
+- Rules engine tests: `lib/__tests__/rule-engine-client.test.ts`, `lib/__tests__/account-rules.test.ts`, and `e2e/rules-settings.spec.ts`.
+- **Recurring funding rules:** `RecurringFundingRule` stores scheduled income distribution / move-funds configs (`nextRunAt`). Executed by `processAllRecurringFundingRules()` from the daily **envelope-funding** cron (`/api/cron/envelope-funding`). Distinct from `RecurringTransaction` + `/api/cron/recurring` (user transaction templates).
+- `savingsBalance()` in `lib/savings-ui-metrics.ts` takes the Savings `Envelope` (or `undefined`), not `envelopeId` — pass `findSavingsEnvelope(...)`, not `.id`.
+- **Rebalance vs Move to/from Savings:** Both use `createRebalanceBatch` in `lib/rebalance-envelopes.ts` (same rebalance API). **`balanced`** mode only creates discretionary envelope ↔ envelope transfer pairs (Savings is not debited/credited by those legs). **`independent`** mode is used when the Savings path or “fund from Savings” is on: each envelope net change is paired with Savings out/in legs so Savings can fund envelopes or absorb money moved back.

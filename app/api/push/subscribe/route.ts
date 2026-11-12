@@ -27,6 +27,12 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // When a different user logs in on the same device, delete the prior subscription
+  // (bound to the old user's endpoint) before creating one for the current user.
+  // This prevents silently reassigning an endpoint to the wrong userId via upsert.
+  await prisma.pushSubscription.deleteMany({
+    where: { endpoint, userId: { not: session.user.id } },
+  })
   await prisma.pushSubscription.upsert({
     where: { endpoint },
     create: {
@@ -36,7 +42,8 @@ export async function POST(req: NextRequest) {
       auth: keys.auth,
     },
     update: {
-      userId: session.user.id,
+      // Do not update userId — the record is already owned by this user (guaranteed by the
+      // deleteMany above). Only refresh the encryption keys which browsers can rotate.
       p256dh: keys.p256dh,
       auth: keys.auth,
     },

@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState } from "react"
 import { X, Shield, AlertTriangle } from "lucide-react"
+import { isBillingDevSimulateEnabled } from "@/lib/billing-constants"
+import { formatPremiumTrialEnd, postPremiumCheckout } from "@/lib/billing-checkout-client"
+import { useApp } from "@/lib/app-context"
 
 export type PremiumFeature = "sms" | "email_scan" | "plaid" | "receipt_inbox"
 
@@ -36,20 +39,40 @@ interface UpgradeModalProps {
   onClose: () => void
 }
 
-type InterestState = "idle" | "saving" | "done" | "done_already_premium" | "error"
+type InterestState =
+  | "idle"
+  | "saving"
+  | "done"
+  | "done_simulated"
+  | "done_already_premium"
+  | "error"
 
 export function UpgradeModal({ feature, open, onClose }: UpgradeModalProps) {
+  const { refreshData } = useApp()
+  const devSimulate = isBillingDevSimulateEnabled()
   const [interestState, setInterestState] = useState<InterestState>("idle")
   /** Only set when interestState is "done"; used so Nostr-only accounts aren't promised email. */
   const [recordedHasEmail, setRecordedHasEmail] = useState(false)
+  const [simulatedTrialEnd, setSimulatedTrialEnd] = useState<string | null>(null)
   const onCloseRef = useRef(onClose)
   useEffect(() => {
     onCloseRef.current = onClose
   }, [onClose])
 
   useEffect(() => {
-    if (interestState !== "done" && interestState !== "done_already_premium") return
-    const delay = interestState === "done_already_premium" ? 2500 : 10000
+    if (
+      interestState !== "done" &&
+      interestState !== "done_simulated" &&
+      interestState !== "done_already_premium"
+    ) {
+      return
+    }
+    const delay =
+      interestState === "done_already_premium"
+        ? 2500
+        : interestState === "done_simulated"
+          ? 4000
+          : 10000
     const t = window.setTimeout(() => onCloseRef.current(), delay)
     return () => clearTimeout(t)
   }, [interestState])
@@ -58,9 +81,29 @@ export function UpgradeModal({ feature, open, onClose }: UpgradeModalProps) {
 
   const info = featureInfo[feature]
 
-  async function recordPremiumInterest() {
+  async function handleUpgradeClick() {
     setInterestState("saving")
     try {
+      if (devSimulate) {
+        const { ok, data } = await postPremiumCheckout("monthly")
+        if (!ok) {
+          setInterestState("error")
+          return
+        }
+        if (data.reason === "already_premium") {
+          setInterestState("done_already_premium")
+          return
+        }
+        if (data.simulated && data.premiumTrialUntil) {
+          setSimulatedTrialEnd(formatPremiumTrialEnd(data.premiumTrialUntil))
+          setInterestState("done_simulated")
+          await refreshData()
+          return
+        }
+        setInterestState("error")
+        return
+      }
+
       const res = await fetch("/api/user/premium-interest", { method: "POST" })
       if (!res.ok) {
         setInterestState("error")
@@ -93,7 +136,12 @@ export function UpgradeModal({ feature, open, onClose }: UpgradeModalProps) {
           </button>
         </div>
 
-        {interestState === "done" ? (
+        {interestState === "done_simulated" ? (
+          <p className="text-sm text-[#22C55E] mb-6">
+            Premium trial is active{simulatedTrialEnd ? ` through ${simulatedTrialEnd}` : ""}. You can use this feature
+            now — close this dialog to continue.
+          </p>
+        ) : interestState === "done" ? (
           <p className="text-sm text-[#22C55E] mb-6">
             {recordedHasEmail ? (
               <>
@@ -148,11 +196,17 @@ export function UpgradeModal({ feature, open, onClose }: UpgradeModalProps) {
               </button>
               <button
                 type="button"
-                onClick={() => void recordPremiumInterest()}
+                onClick={() => void handleUpgradeClick()}
                 disabled={interestState === "saving"}
                 className="flex-1 px-4 py-2.5 bg-[#F7931A] text-[#0D0D0D] rounded-xl text-sm font-semibold hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
               >
-                {interestState === "saving" ? "Saving…" : "Upgrade to Premium"}
+                {interestState === "saving"
+                  ? devSimulate
+                    ? "Activating…"
+                    : "Saving…"
+                  : devSimulate
+                    ? "Simulate Premium purchase"
+                    : "Upgrade to Premium"}
               </button>
             </>
           ) : (

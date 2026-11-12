@@ -1,33 +1,21 @@
-import { timingSafeEqual } from "crypto"
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest } from "next/server"
+import { cronAuthFailureResponse } from "@/lib/cron-auth"
 import { processEnvelopeFundingCron } from "@/lib/envelope-funding-cron"
-
-function bearerMatches(secret: string, authHeader: string | null): boolean {
-  const expected = Buffer.from(`Bearer ${secret}`, "utf8")
-  const received = Buffer.from(authHeader ?? "", "utf8")
-  if (expected.length !== received.length) return false
-  try {
-    return timingSafeEqual(expected, received)
-  } catch {
-    return false
-  }
-}
+import { processAllRecurringFundingRules } from "@/lib/recurring-funding-processor"
+import { runCron } from "@/lib/run-cron"
 
 export async function GET(req: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret == null || cronSecret === "") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const authFailure = cronAuthFailureResponse(req.headers.get("authorization"))
+  if (authFailure) return authFailure
 
-  if (!bearerMatches(cronSecret, req.headers.get("authorization"))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
-  try {
+  return runCron("envelope-funding", async () => {
     const result = await processEnvelopeFundingCron()
-    return NextResponse.json(result)
-  } catch (err) {
-    console.error("[cron/envelope-funding] Error:", err)
-    return NextResponse.json({ error: "Processing failed" }, { status: 500 })
-  }
+    const recurringFunding = await processAllRecurringFundingRules()
+    return {
+      ...result,
+      processed: result.usersProcessed,
+      recurringFundingRulesProcessed: recurringFunding.rulesProcessed,
+      recurringFundingLegsCreated: recurringFunding.legsCreated,
+    }
+  })
 }

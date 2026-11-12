@@ -17,9 +17,24 @@ import { getPendingNsec } from "@/lib/nostr-local-signer"
 
 export type ImportEncryptFn = (plaintext: string) => Promise<string>
 
+/**
+ * Crypto material for an import: the field encryptor plus the raw privacy-key seed hex.
+ * The seed is needed client-side to derive the HMAC dedupe key (never sent to the server).
+ */
+export interface ImportCrypto {
+  encrypt: ImportEncryptFn
+  seedHex: string
+}
+
 function encryptFnFromHexKey(hex: string): ImportEncryptFn {
   const { publicKey } = generateKeyPairFromSeed(hexToUint8(hex))
   return (plaintext: string) => Promise.resolve(encryptFieldAsymmetric(plaintext, publicKey))
+}
+
+function importCryptoFromHexKey(hex: string): ImportCrypto {
+  // Validate the seed eagerly so callers can rely on `seedHex` being usable.
+  generateKeyPairFromSeed(hexToUint8(hex))
+  return { encrypt: encryptFnFromHexKey(hex), seedHex: hex }
 }
 
 type EncApiPayload = {
@@ -31,14 +46,15 @@ type EncApiPayload = {
 }
 
 /**
- * Resolves the encrypt function used before POST /api/import.
+ * Resolves the crypto material used before POST /api/import: the field encryptor plus
+ * the raw privacy-key seed hex (for client-side HMAC dedupe key derivation).
  *
  * - Fast path: valid cached key (localStorage TTL + legacy session migration) + session user id match.
  * - Otherwise fetches encryption metadata; for Nostr extension accounts may run
  *   NIP-04 decrypt. This fixes onboarding import when storage was cleared or the key was
  *   never written, as long as the server-stored ciphertext is valid for the current pubkey.
  */
-export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | null> {
+export async function resolveImportCrypto(): Promise<ImportCrypto | null> {
   if (typeof window === "undefined") return null
 
   if (hasPotentialPrivacyKeyCache()) {
@@ -48,7 +64,7 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
       const hex = getValidCachedPrivacyKeyHex(sid)
       if (hex) {
         try {
-          return encryptFnFromHexKey(hex)
+          return importCryptoFromHexKey(hex)
         } catch {
           clearPrivacyKeyCache()
         }
@@ -64,7 +80,7 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
   const hexAfterFetch = getValidCachedPrivacyKeyHex(data.userId)
   if (hexAfterFetch) {
     try {
-      return encryptFnFromHexKey(hexAfterFetch)
+      return importCryptoFromHexKey(hexAfterFetch)
     } catch {
       clearPrivacyKeyCache()
     }
@@ -85,7 +101,7 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
         generateKeyPairFromSeed(pk)
         setCachedPrivacyKeyHex(data.userId, hexKey)
         void syncUserPublicKey(pk)
-        return encryptFnFromHexKey(hexKey)
+        return importCryptoFromHexKey(hexKey)
       } catch {
         /* corrupt ciphertext, wrong pubkey, or user denied NIP-04 */
       }
@@ -100,7 +116,7 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
         generateKeyPairFromSeed(pk)
         setCachedPrivacyKeyHex(data.userId, hexKey)
         void syncUserPublicKey(pk)
-        return encryptFnFromHexKey(hexKey)
+        return importCryptoFromHexKey(hexKey)
       } catch {
         /* wrong key or corrupt ciphertext */
       }
@@ -108,4 +124,24 @@ export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | nul
   }
 
   return null
+}
+
+/**
+ * Back-compat thin wrapper returning only the encrypt function.
+ * Prefer `resolveImportCrypto` when the dedupe seed is also needed.
+ */
+export async function resolveEncryptFnForImport(): Promise<ImportEncryptFn | null> {
+  const crypto = await resolveImportCrypto()
+  return crypto?.encrypt ?? null
+}
+
+/** Privacy key bytes for decrypting email-forwarded statement batches in the importer. */
+export async function resolveSecretKeyForImport(): Promise<Uint8Array | null> {
+  const crypto = await resolveImportCrypto()
+  if (!crypto) return null
+  try {
+    return hexToUint8(crypto.seedHex)
+  } catch {
+    return null
+  }
 }

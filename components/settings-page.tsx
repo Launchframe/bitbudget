@@ -2,11 +2,16 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { useApp } from "@/lib/app-context"
+import {
+  COMMUNICATION_PREFERENCE_DETAILS,
+  type CommunicationPreferenceKey,
+} from "@/lib/communication-preferences"
 import { compareTransactionsDesc, formatUsd, formatUsdPrecise } from "@/lib/data"
 import { buildExportFilename, buildTransactionsCsv } from "@/lib/transaction-export"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CSVImportDialog } from "@/components/csv-import-dialog"
+import { DuplicateCleanupCard } from "@/components/duplicate-cleanup-card"
 import {
   Upload,
   Shield,
@@ -26,40 +31,48 @@ import {
   CheckCircle2,
   AlertCircle,
   Download,
-  Link2,
+  BookOpen,
   Settings2,
   Plug,
+  MessageSquare,
   PiggyBank,
 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import { PayeeMappingsSettings } from "@/components/payee-mappings-settings"
+import { RecurringRulesSettings } from "@/components/recurring-rules-settings"
+import { CommunicationChannelsCard } from "@/components/communication-channels-card"
 import { SETTINGS_INITIAL_TAB_STORAGE_KEY } from "@/lib/payee-mapping-dismissals"
-import { PlaidLinkButton } from "@/components/plaid-link-button"
+import { PlaidConnectionsSection } from "@/components/plaid-connections-section"
 import { UpgradeModal, type PremiumFeature } from "@/components/upgrade-modal"
 import { SettingsReferralsCard } from "@/components/settings-referrals-card"
 import { SettingsSavingsCard } from "@/components/settings-savings-card"
 import { IncomeImporterCard } from "@/components/income-importer-dialog"
 import { LinkedSignInMethods } from "@/components/linked-sign-in-methods"
+import { SettingsSetupGuideSection } from "@/components/settings-setup-guide-section"
 import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
-type SettingsTab = "general" | "savings" | "integrations" | "tags" | "payees" | "data"
+type SettingsTab = "general" | "communications" | "savings" | "integrations" | "tags" | "payees" | "data"
 
 const SETTINGS_TAB_SLUGS: Record<SettingsTab, string> = {
   general: "general",
+  communications: "communications",
   savings: "savings-tracking",
   integrations: "integrations",
   tags: "tags",
-  payees: "payee-mappings",
+  payees: "budgeting-rules",
   data: "data-security",
 }
 
 const SETTINGS_TAB_FROM_SLUG: Record<string, SettingsTab> = {
   general: "general",
+  communications: "communications",
   savings: "savings",
   "savings-tracking": "savings",
   integrations: "integrations",
   tags: "tags",
   payees: "payees",
   "payee-mappings": "payees",
+  "budgeting-rules": "payees",
   data: "data",
   "data-security": "data",
 }
@@ -78,11 +91,13 @@ export function SettingsPage() {
     setMonthlyIncome,
     setBtcDisplayUnit,
     setOpportunityCostEnabled,
+    setCommunicationPreference,
     addTag,
     deleteTag,
     refreshData,
     clearLocalTransactionCache,
     encryptForStorage,
+    makeImportDedupeKeyComputer,
     logout,
     subscriptionTier,
     effectiveTier,
@@ -118,8 +133,14 @@ export function SettingsPage() {
       } else if (t === "integrations") {
         selectSettingsTab("integrations", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      } else if (t === "general") {
+        selectSettingsTab("general", "replace")
+        sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       } else if (t === "savings" || t === "savings-tracking") {
         selectSettingsTab("savings", "replace")
+        sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
+      } else if (t === "data" || t === "data-security") {
+        selectSettingsTab("data", "replace")
         sessionStorage.removeItem(SETTINGS_INITIAL_TAB_STORAGE_KEY)
       }
     } catch {
@@ -144,7 +165,7 @@ export function SettingsPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
   const [importResult, setImportResult] = useState<
-    | { success: true; imported: number; skipped: number }
+    | { success: true; imported: number; skipped: number; duplicates: number }
     | { success: false; error: string }
     | null
   >(null)
@@ -353,8 +374,72 @@ export function SettingsPage() {
     return undefined
   }
 
+  const toggleCommunicationPreference = useCallback(
+    (key: CommunicationPreferenceKey, enabled: boolean) => {
+      void setCommunicationPreference(key, enabled)
+    },
+    [setCommunicationPreference],
+  )
+
+  const communicationsSection = (
+    <>
+      <CommunicationChannelsCard />
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-[#3B82F6]/10">
+            <MessageSquare className="h-5 w-5 text-[#3B82F6]" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Communication Preferences</h3>
+            <p className="text-sm text-muted-foreground">
+              Choose which non-transactional messages BitBudget may send you.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col divide-y divide-[#1F1F1F] rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]">
+          {COMMUNICATION_PREFERENCE_DETAILS.map((preference) => {
+            const checked = state.communicationPreferences[preference.key]
+            return (
+              <div
+                key={preference.key}
+                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between"
+              >
+                <div className="pr-2">
+                  <p className="font-medium text-foreground">{preference.label}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{preference.description}</p>
+                </div>
+                <Switch
+                  checked={checked}
+                  onCheckedChange={(enabled) => toggleCommunicationPreference(preference.key, enabled)}
+                  aria-label={`${checked ? "Disable" : "Enable"} ${preference.label}`}
+                  className="mt-0.5 data-[state=checked]:bg-[#F7931A]"
+                />
+              </div>
+            )
+          })}
+        </div>
+        <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+          Account security notices, including new-device access alerts and login codes, are always sent when needed.
+          Unsubscribe buttons in emails update these same preferences.
+        </p>
+      </div>
+    </>
+  )
+
+  useEffect(() => {
+    function onWalkthroughSettingsTab(e: Event) {
+      const tab = (e as CustomEvent<{ tab?: SettingsTab }>).detail?.tab
+      if (tab && Object.prototype.hasOwnProperty.call(SETTINGS_TAB_SLUGS, tab)) {
+        setSettingsTab(tab)
+      }
+    }
+    window.addEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)
+    return () => window.removeEventListener("bitbudget-walkthrough-settings-tab", onWalkthroughSettingsTab)
+  }, [])
+
   const generalSection = (
     <>
+      <SettingsSetupGuideSection />
       {/* Plan / Tier */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
         <div className="flex items-center gap-3 mb-4">
@@ -600,7 +685,7 @@ export function SettingsPage() {
       </div>
 
       {/* Connections — visible on all plans; free tier opens upgrade flow */}
-      <div className="p-6 bg-[#0D0D0D] rounded-2xl">
+      <div className="p-6 bg-[#0D0D0D] rounded-2xl" data-walkthrough="settings-connections">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-[#F7931A]/20">
             <Building2 className="h-5 w-5 text-[#F7931A]" />
@@ -613,24 +698,27 @@ export function SettingsPage() {
             : "Connect your accounts to automatically import transactions. Premium unlocks bank sync, SMS capture, and connected email scanning."}
         </p>
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
+          <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
             <div className="flex items-start gap-3">
               <Building2 className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" />
-              <div>
+              <div className="min-w-0">
                 <p className="font-medium text-foreground">Bank sync (Plaid)</p>
                 <p className="text-sm text-muted-foreground">
                   Link your bank or credit card to import transactions automatically.
                 </p>
               </div>
             </div>
-            {hasPremiumFeatures || refereePendingBankLink ? (
-              <PlaidLinkButton />
-            ) : (
-              <button type="button" onClick={() => setUpgradeModalFeature("plaid")} className={upgradeCtaClass}>
-                <Crown className="h-4 w-4" />
-                Upgrade to connect
-              </button>
-            )}
+            <PlaidConnectionsSection
+              canConnect={hasPremiumFeatures || refereePendingBankLink}
+            />
+            {!(hasPremiumFeatures || refereePendingBankLink) ? (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
+                <button type="button" onClick={() => setUpgradeModalFeature("plaid")} className={upgradeCtaClass}>
+                  <Crown className="h-4 w-4" />
+                  Upgrade to connect
+                </button>
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border border-[#333] bg-[#1A1A1A]">
             <div className="flex items-start gap-3 min-w-0">
@@ -711,6 +799,7 @@ export function SettingsPage() {
               <CheckCircle2 className="h-4 w-4 shrink-0" />
               <span>
                 {importResult.imported} transaction{importResult.imported !== 1 ? "s" : ""} imported
+                {importResult.duplicates > 0 ? `, ${importResult.duplicates} duplicate${importResult.duplicates !== 1 ? "s" : ""} skipped` : ""}
                 {importResult.skipped > 0 ? `, ${importResult.skipped} skipped` : ""}.
               </span>
             </div>
@@ -832,7 +921,9 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <LinkedSignInMethods />
+      <div id="settings-linked-sign-in">
+        <LinkedSignInMethods />
+      </div>
 
       {/* Export — same CSV format as Transactions page (all active transactions) */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl">
@@ -866,6 +957,9 @@ export function SettingsPage() {
           Download
         </button>
       </div>
+
+      {/* Duplicate cleanup */}
+      <DuplicateCleanupCard />
 
       {/* Danger Zone */}
       <div className="p-6 bg-[#0D0D0D] rounded-2xl border border-red-500/20">
@@ -934,6 +1028,14 @@ export function SettingsPage() {
                 <Settings2 className={tabIconClass("general")} aria-hidden />
                 <span>General</span>
               </button>
+              <button
+                type="button"
+                onClick={() => selectSettingsTab("communications")}
+                className={tabButtonClass("communications")}
+              >
+                <MessageSquare className={tabIconClass("communications")} aria-hidden />
+                <span>Communications</span>
+              </button>
               <button type="button" onClick={() => selectSettingsTab("savings")} className={tabButtonClass("savings")} style={tabButtonStyle("savings")}>
                 <PiggyBank className={tabIconClass("savings")} style={tabIconStyle("savings")} aria-hidden />
                 <span>Savings tracking</span>
@@ -947,8 +1049,8 @@ export function SettingsPage() {
                 <span>Tags</span>
               </button>
               <button type="button" onClick={() => selectSettingsTab("payees")} className={tabButtonClass("payees")}>
-                <Link2 className={tabIconClass("payees")} aria-hidden />
-                <span>Payee mappings</span>
+                <BookOpen className={tabIconClass("payees")} aria-hidden />
+                <span>Budgeting rules</span>
               </button>
               <button type="button" onClick={() => selectSettingsTab("data")} className={tabButtonClass("data")}>
                 <Shield className={tabIconClass("data")} aria-hidden />
@@ -960,10 +1062,22 @@ export function SettingsPage() {
 
         <div className="flex min-w-0 w-full max-w-full flex-col gap-6">
           {settingsTab === "general" && generalSection}
+          {settingsTab === "communications" && communicationsSection}
           {settingsTab === "savings" && savingsSection}
           {settingsTab === "integrations" && integrationsSection}
           {settingsTab === "tags" && tagsSection}
-          {settingsTab === "payees" && <PayeeMappingsSettings />}
+          {settingsTab === "payees" && (
+            <div className="flex flex-col gap-8 min-w-0">
+              <section className="flex flex-col gap-3">
+                <h3 className="text-lg font-semibold text-foreground">Payee name aliases</h3>
+                <PayeeMappingsSettings />
+              </section>
+              <section className="flex flex-col gap-3">
+                <h3 className="text-lg font-semibold text-foreground">Recurring rules</h3>
+                <RecurringRulesSettings />
+              </section>
+            </div>
+          )}
           {settingsTab === "data" && dataSection}
         </div>
       </div>
@@ -985,7 +1099,12 @@ export function SettingsPage() {
         dedupExistingTransactions={state.transactions}
         onImportComplete={refreshData}
         onImportResult={(result) =>
-          setImportResult({ success: true, imported: result.imported, skipped: result.skipped })
+          setImportResult({
+            success: true,
+            imported: result.imported,
+            skipped: result.skipped,
+            duplicates: result.duplicates,
+          })
         }
         onDone={() => {}}
         onRequestAllocations={() => {
@@ -1000,6 +1119,7 @@ export function SettingsPage() {
         onLoadingChange={setImportLoading}
         onImportError={handleImportError}
         encryptFn={encryptForStorage}
+        makeDedupeKeyComputer={makeImportDedupeKeyComputer}
       />
     </div>
   )

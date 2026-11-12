@@ -4,12 +4,24 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { useApp, type TransactionPrefill } from "@/lib/app-context"
 import type { TransactionType, Transaction } from "@/lib/data"
 import { formatUsdPrecise } from "@/lib/data"
+import { loadDraft, saveDraft, clearDraft } from "@/lib/draft-storage"
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -21,7 +33,9 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { X, Repeat, Tag, ChevronRight, FileText } from "lucide-react"
+import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
 import { ShortcutsPanel, useTransactionShortcuts } from "@/components/shortcuts-panel"
 import {
   mergePayeeCandidates,
@@ -32,6 +46,13 @@ import {
   type PayeeCandidate,
 } from "@/lib/payee-canonical"
 import { findCollidingTransaction } from "@/lib/transaction-dedup"
+import {
+  dateInputValueFromTransactionDate,
+  mergeCalendarDayIntoTransactionDate,
+  todayTransactionCalendarDay,
+} from "@/lib/transaction-dates"
+import { pickTransactionSuccessMessage } from "@/lib/transaction-success-messages"
+import { TransactionSuccessView } from "@/components/transaction-success-view"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -47,6 +68,45 @@ function stableTransactionPrefillKey(prefill: TransactionPrefill): string {
   const { receiptPreviewDataUrl: _r, ...rest } = prefill
   void _r
   return JSON.stringify(rest)
+}
+
+function receiptScanInputTypeLabel(inputType: ReceiptScanStats["inputType"]): string {
+  return inputType === "pdf" ? "PDF document" : "Photo"
+}
+
+function ReceiptScanStatsButton({ stats }: { stats: ReceiptScanStats }) {
+  const qualityPct = Math.round(stats.extractionConfidence * 100)
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="self-start text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline"
+        >
+          Show scan details
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[min(96vw,20rem)] border-[#333] bg-[#141414] text-foreground"
+        align="start"
+      >
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Reading quality</span>
+            <span className="font-medium tabular-nums">{qualityPct}%</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Source</span>
+            <span>{receiptScanInputTypeLabel(stats.inputType)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Model</span>
+            <span>{stats.model}</span>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 /** Many browsers fail on huge `data:application/pdf;base64,...` targets for `<a target=_blank>` / navigation; `blob:` URLs work reliably. */
@@ -92,6 +152,42 @@ function bestEnvelopeIdForPayee(
   return ""
 }
 
+const DRAFT_KEY = "bitbudget-new-transaction-draft"
+
+interface NewTransactionDraft {
+  v: 1
+  type: TransactionType
+  payee: string
+  amount: string
+  envelopeId: string
+  date: string
+  selectedTags: string[]
+  notes: string
+  isRecurring: boolean
+  cadence: Cadence
+  endDate: string
+  saveAsShortcut: boolean
+}
+
+function isNewTransactionDraft(v: unknown): v is NewTransactionDraft {
+  if (typeof v !== "object" || v === null) return false
+  const d = v as Record<string, unknown>
+  return (
+    d.v === 1 &&
+    typeof d.type === "string" &&
+    typeof d.payee === "string" &&
+    typeof d.amount === "string" &&
+    typeof d.envelopeId === "string" &&
+    typeof d.date === "string" &&
+    Array.isArray(d.selectedTags) &&
+    typeof d.notes === "string" &&
+    typeof d.isRecurring === "boolean" &&
+    typeof d.cadence === "string" &&
+    typeof d.endDate === "string" &&
+    typeof d.saveAsShortcut === "boolean"
+  )
+}
+
 export function NewTransactionDialog() {
   const {
     state,
@@ -111,7 +207,7 @@ export function NewTransactionDialog() {
   const [payee, setPayee] = useState("")
   const [amount, setAmount] = useState("")
   const [envelopeId, setEnvelopeId] = useState("")
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0])
+  const [date, setDate] = useState(() => todayTransactionCalendarDay())
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [newTag, setNewTag] = useState("")
   const [notes, setNotes] = useState("")
@@ -136,10 +232,16 @@ export function NewTransactionDialog() {
   /** Short-lived object URL for PDF previews (see `pdfDataUrlToBlob`). */
   const [receiptPdfBlobUrl, setReceiptPdfBlobUrl] = useState<string | null>(null)
   const [receiptLightboxOpen, setReceiptLightboxOpen] = useState(false)
+  const [successSnapshot, setSuccessSnapshot] = useState<{
+    message: string
+    payee: string
+    amount: number
+  } | null>(null)
 
   type ModalView = "main" | "recurring" | "tags"
   const [modalView, setModalView] = useState<ModalView>("main")
 
+  const [draftLoaded, setDraftLoaded] = useState(false)
   const recurringSnapshotRef = useRef({ isRecurring: false, cadence: "monthly" as Cadence, endDate: "" })
   const tagsSnapshotRef = useRef<string[]>([])
   /** Ignore first click on Recurring/Tags rows after dialog opens so FAB/menu taps are not retargeted into the dialog. */
@@ -149,12 +251,37 @@ export function NewTransactionDialog() {
   const skipCanonicalForPrefillRef = useRef(false)
   /** No `transactionPrefill.payee`: clear payee once when the dialog opens, not on every effect run (`payee` is in deps). */
   const emptyPayeePrefillResetDoneRef = useRef(false)
+  /** Tracks whether we've already hydrated a draft for the current open session. */
+  const draftHydratedRef = useRef(false)
 
   useEffect(() => {
     if (!transactionDialogOpen) {
       setDuplicateExisting(null)
+      setSuccessSnapshot(null)
+      draftHydratedRef.current = false
+      return
     }
-  }, [transactionDialogOpen])
+    // Only hydrate when no prefill is active — prefill takes priority over draft
+    if (transactionPrefill) return
+    if (draftHydratedRef.current) return
+    draftHydratedRef.current = true
+    const draft = loadDraft(DRAFT_KEY, isNewTransactionDraft)
+    if (!draft) return
+    // Prevent the prefill-payee effect (which runs later) from wiping the restored payee
+    emptyPayeePrefillResetDoneRef.current = true
+    setType(draft.type)
+    setPayee(draft.payee)
+    setAmount(draft.amount)
+    setEnvelopeId(draft.envelopeId)
+    setDate(draft.date)
+    setSelectedTags(draft.selectedTags)
+    setNotes(draft.notes)
+    setIsRecurring(draft.isRecurring)
+    setCadence(draft.cadence)
+    setEndDate(draft.endDate)
+    setSaveAsShortcut(draft.saveAsShortcut)
+    setDraftLoaded(true)
+  }, [transactionDialogOpen, transactionPrefill])
 
   useEffect(() => {
     setDuplicateExisting(null)
@@ -168,6 +295,39 @@ export function NewTransactionDialog() {
     }, 350)
     return () => clearTimeout(t)
   }, [transactionDialogOpen])
+
+  // Persist draft on every field change while the dialog is open and not in prefill mode
+  useEffect(() => {
+    if (!transactionDialogOpen || transactionPrefill) return
+    saveDraft(DRAFT_KEY, {
+      v: 1 as const,
+      type,
+      payee,
+      amount,
+      envelopeId,
+      date,
+      selectedTags,
+      notes,
+      isRecurring,
+      cadence,
+      endDate,
+      saveAsShortcut,
+    } satisfies NewTransactionDraft)
+  }, [
+    transactionDialogOpen,
+    transactionPrefill,
+    type,
+    payee,
+    amount,
+    envelopeId,
+    date,
+    selectedTags,
+    notes,
+    isRecurring,
+    cadence,
+    endDate,
+    saveAsShortcut,
+  ])
 
   useEffect(() => {
     if (!transactionDialogOpen) return
@@ -185,6 +345,7 @@ export function NewTransactionDialog() {
   }, [transactionDialogOpen])
 
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
   const suggestionsRef = useRef<HTMLDivElement>(null)
   const payeeInputRef = useRef<HTMLInputElement>(null)
 
@@ -234,9 +395,19 @@ export function NewTransactionDialog() {
     const key = stableTransactionPrefillKey(transactionPrefill)
     if (appliedPrefillKeyRef.current === key) return
     appliedPrefillKeyRef.current = key
+    prefillPayeeRawRef.current = null
+    emptyPayeePrefillResetDoneRef.current = false
+    skipCanonicalForPrefillRef.current = false
 
     if (transactionPrefill.amount) setAmount(transactionPrefill.amount)
     if (transactionPrefill.date) setDate(transactionPrefill.date)
+    const payeeRaw = transactionPrefill.payee?.trim()
+    if (payeeRaw) {
+      setPayee(payeeRaw)
+      setImportSourcePayee(payeeRaw)
+      prefillPayeeRawRef.current = payeeRaw
+      emptyPayeePrefillResetDoneRef.current = false
+    }
     if (transactionPrefill.notes) setNotes(transactionPrefill.notes)
     if (transactionPrefill.envelopeId) setEnvelopeId(transactionPrefill.envelopeId)
     if (transactionPrefill.type) setType(transactionPrefill.type)
@@ -312,7 +483,7 @@ export function NewTransactionDialog() {
       }
     }
 
-    if (prefillPayeeRawRef.current !== raw) {
+    if (prefillPayeeRawRef.current !== raw || !payee.trim()) {
       prefillPayeeRawRef.current = raw
       skipCanonicalForPrefillRef.current = false
       setImportSourcePayee(raw)
@@ -447,7 +618,26 @@ export function NewTransactionDialog() {
       setEnvelopeId(suggestedEnvelopeId)
     }
     setShowSuggestions(false)
+    setActiveSuggestionIndex(-1)
   }, [activeEnvelopes])
+
+  function handlePayeeKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!showSuggestions || payeeSuggestions.length === 0) return
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setActiveSuggestionIndex((i) => Math.min(i + 1, payeeSuggestions.length - 1))
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setActiveSuggestionIndex((i) => Math.max(i - 1, -1))
+    } else if ((e.key === "Enter" || e.key === " ") && activeSuggestionIndex >= 0) {
+      e.preventDefault()
+      const s = payeeSuggestions[activeSuggestionIndex]
+      selectPayeeSuggestion(s.name, s.envelopeId)
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false)
+      setActiveSuggestionIndex(-1)
+    }
+  }
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -460,12 +650,12 @@ export function NewTransactionDialog() {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  function resetForm() {
+  function resetForm(clearStoredDraft = false) {
     setType("expense")
     setPayee("")
     setAmount("")
     setEnvelopeId("")
-    setDate(new Date().toISOString().split("T")[0])
+    setDate(todayTransactionCalendarDay())
     setSelectedTags([])
     setNewTag("")
     setNotes("")
@@ -479,6 +669,27 @@ export function NewTransactionDialog() {
     setImportSourcePayee(null)
     setAliasSaveMessage(null)
     setDuplicateExisting(null)
+    setDraftLoaded(false)
+    if (clearStoredDraft) clearDraft(DRAFT_KEY)
+  }
+
+  function finishSuccessAndClose() {
+    setSuccessSnapshot(null)
+    resetForm(true)
+    setTransactionDialogOpen(false)
+  }
+
+  function handleDialogOpenChange(open: boolean) {
+    // X button / Escape / backdrop while in a sub-view → navigate back, don't close the parent
+    if (!open && modalView !== "main") {
+      setModalView("main")
+      return
+    }
+    if (!open) {
+      setSuccessSnapshot(null)
+      resetForm()
+    }
+    setTransactionDialogOpen(open)
   }
 
   async function submitTransaction(options: { bypassDuplicateCheck?: boolean } = {}) {
@@ -516,10 +727,13 @@ export function NewTransactionDialog() {
 
     setDuplicateExisting(null)
 
+    const savedPayee = payee.trim()
+    const isRecurringSubmit = Boolean(recurringId) || isRecurring
+
     if (recurringId) {
       setSubmitting(true)
       try {
-        const encPayee = await encryptForStorage(payee.trim())
+        const encPayee = await encryptForStorage(savedPayee)
         const encNotes = notes.trim() ? await encryptForStorage(notes.trim()) : null
         const res = await fetch("/api/recurring/post-now", {
           method: "POST",
@@ -546,7 +760,7 @@ export function NewTransactionDialog() {
     } else if (isRecurring) {
       setSubmitting(true)
       try {
-        const encPayee = await encryptForStorage(payee.trim())
+        const encPayee = await encryptForStorage(savedPayee)
         const encNotes = notes.trim() ? await encryptForStorage(notes.trim()) : null
         const res = await fetch("/api/recurring", {
           method: "POST",
@@ -572,15 +786,24 @@ export function NewTransactionDialog() {
         setSubmitting(false)
       }
     } else {
-      addTransaction({
-        date,
-        payee: payee.trim(),
-        amount: amt,
-        type,
-        envelopeId,
-        tags: selectedTags,
-        notes: notes.trim() || null,
-      })
+      setSubmitting(true)
+      try {
+        const ok = await addTransaction({
+          date,
+          payee: savedPayee,
+          amount: amt,
+          type,
+          envelopeId,
+          tags: selectedTags,
+          notes: notes.trim() || null,
+        })
+        if (!ok) {
+          alert("Failed to save transaction. Please try again.")
+          return
+        }
+      } finally {
+        setSubmitting(false)
+      }
     }
 
     if (saveAsShortcut) {
@@ -588,15 +811,20 @@ export function NewTransactionDialog() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          payee: payee.trim(),
+          payee: savedPayee,
           defaultAmount: Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : null,
           envelopeId,
         }),
       })
     }
 
-    resetForm()
-    setTransactionDialogOpen(false)
+    clearDraft(DRAFT_KEY)
+    setDraftLoaded(false)
+    setSuccessSnapshot({
+      message: pickTransactionSuccessMessage(type, { isRecurring: isRecurringSubmit }),
+      payee: savedPayee,
+      amount: amt,
+    })
   }
 
   function handleFormSubmit(e: React.FormEvent) {
@@ -622,19 +850,35 @@ export function NewTransactionDialog() {
   }
 
   return (
-    <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen}>
+    <Dialog open={transactionDialogOpen} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="flex max-h-[min(90dvh,900px)] min-h-0 flex-col gap-0 overflow-hidden border-[#1F1F1F] bg-[#0D0D0D] p-0 text-foreground sm:max-w-lg">
         <DialogHeader className="shrink-0 px-6 pb-2 pr-14 pt-6">
           <DialogTitle className="text-lg font-bold text-foreground">
-            {transactionPrefill?.recurringId ? "Post Recurring Transaction" : "New Transaction"}
+            {successSnapshot
+              ? "Saved!"
+              : transactionPrefill?.recurringId
+                ? "Post Recurring Transaction"
+                : "New Transaction"}
           </DialogTitle>
         </DialogHeader>
 
+        {successSnapshot ? (
+          <TransactionSuccessView
+            message={successSnapshot.message}
+            payee={successSnapshot.payee}
+            amount={successSnapshot.amount}
+            opportunityCostEnabled={state.opportunityCostEnabled}
+            onDone={finishSuccessAndClose}
+          />
+        ) : (
         <form onSubmit={handleFormSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {modalView === "main" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-4">
               <ShortcutsPanel shortcuts={shortcuts} />
+              {transactionPrefill?.receiptScanStats ? (
+                <ReceiptScanStatsButton stats={transactionPrefill.receiptScanStats} />
+              ) : null}
               {receiptAttachmentPreview && (
                 <div className="rounded-xl border border-[#333] bg-[#141414] overflow-hidden shrink-0">
                   <div className="flex items-center justify-between gap-2 px-3 pt-2 pb-1">
@@ -746,15 +990,26 @@ export function NewTransactionDialog() {
                 <Input
                   ref={payeeInputRef}
                   id="payee"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={showSuggestions && payeeSuggestions.length > 0}
+                  aria-controls="payee-listbox"
+                  aria-activedescendant={
+                    activeSuggestionIndex >= 0
+                      ? `payee-option-${activeSuggestionIndex}`
+                      : undefined
+                  }
                   value={payee}
                   onChange={(e) => {
                     setPayee(e.target.value)
                     setPayeeMatchHint(null)
                     setAliasSaveMessage(null)
+                    setActiveSuggestionIndex(-1)
                     if (validationErrors.payee) setValidationErrors(prev => { const next = { ...prev }; delete next.payee; return next })
                     setShowSuggestions(true)
                   }}
                   onFocus={() => { if (payee.trim()) setShowSuggestions(true) }}
+                  onKeyDown={handlePayeeKeyDown}
                   placeholder={type === "expense" ? "Who did you pay?" : "Who paid you?"}
                   className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
                   autoComplete="off"
@@ -763,16 +1018,27 @@ export function NewTransactionDialog() {
                 {showSuggestions && payeeSuggestions.length > 0 && (
                   <div
                     ref={suggestionsRef}
+                    id="payee-listbox"
+                    role="listbox"
+                    aria-label="Payee suggestions"
                     className="absolute top-full left-0 right-0 z-50 mt-1 bg-[#1A1A1A] border border-[#333] rounded-lg shadow-xl overflow-hidden max-h-52 overflow-y-auto"
                   >
-                    {payeeSuggestions.map((s) => {
+                    {payeeSuggestions.map((s, idx) => {
                       const env = state.envelopes.find(e => e.id === s.envelopeId)
+                      const isActive = activeSuggestionIndex === idx
                       return (
                         <button
                           key={s.name}
+                          id={`payee-option-${idx}`}
                           type="button"
+                          role="option"
+                          aria-selected={isActive}
                           onClick={() => selectPayeeSuggestion(s.name, s.envelopeId)}
-                          className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[#252525] transition-colors"
+                          onMouseEnter={() => setActiveSuggestionIndex(idx)}
+                          onMouseLeave={() => setActiveSuggestionIndex(-1)}
+                          className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors ${
+                            isActive ? "bg-[#2A2A2A]" : "hover:bg-[#252525]"
+                          }`}
                         >
                           <span className="text-sm text-foreground truncate">{s.name}</span>
                           {env && (
@@ -907,8 +1173,10 @@ export function NewTransactionDialog() {
                 <Input
                   id="date"
                   type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  value={dateInputValueFromTransactionDate(date)}
+                  onChange={(e) =>
+                    setDate(mergeCalendarDayIntoTransactionDate(date, e.target.value))
+                  }
                   className="bg-[#1A1A1A] border-[#333] text-foreground"
                   required
                 />
@@ -989,6 +1257,39 @@ export function NewTransactionDialog() {
               </div>
 
               <div className="shrink-0 border-t border-[#1F1F1F] bg-[#0D0D0D] px-6 py-4 space-y-3">
+                {draftLoaded && (
+                  <div className="flex justify-end">
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground underline decoration-muted-foreground/40 hover:text-foreground transition-colors"
+                        >
+                          Start fresh
+                        </button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="border-[#1F1F1F] bg-[#0D0D0D]">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Discard in-progress transaction?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Your entered details will be cleared and cannot be recovered.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel className="border-[#333] bg-[#1A1A1A] text-foreground hover:bg-[#222]">
+                            Keep editing
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => resetForm(true)}
+                            className="bg-red-600 text-white hover:bg-red-700"
+                          >
+                            Discard
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                )}
                 {duplicateExisting && (
                   <div
                     role="alert"
@@ -1002,7 +1303,7 @@ export function NewTransactionDialog() {
                       <span className="text-foreground">{duplicateExisting.date}</span>
                       {": "}
                       <span className="text-foreground">{duplicateExisting.payee}</span>,{" "}
-                      <span className="font-ibm-plex-mono text-foreground">
+                      <span className="font-mono text-foreground">
                         {formatUsdPrecise(duplicateExisting.amount)}
                       </span>
                       {duplicateEnvelopeName ? (
@@ -1196,6 +1497,7 @@ export function NewTransactionDialog() {
             </div>
           )}
         </form>
+        )}
 
         {/* Nested dialog avoids body-portal + outer preventDefault(), which blocked lightbox controls (e.g. close X). */}
         <Dialog open={receiptLightboxOpen} onOpenChange={setReceiptLightboxOpen}>

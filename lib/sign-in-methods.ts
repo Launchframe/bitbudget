@@ -5,12 +5,11 @@ import {
   NOSTR_AUTH_EVENT_KIND,
   NOSTR_AUTH_EVENT_METHOD,
 } from "@/lib/nostr-auth-event"
+import { sanitizeNostrProfileImage, sanitizeNostrProfileName } from "@/lib/nostr-profile"
 
 export type LinkProvider = "google" | "github"
 const NOSTR_AUTH_EVENT_MAX_AGE_SECONDS = 5 * 60
 const NOSTR_AUTH_EVENT_FUTURE_SKEW_SECONDS = 60
-const NOSTR_PROFILE_NAME_MAX_LENGTH = 80
-const NOSTR_PROFILE_IMAGE_MAX_LENGTH = 2048
 
 export interface SignInMethods {
   email: string | null
@@ -62,23 +61,19 @@ function hasTag(event: { tags: string[][] }, name: string, value: string) {
   return event.tags.some(tag => tag[0] === name && tag[1] === value)
 }
 
-function sanitizeProfileName(profileName?: string) {
-  const name = profileName?.trim()
-  return name ? name.slice(0, NOSTR_PROFILE_NAME_MAX_LENGTH) : undefined
-}
-
-function sanitizeProfileImage(profileImage?: string) {
-  const image = profileImage?.trim()
-  if (!image || image.length > NOSTR_PROFILE_IMAGE_MAX_LENGTH) return undefined
-  try {
-    const url = new URL(image)
-    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined
-  } catch {
-    return undefined
+/** NIP-07 extensions sometimes return `created_at` as a numeric string. */
+function normalizeAuthEventCreatedAt(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw > 1e12 ? Math.floor(raw / 1000) : Math.floor(raw)
   }
+  if (typeof raw === "string" && /^\d+$/.test(raw.trim())) {
+    const n = Number(raw.trim())
+    return n > 1e12 ? Math.floor(n / 1000) : Math.floor(n)
+  }
+  return null
 }
 
-function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigin?: string) {
+export function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigin?: string) {
   let parsed: unknown
   try {
     parsed = JSON.parse(event)
@@ -97,12 +92,13 @@ function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigin?: str
     pubkey?: unknown
     tags?: unknown
   }
+  const created_at = normalizeAuthEventCreatedAt(candidate.created_at)
   if (
     candidate.kind !== NOSTR_AUTH_EVENT_KIND ||
     candidate.content !== NOSTR_AUTH_EVENT_CONTENT ||
     typeof candidate.pubkey !== "string" ||
     candidate.pubkey.toLowerCase() !== pubkey ||
-    typeof candidate.created_at !== "number" ||
+    created_at === null ||
     !Array.isArray(candidate.tags)
   ) {
     throw new SignInMethodError("INVALID_NOSTR_EVENT", "Invalid signed Nostr event")
@@ -115,7 +111,7 @@ function parseNostrAuthEvent(event: string, pubkey: string, expectedOrigin?: str
 
   const authEvent = {
     ...candidate,
-    created_at: candidate.created_at,
+    created_at,
     tags: tags as string[][],
   }
   const now = Math.floor(Date.now() / 1000)
@@ -259,8 +255,8 @@ export async function linkNostrSignInMethod({
   }
 
   const data: { nostrPubkey: string; name?: string; image?: string } = { nostrPubkey: trimmedPubkey }
-  const name = sanitizeProfileName(profileName)
-  const image = sanitizeProfileImage(profileImage)
+  const name = sanitizeNostrProfileName(profileName)
+  const image = sanitizeNostrProfileImage(profileImage)
   if (name) data.name = name
   if (image) data.image = image
 

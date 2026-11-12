@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { Prisma } from "@prisma/client"
 import {
   monthProgressMarkerPct,
@@ -7,7 +7,7 @@ import {
   suggestedManualSweepAmount,
   sweepAmountForEnvelope,
 } from "../sweep-math"
-import { sweepFromLabel } from "../envelope-sweep"
+import { lockEnvelopeRowsForSweepBalance, sweepFromLabel } from "../envelope-sweep"
 import {
   SWEEP_POLICY_CAPPED,
   SWEEP_POLICY_CARRY_FORWARD,
@@ -17,6 +17,29 @@ import {
 describe("envelope-sweep", () => {
   it("sweepFromLabel includes envelope name", () => {
     expect(sweepFromLabel("Groceries")).toBe("Swept from Groceries")
+  })
+
+  it("skips sweep balance row locks when there are no envelopes", async () => {
+    const queryRaw = vi.fn()
+    const tx = { $queryRaw: queryRaw } as unknown as Prisma.TransactionClient
+
+    await lockEnvelopeRowsForSweepBalance(tx, "user_1", [])
+
+    expect(queryRaw).not.toHaveBeenCalled()
+  })
+
+  it("locks unique envelope rows in stable order before sweep balance reads", async () => {
+    const queryRaw = vi.fn()
+    const tx = { $queryRaw: queryRaw } as unknown as Prisma.TransactionClient
+
+    await lockEnvelopeRowsForSweepBalance(tx, "user_1", ["env_b", "env_a", "env_a"])
+
+    expect(queryRaw).toHaveBeenCalledOnce()
+    const [strings, userId, joinedIds] = queryRaw.mock.calls[0]!
+    expect(String.raw(strings as TemplateStringsArray)).toContain("FOR UPDATE")
+    expect(String.raw(strings as TemplateStringsArray)).toContain('ORDER BY "id"')
+    expect(userId).toBe("user_1")
+    expect((joinedIds as { values: string[] }).values).toEqual(["env_a", "env_b"])
   })
 
   it("resolveSweepCapMultiplier prefers envelope then user default then 1.5", () => {

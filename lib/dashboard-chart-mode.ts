@@ -1,13 +1,17 @@
-export type DashboardChartMode = "spending" | "savings"
+export type DashboardChartMode = "spending" | "cashflow" | "savings"
 
 export const DASHBOARD_CHART_MODE_KEY = "bitbudget-dashboard-mode"
+
+/** One-shot sessionStorage flag: income import success → Dashboard chart uses All range. */
+export const DASHBOARD_CHART_RANGE_OVERRIDE_KEY = "dashboard-chart-range-override"
 
 const MODE_EVENT = "bitbudget-dashboard-mode-change"
 
 export function getDashboardChartMode(): DashboardChartMode {
   if (typeof window === "undefined") return "spending"
   const raw = localStorage.getItem(DASHBOARD_CHART_MODE_KEY)
-  return raw === "savings" ? "savings" : "spending"
+  if (raw === "savings" || raw === "cashflow") return raw
+  return "spending"
 }
 
 export function setDashboardChartMode(mode: DashboardChartMode): void {

@@ -2,14 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import { parseReceiptText } from "@/lib/receipt-parser"
 import { matchEnvelope } from "@/lib/envelope-matcher"
-import { routeTransaction } from "@/lib/confidence-router"
+import { routeTransaction, MAX_CONFIDENCE_WITHOUT_TOKEN } from "@/lib/confidence-router"
 import {
   getSendGridInboundHeaders,
   isSendGridWebhookTimestampFresh,
-  parseMultipartFormFields,
+  parseMultipartFormFieldsWithFiles,
   verifySendGridInboundWebhook,
 } from "@/lib/sendgrid-inbound-verify"
 import { assertPremiumTrialInboxAllowed, requirePremiumOrTrial } from "@/lib/subscription"
+import { encryptFieldForUser } from "@/lib/server-encrypt"
+import { tryParseStatementCsv } from "@/lib/statement-csv"
 
 const publicKeyEnv = process.env.SENDGRID_INBOUND_WEBHOOK_PUBLIC_KEY
 
@@ -67,8 +69,11 @@ export async function POST(req: NextRequest) {
     }
 
     let fields: Record<string, string>
+    let attachmentFiles: Awaited<ReturnType<typeof parseMultipartFormFieldsWithFiles>>["files"] = []
     try {
-      fields = await parseMultipartFormFields(rawBody, contentType)
+      const parsed = await parseMultipartFormFieldsWithFiles(rawBody, contentType)
+      fields = parsed.fields
+      attachmentFiles = parsed.files
     } catch (e) {
       console.error("inbound-email multipart parse:", e)
       return NextResponse.json(
@@ -79,15 +84,16 @@ export async function POST(req: NextRequest) {
 
     const from = fields.from
     const to = fields.to ?? fields.recipient ?? ""
-    const text = fields.text
+    const text = fields.text ?? ""
     const subject = fields.subject ?? ""
 
-    if (!from || !text) {
+    if (!from) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
     const recipientMatch = extractReceiptInboxToken(to)
     const senderEmail = extractEmail(from)
+    const resolvedViaInboxToken = !!recipientMatch
     const user = recipientMatch
       ? await prisma.user.findUnique({
           where: { receiptInboxToken: recipientMatch },
@@ -113,6 +119,68 @@ export async function POST(req: NextRequest) {
     const cap = await assertPremiumTrialInboxAllowed(user.id)
     if (!cap.ok) {
       return NextResponse.json({ error: "Forbidden", message: cap.message }, { status: 403 })
+    }
+
+    // ── Statement attachment detection ──────────────────────────────────────────
+    // Look for CSV or PDF attachments that look like bank statements.
+    // If found, create a PendingStatementBatch for the user to review later.
+    const csvAttachments = attachmentFiles.filter((f) =>
+      f.filename.toLowerCase().endsWith(".csv") ||
+      f.mimeType === "text/csv" ||
+      f.mimeType === "application/csv"
+    )
+    for (const att of csvAttachments) {
+      try {
+        const text = att.data.toString("utf-8")
+        const result = tryParseStatementCsv(text)
+        if (result && result.transactions.length > 0) {
+          const keyRow = await prisma.user.findUnique({
+            where: { id: user.id },
+            select: { publicKey: true },
+          })
+          if (!keyRow?.publicKey) {
+            return NextResponse.json(
+              {
+                error: "Encryption not configured",
+                message: "Complete security setup before forwarding statement attachments.",
+              },
+              { status: 403 },
+            )
+          }
+          const encryptedTransactions = result.transactions.map((t) => ({
+            ...t,
+            payee: encryptFieldForUser(t.payee, keyRow.publicKey) ?? t.payee,
+            notes: t.notes
+              ? encryptFieldForUser(t.notes, keyRow.publicKey) ?? t.notes
+              : null,
+          }))
+          const dates = encryptedTransactions.map((t) => t.date).sort()
+          await prisma.pendingStatementBatch.create({
+            data: {
+              userId: user.id,
+              source: "email_statement",
+              institutionName: result.institutionName ?? null,
+              format: result.format,
+              transactions: encryptedTransactions as unknown as never,
+              dateFrom: dates[0] ?? null,
+              dateTo: dates[dates.length - 1] ?? null,
+              transactionCount: result.transactions.length,
+            },
+          })
+          return NextResponse.json({
+            success: true,
+            route: "pending_statement_batch",
+            transactionCount: result.transactions.length,
+          })
+        }
+      } catch {
+        // attachment wasn't a statement; continue to normal receipt flow
+      }
+    }
+
+    // No statement attachment found — require text body for receipt parsing
+    if (!text) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
     let parsed
@@ -147,7 +215,11 @@ export async function POST(req: NextRequest) {
     const date = parsed.date ? new Date(parsed.date) : new Date()
     const envelopeMatch = parsed.payee ? await matchEnvelope(user.id, parsed.payee) : null
 
-    const confidence = envelopeMatch?.confidence ?? 0.3
+    const matchedConfidence = envelopeMatch?.confidence ?? 0.3
+    // Legacy sender-email routing cannot trust the From header; never auto-post live.
+    const confidence = resolvedViaInboxToken
+      ? matchedConfidence
+      : Math.min(matchedConfidence, MAX_CONFIDENCE_WITHOUT_TOKEN)
     const result = await routeTransaction(user.id, {
       payee: parsed.payee || "Unknown",
       amount,

@@ -11,8 +11,8 @@ import {
   monthKeyFromDate,
   savingsEnvelopeBalanceAllTime,
 } from "@/lib/envelope-balance-server"
+import { TX_SOURCE_IRREGULAR_INCOME } from "@/lib/constants"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
-import { TX_SOURCE_IRREGULAR_INCOME } from "@/lib/envelope-funding"
 import { currentGoalStreakFromClosed } from "@/lib/savings-goal-streak"
 
 export const ACHIEVEMENT_CODES = [
@@ -31,6 +31,10 @@ export const ACHIEVEMENT_CODES = [
   "irregular_income_first",
   "import_complete",
   "year_one",
+  "setup_allocations",
+  "setup_plaid",
+  "setup_receipt_inbox",
+  "setup_account_email",
 ] as const
 
 export type AchievementCode = (typeof ACHIEVEMENT_CODES)[number]
@@ -211,6 +215,25 @@ async function detectTransactionAchievements(userId: string, savingsId: string):
   })
   if (importCount > 0 && (await awardIfMissing(userId, "import_complete"))) awarded++
 
+  return awarded
+}
+
+export type SetupGuideAchievementFlags = {
+  allocations: boolean
+  accountEmail: boolean
+  plaid: boolean
+  receiptInbox: boolean
+}
+
+export async function awardSetupGuideAchievements(
+  userId: string,
+  flags: SetupGuideAchievementFlags,
+): Promise<number> {
+  let awarded = 0
+  if (flags.allocations && (await awardIfMissing(userId, "setup_allocations"))) awarded++
+  if (flags.accountEmail && (await awardIfMissing(userId, "setup_account_email"))) awarded++
+  if (flags.plaid && (await awardIfMissing(userId, "setup_plaid"))) awarded++
+  if (flags.receiptInbox && (await awardIfMissing(userId, "setup_receipt_inbox"))) awarded++
   return awarded
 }
 

@@ -3,11 +3,12 @@ import {
   SYSTEM_ENVELOPE_ROLE_SAVINGS,
 } from "@/lib/constants"
 import type { Envelope, Transaction } from "@/lib/data"
-import { getEnvelopeBalanceAllTime, getMonthKey } from "@/lib/data"
+import { envelopeGenesisFloor, getEnvelopeBalanceAllTime, getMonthKey } from "@/lib/data"
 import { currentGoalStreakFromClosed } from "@/lib/savings-goal-streak"
 
 export const SAVINGS_INFLOW_SOURCES = new Set([
   "paycheck",
+  "retro_paycheck",
   "irregular_income",
   "income_import",
   TX_SOURCE_ENVELOPE_SWEEP,
@@ -16,6 +17,7 @@ export const SAVINGS_INFLOW_SOURCES = new Set([
 /** External income credits (excludes envelope sweeps). */
 export const MONTHLY_INCOME_SOURCES = new Set([
   "paycheck",
+  "retro_paycheck",
   "irregular_income",
   "income_import",
 ])
@@ -44,7 +46,11 @@ export function savingsBalance(
   savingsEnvelope: Envelope | undefined,
 ): number {
   if (!savingsEnvelope) return 0
-  return getEnvelopeBalanceAllTime(transactions, savingsEnvelope.id)
+  return getEnvelopeBalanceAllTime(
+    transactions,
+    savingsEnvelope.id,
+    savingsEnvelope.createdAt ? envelopeGenesisFloor(savingsEnvelope.createdAt) : undefined,
+  )
 }
 
 export function sumRemainingDiscretionary(
@@ -52,7 +58,13 @@ export function sumRemainingDiscretionary(
   discretionaryEnvelopes: readonly Envelope[],
 ): number {
   return discretionaryEnvelopes.reduce(
-    (sum, env) => sum + getEnvelopeBalanceAllTime(transactions, env.id),
+    (sum, env) =>
+      sum +
+      getEnvelopeBalanceAllTime(
+        transactions,
+        env.id,
+        env.createdAt ? envelopeGenesisFloor(env.createdAt) : undefined,
+      ),
     0,
   )
 }
@@ -159,8 +171,12 @@ export const ACHIEVEMENT_LABELS: Record<string, string> = {
   swept_first: "First sweep",
   swept_clean_month: "Clean sweep",
   irregular_income_first: "Extra income",
-  import_complete: "Income imported",
+  import_complete: "Past income added",
   year_one: "One year",
+  setup_allocations: "Budget divided",
+  setup_plaid: "Bank connected",
+  setup_receipt_inbox: "Receipt received",
+  setup_account_email: "Email on account",
 }
 
 const GOAL_RING_GRAY = "#737373"

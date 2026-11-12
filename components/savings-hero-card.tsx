@@ -20,7 +20,13 @@ import {
   type SavingsGoalRow,
   goalProgressRingColor,
 } from "@/lib/savings-ui-metrics"
+import {
+  formatSavingsSinceLabel,
+  resolveSavingsTrackingStartFromTransactions,
+  savingsBalanceSince,
+} from "@/lib/savings-display"
 import { IrregularIncomeDialog } from "@/components/irregular-income-dialog"
+import { SavingsGoalsWalkthroughDialog } from "@/components/savings-goals-walkthrough-dialog"
 import { EnvelopeSweepDialog } from "@/components/envelope-sweep-dialog"
 import {
   Dialog,
@@ -107,12 +113,21 @@ function Sparkline({ values }: { values: number[] }) {
 }
 
 export function SavingsHeroCard() {
-  const { state, activeTransactions, discretionaryEnvelopes, navigateTo, refreshData } = useApp()
+  const {
+    state,
+    activeTransactions,
+    discretionaryEnvelopes,
+    navigateTo,
+    refreshData,
+    accountCreatedAtIso,
+    onboardingCompletedAtIso,
+  } = useApp()
   const [currentGoal, setCurrentGoal] = useState<SavingsGoalRow | null>(null)
   const [closedGoals, setClosedGoals] = useState<SavingsGoalRow[]>([])
   const [achievements, setAchievements] = useState<UserAchievement[]>([])
   const [sweepOpen, setSweepOpen] = useState(false)
   const [goalOpen, setGoalOpen] = useState(false)
+  const [walkthroughOpen, setWalkthroughOpen] = useState(false)
   const [goalAmount, setGoalAmount] = useState(0)
   const [goalSaving, setGoalSaving] = useState(false)
   const [goalError, setGoalError] = useState<string | null>(null)
@@ -120,7 +135,16 @@ export function SavingsHeroCard() {
 
   const savingsEnvelope = findSavingsEnvelope(state.envelopes)
   const monthKey = getCurrentMonthKey()
-  const balance = savingsBalance(activeTransactions, savingsEnvelope)
+  const savingsSinceStart = resolveSavingsTrackingStartFromTransactions(
+    activeTransactions,
+    onboardingCompletedAtIso,
+    accountCreatedAtIso,
+  )
+  const balance =
+    savingsSinceStart != null
+      ? savingsBalanceSince(activeTransactions, savingsEnvelope, savingsSinceStart)
+      : savingsBalance(activeTransactions, savingsEnvelope)
+  const sinceLabel = savingsSinceStart ? formatSavingsSinceLabel(savingsSinceStart) : null
   const engaged = state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED
 
   const discretionaryIds = useMemo(
@@ -243,10 +267,13 @@ export function SavingsHeroCard() {
         <div className="flex flex-col gap-0.5">
           <span className="text-xs text-muted-foreground uppercase tracking-wider">Savings</span>
           <span className="text-2xl font-bold text-foreground">{formatUsd(balance)}</span>
+          {sinceLabel && (
+            <span className="text-xs text-muted-foreground">Saved since {sinceLabel}</span>
+          )}
         </div>
         <button
           type="button"
-          onClick={() => navigateTo("transactions", undefined, { envelopeFilter: savingsEnvelope.id })}
+          onClick={() => navigateTo("envelope-detail", savingsEnvelope.id)}
           className="text-sm text-[#D4AF37] hover:underline flex items-center gap-1"
         >
           View Savings transactions
@@ -273,6 +300,9 @@ export function SavingsHeroCard() {
               <span className="text-xs text-muted-foreground uppercase tracking-wider">Savings</span>
             </div>
             <span className="text-3xl md:text-4xl font-bold text-foreground">{formatUsd(balance)}</span>
+            {sinceLabel && (
+              <span className="text-xs text-muted-foreground">Saved since {sinceLabel}</span>
+            )}
             {independenceDays > 0 && (
               <span className="text-xs text-muted-foreground">
                 {independenceDays} day{independenceDays !== 1 ? "s" : ""} of expenses covered
@@ -338,11 +368,21 @@ export function SavingsHeroCard() {
             type="button"
             variant="outline"
             size="sm"
+            data-walkthrough="sweep-cta"
             className="border-[#333] hover:border-[#D4AF37]/50"
             onClick={() => setSweepOpen(true)}
           >
             <Sparkles className="h-3.5 w-3.5 mr-1.5" aria-hidden />
             Sweep to Savings
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-[#333] hover:border-[#D4AF37]/50"
+            onClick={() => setWalkthroughOpen(true)}
+          >
+            How it works
           </Button>
           <Button
             type="button"
@@ -368,6 +408,8 @@ export function SavingsHeroCard() {
           </Button>
         </div>
       </div>
+
+      <SavingsGoalsWalkthroughDialog open={walkthroughOpen} onOpenChange={setWalkthroughOpen} />
 
       <EnvelopeSweepDialog
         open={sweepOpen}

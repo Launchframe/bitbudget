@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { referralStatsForUser, canRedeemReferralInSettings } from "@/lib/referral"
+import {
+  type CommunicationPreferences,
+  communicationPreferencesBodyError,
+  EMAIL_PREFERENCE_KEYS,
+  emailPreferencesFromUser,
+  emailPreferenceUpdateData,
+} from "@/lib/communication-preferences"
+import { canRedeemReferralInSettings, referralStatsForUser } from "@/lib/referral"
 import { refereeTrialMonthsForReferrerSubscription, resolveEffectiveTier } from "@/lib/subscription"
 import {
   SAVINGS_EXPERIENCE_DISMISSED,
@@ -13,17 +20,30 @@ import {
 } from "@/lib/constants"
 import { assertPayCadencePersistable, isDailyPayCadenceAllowed } from "@/lib/pay-cadence-server"
 import { PAYDAY_LAST_OF_MONTH } from "@/lib/payday-cadence"
+import {
+  resolvePremiumExpiredBannerForUser,
+  resolvePremiumRenewalPromptForUser,
+} from "@/lib/premium-renewal-server"
 import { validateDecimal12_2, validateDecimal4_2Positive } from "@/lib/decimal-validation"
+import { booleanSettingsFieldError, setupGuideSnoozedUntilError } from "@/lib/user-settings-validation"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
 type UserSettingsPutBody = Partial<{
   monthlyIncome: number
   payCadence: string
   onboardingComplete: boolean
+  walkthroughCompleted: boolean
   btcDisplayUnit: string
   opportunityCostEnabled: boolean
   receiptInboxToken: string | null
   name: string | null
+  communicationPreferences: Partial<CommunicationPreferences>
+  emailFeatureUpdates: boolean
+  emailFeedbackRequests: boolean
+  emailRecurringReminders: boolean
+  emailRenewalReminders: boolean
+  emailImportAlerts: boolean
+  nostrDmEnabled: boolean
   payDays: number[]
   payDayOfWeek: number | null
   lastPaydayAt: string | null
@@ -31,6 +51,9 @@ type UserSettingsPutBody = Partial<{
   sweepDefaultPolicy: string
   sweepDefaultCapMultiplier: number | null
   savingsExperience: string
+  setupGuideSnoozedUntil: string | null
+  setupGuideDismissed: boolean
+  setupGuideShowOnDashboard: boolean
 }>
 
 const ALLOWED_PAY_CADENCES = new Set([
@@ -58,10 +81,13 @@ const ALLOWED_SETTINGS_PUT_FIELDS = [
   "monthlyIncome",
   "payCadence",
   "onboardingComplete",
+  "walkthroughCompleted",
   "btcDisplayUnit",
   "opportunityCostEnabled",
   "receiptInboxToken",
   "name",
+  "nostrDmEnabled",
+  ...EMAIL_PREFERENCE_KEYS,
   "payDays",
   "payDayOfWeek",
   "lastPaydayAt",
@@ -69,6 +95,9 @@ const ALLOWED_SETTINGS_PUT_FIELDS = [
   "sweepDefaultPolicy",
   "sweepDefaultCapMultiplier",
   "savingsExperience",
+  "setupGuideSnoozedUntil",
+  "setupGuideDismissed",
+  "setupGuideShowOnDashboard",
 ] as const satisfies readonly (keyof UserSettingsPutBody)[]
 
 const userSettingsSelect = {
@@ -83,6 +112,11 @@ const userSettingsSelect = {
   savingsExperience: true,
   onboardingComplete: true,
   onboardingCompletedAt: true,
+  createdAt: true,
+  walkthroughCompleted: true,
+  setupGuideSnoozedUntil: true,
+  setupGuideDismissed: true,
+  setupGuideShowOnDashboard: true,
   btcDisplayUnit: true,
   opportunityCostEnabled: true,
   nostrPubkey: true,
@@ -91,10 +125,17 @@ const userSettingsSelect = {
   receiptInboxToken: true,
   name: true,
   email: true,
+  nostrDmEnabled: true,
+  emailFeatureUpdates: true,
+  emailFeedbackRequests: true,
+  emailRecurringReminders: true,
+  emailRenewalReminders: true,
+  emailImportAlerts: true,
   subscriptionTier: true,
   role: true,
   premiumGratisUntil: true,
   premiumTrialUntil: true,
+  premiumMembershipUntil: true,
   _count: { select: { transactions: true } },
 } as const
 
@@ -109,17 +150,28 @@ function serializeUserSettings(user: {
   sweepDefaultCapMultiplier: Prisma.Decimal | null
   premiumGratisUntil: Date | null
   premiumTrialUntil: Date | null
+  premiumMembershipUntil: Date | null
   _count: { transactions: number }
   [key: string]: unknown
 }) {
-  const { _count, premiumGratisUntil, premiumTrialUntil, ...rest } = user
+  const { _count, premiumGratisUntil, premiumTrialUntil, premiumMembershipUntil, ...rest } = user
+  const snoozed = rest.setupGuideSnoozedUntil
   return {
     ...rest,
+    createdAt:
+      rest.createdAt instanceof Date ? rest.createdAt.toISOString() : (rest.createdAt as string | null | undefined) ?? null,
+    onboardingCompletedAt:
+      rest.onboardingCompletedAt instanceof Date
+        ? rest.onboardingCompletedAt.toISOString()
+        : (rest.onboardingCompletedAt as string | null | undefined) ?? null,
+    setupGuideSnoozedUntil:
+      snoozed instanceof Date ? snoozed.toISOString() : snoozed ?? null,
     lastPaydayAt: rest.lastPaydayAt instanceof Date ? rest.lastPaydayAt.toISOString() : rest.lastPaydayAt ?? null,
     estimatedAnnualIncome: serializeDecimal(rest.estimatedAnnualIncome as Prisma.Decimal | null),
     sweepDefaultCapMultiplier: serializeDecimal(rest.sweepDefaultCapMultiplier as Prisma.Decimal | null),
     premiumGratisUntil: premiumGratisUntil?.toISOString() ?? null,
     premiumTrialUntil: premiumTrialUntil?.toISOString() ?? null,
+    premiumMembershipUntil: premiumMembershipUntil?.toISOString() ?? null,
     transactionCount: _count.transactions,
   }
 }
@@ -164,11 +216,19 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  const communicationPreferences = emailPreferencesFromUser(user)
+
   const effectiveTier = resolveEffectiveTier({
     subscriptionTier: user.subscriptionTier,
     premiumGratisUntil: user.premiumGratisUntil,
     premiumTrialUntil: user.premiumTrialUntil,
+    premiumMembershipUntil: user.premiumMembershipUntil,
   })
+
+  const [premiumRenewalPrompt, premiumExpiredBanner] = await Promise.all([
+    resolvePremiumRenewalPromptForUser(session.user.id),
+    resolvePremiumExpiredBannerForUser(session.user.id),
+  ])
 
   const refereeReferralRow = await prisma.referral.findUnique({
     where: { refereeId: session.user.id },
@@ -215,6 +275,8 @@ export async function GET() {
   return NextResponse.json({
     ...serializeUserSettings(user),
     onboardingCompletedAt: user.onboardingCompletedAt?.toISOString() ?? null,
+    emailPreferences: communicationPreferences,
+    communicationPreferences,
     effectiveTier,
     referralRefereePendingBankLink: isRefereePendingBankLink,
     referralRefereeRedeemed,
@@ -222,6 +284,8 @@ export async function GET() {
     referralRefereeTrialMonths,
     referral: referralPayload,
     dailyCadenceAllowed: isDailyPayCadenceAllowed(),
+    premiumRenewalPrompt,
+    premiumExpiredBanner,
   })
 }
 
@@ -242,6 +306,17 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 })
   }
   const body = raw as UserSettingsPutBody
+  if (
+    body.communicationPreferences !== undefined &&
+    (typeof body.communicationPreferences !== "object" ||
+      body.communicationPreferences === null ||
+      Array.isArray(body.communicationPreferences))
+  ) {
+    return NextResponse.json(
+      { error: "communicationPreferences must be an object" },
+      { status: 400 },
+    )
+  }
 
   if (body.payCadence !== undefined) {
     if (typeof body.payCadence !== "string") {
@@ -285,6 +360,23 @@ export async function PUT(req: NextRequest) {
     const parsed = parseOptionalIsoDate(body.lastPaydayAt)
     if (parsed === "invalid") {
       return NextResponse.json({ error: "lastPaydayAt must be a valid ISO date or null" }, { status: 400 })
+    }
+  }
+
+  if (body.monthlyIncome !== undefined) {
+    if (
+      typeof body.monthlyIncome !== "number" ||
+      !Number.isFinite(body.monthlyIncome) ||
+      body.monthlyIncome < 0
+    ) {
+      return NextResponse.json(
+        { error: "monthlyIncome must be a non-negative finite number" },
+        { status: 400 },
+      )
+    }
+    const validated = validateDecimal12_2(body.monthlyIncome, "monthlyIncome")
+    if (!validated.ok) {
+      return NextResponse.json({ error: validated.error }, { status: 400 })
     }
   }
 
@@ -332,6 +424,16 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  const snoozeError = setupGuideSnoozedUntilError(body.setupGuideSnoozedUntil)
+  if (snoozeError) {
+    return NextResponse.json({ error: snoozeError }, { status: 400 })
+  }
+
+  const booleanFieldError = booleanSettingsFieldError(body)
+  if (booleanFieldError) {
+    return NextResponse.json({ error: booleanFieldError }, { status: 400 })
+  }
+
   // Never allow encryptedPrivacyKey / privacyKeySalt via this route — use POST /api/user/encryption
   // (guarded) so existing keys cannot be clobbered by mistake or a buggy client.
   let prevUser: { onboardingComplete: boolean; onboardingCompletedAt: Date | null } | null = null
@@ -354,6 +456,11 @@ export async function PUT(req: NextRequest) {
       data.lastPaydayAt = parsed === "invalid" ? undefined : parsed
       continue
     }
+    if (field === "monthlyIncome") {
+      const validated = validateDecimal12_2(body.monthlyIncome as number, "monthlyIncome")
+      data.monthlyIncome = new Prisma.Decimal(validated.ok ? validated.value : 0)
+      continue
+    }
     if (field === "estimatedAnnualIncome") {
       const income = body.estimatedAnnualIncome
       if (income === null || income === undefined) {
@@ -374,7 +481,37 @@ export async function PUT(req: NextRequest) {
       }
       continue
     }
+    if (field === "setupGuideSnoozedUntil") {
+      const rawSnooze = body.setupGuideSnoozedUntil
+      data.setupGuideSnoozedUntil =
+        rawSnooze === null ? null : new Date(rawSnooze as string)
+      continue
+    }
     data[field] = body[field]
+  }
+
+  for (const field of EMAIL_PREFERENCE_KEYS) {
+    if (data[field] !== undefined && typeof data[field] !== "boolean") {
+      return NextResponse.json(
+        { error: `${field} must be a boolean` },
+        { status: 400 },
+      )
+    }
+  }
+  if (body.nostrDmEnabled !== undefined && typeof body.nostrDmEnabled !== "boolean") {
+    return NextResponse.json({ error: "nostrDmEnabled must be a boolean" }, { status: 400 })
+  }
+  if (body.communicationPreferences) {
+    const prefError = communicationPreferencesBodyError(
+      body.communicationPreferences as Record<string, unknown>,
+    )
+    if (prefError) {
+      return NextResponse.json({ error: prefError }, { status: 400 })
+    }
+    Object.assign(data, emailPreferenceUpdateData(body.communicationPreferences))
+  }
+  if (body.setupGuideShowOnDashboard === true) {
+    data.setupGuideDismissed = false
   }
 
   if (
@@ -407,17 +544,30 @@ export async function PUT(req: NextRequest) {
       sweepDefaultCapMultiplier: true,
       savingsExperience: true,
       onboardingComplete: true,
+      walkthroughCompleted: true,
+      setupGuideSnoozedUntil: true,
+      setupGuideDismissed: true,
+      setupGuideShowOnDashboard: true,
       btcDisplayUnit: true,
       opportunityCostEnabled: true,
       receiptInboxToken: true,
       name: true,
+      nostrDmEnabled: true,
+      emailFeatureUpdates: true,
+      emailFeedbackRequests: true,
+      emailRecurringReminders: true,
+      emailRenewalReminders: true,
+      emailImportAlerts: true,
     },
   })
 
+  const communicationPreferences = emailPreferencesFromUser(updated)
   return NextResponse.json({
     ...updated,
     lastPaydayAt: updated.lastPaydayAt?.toISOString() ?? null,
     estimatedAnnualIncome: serializeDecimal(updated.estimatedAnnualIncome),
     sweepDefaultCapMultiplier: serializeDecimal(updated.sweepDefaultCapMultiplier),
+    emailPreferences: communicationPreferences,
+    communicationPreferences,
   })
 }
