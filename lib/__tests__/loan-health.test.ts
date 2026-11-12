@@ -110,6 +110,40 @@ describe("maturity bill override honored at the source of truth", () => {
     const cleared: BtcLoanInput = { ...workedLoan, maturityBillOverrideUsd: null }
     expect(maturityBillUsd(cleared)).toBeCloseTo(55_000, 6)
   })
+
+  it("accrued same-day term owes principal before open and the bill on open", () => {
+    const sameDay: BtcLoanInput = {
+      ...workedLoan,
+      openDate: "2026-06-01",
+      maturityDate: "2026-06-01",
+      maturityBillOverrideUsd: 60_000,
+    }
+    expect(amountDueUsd(sameDay, "2026-05-31")).toBeCloseTo(50_000, 6)
+    expect(amountDueUsd(sameDay, "2026-06-01")).toBeCloseTo(60_000, 6)
+    expect(amountDueUsd(sameDay, "2026-06-02")).toBeCloseTo(60_000, 6)
+  })
+
+  it("accrued same-day term without an override stays at principal", () => {
+    const sameDay: BtcLoanInput = {
+      ...workedLoan,
+      openDate: "2026-06-01",
+      maturityDate: "2026-06-01",
+    }
+    expect(amountDueUsd(sameDay, "2026-05-31")).toBeCloseTo(50_000, 6)
+    expect(amountDueUsd(sameDay, "2026-06-01")).toBeCloseTo(50_000, 6)
+  })
+
+  it("full_bill same-day term keeps the full bill before open", () => {
+    const sameDay: BtcLoanInput = {
+      ...workedLoan,
+      openDate: "2026-06-01",
+      maturityDate: "2026-06-01",
+      payoffStyle: "full_bill",
+      maturityBillOverrideUsd: 60_000,
+    }
+    expect(amountDueUsd(sameDay, "2026-05-31")).toBeCloseTo(60_000, 6)
+    expect(amountDueUsd(sameDay, "2026-06-01")).toBeCloseTo(60_000, 6)
+  })
 })
 
 describe("stack identity", () => {
@@ -232,6 +266,15 @@ describe("rollover price", () => {
     expect(
       rolloverPriceUsd({ amountDueUsd: 55_000, collateralSats: ONE_BTC, borrowCapFraction: 0 }),
     ).toBe(Number.POSITIVE_INFINITY)
+  })
+
+  it("returns 0 for a zero bill even when there is no collateral", () => {
+    expect(
+      rolloverPriceUsd({ amountDueUsd: 0, collateralSats: 0, borrowCapFraction: 0.5 }),
+    ).toBe(0)
+    expect(
+      rolloverPriceUsd({ amountDueUsd: 0, collateralSats: ONE_BTC, borrowCapFraction: 0 }),
+    ).toBe(0)
   })
 })
 

@@ -3,7 +3,9 @@ import {
   MAX_APR_FRACTION,
   MAX_LOAN_LABEL_LENGTH,
   parseLoanCreateBody,
+  parseLoanSummaryQuery,
   parseLoanUpdateBody,
+  resolveLoanDateUpdate,
   serializeLoanEvaluation,
   toLoanHealthInput,
   validateAprFraction,
@@ -254,6 +256,75 @@ describe("parseLoanUpdateBody", () => {
     expect(parseLoanUpdateBody({ payoffStyle: "weekly" }).ok).toBe(false)
     expect(parseLoanUpdateBody({ status: "nope" }).ok).toBe(false)
     expect(parseLoanUpdateBody({ principalUsd: 0 }).ok).toBe(false)
+  })
+})
+
+describe("resolveLoanDateUpdate", () => {
+  const existing = { openedOn: "2026-01-01", maturityOn: "2026-12-01" }
+
+  it("returns null when neither date is in the patch", () => {
+    const r = resolveLoanDateUpdate(existing, {})
+    expect(r).toEqual({ ok: true, value: null })
+  })
+
+  it("returns both dates when only the open date changes", () => {
+    const r = resolveLoanDateUpdate(existing, { openedOn: "2026-06-01" })
+    expect(r).toEqual({
+      ok: true,
+      value: { openedOn: "2026-06-01", maturityOn: "2026-12-01" },
+    })
+  })
+
+  it("rejects a maturity date before the stored open date", () => {
+    const r = resolveLoanDateUpdate(existing, { maturityOn: "2025-06-01" })
+    expect(r.ok).toBe(false)
+  })
+
+  it("accepts a pair that stays ordered", () => {
+    const r = resolveLoanDateUpdate(existing, {
+      openedOn: "2026-03-01",
+      maturityOn: "2026-03-01",
+    })
+    expect(r.ok).toBe(true)
+  })
+})
+
+describe("parseLoanSummaryQuery", () => {
+  function params(query: string) {
+    return new URLSearchParams(query)
+  }
+
+  it("skips the summary when btcPriceUsd is omitted", () => {
+    const r = parseLoanSummaryQuery(params("asOf=2026-02-31"), "2026-06-01")
+    expect(r).toEqual({ ok: true, value: { summarize: false } })
+  })
+
+  it("rejects an impossible asOf before any other work", () => {
+    const r = parseLoanSummaryQuery(params("btcPriceUsd=100000&asOf=2026-02-31"), "2026-06-01")
+    expect(r.ok).toBe(false)
+  })
+
+  it("rejects a negative price and a cap outside (0, 1]", () => {
+    expect(parseLoanSummaryQuery(params("btcPriceUsd=-1"), "2026-06-01").ok).toBe(false)
+    expect(parseLoanSummaryQuery(params("btcPriceUsd=1&borrowCapFraction=0"), "2026-06-01").ok).toBe(
+      false,
+    )
+    expect(parseLoanSummaryQuery(params("btcPriceUsd=1&borrowCapFraction=1.1"), "2026-06-01").ok).toBe(
+      false,
+    )
+  })
+
+  it("accepts a zero price and defaults asOf to the supplied today", () => {
+    const r = parseLoanSummaryQuery(params("btcPriceUsd=0"), "2026-06-01")
+    expect(r).toEqual({
+      ok: true,
+      value: {
+        summarize: true,
+        btcPriceUsd: 0,
+        asOfDate: "2026-06-01",
+        borrowCapFraction: 0.5,
+      },
+    })
   })
 })
 

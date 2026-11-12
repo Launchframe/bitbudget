@@ -328,6 +328,88 @@ export function parseLoanUpdateBody(raw: unknown): ParseResult<LoanUpdateInput> 
   return { ok: true, value: out }
 }
 
+/**
+ * Merge a partial date patch with the stored open/maturity pair.
+ *
+ * Returns `null` when the patch does not touch either date. When it does,
+ * returns **both** dates so the caller can persist them together. Writing only
+ * the field that changed lets two overlapping patches (open moves forward,
+ * maturity moves back) each pass a check against a stale row and store
+ * maturity before open.
+ */
+export function resolveLoanDateUpdate(
+  existing: { openedOn: string; maturityOn: string },
+  patch: { openedOn?: string; maturityOn?: string },
+): ParseResult<{ openedOn: string; maturityOn: string } | null> {
+  if (patch.openedOn === undefined && patch.maturityOn === undefined) {
+    return { ok: true, value: null }
+  }
+  const openedOn = patch.openedOn ?? existing.openedOn
+  const maturityOn = patch.maturityOn ?? existing.maturityOn
+  if (maturityOn < openedOn) {
+    return { ok: false, error: "Maturity date must be on or after the open date" }
+  }
+  return { ok: true, value: { openedOn, maturityOn } }
+}
+
+/** Default borrow cap / max LTV used for the rollover check in GET summaries. */
+export const DEFAULT_BORROW_CAP_FRACTION = 0.5
+
+export type LoanSummaryQuery =
+  | { summarize: false }
+  | {
+      summarize: true
+      btcPriceUsd: number
+      asOfDate: string
+      borrowCapFraction: number
+    }
+
+/**
+ * Parse optional GET summary params. An omitted or blank `btcPriceUsd` means
+ * "stored fields only" and skips the other params. A present price is validated
+ * before any database read so a bad `asOf` is a 400 on its own.
+ */
+export function parseLoanSummaryQuery(
+  searchParams: { get(name: string): string | null },
+  todayUtc: string,
+): ParseResult<LoanSummaryQuery> {
+  const btcPriceParam = searchParams.get("btcPriceUsd")
+  if (btcPriceParam == null || btcPriceParam.trim() === "") {
+    return { ok: true, value: { summarize: false } }
+  }
+
+  const btcPriceUsd = Number(btcPriceParam.trim())
+  if (!Number.isFinite(btcPriceUsd) || btcPriceUsd < 0) {
+    return { ok: false, error: "btcPriceUsd must be a non-negative number" }
+  }
+
+  let asOfDate = todayUtc
+  const asOfParam = searchParams.get("asOf")
+  if (asOfParam != null && asOfParam.trim() !== "") {
+    const parsedAsOf = validateCalendarDate(asOfParam, "asOf")
+    if (!parsedAsOf.ok) return parsedAsOf
+    asOfDate = parsedAsOf.value
+  }
+
+  let borrowCapFraction = DEFAULT_BORROW_CAP_FRACTION
+  const capParam = searchParams.get("borrowCapFraction")
+  if (capParam != null && capParam.trim() !== "") {
+    const cap = Number(capParam.trim())
+    if (!Number.isFinite(cap) || cap <= 0 || cap > 1) {
+      return {
+        ok: false,
+        error: "borrowCapFraction must be between 0 and 1",
+      }
+    }
+    borrowCapFraction = cap
+  }
+
+  return {
+    ok: true,
+    value: { summarize: true, btcPriceUsd, asOfDate, borrowCapFraction },
+  }
+}
+
 /** Shape of a persisted loan row this module knows how to map to loan math. */
 export interface BtcLoanRowForMath {
   id: string

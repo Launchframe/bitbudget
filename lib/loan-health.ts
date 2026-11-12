@@ -145,8 +145,13 @@ export function amountDueUsd(loan: BtcLoanInput, asOfDate: string): number {
     return maturityBillUsd(loan)
   }
   const termDays = Math.max(0, daysBetween(loan.openDate, loan.maturityDate))
-  // A zero-day term matures immediately: the full bill is due on/after open.
+  // A zero-day term matures on the open date. Before that, accrued style owes
+  // principal only (same clamp as a longer term: interest has not started).
+  // On or after open, the full bill is due immediately.
   if (termDays <= 0) {
+    if (daysBetween(loan.openDate, asOfDate) < 0) {
+      return loan.principalUsd
+    }
     return maturityBillUsd(loan)
   }
   const elapsed = Math.min(Math.max(0, daysBetween(loan.openDate, asOfDate)), termDays)
@@ -234,6 +239,9 @@ export interface RolloverPriceInput {
  * can ever cover the bill).
  */
 export function rolloverPriceUsd(input: RolloverPriceInput): number {
+  // A zero bill is already covered. Returning Infinity here (no collateral or
+  // no borrow cap) would tell clients the loan can never be rolled.
+  if (input.amountDueUsd === 0) return 0
   const collateralBtc = (input.collateralSats || 0) / SATS_PER_BTC
   const denom = collateralBtc * (input.borrowCapFraction || 0)
   if (denom <= 0) return Number.POSITIVE_INFINITY

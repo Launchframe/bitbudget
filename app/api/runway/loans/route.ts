@@ -4,16 +4,14 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import {
   parseLoanCreateBody,
+  parseLoanSummaryQuery,
   parseLoanUpdateBody,
+  resolveLoanDateUpdate,
   serializeLoanEvaluation,
   toLoanHealthInput,
-  validateCalendarDate,
   type LoanUpdateInput,
 } from "@/lib/btc-loan"
 import { evaluateLoan, type LoanPayoffStyle } from "@/lib/loan-health"
-
-/** Default borrow cap / max LTV used for the rollover check in GET summaries. */
-const DEFAULT_BORROW_CAP_FRACTION = 0.5
 
 /** Shape of a loan row selected from the DB. */
 interface LoanRow {
@@ -63,6 +61,13 @@ export async function GET(req: NextRequest) {
   }
   const userId = session.user.id
 
+  // Validate summary params before the read so a bad asOf/price is a 400
+  // even when the database is unavailable.
+  const summaryQuery = parseLoanSummaryQuery(req.nextUrl.searchParams, todayUtcDate())
+  if (!summaryQuery.ok) {
+    return NextResponse.json({ error: summaryQuery.error }, { status: 400 })
+  }
+
   const rows = (await prisma.btcLoan.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
@@ -70,45 +75,11 @@ export async function GET(req: NextRequest) {
 
   const serialized = rows.map(serializeLoan)
 
-  // Optional live summary: only when a positive btcPriceUsd is supplied.
-  const btcPriceParam = req.nextUrl.searchParams.get("btcPriceUsd")
-  if (btcPriceParam == null || btcPriceParam.trim() === "") {
+  if (!summaryQuery.value.summarize) {
     return NextResponse.json({ loans: serialized })
   }
 
-  const btcPriceUsd = Number(btcPriceParam.trim())
-  if (!Number.isFinite(btcPriceUsd) || btcPriceUsd < 0) {
-    return NextResponse.json(
-      { error: "btcPriceUsd must be a non-negative number" },
-      { status: 400 },
-    )
-  }
-
-  const asOfParam = req.nextUrl.searchParams.get("asOf")
-  let asOfDate = todayUtcDate()
-  if (asOfParam != null && asOfParam.trim() !== "") {
-    // Validate it is a real calendar date (rejects e.g. 2026-02-31), not just
-    // the YYYY-MM-DD shape, so we never summarize for a rolled-over date.
-    const parsedAsOf = validateCalendarDate(asOfParam, "asOf")
-    if (!parsedAsOf.ok) {
-      return NextResponse.json({ error: parsedAsOf.error }, { status: 400 })
-    }
-    asOfDate = parsedAsOf.value
-  }
-
-  const capParam = req.nextUrl.searchParams.get("borrowCapFraction")
-  let borrowCapFraction = DEFAULT_BORROW_CAP_FRACTION
-  if (capParam != null && capParam.trim() !== "") {
-    const cap = Number(capParam.trim())
-    if (!Number.isFinite(cap) || cap <= 0 || cap > 1) {
-      return NextResponse.json(
-        { error: "borrowCapFraction must be between 0 and 1" },
-        { status: 400 },
-      )
-    }
-    borrowCapFraction = cap
-  }
-
+  const { btcPriceUsd, asOfDate, borrowCapFraction } = summaryQuery.value
   const ctx = { btcPriceUsd, asOfDate, borrowCapFraction }
   const loans = serialized.map((loan) => ({
     ...loan,
@@ -222,23 +193,22 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Loan not found" }, { status: 404 })
   }
 
-  // Re-check date ordering against stored values when only one date changed.
+  // When either date changes, persist both so overlapping patches cannot
+  // interleave into maturity-before-open.
   const u: LoanUpdateInput = parsed.value
-  const nextOpenedOn = u.openedOn ?? existing.openedOn
-  const nextMaturityOn = u.maturityOn ?? existing.maturityOn
-  if (nextMaturityOn < nextOpenedOn) {
-    return NextResponse.json(
-      { error: "Maturity date must be on or after the open date" },
-      { status: 400 },
-    )
+  const dates = resolveLoanDateUpdate(existing, u)
+  if (!dates.ok) {
+    return NextResponse.json({ error: dates.error }, { status: 400 })
   }
 
   const data: Prisma.BtcLoanUpdateInput = {}
   if (u.label !== undefined) data.label = u.label
   if (u.principalUsd !== undefined) data.principalUsd = new Prisma.Decimal(u.principalUsd)
   if (u.aprFraction !== undefined) data.apr = new Prisma.Decimal(u.aprFraction)
-  if (u.openedOn !== undefined) data.openedOn = u.openedOn
-  if (u.maturityOn !== undefined) data.maturityOn = u.maturityOn
+  if (dates.value) {
+    data.openedOn = dates.value.openedOn
+    data.maturityOn = dates.value.maturityOn
+  }
   if (u.collateralSats !== undefined) data.collateralSats = BigInt(u.collateralSats)
   if (u.lenderSellPriceUsd !== undefined)
     data.lenderSellPriceUsd = new Prisma.Decimal(u.lenderSellPriceUsd)
@@ -250,10 +220,21 @@ export async function PATCH(req: NextRequest) {
         : new Prisma.Decimal(u.maturityBillOverrideUsd)
   if (u.status !== undefined) data.status = u.status
 
-  const updated = (await prisma.btcLoan.update({
-    where: { id: existing.id },
+  // updateMany stays scoped by userId (update() can only filter on the unique id).
+  const result = await prisma.btcLoan.updateMany({
+    where: { id: existing.id, userId },
     data,
-  })) as LoanRow
+  })
+  if (result.count === 0) {
+    return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+  }
+
+  const updated = (await prisma.btcLoan.findFirst({
+    where: { id: existing.id, userId },
+  })) as LoanRow | null
+  if (!updated) {
+    return NextResponse.json({ error: "Loan not found" }, { status: 404 })
+  }
 
   return NextResponse.json({ loan: serializeLoan(updated) })
 }
