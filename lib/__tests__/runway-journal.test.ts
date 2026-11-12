@@ -42,9 +42,13 @@ describe("validateMonthKey", () => {
   })
 })
 
+const SEALED = "A".repeat(96)
+
 describe("validateEncryptedBody", () => {
-  it("accepts a non-empty bounded ciphertext string", () => {
-    expect(expectOk(validateEncryptedBody("abc123=="))).toBe("abc123==")
+  it("accepts a sealed-box shaped body and rejects a sentence", () => {
+    expect(expectOk(validateEncryptedBody(SEALED))).toBe(SEALED)
+    expect(validateEncryptedBody("I overspent on dining").ok).toBe(false)
+    expect(validateEncryptedBody("abc123==").ok).toBe(false)
   })
 
   it("rejects non-strings", () => {
@@ -59,10 +63,10 @@ describe("validateEncryptedBody", () => {
     expect(validateEncryptedBody("\n\t").ok).toBe(false)
   })
 
-  it("rejects bodies over the max length but accepts the boundary", () => {
-    const atMax = "x".repeat(MAX_JOURNAL_BODY_LENGTH)
+  it("rejects bodies over the max length but accepts a sealed body at the cap", () => {
+    const atMax = "A".repeat(MAX_JOURNAL_BODY_LENGTH)
     expect(expectOk(validateEncryptedBody(atMax))).toBe(atMax)
-    expect(validateEncryptedBody("x".repeat(MAX_JOURNAL_BODY_LENGTH + 1)).ok).toBe(
+    expect(validateEncryptedBody("A".repeat(MAX_JOURNAL_BODY_LENGTH + 4)).ok).toBe(
       false,
     )
   })
@@ -101,13 +105,13 @@ describe("parseRunwayJournalCreate", () => {
     const value = expectOk(
       parseRunwayJournalCreate({
         monthKey: "2026-03",
-        encryptedBody: "cipher==",
+        encryptedBody: SEALED,
         envelopeId: "env_1",
       }),
     )
     expect(value).toEqual({
       monthKey: "2026-03",
-      encryptedBody: "cipher==",
+      encryptedBody: SEALED,
       envelopeId: "env_1",
     })
   })
@@ -115,14 +119,14 @@ describe("parseRunwayJournalCreate", () => {
   it("defaults envelopeId to null when omitted or empty", () => {
     expect(
       expectOk(
-        parseRunwayJournalCreate({ monthKey: "2026-03", encryptedBody: "c" }),
+        parseRunwayJournalCreate({ monthKey: "2026-03", encryptedBody: SEALED }),
       ).envelopeId,
     ).toBeNull()
     expect(
       expectOk(
         parseRunwayJournalCreate({
           monthKey: "2026-03",
-          encryptedBody: "c",
+          encryptedBody: SEALED,
           envelopeId: "",
         }),
       ).envelopeId,
@@ -137,7 +141,7 @@ describe("parseRunwayJournalCreate", () => {
 
   it("propagates field errors (monthKey, body, envelopeId)", () => {
     expect(
-      parseRunwayJournalCreate({ monthKey: "2026-13", encryptedBody: "c" }).ok,
+      parseRunwayJournalCreate({ monthKey: "2026-13", encryptedBody: SEALED }).ok,
     ).toBe(false)
     expect(
       parseRunwayJournalCreate({ monthKey: "2026-03", encryptedBody: "" }).ok,
@@ -145,7 +149,7 @@ describe("parseRunwayJournalCreate", () => {
     expect(
       parseRunwayJournalCreate({
         monthKey: "2026-03",
-        encryptedBody: "c",
+        encryptedBody: SEALED,
         envelopeId: "   ",
       }).ok,
     ).toBe(false)
@@ -155,9 +159,9 @@ describe("parseRunwayJournalCreate", () => {
 describe("parseRunwayJournalUpdate", () => {
   it("parses id + body without an envelope key (envelopeId omitted from result)", () => {
     const value = expectOk(
-      parseRunwayJournalUpdate({ id: "entry_1", encryptedBody: "cipher==" }),
+      parseRunwayJournalUpdate({ id: "entry_1", encryptedBody: SEALED }),
     )
-    expect(value).toEqual({ id: "entry_1", encryptedBody: "cipher==" })
+    expect(value).toEqual({ id: "entry_1", encryptedBody: SEALED })
     expect("envelopeId" in value).toBe(false)
   })
 
@@ -165,7 +169,7 @@ describe("parseRunwayJournalUpdate", () => {
     const withEnv = expectOk(
       parseRunwayJournalUpdate({
         id: "entry_1",
-        encryptedBody: "c",
+        encryptedBody: SEALED,
         envelopeId: "env_2",
       }),
     )
@@ -174,7 +178,7 @@ describe("parseRunwayJournalUpdate", () => {
     const cleared = expectOk(
       parseRunwayJournalUpdate({
         id: "entry_1",
-        encryptedBody: "c",
+        encryptedBody: SEALED,
         envelopeId: null,
       }),
     )
@@ -183,10 +187,10 @@ describe("parseRunwayJournalUpdate", () => {
   })
 
   it("rejects missing id and bad body", () => {
-    expect(parseRunwayJournalUpdate({ encryptedBody: "c" }).ok).toBe(false)
+    expect(parseRunwayJournalUpdate({ encryptedBody: SEALED }).ok).toBe(false)
     expect(parseRunwayJournalUpdate({ id: "entry_1" }).ok).toBe(false)
     expect(
-      parseRunwayJournalUpdate({ id: "", encryptedBody: "c" }).ok,
+      parseRunwayJournalUpdate({ id: "", encryptedBody: SEALED }).ok,
     ).toBe(false)
     expect(parseRunwayJournalUpdate(null).ok).toBe(false)
   })
@@ -195,7 +199,7 @@ describe("parseRunwayJournalUpdate", () => {
     expect(
       parseRunwayJournalUpdate({
         id: "entry_1",
-        encryptedBody: "c",
+        encryptedBody: SEALED,
         envelopeId: "   ",
       }).ok,
     ).toBe(false)

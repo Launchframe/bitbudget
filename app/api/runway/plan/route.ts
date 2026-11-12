@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import {
   parseRunwayPlanBody,
+  planValuesForClientWrite,
   type EnvelopePriorityMap,
   type PlannedLine,
   type RunwayPlanValues,
@@ -67,8 +68,11 @@ function serializePlan(row: RunwayPlanRow) {
   }
 }
 
-/** Map validated plan values to Prisma field values (Decimal / BigInt / Json). */
-function toPrismaData(values: RunwayPlanValues) {
+/**
+ * Map validated plan values to Prisma field values (Decimal / BigInt / Json).
+ * Does not include `checkupOpenedMonthKey` — that column is server-owned.
+ */
+function toPrismaData(values: Omit<RunwayPlanValues, "checkupOpenedMonthKey">) {
   return {
     phase: values.phase,
     quitDate: values.quitDate,
@@ -107,7 +111,6 @@ function toPrismaData(values: RunwayPlanValues) {
     scenarios: values.scenarios as unknown as Prisma.InputJsonValue,
     envelopePriorities:
       values.envelopePriorities as unknown as Prisma.InputJsonValue,
-    checkupOpenedMonthKey: values.checkupOpenedMonthKey,
   }
 }
 
@@ -161,7 +164,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: parsed.error }, { status: 400 })
   }
 
-  const data = toPrismaData(parsed.value)
+  const data = toPrismaData(planValuesForClientWrite(parsed.value))
 
   const saved = await prisma.runwayPlan.upsert({
     where: { userId },

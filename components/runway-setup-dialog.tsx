@@ -393,6 +393,8 @@ export function RunwaySetupDialog({
     // createdAt/updatedAt are server-managed; the parser ignores them.
     delete (body as Record<string, unknown>).createdAt
     delete (body as Record<string, unknown>).updatedAt
+    // The checkup month is marked by visiting the page, not by saving setup.
+    delete (body as Record<string, unknown>).checkupOpenedMonthKey
 
     try {
       const res = await fetch("/api/runway/plan", {
