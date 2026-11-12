@@ -11,12 +11,16 @@ import {
   formatLiquidationRoomPct,
   formatSharePct,
   gapSummaryLine,
+  holdingsLookEmpty,
   isCheckupReady,
   isRunwayConfigured,
   knownBitcoinSats,
   knownCashUsd,
   monthsUntilQuit,
   resolveLivingBaselineUsd,
+  runwayHeroDetail,
+  runwayMonthsHeadline,
+  runwayPrimaryAction,
   satsToUsd,
   type RunwayPlanResponse,
 } from "../runway-ui"
@@ -175,6 +179,67 @@ describe("gapSummaryLine", () => {
 
   it("handles an infinite bitcoin requirement", () => {
     expect(gapSummaryLine(0, Infinity)).toMatch(/more bitcoin/)
+  })
+})
+
+describe("runway glance copy", () => {
+  it("does not call the cushion covered while cash is short today", () => {
+    const line = runwayHeroDetail({
+      holdingsEmpty: false,
+      underFloor: true,
+      shortfallUsd: 25200,
+      projectedCashGapUsd: 0,
+      projectedBitcoinGapUsd: 53800,
+    })
+    expect(line).toMatch(/short today/i)
+    expect(line).not.toMatch(/covered/i)
+    expect(line).not.toMatch(/on track/i)
+  })
+
+  it("talks about the step-back date only once today's cushion is funded", () => {
+    const line = runwayHeroDetail({
+      holdingsEmpty: false,
+      underFloor: false,
+      shortfallUsd: 0,
+      projectedCashGapUsd: 0,
+      projectedBitcoinGapUsd: 53800,
+    })
+    expect(line).toMatch(/by the time you step back/i)
+    expect(line).toMatch(/bitcoin/i)
+    expect(line).not.toMatch(/covered/i)
+  })
+
+  it("asks for holdings before sizing a gap", () => {
+    expect(
+      runwayPrimaryAction({ holdingsEmpty: true, underFloor: true }),
+    ).toBe("add_holdings")
+    expect(
+      runwayPrimaryAction({ holdingsEmpty: false, underFloor: true }),
+    ).toBe("refill_cushion")
+    expect(
+      runwayPrimaryAction({ holdingsEmpty: false, underFloor: false }),
+    ).toBe("none")
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinUsd: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(true)
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinUsd: 0,
+        cashOverrideUsd: 0,
+        bitcoinOverrideSats: 0,
+      }),
+    ).toBe(false)
+  })
+
+  it("headlines months left, or a prompt when the plan has no draw", () => {
+    expect(runwayMonthsHeadline(19.2)).toBe("About 19 months")
+    expect(runwayMonthsHeadline(null)).toBe("Add your numbers")
   })
 })
 

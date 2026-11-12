@@ -26,6 +26,10 @@ import {
   type RiskAnswers,
 } from "@/lib/runway-risk"
 import { formatUsd } from "@/lib/data"
+import { formatMonthsLeft } from "@/lib/runway-expense-impact"
+
+/** Set in sessionStorage when setup finishes for the first time this visit. */
+export const RUNWAY_JUST_SETUP_KEY = "bitbudget-runway-just-setup"
 
 const SATS_PER_BTC = 1e8
 const DAYS_PER_MONTH = 365.25 / 12
@@ -220,6 +224,84 @@ export function gapSummaryLine(
     )
   }
   return `Still need ${parts.join(" and ")} to reach your runway.`
+}
+
+export type RunwayPrimaryAction = "add_holdings" | "refill_cushion" | "none"
+
+/**
+ * One obvious next step. Missing holdings win over a refill prompt — a $0
+ * total is not a cushion to refill until the user has said what they hold.
+ */
+export function runwayPrimaryAction(input: {
+  holdingsEmpty: boolean
+  underFloor: boolean
+}): RunwayPrimaryAction {
+  if (input.holdingsEmpty) return "add_holdings"
+  if (input.underFloor) return "refill_cushion"
+  return "none"
+}
+
+/**
+ * Both sides look unanswered: nothing typed, and the budget/wallet totals are
+ * still ~$0. A typed zero is an answer, not a missing one.
+ */
+export function holdingsLookEmpty(input: {
+  cashUsd: number
+  bitcoinUsd: number
+  cashOverrideUsd: number | null
+  bitcoinOverrideSats: number | null
+}): boolean {
+  const cashUnset = input.cashOverrideUsd == null && input.cashUsd <= 0.5
+  const bitcoinUnset =
+    input.bitcoinOverrideSats == null && input.bitcoinUsd <= 0.5
+  return cashUnset && bitcoinUnset
+}
+
+/** Large first line. Months the money lasts, not the quit-date countdown. */
+export function runwayMonthsHeadline(monthsLeft: number | null): string {
+  const formatted = formatMonthsLeft(monthsLeft)
+  if (formatted === "—") return "Add your numbers"
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1)
+}
+
+/**
+ * One supporting sentence under the months headline.
+ *
+ * Today's cash cushion uses refill language only. A shortfall that future
+ * savings are projected to fill is "by the time you step back" — never
+ * "cushion covered" while cash is short today.
+ */
+export function runwayHeroDetail(input: {
+  holdingsEmpty: boolean
+  underFloor: boolean
+  shortfallUsd: number
+  projectedCashGapUsd: number
+  projectedBitcoinGapUsd: number
+}): string {
+  if (input.holdingsEmpty) {
+    return "Add the cash and bitcoin you have today so this number means something."
+  }
+  if (input.underFloor) {
+    return `Your cash cushion is ${formatUsd(input.shortfallUsd)} short today.`
+  }
+  const cashShort =
+    Number.isFinite(input.projectedCashGapUsd) && input.projectedCashGapUsd > 0.5
+  const bitcoinShort =
+    !Number.isFinite(input.projectedBitcoinGapUsd) ||
+    input.projectedBitcoinGapUsd > 0.5
+  if (!cashShort && !bitcoinShort) {
+    return "You're on track for the date you picked."
+  }
+  const parts: string[] = []
+  if (cashShort) parts.push(`${formatUsd(input.projectedCashGapUsd)} more cash`)
+  if (bitcoinShort) {
+    parts.push(
+      Number.isFinite(input.projectedBitcoinGapUsd)
+        ? `${formatUsd(input.projectedBitcoinGapUsd)} more bitcoin`
+        : "more bitcoin",
+    )
+  }
+  return `By the time you step back, you're still short ${parts.join(" and ")}.`
 }
 
 /**

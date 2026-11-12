@@ -5,12 +5,15 @@ import { getCurrentMonthKey } from "@/lib/data"
 import { useRunway } from "@/lib/use-runway"
 import {
   checkupMonthName,
-  gapSummaryLine,
+  holdingsLookEmpty,
   isCheckupReady,
   isRunwayConfigured,
+  runwayHeroDetail,
+  RUNWAY_JUST_SETUP_KEY,
+  satsToUsd,
 } from "@/lib/runway-ui"
 import { refillStatus } from "@/lib/runway-refill"
-import { formatUsd } from "@/lib/data"
+import { useEffect, useState } from "react"
 import { ArrowRight, CalendarCheck, Plane } from "lucide-react"
 
 /**
@@ -20,11 +23,20 @@ import { ArrowRight, CalendarCheck, Plane } from "lucide-react"
  */
 export function RunwayDashboardCard() {
   const { navigateTo } = useApp()
-  const { plan, loading, compute } = useRunway({ withLoans: false })
+  const { plan, loading, compute, btcPriceUsd } = useRunway({ withLoans: false })
 
   const monthKey = getCurrentMonthKey()
   const configured = isRunwayConfigured(plan)
-  const checkupReady = isCheckupReady(plan, monthKey)
+  const [sessionReady, setSessionReady] = useState(false)
+  const [justSetup, setJustSetup] = useState(false)
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setJustSetup(sessionStorage.getItem(RUNWAY_JUST_SETUP_KEY) === "1")
+      setSessionReady(true)
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [])
+  const checkupReady = sessionReady && isCheckupReady(plan, monthKey) && !justSetup
 
   // Keep the card height stable across its states to avoid dashboard layout
   // jump. A reserved min-height on the text column keeps the loading skeleton,
@@ -68,13 +80,22 @@ export function RunwayDashboardCard() {
           monthlyDrawUsd: comp.need.monthlyDrawUsd,
         })
       : null
-    if (refill && refill.underFloor) {
-      // A cash floor dipping under its cushion is the most urgent runway signal.
-      detail = `Your cash is ${formatUsd(refill.shortfallUsd)} under your cushion — tap to refill.`
+    if (!comp) {
+      detail = "Open your runway to see where you stand."
     } else {
-      detail = comp
-        ? gapSummaryLine(comp.gap.flat.cashGapUsd, comp.gap.flat.bitcoinGapUsd)
-        : "Open your runway to see where you stand."
+      const bitcoinUsd = satsToUsd(comp.need.spendableSats, btcPriceUsd)
+      detail = runwayHeroDetail({
+        holdingsEmpty: holdingsLookEmpty({
+          cashUsd: comp.need.cashUsd,
+          bitcoinUsd,
+          cashOverrideUsd: plan?.cashOverrideUsd ?? null,
+          bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
+        }),
+        underFloor: Boolean(refill?.underFloor),
+        shortfallUsd: refill?.shortfallUsd ?? 0,
+        projectedCashGapUsd: comp.gap.flat.cashGapUsd,
+        projectedBitcoinGapUsd: comp.gap.flat.bitcoinGapUsd,
+      })
     }
   }
 
@@ -106,7 +127,7 @@ export function RunwayDashboardCard() {
             </span>
           )}
         </div>
-        <span className="text-sm text-foreground truncate">{detail}</span>
+        <span className="text-sm text-foreground line-clamp-2">{detail}</span>
       </div>
       <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 group-hover:text-[#F7931A] transition-colors" aria-hidden />
     </button>

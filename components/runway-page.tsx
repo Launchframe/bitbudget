@@ -14,13 +14,17 @@ import {
   checkupMonthName,
   formatLiquidationRoomPct,
   formatSharePct,
-  gapSummaryLine,
+  holdingsLookEmpty,
   isCheckupReady,
   isRunwayConfigured,
+  runwayHeroDetail,
+  runwayMonthsHeadline,
+  runwayPrimaryAction,
+  RUNWAY_JUST_SETUP_KEY,
   satsToUsd,
   type RunwayPlanResponse,
 } from "@/lib/runway-ui"
-import type { RunwayScenario } from "@/lib/runway-need"
+import type { PlannedLine, RunwayScenario } from "@/lib/runway-need"
 import {
   computeMonthsLeftImpact,
   formatMonthsLeft,
@@ -42,8 +46,6 @@ import {
   Bitcoin,
   CalendarCheck,
   ChevronDown,
-  Landmark,
-  Pencil,
   Plane,
   Plus,
   Settings2,
@@ -56,42 +58,6 @@ const SATS_PER_BTC = 100_000_000
 
 function newId(): string {
   return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
-}
-
-/** A gap figure with a reserved band so toggling scenarios doesn't resize the card. */
-function GapStat({
-  icon,
-  label,
-  gapUsd,
-  onTrackCopy,
-}: {
-  icon: React.ReactNode
-  label: string
-  gapUsd: number
-  onTrackCopy: string
-}) {
-  const infinite = !Number.isFinite(gapUsd)
-  const short = infinite || gapUsd > 0.5
-  return (
-    <div className="flex-1 min-w-0 rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-4">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
-        {icon}
-        {label}
-      </div>
-      <div className="mt-2 min-h-[2.75rem] flex flex-col justify-center">
-        {short ? (
-          <>
-            <span className="text-xl md:text-2xl font-bold text-amber-400 tabular-nums">
-              {infinite ? "—" : formatUsd(gapUsd)}
-            </span>
-            <span className="text-xs text-muted-foreground">still to go</span>
-          </>
-        ) : (
-          <span className="text-sm font-medium text-[#22C55E]">{onTrackCopy}</span>
-        )}
-      </div>
-    </div>
-  )
 }
 
 function MixBar({
@@ -151,7 +117,7 @@ function LoanRow({
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
         </button>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
         <div className="flex flex-col">
           <span className="text-muted-foreground">Bill due</span>
           <span className="text-foreground tabular-nums">
@@ -219,6 +185,24 @@ export function RunwayPage() {
   const configured = isRunwayConfigured(plan)
   const checkupReady = isCheckupReady(plan, monthKey)
   const [showCheckup, setShowCheckup] = useState(false)
+  // First Finish this visit should not immediately look like a monthly failure.
+  // Read the flag after mount: a useState initializer sees no sessionStorage
+  // during SSR, and hydration keeps that false value.
+  const [sessionReady, setSessionReady] = useState(false)
+  const [justSetup, setJustSetup] = useState(false)
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setJustSetup(sessionStorage.getItem(RUNWAY_JUST_SETUP_KEY) === "1")
+      setSessionReady(true)
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [])
+  const onPlanSaved = (saved: RunwayPlanResponse) => {
+    setPlan(saved)
+    if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(RUNWAY_JUST_SETUP_KEY) === "1") {
+      setJustSetup(true)
+    }
+  }
 
   // Mark this month's checkup opened once the user lands here (clears the card
   // prompt). The banner stays visible for this visit via `showCheckup`.
@@ -230,7 +214,7 @@ export function RunwayPage() {
     planRef.current = plan
   }, [plan])
   useEffect(() => {
-    if (!configured || !checkupReady || markedRef.current || !planRef.current) return
+    if (!sessionReady || !configured || !checkupReady || justSetup || markedRef.current || !planRef.current) return
     markedRef.current = true
     const t = setTimeout(() => setShowCheckup(true), 0)
     fetch("/api/runway/checkup/opened", {
@@ -251,7 +235,7 @@ export function RunwayPage() {
         /* best-effort */
       })
     return () => clearTimeout(t)
-  }, [configured, checkupReady, monthKey, setPlan])
+  }, [configured, checkupReady, justSetup, sessionReady, monthKey, setPlan])
 
   const scenarioMode = applyScenarios ? "enabled" : "none"
   const comp = useMemo(() => compute(scenarioMode), [compute, scenarioMode])
@@ -296,7 +280,7 @@ export function RunwayPage() {
         </div>
         <p className="text-foreground font-semibold text-lg">Runway is part of the bitcoin experience</p>
         <p className="text-muted-foreground text-sm max-w-sm">
-          Turn on bitcoin features in Settings to plan how long your money lasts.
+          Turn on Opportunity Cost in Settings to plan how long your money lasts.
         </p>
         <Button variant="outline" className="border-[#333]" onClick={() => navigateTo("settings")}>
           Open Settings
@@ -354,7 +338,8 @@ export function RunwayPage() {
           plan={plan}
           livingPlaceholderUsd={livingPlaceholder}
           suggestedStressPercent={suggestedStressPercent}
-          onSaved={setPlan}
+          promptHoldings={envelopeCashUsd <= 0.5 && (plan == null || plan.bitcoinOverrideSats == null)}
+          onSaved={onPlanSaved}
         />
       </div>
     )
@@ -367,6 +352,15 @@ export function RunwayPage() {
 
   const bitcoinKnownUsd = need ? satsToUsd(need.spendableSats, btcPriceOrNull ?? 0) : 0
   const monthsUntil = comp?.monthsUntilQuit ?? 0
+  const holdingsEmpty = holdingsLookEmpty({
+    cashUsd: need?.cashUsd ?? 0,
+    bitcoinUsd: bitcoinKnownUsd,
+    cashOverrideUsd: plan.cashOverrideUsd,
+    bitcoinOverrideSats: plan.bitcoinOverrideSats,
+  })
+  const cashUnset = plan.cashOverrideUsd == null && (need?.cashUsd ?? 0) <= 0.5
+  const bitcoinUnset =
+    plan.bitcoinOverrideSats == null && bitcoinKnownUsd <= 0.5
 
   const refill = need
     ? refillStatus({
@@ -379,6 +373,22 @@ export function RunwayPage() {
   const openSales = pendingSales.filter(
     (s) => s.status === "sent" || s.status === "cash_on_the_way",
   )
+  const primary = runwayPrimaryAction({
+    holdingsEmpty,
+    underFloor: Boolean(refill?.underFloor),
+  })
+  const heroDetail =
+    need && gap
+      ? runwayHeroDetail({
+          holdingsEmpty,
+          underFloor: Boolean(refill?.underFloor),
+          shortfallUsd: refill?.shortfallUsd ?? 0,
+          projectedCashGapUsd: gap.flat.cashGapUsd,
+          projectedBitcoinGapUsd: gap.flat.bitcoinGapUsd,
+        })
+      : ""
+  const headline = runwayMonthsHeadline(need?.monthsLeft ?? null)
+  const openLoans = loans.filter((l) => l.status === "open")
 
   const whatIfImpact =
     runwayWhatIfUsd != null && need && need.monthlyDrawUsd > 0
@@ -394,9 +404,9 @@ export function RunwayPage() {
       : null
 
   return (
-    <div className="flex flex-col gap-4 md:gap-6 min-w-0 w-full max-w-full">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 min-w-0">
+    <div className="flex flex-col gap-4 md:gap-6 min-w-0 w-full max-w-full pb-24 md:pb-0">
+      {/* Header — stacks on narrow phones so Adjust never crowds the title */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between min-w-0">
         <div className="flex items-center gap-3 min-w-0">
           <span className="p-2 rounded-xl bg-[#F7931A]/10 shrink-0">
             <Plane className="h-5 w-5 text-[#F7931A]" aria-hidden />
@@ -412,16 +422,35 @@ export function RunwayPage() {
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="border-[#333] shrink-0"
-          onClick={() => setSetupOpen(true)}
-        >
-          <Settings2 className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-          Adjust
-        </Button>
       </div>
+
+      {need && (
+        <div className="flex flex-col gap-3 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F] min-w-0">
+          <p className="text-3xl md:text-4xl font-bold text-foreground tracking-tight min-h-[2.75rem]">
+            {headline}
+          </p>
+          <p className="text-sm text-muted-foreground leading-relaxed min-h-[2.75rem] max-w-prose">
+            {heroDetail}
+          </p>
+          {primary === "add_holdings" && (
+            <Button
+              className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90 w-full sm:w-auto"
+              onClick={() => setEditTotals(true)}
+            >
+              Add what you have
+            </Button>
+          )}
+          {primary === "refill_cushion" && (
+            <Button
+              className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90 w-full sm:w-auto"
+              onClick={() => setRefillOpen(true)}
+            >
+              <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+              Refill the cushion
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Temporary "See this on your plan" what-if preview */}
       {runwayWhatIfUsd != null && (
@@ -457,142 +486,56 @@ export function RunwayPage() {
         </div>
       )}
 
-      {/* Checkup banner */}
-      {(showCheckup || checkupReady) && (
-        <div className="flex items-start gap-3 rounded-2xl border border-[#F7931A]/30 bg-[#F7931A]/5 p-4">
-          <CalendarCheck className="h-5 w-5 text-[#F7931A] shrink-0 mt-0.5" aria-hidden />
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">{checkupMonthName(monthKey)} check-in</p>
-            <p className="text-xs text-muted-foreground">
-              Here&apos;s where your runway stands this month. Adjust anything that&apos;s changed.
-            </p>
-          </div>
-        </div>
+      {sessionReady && !justSetup && (showCheckup || checkupReady) && (
+        <p className="text-xs text-muted-foreground flex items-center gap-2 min-w-0">
+          <CalendarCheck className="h-3.5 w-3.5 text-[#F7931A] shrink-0" aria-hidden />
+          <span className="min-w-0">{checkupMonthName(monthKey)} check-in — anything changed since last month?</span>
+        </p>
       )}
 
-      {/* Gap hero */}
-      {need && gap && (
-        <div className="flex flex-col gap-4 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F]">
-          <p className="text-base md:text-lg font-semibold text-foreground">
-            {gapSummaryLine(gap.flat.cashGapUsd, gap.flat.bitcoinGapUsd)}
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <GapStat
-              icon={<Wallet className="h-3.5 w-3.5" aria-hidden />}
-              label="Cash gap"
-              gapUsd={gap.flat.cashGapUsd}
-              onTrackCopy="Cash floor covered"
-            />
-            <GapStat
-              icon={<Bitcoin className="h-3.5 w-3.5" aria-hidden />}
-              label="Bitcoin gap"
-              gapUsd={gap.flat.bitcoinGapUsd}
-              onTrackCopy="Bitcoin target met"
-            />
-          </div>
-          {!priceKnown && (
-            <p className="text-xs text-muted-foreground">
-              Bitcoin figures need a live price — they&apos;ll fill in once prices load.
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Mix + cash floor */}
       {need && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="flex flex-col gap-4 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F]">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Your bitcoin mix</span>
-            <MixBar label="Target" share={need.targetBtcShare} color="#F7931A" />
-            <MixBar label="Right now" share={need.actualBtcShare} color="#3B82F6" />
-            <p className="text-xs text-muted-foreground">
-              {need.actualBtcShare > need.targetBtcShare + 0.03
-                ? "You're leaning more on bitcoin than your target — a bigger cash cushion helps."
-                : need.actualBtcShare < need.targetBtcShare - 0.03
-                  ? "You're holding less bitcoin than your target right now."
-                  : "You're close to your target mix."}
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F]">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Cash floor</span>
-            <span className="text-2xl md:text-3xl font-bold text-foreground tabular-nums">
-              {formatUsd(need.cashFloorUsedUsd)}
-            </span>
-            <p className="text-xs text-muted-foreground">
-              About {need.cashFloorMonths} month{need.cashFloorMonths === 1 ? "" : "s"} of spending
-              kept in cash before you&apos;d lean on bitcoin.
-            </p>
-            {/* Reserved band so the floor card height is stable whether or not
-                there's a shortfall or an upcoming breach to mention. */}
-            <div className="min-h-[2.75rem] flex flex-col justify-center">
-              {refill && refill.underFloor ? (
-                <div className="flex flex-col gap-2">
-                  <p className="text-xs text-amber-400">
-                    Your cash is {formatUsd(refill.shortfallUsd)} under this floor right now.
-                  </p>
-                  <Button
-                    size="sm"
-                    className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90 self-start"
-                    onClick={() => setRefillOpen(true)}
-                  >
-                    <ArrowDownToLine className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-                    Refill the floor
-                  </Button>
-                </div>
-              ) : refill && refill.monthsUntilBreach != null ? (
-                <p className="text-xs text-muted-foreground">
-                  At your current pace, cash reaches this floor in about{" "}
-                  {Math.max(1, Math.round(refill.monthsUntilBreach))} month
-                  {Math.round(refill.monthsUntilBreach) === 1 ? "" : "s"}.
-                </p>
-              ) : (
-                <p className="text-xs text-[#22C55E]">Your cash is above the floor.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Totals (what you have) */}
-      {need && (
-        <div className="flex flex-col gap-3 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F]">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">What you have today</span>
-            <button
-              type="button"
-              onClick={() => setEditTotals((v) => !v)}
-              className="text-xs text-[#F7931A] hover:underline flex items-center gap-1"
-            >
-              <Pencil className="h-3 w-3" aria-hidden />
-              {editTotals ? "Done" : "Edit totals"}
-            </button>
-          </div>
+        <div className="flex flex-col gap-3 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F] min-w-0">
+          <span className="text-xs text-muted-foreground uppercase tracking-wider">What you have today</span>
           {!editTotals ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3">
+            <div className="grid grid-cols-2 gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={() => setEditTotals(true)}
+                className="rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3 text-left min-w-0"
+              >
                 <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Wallet className="h-3.5 w-3.5" aria-hidden /> Cash
+                  <Wallet className="h-3.5 w-3.5 shrink-0" aria-hidden /> Cash
                 </span>
-                <span className="block text-lg font-semibold text-foreground tabular-nums mt-1">
-                  {formatUsd(need.cashUsd)}
+                <span className="block text-base sm:text-lg font-semibold text-foreground tabular-nums mt-1 break-words">
+                  {cashUnset ? "Add your cash" : formatUsd(need.cashUsd)}
                 </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {plan.cashOverrideUsd != null ? "Typed total" : "From your savings & envelopes"}
+                <span className="text-[11px] text-muted-foreground block mt-0.5">
+                  {cashUnset
+                    ? "Tap to enter"
+                    : plan.cashOverrideUsd != null
+                      ? "You typed this"
+                      : "From your savings and envelopes"}
                 </span>
-              </div>
-              <div className="rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3">
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditTotals(true)}
+                className="rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3 text-left min-w-0"
+              >
                 <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Bitcoin className="h-3.5 w-3.5" aria-hidden /> Bitcoin
+                  <Bitcoin className="h-3.5 w-3.5 shrink-0" aria-hidden /> Bitcoin
                 </span>
-                <span className="block text-lg font-semibold text-foreground tabular-nums mt-1">
-                  {priceKnown ? formatUsd(bitcoinKnownUsd) : "—"}
+                <span className="block text-base sm:text-lg font-semibold text-foreground tabular-nums mt-1 break-words">
+                  {bitcoinUnset ? "Add your bitcoin" : priceKnown ? formatUsd(bitcoinKnownUsd) : "—"}
                 </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {plan.bitcoinOverrideSats != null
-                    ? "Typed total"
-                    : "Type how much bitcoin you hold"}
+                <span className="text-[11px] text-muted-foreground block mt-0.5">
+                  {bitcoinUnset
+                    ? "Tap to enter"
+                    : plan.bitcoinOverrideSats != null
+                      ? "You typed this"
+                      : "From your wallet"}
                 </span>
-              </div>
+              </button>
             </div>
           ) : (
             <TotalsEditor plan={plan} onSave={savePatch} onDone={() => setEditTotals(false)} />
@@ -606,9 +549,9 @@ export function RunwayPage() {
           <div className="bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F] overflow-hidden">
             <CollapsibleTrigger className="w-full flex items-center justify-between gap-2 p-4 md:p-5 text-left">
               <div className="min-w-0">
-                <span className="text-sm font-semibold text-foreground">What if…</span>
+                <span className="text-sm font-semibold text-foreground">More</span>
                 <p className="text-xs text-muted-foreground">
-                  Try changes like a paid-off bill or a one-time sale to see how they move your gap.
+                  Bitcoin share, what-ifs, bills, and loans.
                 </p>
               </div>
               <ChevronDown
@@ -616,7 +559,22 @@ export function RunwayPage() {
                 aria-hidden
               />
             </CollapsibleTrigger>
-            <CollapsibleContent className="px-4 md:px-5 pb-5 flex flex-col gap-3">
+            <CollapsibleContent className="px-4 md:px-5 pb-5 flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <p className="text-sm text-foreground">
+                  You wanted about {formatSharePct(need.targetBtcShare)} of your savings in bitcoin.
+                </p>
+                <MixBar label="Right now" share={need.actualBtcShare} color="#F7931A" />
+                <p className="text-xs text-muted-foreground">
+                  Cash cushion: {formatUsd(need.cashFloorUsedUsd)} — about {need.cashFloorMonths} month
+                  {need.cashFloorMonths === 1 ? "" : "s"} of spending kept in cash.
+                  {refill?.underFloor
+                    ? ` Short ${formatUsd(refill.shortfallUsd)} today.`
+                    : " You're at or above that cushion today."}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-semibold text-foreground">What if…</span>
               {scenarios.length > 0 && (
                 <label className="flex items-center justify-between gap-3 rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3">
                   <span className="text-sm text-foreground">Preview these in my runway above</span>
@@ -632,7 +590,7 @@ export function RunwayPage() {
                   (closure?.cashGapClosedUsd ?? 0) +
                   (Number.isFinite(closure?.bitcoinGapClosedUsd ?? 0) ? closure?.bitcoinGapClosedUsd ?? 0 : 0)
                 return (
-                  <div key={sc.id} className="flex items-center gap-3 rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3 min-w-0">
+                  <div key={sc.id} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3 min-w-0">
                     <div className="flex-1 min-w-0">
                       <span className="text-sm text-foreground block truncate">{sc.label}</span>
                       <span className="text-xs text-muted-foreground">
@@ -643,7 +601,7 @@ export function RunwayPage() {
                         {sc.oneTimeUsd !== 0 && (
                           <>{sc.oneTimeUsd > 0 ? "One-time " : "Costs "}{formatUsd(Math.abs(sc.oneTimeUsd))}</>
                         )}
-                        {closedUsd > 0.5 && <> · closes {formatUsd(closedUsd)} of your gap</>}
+                        {closedUsd > 0.5 && <> · shrinks what you&apos;re short by {formatUsd(closedUsd)}</>}
                       </span>
                     </div>
                     <button
@@ -660,50 +618,56 @@ export function RunwayPage() {
               <ScenarioAdder
                 onAdd={(sc) => void savePatch({ scenarios: [...scenarios, sc] })}
               />
+              </div>
+              <BillList
+                lines={plan.plannedLines}
+                onChange={(plannedLines) => void savePatch({ plannedLines })}
+              />
+              {borrowingAllowed(plan) && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-sm font-semibold text-foreground">Loans on your bitcoin</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-[#333] w-full sm:w-auto"
+                      onClick={() => setLoanOpen(true)}
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" aria-hidden />
+                      Add loan
+                    </Button>
+                  </div>
+                  {openLoans.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      {openLoans.map((loan) => (
+                        <LoanRow
+                          key={loan.id}
+                          loan={loan}
+                          evaluation={loansEval.find((e) => e.id === loan.id)}
+                          priceKnown={priceKnown}
+                          onDelete={() => {
+                            void fetch(`/api/runway/loans?id=${encodeURIComponent(loan.id)}`, {
+                              method: "DELETE",
+                            }).then(() => reloadLoans())
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                className="border-[#333] w-full sm:w-auto self-start"
+                onClick={() => setSetupOpen(true)}
+              >
+                <Settings2 className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+                Adjust plan
+              </Button>
             </CollapsibleContent>
           </div>
         </Collapsible>
-      )}
-
-      {/* Borrow block */}
-      {need && borrowingAllowed(plan) && (
-        <div className="flex flex-col gap-3 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F]">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <Landmark className="h-4 w-4 text-[#F7931A] shrink-0" aria-hidden />
-              <span className="text-sm font-semibold text-foreground">Borrowing against bitcoin</span>
-            </div>
-            <Button variant="outline" size="sm" className="border-[#333] shrink-0" onClick={() => setLoanOpen(true)}>
-              <Plus className="h-3.5 w-3.5 mr-1" aria-hidden />
-              Add loan
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            You could borrow up to about {formatUsd(need.borrowCapacityUsd)} against your bitcoin
-            instead of selling it{priceKnown ? "" : " (needs a live price)"}.
-          </p>
-          {loans.filter((l) => l.status === "open").length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {loans
-                .filter((l) => l.status === "open")
-                .map((loan) => (
-                  <LoanRow
-                    key={loan.id}
-                    loan={loan}
-                    evaluation={loansEval.find((e) => e.id === loan.id)}
-                    priceKnown={priceKnown}
-                    onDelete={() => {
-                      void fetch(`/api/runway/loans?id=${encodeURIComponent(loan.id)}`, {
-                        method: "DELETE",
-                      }).then(() => reloadLoans())
-                    }}
-                  />
-                ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No loans tracked yet.</p>
-          )}
-        </div>
       )}
 
       {/* Sales in progress */}
@@ -739,7 +703,8 @@ export function RunwayPage() {
         plan={plan}
         livingPlaceholderUsd={livingPlaceholder}
         suggestedStressPercent={suggestedStressPercent}
-        onSaved={setPlan}
+        promptHoldings={envelopeCashUsd <= 0.5 && plan.bitcoinOverrideSats == null}
+        onSaved={onPlanSaved}
       />
       <RunwayLoanDialog
         open={loanOpen}
@@ -1024,6 +989,107 @@ function TotalsEditor({
   )
 }
 
+function BillList({
+  lines,
+  onChange,
+}: {
+  lines: PlannedLine[]
+  onChange: (lines: PlannedLine[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [label, setLabel] = useState("")
+  const [amount, setAmount] = useState("")
+
+  const add = () => {
+    const monthly = parseFloat(amount)
+    if (!label.trim() || !Number.isFinite(monthly) || monthly <= 0) return
+    onChange([
+      ...lines,
+      {
+        id: newId(),
+        group: "other",
+        label: label.trim(),
+        monthlyUsd: Math.round(monthly * 100) / 100,
+        mode: "add",
+      },
+    ])
+    setLabel("")
+    setAmount("")
+    setOpen(false)
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-sm font-semibold text-foreground">Bills after you step back</span>
+      {lines.length === 0 && (
+        <p className="text-xs text-muted-foreground">None yet. Add one if a new cost starts later.</p>
+      )}
+      {lines.map((line) => (
+        <div
+          key={line.id}
+          className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3 min-w-0"
+        >
+          <span className="text-sm text-foreground min-w-0 break-words">{line.label}</span>
+          <div className="flex items-center justify-between gap-3 sm:justify-end">
+            <span className="text-sm tabular-nums text-foreground">{formatUsd(line.monthlyUsd)}/mo</span>
+            <button
+              type="button"
+              onClick={() => onChange(lines.filter((l) => l.id !== line.id))}
+              className="p-1 text-muted-foreground hover:text-amber-400 shrink-0"
+              aria-label={`Remove ${line.label}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>
+        </div>
+      ))}
+      {!open ? (
+        <Button type="button" variant="outline" size="sm" className="border-[#333] self-start" onClick={() => setOpen(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1" aria-hidden />
+          Add a bill
+        </Button>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="bill-label">What is it?</Label>
+          <Input
+            id="bill-label"
+            value={label}
+            placeholder="Health insurance"
+            onChange={(e) => setLabel(e.target.value)}
+            className="bg-[#1A1A1A] border-[#333]"
+          />
+          <Label htmlFor="bill-amount">Each month</Label>
+          <Input
+            id="bill-amount"
+            type="number"
+            inputMode="decimal"
+            min={0}
+            step="0.01"
+            value={amount}
+            placeholder="0"
+            onChange={(e) => setAmount(e.target.value)}
+            className="bg-[#1A1A1A] border-[#333]"
+          />
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90"
+              onClick={add}
+              disabled={!label.trim()}
+            >
+              Add
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ScenarioAdder({ onAdd }: { onAdd: (sc: RunwayScenario) => void }) {
   const [open, setOpen] = useState(false)
   const [label, setLabel] = useState("")
@@ -1083,7 +1149,7 @@ function ScenarioAdder({ onAdd }: { onAdd: (sc: RunwayScenario) => void }) {
             inputMode="decimal"
             step="0.01"
             value={monthly}
-            placeholder="-300 frees up cash"
+            placeholder="-300"
             onChange={(e) => setMonthly(e.target.value)}
             className="bg-[#1A1A1A] border-[#333]"
           />
@@ -1096,7 +1162,7 @@ function ScenarioAdder({ onAdd }: { onAdd: (sc: RunwayScenario) => void }) {
             inputMode="decimal"
             step="0.01"
             value={oneTime}
-            placeholder="+5000 from a sale"
+            placeholder="+5000"
             onChange={(e) => setOneTime(e.target.value)}
             className="bg-[#1A1A1A] border-[#333]"
           />

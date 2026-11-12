@@ -29,25 +29,28 @@ import type {
   BtcSharePreference,
   DipResponse,
 } from "@/lib/runway-risk"
-import { isRunwayConfigured, type RunwayPlanResponse } from "@/lib/runway-ui"
+import {
+  isRunwayConfigured,
+  RUNWAY_JUST_SETUP_KEY,
+  type RunwayPlanResponse,
+} from "@/lib/runway-ui"
 import { formatUsd } from "@/lib/data"
 import { Briefcase } from "lucide-react"
 
 const DRAFT_KEY = "bitbudget-runway-setup-draft"
-const TOTAL_STEPS = 4
+const TOTAL_STEPS = 3
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const SATS_PER_BTC = 100_000_000
 
 const STEP_TITLES = [
   "When do you step back?",
   "Your comfort with risk",
   "Income and living costs",
-  "New costs after you leave",
 ]
 const STEP_SUBTITLES = [
   "Tell us where you are so we can size your runway.",
-  "Three quick questions shape your cash cushion and bitcoin mix.",
+  "Three quick questions. The middle answers are already selected.",
   "What you'll bring in, and what life costs each month.",
-  "Optional — add any new bills that start once you leave.",
 ]
 
 interface RunwaySetupDraft {
@@ -63,6 +66,8 @@ interface RunwaySetupDraft {
   livingBaselineUsd: string
   /** label → monthly amount string. */
   plannedAmounts: Record<string, string>
+  cashHoldings?: string
+  btcHoldings?: string
 }
 
 function isDraft(v: unknown): v is RunwaySetupDraft {
@@ -73,21 +78,6 @@ function isDraft(v: unknown): v is RunwaySetupDraft {
     typeof (v as RunwaySetupDraft).phase === "string"
   )
 }
-
-const GROUP_LABELS: Record<string, string> = {
-  bitbudget: "BitBudget",
-  llc: "Business (LLC)",
-  agents: "AI agents",
-  other: "Other",
-}
-
-/** Offered planned lines grouped for display. */
-const GROUPED_OFFERED = OFFERED_PLANNED_LINE_LABELS.reduce<
-  Record<string, { group: string; label: string }[]>
->((acc, line) => {
-  ;(acc[line.group] ??= []).push(line)
-  return acc
-}, {})
 
 interface ChoiceOption<T extends string> {
   value: T
@@ -189,6 +179,7 @@ export function RunwaySetupDialog({
   plan,
   livingPlaceholderUsd,
   suggestedStressPercent,
+  promptHoldings = false,
   onSaved,
 }: {
   open: boolean
@@ -201,6 +192,8 @@ export function RunwaySetupDialog({
    * stress; an already-configured plan keeps its (possibly user-edited) stress.
    */
   suggestedStressPercent?: number
+  /** Show optional cash/bitcoin fields when the budget and wallet are still empty. */
+  promptHoldings?: boolean
   onSaved: (plan: RunwayPlanResponse) => void
 }) {
   const [step, setStep] = useState(0)
@@ -213,6 +206,8 @@ export function RunwaySetupDialog({
   const [runwayIncomeUsd, setRunwayIncomeUsd] = useState("0")
   const [livingBaselineUsd, setLivingBaselineUsd] = useState("")
   const [plannedAmounts, setPlannedAmounts] = useState<Record<string, string>>({})
+  const [cashHoldings, setCashHoldings] = useState("")
+  const [btcHoldings, setBtcHoldings] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [clearOpen, setClearOpen] = useState(false)
@@ -245,6 +240,8 @@ export function RunwaySetupDialog({
       setRunwayIncomeUsd(draft.runwayIncomeUsd)
       setLivingBaselineUsd(draft.livingBaselineUsd)
       setPlannedAmounts(draft.plannedAmounts ?? {})
+      setCashHoldings(draft.cashHoldings ?? "")
+      setBtcHoldings(draft.btcHoldings ?? "")
       return
     }
     // Prefill from an existing plan (editing) or sensible defaults.
@@ -288,6 +285,8 @@ export function RunwaySetupDialog({
       runwayIncomeUsd,
       livingBaselineUsd,
       plannedAmounts,
+      cashHoldings,
+      btcHoldings,
     })
   }, [
     open,
@@ -301,6 +300,8 @@ export function RunwaySetupDialog({
     runwayIncomeUsd,
     livingBaselineUsd,
     plannedAmounts,
+    cashHoldings,
+    btcHoldings,
   ])
 
   const resetState = useCallback(() => {
@@ -314,6 +315,8 @@ export function RunwaySetupDialog({
     setRunwayIncomeUsd("0")
     setLivingBaselineUsd(livingFallback)
     setPlannedAmounts({})
+    setCashHoldings("")
+    setBtcHoldings("")
     setError(null)
   }, [livingFallback])
 
@@ -385,13 +388,27 @@ export function RunwaySetupDialog({
     setError(null)
     const income = parseFloat(runwayIncomeUsd)
     const living = parseFloat(livingBaselineUsd)
+    const firstSetup = !isRunwayConfigured(plan)
     // Seed stress from historical drawdowns for a brand-new plan only. Once the
     // plan is configured, keep its saved (possibly user-edited) stress.
     const seedStress =
-      !isRunwayConfigured(plan) &&
+      firstSetup &&
       typeof suggestedStressPercent === "number" &&
       Number.isFinite(suggestedStressPercent)
         ? { stressPercent: suggestedStressPercent }
+        : {}
+    const cashNum = parseFloat(cashHoldings)
+    const btcNum = parseFloat(btcHoldings)
+    const holdingsPatch =
+      promptHoldings
+        ? {
+            ...(cashHoldings.trim() !== "" && Number.isFinite(cashNum) && cashNum >= 0
+              ? { cashOverrideUsd: Math.round(cashNum * 100) / 100 }
+              : {}),
+            ...(btcHoldings.trim() !== "" && Number.isFinite(btcNum) && btcNum >= 0
+              ? { bitcoinOverrideSats: Math.round(btcNum * SATS_PER_BTC) }
+              : {}),
+          }
         : {}
     const body = {
       ...(plan ?? {}),
@@ -404,6 +421,7 @@ export function RunwaySetupDialog({
       btcSharePreference,
       borrowStance,
       plannedLines: buildPlannedLines(),
+      ...holdingsPatch,
       ...seedStress,
     }
     // createdAt/updatedAt are server-managed; the parser ignores them.
@@ -422,6 +440,9 @@ export function RunwaySetupDialog({
         return
       }
       clearDraft(DRAFT_KEY)
+      if (firstSetup && typeof sessionStorage !== "undefined") {
+        sessionStorage.setItem(RUNWAY_JUST_SETUP_KEY, "1")
+      }
       onSaved(data as RunwayPlanResponse)
       onOpenChange(false)
     } catch {
@@ -442,6 +463,9 @@ export function RunwaySetupDialog({
     borrowStance,
     buildPlannedLines,
     suggestedStressPercent,
+    promptHoldings,
+    cashHoldings,
+    btcHoldings,
     onSaved,
     onOpenChange,
   ])
@@ -629,54 +653,35 @@ export function RunwaySetupDialog({
                 onChange={setLivingBaselineUsd}
                 placeholder={livingFallback || "0"}
               />
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="flex flex-col gap-4">
-              <p className="text-xs text-muted-foreground">
-                If any of these bills start once you step back, add a monthly amount. Skip the ones
-                that don&apos;t apply — you can change them anytime.
-              </p>
-              {Object.entries(GROUPED_OFFERED).map(([group, lines]) => (
-                <div key={group} className="flex flex-col gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {GROUP_LABELS[group] ?? group}
-                  </span>
-                  <div className="flex flex-col gap-2">
-                    {lines.map((line) => (
-                      <div key={line.label} className="flex items-center gap-3 min-w-0">
-                        <Label
-                          htmlFor={`planned-${line.label}`}
-                          className="flex-1 min-w-0 text-sm text-foreground/90 truncate"
-                        >
-                          {line.label}
-                        </Label>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-muted-foreground text-sm">$</span>
-                          <Input
-                            id={`planned-${line.label}`}
-                            type="number"
-                            inputMode="decimal"
-                            min={0}
-                            step="0.01"
-                            value={plannedAmounts[line.label] ?? ""}
-                            placeholder="0"
-                            onChange={(e) =>
-                              setPlannedAmounts((prev) => ({
-                                ...prev,
-                                [line.label]: e.target.value,
-                              }))
-                            }
-                            className="bg-[#1A1A1A] border-[#333] w-28 text-right"
-                          />
-                          <span className="text-muted-foreground text-xs">/mo</span>
-                        </div>
-                      </div>
-                    ))}
+              {promptHoldings && (
+                <div className="flex flex-col gap-3 rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    Optional — what you already have. Leave blank and you can add it on the next screen.
+                  </p>
+                  <MoneyField
+                    id="runway-cash-holdings"
+                    label="Cash you have today"
+                    value={cashHoldings}
+                    onChange={setCashHoldings}
+                    placeholder="0"
+                  />
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="runway-btc-holdings">Bitcoin you have today</Label>
+                    <Input
+                      id="runway-btc-holdings"
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.00000001"
+                      value={btcHoldings}
+                      placeholder="0"
+                      onChange={(e) => setBtcHoldings(e.target.value)}
+                      className="bg-[#1A1A1A] border-[#333]"
+                    />
+                    <span className="text-xs text-muted-foreground">In bitcoin, not dollars.</span>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           )}
 
@@ -710,7 +715,7 @@ export function RunwaySetupDialog({
               onClick={() => (isLast ? void finish() : goNext())}
               disabled={primaryDisabled}
             >
-              {isLast ? (saving ? "Saving…" : "Finish") : "Next"}
+              {isLast ? (saving ? "Saving…" : "See my runway") : "Next"}
             </Button>
           </div>
         </div>
