@@ -21,7 +21,7 @@ import {
   runwayHeroDetail,
   runwayMonthsHeadline,
   runwayPrimaryAction,
-  shouldPromptRunwayHoldings,
+  shouldPromptHoldings,
   satsToUsd,
   type RunwayPlanResponse,
 } from "../runway-ui"
@@ -184,6 +184,8 @@ describe("gapSummaryLine", () => {
 })
 
 describe("runway glance copy", () => {
+  const buildup = { alreadySteppedBack: false }
+
   it("does not call the cushion covered while cash is short today", () => {
     const line = runwayHeroDetail({
       holdingsEmpty: false,
@@ -191,6 +193,7 @@ describe("runway glance copy", () => {
       shortfallUsd: 25200,
       projectedCashGapUsd: 0,
       projectedBitcoinGapUsd: 53800,
+      ...buildup,
     })
     expect(line).toMatch(/short today/i)
     expect(line).not.toMatch(/covered/i)
@@ -204,13 +207,72 @@ describe("runway glance copy", () => {
       shortfallUsd: 0,
       projectedCashGapUsd: 0,
       projectedBitcoinGapUsd: 53800,
+      ...buildup,
     })
     expect(line).toMatch(/by the time you step back/i)
     expect(line).toMatch(/bitcoin/i)
     expect(line).not.toMatch(/covered/i)
   })
 
-  it("asks for holdings before sizing a gap", () => {
+  it("does not talk about a future step-back after the user already left work", () => {
+    const short = runwayHeroDetail({
+      holdingsEmpty: false,
+      underFloor: false,
+      shortfallUsd: 0,
+      projectedCashGapUsd: 1200,
+      projectedBitcoinGapUsd: 500,
+      alreadySteppedBack: true,
+    })
+    expect(short).toMatch(/for the months you planned/i)
+    expect(short).toMatch(/more cash/)
+    expect(short).toMatch(/more bitcoin/)
+    expect(short).not.toMatch(/step back/i)
+    expect(short).not.toMatch(/date you picked/i)
+
+    const onTrack = runwayHeroDetail({
+      holdingsEmpty: false,
+      underFloor: false,
+      shortfallUsd: 0,
+      projectedCashGapUsd: 0,
+      projectedBitcoinGapUsd: 0,
+      alreadySteppedBack: true,
+    })
+    expect(onTrack).toBe("You have enough set aside for the months you planned.")
+    expect(onTrack).not.toMatch(/date you picked/i)
+  })
+
+  it("asks for holdings before sizing a gap, and ignores a missing bitcoin price", () => {
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: true,
+        underFloor: true,
+        shortfallUsd: 1000,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: 0,
+        ...buildup,
+      }),
+    ).toMatch(/add the cash and bitcoin/i)
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        underFloor: false,
+        shortfallUsd: 0,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: 0,
+        ...buildup,
+      }),
+    ).toBe("You're on track for the date you picked.")
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        underFloor: false,
+        shortfallUsd: 0,
+        projectedCashGapUsd: 400,
+        projectedBitcoinGapUsd: Number.POSITIVE_INFINITY,
+        ...buildup,
+      }),
+    ).toBe("By the time you step back, you're still short $400 more cash and more bitcoin.")
+
     expect(
       runwayPrimaryAction({ holdingsEmpty: true, underFloor: true }),
     ).toBe("add_holdings")
@@ -223,73 +285,30 @@ describe("runway glance copy", () => {
     expect(
       holdingsLookEmpty({
         cashUsd: 0,
-        bitcoinUsd: 0,
+        bitcoinSats: 0,
         cashOverrideUsd: null,
         bitcoinOverrideSats: null,
       }),
     ).toBe(true)
+    // Sats on hand with no dollar price must not look empty.
     expect(
       holdingsLookEmpty({
         cashUsd: 0,
-        bitcoinUsd: 0,
+        bitcoinSats: 50_000_000,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(false)
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinSats: 0,
         cashOverrideUsd: 0,
         bitcoinOverrideSats: 0,
       }),
     ).toBe(false)
     expect(
-      holdingsLookEmpty({
-        cashUsd: 0,
-        bitcoinUsd: 0,
-        cashOverrideUsd: null,
-        bitcoinOverrideSats: null,
-        bitcoinSats: 50_000_000,
-      }),
-    ).toBe(false)
-    expect(
-      holdingsLookEmpty({
-        cashUsd: 0,
-        bitcoinUsd: 100,
-        cashOverrideUsd: null,
-        bitcoinOverrideSats: null,
-      }),
-    ).toBe(false)
-    expect(
-      holdingsLookEmpty({
-        cashUsd: 0,
-        bitcoinUsd: 100,
-        cashOverrideUsd: null,
-        bitcoinOverrideSats: null,
-        bitcoinSats: 0,
-      }),
-    ).toBe(true)
-  })
-
-  it("does not talk about a future step-back date after the user already stepped back", () => {
-    const onTrack = runwayHeroDetail({
-      holdingsEmpty: false,
-      underFloor: false,
-      shortfallUsd: 0,
-      projectedCashGapUsd: 0,
-      projectedBitcoinGapUsd: 0,
-      alreadySteppedBack: true,
-    })
-    expect(onTrack).toBe("You have enough set aside for the months you planned.")
-    const short = runwayHeroDetail({
-      holdingsEmpty: false,
-      underFloor: false,
-      shortfallUsd: 0,
-      projectedCashGapUsd: 0,
-      projectedBitcoinGapUsd: 1200,
-      alreadySteppedBack: true,
-    })
-    expect(short).toMatch(/for the months you planned/i)
-    expect(short).toMatch(/\$1,200 more bitcoin/)
-    expect(short).not.toMatch(/step back/i)
-  })
-
-  it("asks for holdings only when cash and bitcoin are both still unanswered", () => {
-    expect(
-      shouldPromptRunwayHoldings({
+      shouldPromptHoldings({
         envelopeCashUsd: 0,
         walletSats: 0,
         cashOverrideUsd: null,
@@ -297,34 +316,36 @@ describe("runway glance copy", () => {
       }),
     ).toBe(true)
     expect(
-      shouldPromptRunwayHoldings({
+      shouldPromptHoldings({
         envelopeCashUsd: 0,
-        walletSats: 50_000_000,
+        walletSats: 100_000,
         cashOverrideUsd: null,
         bitcoinOverrideSats: null,
       }),
     ).toBe(false)
     expect(
-      shouldPromptRunwayHoldings({
+      shouldPromptHoldings({
+        envelopeCashUsd: 2_000,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(false)
+    expect(
+      shouldPromptHoldings({
         envelopeCashUsd: 0,
         walletSats: 0,
         cashOverrideUsd: null,
         bitcoinOverrideSats: 0,
-      }),
-    ).toBe(false)
-    expect(
-      shouldPromptRunwayHoldings({
-        envelopeCashUsd: 8000,
-        walletSats: 0,
-        cashOverrideUsd: null,
-        bitcoinOverrideSats: null,
       }),
     ).toBe(false)
   })
 
   it("headlines months left, or a prompt when the plan has no draw", () => {
     expect(runwayMonthsHeadline(19.2)).toBe("About 19 months")
+    expect(runwayMonthsHeadline(0.2)).toBe("Under a month")
     expect(runwayMonthsHeadline(null)).toBe("Add your numbers")
+    expect(runwayMonthsHeadline(Number.POSITIVE_INFINITY)).toBe("Add your numbers")
   })
 })
 

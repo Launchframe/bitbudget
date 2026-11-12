@@ -10,7 +10,6 @@ import {
   isRunwayConfigured,
   runwayHeroDetail,
   RUNWAY_JUST_SETUP_KEY,
-  satsToUsd,
 } from "@/lib/runway-ui"
 import { refillStatus } from "@/lib/runway-refill"
 import { useEffect, useState } from "react"
@@ -23,7 +22,7 @@ import { ArrowRight, CalendarCheck, Plane } from "lucide-react"
  */
 export function RunwayDashboardCard() {
   const { navigateTo } = useApp()
-  const { plan, loading, compute, btcPriceUsd } = useRunway({ withLoans: false })
+  const { plan, loading, compute } = useRunway({ withLoans: false })
 
   const monthKey = getCurrentMonthKey()
   const configured = isRunwayConfigured(plan)
@@ -83,14 +82,12 @@ export function RunwayDashboardCard() {
     if (!comp) {
       detail = "Open your runway to see where you stand."
     } else {
-      const bitcoinUsd = satsToUsd(comp.need.spendableSats, btcPriceUsd)
       detail = runwayHeroDetail({
         holdingsEmpty: holdingsLookEmpty({
           cashUsd: comp.need.cashUsd,
-          bitcoinUsd,
+          bitcoinSats: comp.need.spendableSats,
           cashOverrideUsd: plan?.cashOverrideUsd ?? null,
           bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
-          bitcoinSats: comp.need.spendableSats,
         }),
         underFloor: Boolean(refill?.underFloor),
         shortfallUsd: refill?.shortfallUsd ?? 0,

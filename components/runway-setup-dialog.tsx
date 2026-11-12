@@ -63,8 +63,6 @@ interface RunwaySetupDraft {
   borrowStance: BorrowStance
   runwayIncomeUsd: string
   livingBaselineUsd: string
-  /** label → monthly amount string. */
-  plannedAmounts: Record<string, string>
   cashHoldings?: string
   btcHoldings?: string
 }
@@ -204,7 +202,6 @@ export function RunwaySetupDialog({
   const [borrowStance, setBorrowStance] = useState<BorrowStance>("deep_drop")
   const [runwayIncomeUsd, setRunwayIncomeUsd] = useState("0")
   const [livingBaselineUsd, setLivingBaselineUsd] = useState("")
-  const [plannedAmounts, setPlannedAmounts] = useState<Record<string, string>>({})
   const [cashHoldings, setCashHoldings] = useState("")
   const [btcHoldings, setBtcHoldings] = useState("")
   const [saving, setSaving] = useState(false)
@@ -238,7 +235,6 @@ export function RunwaySetupDialog({
       setBorrowStance(draft.borrowStance)
       setRunwayIncomeUsd(draft.runwayIncomeUsd)
       setLivingBaselineUsd(draft.livingBaselineUsd)
-      setPlannedAmounts(draft.plannedAmounts ?? {})
       setCashHoldings(draft.cashHoldings ?? "")
       setBtcHoldings(draft.btcHoldings ?? "")
       return
@@ -258,11 +254,6 @@ export function RunwaySetupDialog({
           ? String(plan.livingBaselineOverrideUsd)
           : livingFallback,
       )
-      const amounts: Record<string, string> = {}
-      for (const line of plan.plannedLines) {
-        if (line.monthlyUsd > 0) amounts[line.label] = String(line.monthlyUsd)
-      }
-      setPlannedAmounts(amounts)
     } else {
       setLivingBaselineUsd(livingFallback)
     }
@@ -283,7 +274,6 @@ export function RunwaySetupDialog({
       borrowStance,
       runwayIncomeUsd,
       livingBaselineUsd,
-      plannedAmounts,
       cashHoldings,
       btcHoldings,
     })
@@ -298,7 +288,6 @@ export function RunwaySetupDialog({
     borrowStance,
     runwayIncomeUsd,
     livingBaselineUsd,
-    plannedAmounts,
     cashHoldings,
     btcHoldings,
   ])
@@ -313,7 +302,6 @@ export function RunwaySetupDialog({
     setBorrowStance("deep_drop")
     setRunwayIncomeUsd("0")
     setLivingBaselineUsd(livingFallback)
-    setPlannedAmounts({})
     setCashHoldings("")
     setBtcHoldings("")
     setError(null)
@@ -396,8 +384,8 @@ export function RunwaySetupDialog({
       dipResponse,
       btcSharePreference,
       borrowStance,
-      // The wizard no longer edits bills. Echo the saved lines so a leftover
-      // draft cannot delete one or put a removed one back.
+      // Bills are edited on the plan page. The wizard no longer shows them, so
+      // a stale setup draft must not rebuild or drop those lines.
       plannedLines: plan?.plannedLines ?? [],
       ...holdingsPatch,
       ...seedStress,
