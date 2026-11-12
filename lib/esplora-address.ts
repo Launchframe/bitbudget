@@ -45,14 +45,15 @@ export interface AddressChainMovement {
 /**
  * Confirmed activity for an address from an Esplora `/address/:addr/txs` body.
  * Unconfirmed rows are skipped. A row that does not move this address is skipped.
- * This is history only: it is not income and not spending.
+ * Bech32 matches either case. Base58 must match exactly. Newest confirmed rows
+ * come first. This is history only: it is not income and not spending.
  */
 export function chainMovementsFromEsploraTxs(
   address: string,
   body: unknown,
 ): AddressChainMovement[] {
   if (!Array.isArray(body)) return []
-  const want = address.trim().toLowerCase()
+  const want = canonicalBitcoinAddress(address)
   const rows: AddressChainMovement[] = []
   for (const tx of body) {
     if (!tx || typeof tx !== "object") continue
@@ -64,7 +65,8 @@ export function chainMovementsFromEsploraTxs(
     }
     if (typeof record.txid !== "string" || !record.txid) continue
     if (record.status?.confirmed !== true) continue
-    const time = typeof record.status.block_time === "number" ? record.status.block_time : null
+    const blockTime = record.status.block_time
+    const time = typeof blockTime === "number" && Number.isFinite(blockTime) ? blockTime : null
     let received = 0
     let spent = 0
     if (Array.isArray(record.vout)) {
@@ -85,13 +87,14 @@ export function chainMovementsFromEsploraTxs(
     if (netSats === 0) continue
     rows.push({ txid: record.txid, time, netSats })
   }
+  rows.sort((a, b) => (b.time ?? -1) - (a.time ?? -1))
   return rows
 }
 
 function outputAddress(out: unknown): string | null {
   if (!out || typeof out !== "object") return null
   const address = (out as { scriptpubkey_address?: unknown }).scriptpubkey_address
-  return typeof address === "string" ? address.trim().toLowerCase() : null
+  return typeof address === "string" ? canonicalBitcoinAddress(address) : null
 }
 
 function outputSats(out: unknown): number {
@@ -139,10 +142,16 @@ export async function fetchAddressChainMovements(
 ): Promise<AddressChainMovement[]> {
   const fetchFn = init?.fetchFn ?? fetch
   const base = (init?.baseUrl ?? DEFAULT_ESPLORA_BASE).replace(/\/$/, "")
-  const response = await fetchFn(`${base}/address/${encodeURIComponent(address.trim())}/txs`)
+  const lookup = canonicalBitcoinAddress(address)
+  const response = await fetchFn(`${base}/address/${encodeURIComponent(lookup)}/txs`, {
+    signal: AbortSignal.timeout(12_000),
+  })
   if (!response.ok) {
     throw new Error("Address activity lookup failed")
   }
   const body: unknown = await response.json()
-  return chainMovementsFromEsploraTxs(address, body)
+  if (!Array.isArray(body)) {
+    throw new Error("Address activity lookup failed")
+  }
+  return chainMovementsFromEsploraTxs(lookup, body)
 }

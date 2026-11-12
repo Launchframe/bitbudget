@@ -90,12 +90,19 @@ export function RunwayAddressWatch() {
     busyRef.current = true
     setBusyId(next.id)
     try {
-      await refreshOne(next)
-      const rows = await fetchAddressChainMovements(next.descriptor)
-      setActivity((prev) => ({ ...prev, [next.id]: rows }))
-      setActivityError((prev) => ({ ...prev, [next.id]: false }))
-    } catch {
-      setError("Couldn't look up that address. Try again.")
+      try {
+        await refreshOne(next)
+      } catch {
+        setError("Couldn't look up that address. Try again.")
+        return
+      }
+      try {
+        const rows = await fetchAddressChainMovements(next.descriptor)
+        setActivity((prev) => ({ ...prev, [next.id]: rows }))
+        setActivityError((prev) => ({ ...prev, [next.id]: false }))
+      } catch {
+        setActivityError((prev) => ({ ...prev, [next.id]: true }))
+      }
     } finally {
       busyRef.current = false
       setBusyId(null)
@@ -108,12 +115,19 @@ export function RunwayAddressWatch() {
     setBusyId(watch.id)
     setError(null)
     try {
-      await refreshOne(watch)
-      const rows = await fetchAddressChainMovements(watch.descriptor)
-      setActivity((prev) => ({ ...prev, [watch.id]: rows }))
-      setActivityError((prev) => ({ ...prev, [watch.id]: false }))
-    } catch {
-      setError("Couldn't look up that address. Try again.")
+      try {
+        await refreshOne(watch)
+      } catch {
+        setError("Couldn't look up that address. Try again.")
+        return
+      }
+      try {
+        const rows = await fetchAddressChainMovements(watch.descriptor)
+        setActivity((prev) => ({ ...prev, [watch.id]: rows }))
+        setActivityError((prev) => ({ ...prev, [watch.id]: false }))
+      } catch {
+        setActivityError((prev) => ({ ...prev, [watch.id]: true }))
+      }
     } finally {
       busyRef.current = false
       setBusyId(null)
@@ -243,7 +257,7 @@ function AddressActivity({
   }
   if (rows == null) return null
   const latest = rows.slice(0, 6)
-  if (latest.length === 0) {
+  if (!failed && latest.length === 0) {
     return (
       <p className="text-xs text-muted-foreground mt-2">No confirmed activity on this address yet.</p>
     )
@@ -251,16 +265,22 @@ function AddressActivity({
   return (
     <div className="mt-2 flex flex-col gap-1">
       <p className="text-[11px] text-muted-foreground">
-        Recent activity. These rows are not spending or income.
+        {failed ? (
+          <>Couldn&apos;t load the latest activity. Showing the last update.</>
+        ) : (
+          "Recent activity. These rows are not spending or income."
+        )}
       </p>
-      <ul className="flex flex-col gap-1">
-        {latest.map((row) => (
-          <li key={row.txid} className="text-xs text-foreground break-words">
-            {row.netSats > 0 ? "Received" : "Sent"} {formatBitcoin(row.netSats)}
-            {row.time != null ? ` · ${formatChainDay(row.time)}` : ""}
-          </li>
-        ))}
-      </ul>
+      {latest.length > 0 ? (
+        <ul className="flex flex-col gap-1">
+          {latest.map((row) => (
+            <li key={row.txid} className="text-xs text-foreground break-words">
+              {row.netSats > 0 ? "Received" : "Sent"} {formatBitcoin(row.netSats)}
+              {row.time != null ? ` · ${formatChainDay(row.time)}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }
