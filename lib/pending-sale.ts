@@ -132,6 +132,10 @@ export function parsePendingSaleUpdateBody(
     return { ok: false, error: "No updatable fields were provided" }
   }
 
+  if (out.proceedsUsd != null && out.proceedsUsd <= 0) {
+    return { ok: false, error: "Proceeds must be greater than zero" }
+  }
+
   if (out.status === "cash_on_the_way" && out.proceedsUsd == null) {
     return {
       ok: false,
@@ -140,4 +144,50 @@ export function parsePendingSaleUpdateBody(
   }
 
   return { ok: true, value: out }
+}
+
+const SALE_TRANSITIONS: Record<PendingSaleStatus, readonly PendingSaleStatus[]> = {
+  sent: ["cash_on_the_way", "cancelled"],
+  cash_on_the_way: ["linked", "cancelled"],
+  linked: [],
+  cancelled: [],
+}
+
+function isPendingSaleStatus(value: string): value is PendingSaleStatus {
+  return (
+    value === "sent" ||
+    value === "cash_on_the_way" ||
+    value === "linked" ||
+    value === "cancelled"
+  )
+}
+
+/**
+ * Whether a parsed update is legal for the sale's current row.
+ * `sent` can become cash-on-the-way (with proceeds already validated) or
+ * cancelled. Cash-on-the-way can be linked or cancelled. Linked and cancelled
+ * stay put. Cash-on-the-way must keep a positive proceeds amount.
+ */
+export function pendingSaleUpdateError(
+  current: { status: string; proceedsUsd: number | null },
+  update: PendingSaleUpdateInput,
+): string | null {
+  if (!isPendingSaleStatus(current.status)) {
+    return "That sale can't be updated."
+  }
+
+  const nextStatus = update.status ?? current.status
+  if (update.status !== undefined && update.status !== current.status) {
+    if (!SALE_TRANSITIONS[current.status].includes(update.status)) {
+      return "That sale can't move to that step from where it is."
+    }
+  }
+
+  const nextProceeds =
+    update.proceedsUsd !== undefined ? update.proceedsUsd : current.proceedsUsd
+  if (nextStatus === "cash_on_the_way" && !(nextProceeds != null && nextProceeds > 0)) {
+    return "Recording cash on the way needs the proceeds amount."
+  }
+
+  return null
 }
