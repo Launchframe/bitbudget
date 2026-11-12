@@ -6,6 +6,7 @@ import { createRequire } from "node:module"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
+import { waitForDialogSettled } from "./lib/playwright-screenshot-helpers.mjs"
 
 const require = createRequire(import.meta.url)
 const playwrightPkg = path.dirname(
@@ -44,6 +45,11 @@ async function shot(page, name) {
   await page.screenshot({ path: file, fullPage: false })
   note(`saved ${file}`)
   return file
+}
+
+async function shotDialog(page, name) {
+  await waitForDialogSettled(page)
+  await shot(page, name)
 }
 
 async function signIn(page, email) {
@@ -260,6 +266,7 @@ async function main() {
   // --- 4. Owner shops: $40 receipt, $12 coffee matched to Sam ---
   await owner.getByRole("tab", { name: /Receipts/i }).click()
   await owner.getByRole("button", { name: /Add receipt/i }).click()
+  await waitForDialogSettled(owner)
   const receipt = owner.getByRole("dialog")
   await receipt.getByPlaceholder("e.g. Trader Joe's").fill("Trader Joe's")
   // Total field — first $0.00 placeholder in dialog is Total
@@ -275,7 +282,7 @@ async function main() {
     const value = await whoSelect.locator("option", { hasText: coffeeOpt }).first().getAttribute("value")
     if (value) await whoSelect.selectOption(value)
   }
-  await shot(owner, "shopping_settle_07_receipt_draft")
+  await shotDialog(owner, "shopping_settle_07_receipt_draft")
   await receipt.getByRole("button", { name: /Save and split/i }).click()
   await owner.getByText("Trader Joe's").waitFor({ state: "visible", timeout: 20_000 })
   await shot(owner, "shopping_settle_08_receipt_saved")
@@ -312,6 +319,7 @@ async function main() {
   await openGroup(member)
   await member.getByRole("tab", { name: "Tab", exact: true }).click()
   await member.getByRole("button", { name: /Record payment/i }).click()
+  await waitForDialogSettled(member)
   const pay = member.getByRole("dialog")
   await pay.getByPlaceholder("$0.00").fill("26.00")
   // Ensure "I paid them" is on if present
@@ -320,7 +328,7 @@ async function main() {
     const sw = pay.getByRole("switch").first()
     if (await sw.isVisible().catch(() => false) && !(await sw.isChecked())) await sw.click()
   }
-  await shot(member, "shopping_settle_13_payment_dialog")
+  await shotDialog(member, "shopping_settle_13_payment_dialog")
   await pay.getByRole("button", { name: /Record payment/i }).click()
   await member.waitForTimeout(1200)
   await shot(member, "shopping_settle_14_member_tab_settled")

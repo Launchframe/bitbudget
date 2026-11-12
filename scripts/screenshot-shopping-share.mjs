@@ -6,6 +6,7 @@ import { createRequire } from "node:module"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
+import { waitForDialogSettled } from "./lib/playwright-screenshot-helpers.mjs"
 
 const require = createRequire(import.meta.url)
 const playwrightPkg = path.dirname(
@@ -29,6 +30,11 @@ async function shot(page, name) {
   await page.screenshot({ path: file, fullPage: false })
   console.log("saved", file)
   return file
+}
+
+async function shotDialog(page, name) {
+  await waitForDialogSettled(page)
+  await shot(page, name)
 }
 
 async function signIn(page, email) {
@@ -85,10 +91,11 @@ async function main() {
 
   // --- Create group dialog ---
   await owner.getByRole("button", { name: "Create group" }).click()
+  await waitForDialogSettled(owner)
   await owner.getByPlaceholder("e.g. Apartment groceries").fill("Household groceries")
   await owner.getByPlaceholder("e.g. Sam").fill("Alex")
   await owner.getByPlaceholder("What is this group for? (optional)").fill("Weekly shared shopping")
-  await shot(owner, "shopping_create_group_dialog")
+  await shotDialog(owner, "shopping_create_group_dialog")
   await owner.getByRole("button", { name: /^Create group/ }).click()
 
   // Group detail Requests tab
@@ -101,10 +108,10 @@ async function main() {
   await shot(owner, "shopping_group_members_tab")
   await owner.getByRole("button", { name: "Add member" }).click()
   await owner.getByRole("button", { name: "Create invite link" }).waitFor({ state: "visible" })
-  await shot(owner, "shopping_invite_before_create")
+  await shotDialog(owner, "shopping_invite_before_create")
   await owner.getByRole("button", { name: "Create invite link" }).click()
   await owner.locator("p.break-all.font-mono").waitFor({ state: "visible", timeout: 20_000 })
-  await shot(owner, "shopping_invite_link_created")
+  await shotDialog(owner, "shopping_invite_link_created")
 
   const inviteUrl = (await owner.locator("p.break-all.font-mono").innerText()).trim()
   console.log("inviteUrl", inviteUrl.slice(0, 80) + "…")
@@ -152,7 +159,7 @@ async function main() {
   await shot(owner, "shopping_join_request_pending")
   await reviewJoin.click()
   await owner.getByRole("button", { name: /Add to group/i }).waitFor({ state: "visible" })
-  await shot(owner, "shopping_approve_member_dialog")
+  await shotDialog(owner, "shopping_approve_member_dialog")
   const compareSwitch = owner.getByRole("switch").first()
   if (await compareSwitch.isVisible().catch(() => false)) {
     await compareSwitch.click()

@@ -30,6 +30,8 @@ Use **local dev** or **staging** only. Do not run the seed script against produc
 
    Artifacts default to `/opt/cursor/artifacts` when `OUT_DIR` is unset (set `OUT_DIR` locally as needed).
 
+   Dialog screenshots wait **1s** after the modal opens (`scripts/lib/playwright-screenshot-helpers.mjs`) so Radix fade-in finishes; override with `DIALOG_SETTLE_MS` if needed.
+
 3. Start the dev server with the test sign-in code enabled (do not put these in `.env.local`):
 
    ```bash

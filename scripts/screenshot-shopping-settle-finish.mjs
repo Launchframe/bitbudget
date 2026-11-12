@@ -6,6 +6,7 @@ import { createRequire } from "node:module"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
+import { waitForDialogSettled } from "./lib/playwright-screenshot-helpers.mjs"
 
 const require = createRequire(import.meta.url)
 const playwrightPkg = path.dirname(
@@ -27,6 +28,11 @@ async function shot(page, name) {
   const file = path.join(OUT, `${name}.png`)
   await page.screenshot({ path: file, fullPage: false })
   note(`saved ${file}`)
+}
+
+async function shotDialog(page, name) {
+  await waitForDialogSettled(page)
+  await shot(page, name)
 }
 
 async function signIn(page, email) {
@@ -134,9 +140,10 @@ async function main() {
 
   if (/\$26/.test(memberTabBefore)) {
     await member.getByRole("button", { name: /Record payment/i }).click()
+    await waitForDialogSettled(member)
     const pay = member.getByRole("dialog")
     await pay.getByPlaceholder("$0.00").fill("26.00")
-    await shot(member, "shopping_settle_fin_04_payment_dialog")
+    await shotDialog(member, "shopping_settle_fin_04_payment_dialog")
     await pay.getByRole("button", { name: /Record payment/i }).click()
     await member.waitForTimeout(1500)
   }
