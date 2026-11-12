@@ -1,16 +1,21 @@
 import {
   TX_SOURCE_DEFICIT_COVER,
+  TX_SOURCE_ENVELOPE_SWEEP,
   TX_SOURCE_ENVELOPE_TRANSFER_OUT,
 } from "@/lib/constants"
 import type { Transaction } from "@/lib/data"
 import { isEnvelopeFundingLeg } from "@/lib/ledger-funding-display"
 
-/** Expense rows visible in history but not external/user spending (move funds, deficit cover). */
+/** Expense rows visible in history but not external/user spending (move funds, deficit cover, sweeps). */
 function isInternalLedgerTransferExpense(
   txn: Pick<Transaction, "source">,
 ): boolean {
   const src = txn.source
-  return src === TX_SOURCE_ENVELOPE_TRANSFER_OUT || src === TX_SOURCE_DEFICIT_COVER
+  return (
+    src === TX_SOURCE_ENVELOPE_TRANSFER_OUT ||
+    src === TX_SOURCE_DEFICIT_COVER ||
+    src === TX_SOURCE_ENVELOPE_SWEEP
+  )
 }
 
 /** Real user spending — not ledger allocation legs hidden from main history. */

@@ -108,6 +108,7 @@ export function avgMonthlySpendLastNMonths(
   const byMonth = new Map<string, number>()
   for (const t of transactions) {
     if (t.type !== "expense" || t.excludeFromMainHistory) continue
+    if (t.source === TX_SOURCE_ENVELOPE_SWEEP) continue
     if (!discretionaryEnvelopeIds.has(t.envelopeId)) continue
     const mk = getMonthKey(t.date)
     if (!monthKeys.has(mk)) continue
