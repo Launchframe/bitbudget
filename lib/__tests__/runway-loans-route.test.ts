@@ -31,7 +31,7 @@ function loanRow(overrides: Record<string, unknown> = {}) {
     apr: new Prisma.Decimal("0.1"),
     openedOn: "2026-01-01",
     maturityOn: "2027-01-01",
-    collateralSats: 100_000_000n,
+    collateralSats: BigInt(100_000_000),
     lenderSellPriceUsd: new Prisma.Decimal(40000),
     payoffStyle: "accrued",
     maturityBillOverrideUsd: new Prisma.Decimal(60000),
@@ -115,14 +115,7 @@ describe("runway loans route", () => {
   })
 
   it("creates a loan for the session user and ignores a body userId", async () => {
-    vi.mocked(prisma.btcLoan.create).mockImplementation(async (args) => {
-      return loanRow({
-        ...(args.data as object),
-        id: "loan_1",
-        createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
-      }) as never
-    })
+    vi.mocked(prisma.btcLoan.create).mockResolvedValue(loanRow() as never)
     const res = await POST(
       new NextRequest("http://localhost/api/runway/loans", {
         method: "POST",
