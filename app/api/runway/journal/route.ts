@@ -13,7 +13,20 @@ import {
  * is already a sealed box to the user's public key (see `validateEncryptedBody`).
  * Plaintext notes are rejected. The body is never logged or decrypted here.
  * Every query is scoped to the session userId; the client is never trusted to scope.
+ *
+ * Responses are private and uncached. A shared cache must not store one
+ * person's notes under another person's request.
  */
+export const dynamic = "force-dynamic"
+
+const PRIVATE_NO_STORE = { "Cache-Control": "private, no-store" }
+
+function journalResponse(body: unknown, init?: { status?: number }) {
+  return NextResponse.json(body, {
+    status: init?.status ?? 200,
+    headers: PRIVATE_NO_STORE,
+  })
+}
 
 type JournalRow = {
   id: string
@@ -51,7 +64,7 @@ async function envelopeIsOwned(
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Please sign in." }, { status: 401 })
+    return journalResponse({ error: "Please sign in." }, { status: 401 })
   }
   const userId = session.user.id
 
@@ -60,7 +73,7 @@ export async function GET(req: NextRequest) {
   if (monthKeyParam !== null) {
     const monthKey = validateMonthKey(monthKeyParam)
     if (!monthKey.ok) {
-      return NextResponse.json({ error: monthKey.error }, { status: 400 })
+      return journalResponse({ error: monthKey.error }, { status: 400 })
     }
     where.monthKey = monthKey.value
   }
@@ -70,13 +83,13 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   })
 
-  return NextResponse.json(rows.map(serializeEntry))
+  return journalResponse(rows.map(serializeEntry))
 }
 
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Please sign in." }, { status: 401 })
+    return journalResponse({ error: "Please sign in." }, { status: 401 })
   }
   const userId = session.user.id
 
@@ -84,7 +97,7 @@ export async function POST(req: NextRequest) {
   try {
     raw = await req.json()
   } catch {
-    return NextResponse.json(
+    return journalResponse(
       { error: "We couldn't read that note." },
       { status: 400 },
     )
@@ -92,11 +105,11 @@ export async function POST(req: NextRequest) {
 
   const parsed = parseRunwayJournalCreate(raw)
   if (!parsed.ok) {
-    return NextResponse.json({ error: parsed.error }, { status: 400 })
+    return journalResponse({ error: parsed.error }, { status: 400 })
   }
 
   if (!(await envelopeIsOwned(userId, parsed.value.envelopeId))) {
-    return NextResponse.json(
+    return journalResponse(
       { error: "We couldn't find that envelope." },
       { status: 400 },
     )
@@ -111,13 +124,13 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  return NextResponse.json(serializeEntry(created), { status: 201 })
+  return journalResponse(serializeEntry(created), { status: 201 })
 }
 
 export async function PATCH(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Please sign in." }, { status: 401 })
+    return journalResponse({ error: "Please sign in." }, { status: 401 })
   }
   const userId = session.user.id
 
@@ -125,7 +138,7 @@ export async function PATCH(req: NextRequest) {
   try {
     raw = await req.json()
   } catch {
-    return NextResponse.json(
+    return journalResponse(
       { error: "We couldn't read that note." },
       { status: 400 },
     )
@@ -133,7 +146,7 @@ export async function PATCH(req: NextRequest) {
 
   const parsed = parseRunwayJournalUpdate(raw)
   if (!parsed.ok) {
-    return NextResponse.json({ error: parsed.error }, { status: 400 })
+    return journalResponse({ error: parsed.error }, { status: 400 })
   }
 
   const data: { encryptedBody: string; envelopeId?: string | null } = {
@@ -142,7 +155,7 @@ export async function PATCH(req: NextRequest) {
   if ("envelopeId" in parsed.value) {
     const envelopeId = parsed.value.envelopeId ?? null
     if (!(await envelopeIsOwned(userId, envelopeId))) {
-      return NextResponse.json(
+      return journalResponse(
         { error: "We couldn't find that envelope." },
         { status: 400 },
       )
@@ -157,7 +170,7 @@ export async function PATCH(req: NextRequest) {
     data,
   })
   if (result.count === 0) {
-    return NextResponse.json(
+    return journalResponse(
       { error: "We couldn't find that journal entry." },
       { status: 404 },
     )
@@ -167,35 +180,35 @@ export async function PATCH(req: NextRequest) {
     where: { id: parsed.value.id, userId },
   })
   if (!row) {
-    return NextResponse.json(
+    return journalResponse(
       { error: "We couldn't find that journal entry." },
       { status: 404 },
     )
   }
-  return NextResponse.json(serializeEntry(row))
+  return journalResponse(serializeEntry(row))
 }
 
 export async function DELETE(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Please sign in." }, { status: 401 })
+    return journalResponse({ error: "Please sign in." }, { status: 401 })
   }
   const userId = session.user.id
 
   const id = validateEntryId(req.nextUrl.searchParams.get("id"))
   if (!id.ok) {
-    return NextResponse.json({ error: id.error }, { status: 400 })
+    return journalResponse({ error: id.error }, { status: 400 })
   }
 
   const result = await prisma.runwayJournalEntry.deleteMany({
     where: { id: id.value, userId },
   })
   if (result.count === 0) {
-    return NextResponse.json(
+    return journalResponse(
       { error: "We couldn't find that journal entry." },
       { status: 404 },
     )
   }
 
-  return NextResponse.json({ ok: true })
+  return journalResponse({ ok: true })
 }
