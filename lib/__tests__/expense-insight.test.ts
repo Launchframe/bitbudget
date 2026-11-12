@@ -65,7 +65,8 @@ describe("computeExpenseInsight month windows", () => {
 
   it("builds month windows on the local calendar so they match getMonthKey grouping", () => {
     // Instant that lands in a different month under UTC vs a US-Eastern local
-    // calendar: UTC sees 2026-11-01, but America/New_York (UTC-5) sees 2026-10-31.
+    // calendar: UTC sees 2026-11-01, but America/New_York is still on EDT (UTC-4)
+    // at 02:00Z, so the local calendar day is 2026-10-31.
     // Transaction grouping uses getMonthKey (local calendar), so the windows must
     // agree with the local view — otherwise the incomplete current local month
     // (October) would be miscounted as a complete recent month.
@@ -77,6 +78,10 @@ describe("computeExpenseInsight month windows", () => {
       const txns = [
         expense("gro", "2026-10-15", 500), // local current (incomplete) month → excluded
         expense("gro", "2026-09-10", 100), // recent
+        // 03:00Z on Oct 1 is 23:00 the previous local day (Sep 30) in Eastern time.
+        // That local month is inside the recent window. A UTC month prefix would
+        // call it October, the incomplete current local month, and drop it.
+        expense("gro", "2026-10-01T03:00:00Z", 25),
       ]
       const result = computeExpenseInsight({
         transactions: txns,
@@ -86,12 +91,38 @@ describe("computeExpenseInsight month windows", () => {
       // Local calendar: current month is 2026-10, so recent = Sep/Aug/Jul.
       expect(result.recentMonthKeys).toEqual(["2026-09", "2026-08", "2026-07"])
       expect(result.baselineMonthKeys).toEqual(["2026-06", "2026-05", "2026-04"])
-      // The Oct 15 purchase is in the incomplete current local month → not counted.
-      expect(result.totalRecentDiscretionarySpend).toBe(100)
-      expect(result.envelopes[0]!.recentTotal).toBe(100)
+      // Oct 15 is the incomplete current local month. The Sep 30 local instant counts.
+      expect(result.totalRecentDiscretionarySpend).toBe(125)
+      expect(result.envelopes[0]!.recentTotal).toBe(125)
     } finally {
-      process.env.TZ = originalTz
+      if (originalTz === undefined) delete process.env.TZ
+      else process.env.TZ = originalTz
     }
+  })
+
+  it("rolls recent and baseline months into the previous year", () => {
+    // Local constructor so the anchor is January in every timezone.
+    const asOf = new Date(2026, 0, 15, 12, 0, 0)
+    const groceries = envelope("gro", "Groceries")
+    // 23:30 local on Dec 31. In timezones behind UTC the ISO instant is January,
+    // and grouping must still follow the local calendar day.
+    const lateDecember = new Date(2025, 11, 31, 23, 30, 0).toISOString()
+    const txns = [
+      expense("gro", "2026-01-04", 999), // incomplete current month
+      expense("gro", lateDecember, 40), // recent
+      expense("gro", "2025-09-15", 30), // baseline
+    ]
+    const result = computeExpenseInsight({
+      transactions: txns,
+      envelopes: [groceries],
+      asOf,
+    })
+    expect(result.recentMonthKeys).toEqual(["2025-12", "2025-11", "2025-10"])
+    expect(result.baselineMonthKeys).toEqual(["2025-09", "2025-08", "2025-07"])
+    expect(result.totalRecentDiscretionarySpend).toBe(40)
+    const g = result.envelopes[0]!
+    expect(g.recentTotal).toBe(40)
+    expect(g.baselineMonthlyAvg).toBeCloseTo(10)
   })
 
   it("ignores transactions dated in the incomplete current month or outside the window", () => {
@@ -378,6 +409,7 @@ describe("computeExpenseInsight exclusions", () => {
       expense("gro", "2026-10-12", 250, { excludeFromMainHistory: true }), // hidden → excluded
       expense("gro", "2026-10-13", 70, { source: "envelope_transfer_out" }), // internal transfer → excluded
       expense("gro", "2026-10-14", 80, { source: "deficit_cover" }), // deficit cover → excluded
+      expense("gro", "2026-10-16", 500, { source: "envelope_funding_out" }), // funding leg, even if visible
       {
         id: "credit1",
         date: "2026-10-15",
@@ -391,6 +423,75 @@ describe("computeExpenseInsight exclusions", () => {
     const result = computeExpenseInsight({ transactions: txns, envelopes: [groceries], asOf: AS_OF })
     expect(result.totalRecentDiscretionarySpend).toBe(100)
     expect(result.envelopes[0]!.recentTotal).toBe(100)
+  })
+
+  it("excludes sweep expenses that stay visible in history", () => {
+    const groceries = envelope("gro", "Groceries")
+    const sweptOnly = envelope("swept", "Swept Only")
+    const txns = [
+      // Usual $100/mo in both windows. A $900 sweep would look like a hot month
+      // and an outlier purchase if it were treated as spending.
+      expense("gro", "2026-05-10", 100),
+      expense("gro", "2026-06-10", 100),
+      expense("gro", "2026-07-10", 100),
+      expense("gro", "2026-08-10", 100),
+      expense("gro", "2026-09-10", 100),
+      expense("gro", "2026-10-10", 100),
+      expense("gro", "2026-10-20", 900, {
+        id: "sweep-out",
+        source: "envelope_sweep",
+        excludeFromMainHistory: false,
+        payee: "Swept to Savings",
+      }),
+      {
+        id: "sweep-in",
+        date: "2026-10-20",
+        payee: "From Groceries",
+        amount: 900,
+        type: "credit" as const,
+        envelopeId: "gro",
+        tags: [],
+        source: "envelope_sweep" as const,
+      },
+      expense("swept", "2026-10-02", 50, {
+        source: "envelope_sweep",
+        excludeFromMainHistory: false,
+      }),
+    ]
+    const result = computeExpenseInsight({
+      transactions: txns,
+      envelopes: [groceries, sweptOnly],
+      priorities: { gro: "flexible" },
+      asOf: AS_OF,
+    })
+    expect(result.envelopes.map((e) => e.envelopeId)).toEqual(["gro"])
+    const g = result.envelopes[0]!
+    expect(g.recentTotal).toBe(300)
+    expect(g.recentMonthlyAvg).toBe(100)
+    expect(g.baselineMonthlyAvg).toBe(100)
+    expect(g.dollarsAboveUsual).toBe(0)
+    expect(g.dollarsKeptIfReturnedToUsual).toBe(0)
+    expect(g.outlierPurchases).toEqual([])
+    expect(result.totalRecentDiscretionarySpend).toBe(300)
+    expect(result.totalDollarsKeptIfFlexibleReturned).toBe(0)
+  })
+
+  it("drops soft-deleted envelopes and keeps archived ones", () => {
+    const archived = envelope("arc", "Archived", { archived: true })
+    const deleted = envelope("del", "Deleted", { deletedAt: "2026-11-01T00:00:00.000Z" })
+    const blankDeleted = envelope("blank", "Blank deletedAt", { deletedAt: "" })
+    const txns = [
+      expense("arc", "2026-10-10", 80),
+      expense("del", "2026-10-10", 500),
+      expense("blank", "2026-10-10", 15),
+    ]
+    const result = computeExpenseInsight({
+      transactions: txns,
+      envelopes: [archived, deleted, blankDeleted],
+      asOf: AS_OF,
+    })
+    expect(result.envelopes.map((e) => e.envelopeId)).toEqual(["arc", "blank"])
+    expect(result.totalRecentDiscretionarySpend).toBe(95)
   })
 })
 

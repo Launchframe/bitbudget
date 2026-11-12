@@ -26,6 +26,7 @@ import {
 import { suggestedStressPercent } from "@/lib/runway-stress"
 import { useWalletWatches } from "@/lib/use-wallet-watch"
 import { runwayWalletSats } from "@/lib/wallet-confirmed-sats"
+import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
 
 /** Serialized loan row from GET /api/runway/loans. */
 export interface RunwayLoan {
@@ -57,7 +58,7 @@ export interface RunwayPendingSale {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return todayTransactionCalendarDay()
 }
 
 export interface UseRunwayResult {
@@ -103,17 +104,22 @@ export interface UseRunwayResult {
    * stress. Falls back to the middle-path default when price history is sparse.
    */
   suggestedStressPercent: number
+  /**
+   * True after the first loans + in-flight sales fetch settles. Gap and
+   * shortfall copy must wait for this — those rows change the stack.
+   */
+  holdingsReady: boolean
   /** Build the full need+gap computation for a given scenario mode. */
   compute: (scenarioMode: ScenarioMode) => RunwayComputation | null
 }
 
 /**
- * Shared data layer for the Runway page and dashboard card. Loads the plan,
- * resolves holdings from the budget (savings + discretionary remaining), derives
- * the recent-spend insight, and (optionally) loads loans for the borrow block.
+ * Shared data layer for the Runway page, dashboard card, and expense preview.
+ * Loads the plan, resolves holdings from the budget (savings + discretionary
+ * remaining), and always loads open loans and in-flight sales so every surface
+ * uses the same stack.
  */
-export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
-  const withLoans = opts?.withLoans ?? false
+export function useRunway(): UseRunwayResult {
   const { state, activeTransactions, discretionaryEnvelopes, currentUserId } = useApp()
   const { currentPrice, priceHistory } = useBtcPrices()
 
@@ -125,6 +131,7 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
   const [loansKey, setLoansKey] = useState(0)
   const [pendingSales, setPendingSales] = useState<RunwayPendingSale[]>([])
   const [salesKey, setSalesKey] = useState(0)
+  const [holdingsReady, setHoldingsReady] = useState(false)
 
   // Note: `loading` starts true and is re-armed inside `reload` (an event
   // handler), so the effect body itself performs no synchronous setState.
@@ -151,43 +158,36 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
     }
   }, [reloadKey])
 
+  // Loans and in-flight sales both change the stack (bills owed, cash or
+  // bitcoin on the way). Load them together and don't report holdings ready
+  // until the first attempt finishes, so the card can't flash a shortfall
+  // that the page would not show. A later reload keeps the previous rows
+  // until the new response arrives, and a failed refetch leaves them in place.
   useEffect(() => {
-    if (!withLoans) return
     let cancelled = false
-    fetch("/api/runway/loans")
+    const loadLoans = fetch("/api/runway/loans")
       .then(async (res) => {
         if (!res.ok) throw new Error("loans")
         return (await res.json()) as { loans: RunwayLoan[] }
       })
-      .then((data) => {
-        if (!cancelled) setLoans(data.loans ?? [])
-      })
-      .catch(() => {
-        /* loans are optional enrichment */
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [withLoans, loansKey])
-
-  useEffect(() => {
-    if (!withLoans) return
-    let cancelled = false
-    fetch("/api/runway/pending-sales")
+      .then((data) => data.loans ?? [])
+    const loadSales = fetch("/api/runway/pending-sales")
       .then(async (res) => {
         if (!res.ok) throw new Error("sales")
         return (await res.json()) as { sales: RunwayPendingSale[] }
       })
-      .then((data) => {
-        if (!cancelled) setPendingSales(data.sales ?? [])
-      })
-      .catch(() => {
-        /* pending sales are optional enrichment */
-      })
+      .then((data) => data.sales ?? [])
+    void Promise.allSettled([loadLoans, loadSales]).then((results) => {
+      if (cancelled) return
+      const [loansResult, salesResult] = results
+      if (loansResult.status === "fulfilled") setLoans(loansResult.value)
+      if (salesResult.status === "fulfilled") setPendingSales(salesResult.value)
+      setHoldingsReady(true)
+    })
     return () => {
       cancelled = true
     }
-  }, [withLoans, salesKey])
+  }, [loansKey, salesKey])
 
   const savingsUsd = useMemo(
     () => savingsBalance(activeTransactions, findSavingsEnvelope(state.envelopes)),
@@ -355,6 +355,7 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
     cashOnTheWayUsd,
     nextPaycheckUsd,
     suggestedStressPercent: suggestedStress,
+    holdingsReady,
     compute,
   }
 }

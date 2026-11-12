@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db"
 import {
   parsePendingSaleCreateBody,
   parsePendingSaleUpdateBody,
+  pendingSaleUpdateError,
 } from "@/lib/pending-sale"
 
 /** Shape of a pending-sale row selected from the DB. */
@@ -126,6 +127,17 @@ export async function PATCH(req: NextRequest) {
   }
 
   const u = parsed.value
+  const transitionError = pendingSaleUpdateError(
+    {
+      status: existing.status,
+      proceedsUsd: existing.proceedsUsd == null ? null : Number(existing.proceedsUsd),
+    },
+    u,
+  )
+  if (transitionError) {
+    return NextResponse.json({ error: transitionError }, { status: 400 })
+  }
+
   const data: Prisma.PendingBtcSaleUpdateInput = {}
   if (u.status !== undefined) data.status = u.status
   if (u.proceedsUsd !== undefined) {
