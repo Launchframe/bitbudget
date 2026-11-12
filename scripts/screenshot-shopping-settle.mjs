@@ -148,7 +148,7 @@ async function enableBudgetPosting(page, who) {
   }
   await page.waitForTimeout(500)
   const err = await card.locator(".text-destructive, [class*=destructive]").first().textContent().catch(() => null)
-  if (err) note(`${who}: budget card error: ${err}`)
+  if (err) note(`${who}: budget card reported an error`)
   const cardText = await card.innerText()
   note(`${who}: budget card captured (posted=${/\bposted\b/i.test(cardText)})`)
   await shot(page, `shopping_settle_${who}_budget_posted`)
