@@ -18,7 +18,7 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "BitBudget - Bitcoin Opportunity Cost Tracker",
   description:
-    "Track your spending and analyze the opportunity cost of your purchases--in Bitcoin terms. Budget smarter by understanding what your dollars could have been worth.",
+    "MIT-licensed Bitcoin-first envelope budgeting with opportunity cost tracking. Core budgeting is free; optional Premium on bitbudget.io covers bank sync and AI capture.",
   applicationName: "BitBudget",
   appleWebApp: {
     capable: true,

@@ -110,13 +110,22 @@ export default function LandingPage() {
             Ready to see the true cost of spending?
           </h2>
           <p className="text-muted-foreground mb-8 max-w-lg mx-auto">
-            Join the Bitcoiners who are rethinking every purchase. Free, open-source, and sovereign.
+            Join the Bitcoiners who are rethinking every purchase. The app is{" "}
+            <a
+              href="https://github.com/Launchframe/bitbudget"
+              className="text-foreground underline decoration-[#F7931A]/50 underline-offset-2 hover:decoration-[#F7931A]"
+              rel="noopener noreferrer"
+            >
+              MIT-licensed open source
+            </a>
+            ; envelope budgeting and encryption are free on bitbudget.io. Optional Premium covers live bank sync and
+            AI-powered capture so we can pay for Plaid and model usage—never required for private manual budgeting.
           </p>
           <button
             onClick={handleGetStarted}
             className="inline-flex items-center gap-2 px-8 py-4 bg-[#F7931A] text-[#0D0D0D] rounded-2xl text-base font-bold hover:bg-[#F7931A]/90 transition-colors"
           >
-            Get Started — It&apos;s Free
+            Get Started — Core budgeting is free
             <ArrowRight className="h-5 w-5" />
           </button>
         </div>
@@ -126,15 +135,31 @@ export default function LandingPage() {
       <footer className="px-6 py-8 border-t border-[#1F1F1F] text-center">
         <div className="flex flex-col items-center gap-3">
           <BitbudgetLogo />
-          <p className="text-xs text-muted-foreground">
-            Open-source Bitcoin opportunity cost tracker. Your data is encrypted end-to-end.
+          <p className="text-xs text-muted-foreground max-w-md">
+            MIT-licensed Bitcoin opportunity cost envelope budgeting. End-to-end encrypted payees and notes. Optional
+            Premium on bitbudget.io for hosted sync and capture.
           </p>
-          <Link
-            href="/privacy"
-            className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-          >
-            Privacy Policy
-          </Link>
+          <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-4">
+            <Link
+              href="/privacy"
+              className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            >
+              Privacy Policy
+            </Link>
+            <a
+              href="https://github.com/Launchframe/bitbudget"
+              className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              rel="noopener noreferrer"
+            >
+              Source (MIT)
+            </a>
+            <Link
+              href="/welcome"
+              className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            >
+              Prefer budgeting without Bitcoin UI? →
+            </Link>
+          </div>
         </div>
       </footer>
     </div>

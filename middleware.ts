@@ -43,7 +43,7 @@ export default auth((req) => {
 
   if (!isLoggedIn && !isAuthPage) {
     const isReturningUser = req.cookies.has("bitbudget_visited")
-    return NextResponse.redirect(new URL(isReturningUser ? "/auth" : "/welcome", req.url))
+    return NextResponse.redirect(new URL(isReturningUser ? "/auth" : "/landing", req.url))
   }
 
   if (isLoggedIn && isAuthPage) {

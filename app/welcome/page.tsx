@@ -28,17 +28,23 @@ export default function WelcomePage() {
 
       {/* Hero */}
       <section className="flex flex-col items-center justify-center text-center px-6 pt-32 pb-20 md:pt-44 md:pb-28 max-w-4xl mx-auto">
+        <Link
+          href="/landing"
+          className="mb-6 inline-flex max-w-xl items-center justify-center gap-2 rounded-full border border-[#F7931A]/25 bg-[#F7931A]/10 px-4 py-2 text-xs font-medium text-[#F7931A] transition-colors hover:bg-[#F7931A]/15"
+        >
+          Bitcoin-first product — see opportunity cost in sats on the main pitch →
+        </Link>
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#3B82F6]/10 border border-[#3B82F6]/20 text-[#3B82F6] text-xs font-medium mb-8">
           <PieChart className="h-3.5 w-3.5" />
-          Simple. Private. Yours.
+          Simple. Private. Yours. (no Bitcoin UI)
         </div>
         <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold leading-tight tracking-tight mb-6">
           Budget Smarter.{" "}
           <span className="text-[#F7931A]">Spend with Intention.</span>
         </h1>
         <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mb-10 leading-relaxed">
-          BitBudget is a private, encrypted budgeting app that helps you take control of your money.
-          Allocate your income, track your spending, and build better financial habits.
+          BitBudget is a private, encrypted envelope budgeting app. This page is the streamlined view without Bitcoin
+          opportunity-cost charts—same ledger, same encryption, different presentation.
         </p>
         <div className="flex flex-col sm:flex-row items-center gap-4">
           <button
@@ -110,13 +116,14 @@ export default function WelcomePage() {
             Ready to take control of your finances?
           </h2>
           <p className="text-muted-foreground mb-8 max-w-lg mx-auto">
-            Free, open-source, and completely private. No ads, no data selling, no tracking.
+            MIT-licensed open source; core budgeting is free on bitbudget.io. Optional Premium pays for live bank sync and
+            AI capture—not for privacy or manual entry. No ads, no data selling, no ad-tech tracking.
           </p>
           <button
             onClick={handleGetStarted}
             className="inline-flex items-center gap-2 px-8 py-4 bg-[#F7931A] text-[#0D0D0D] rounded-2xl text-base font-bold hover:bg-[#F7931A]/90 transition-colors"
           >
-            Get Started — It&apos;s Free
+            Get Started — Core budgeting is free
             <ArrowRight className="h-5 w-5" />
           </button>
         </div>
@@ -126,8 +133,9 @@ export default function WelcomePage() {
       <footer className="px-6 py-8 border-t border-[#1F1F1F] text-center">
         <div className="flex flex-col items-center gap-3">
           <BitbudgetLogo variant="vanilla" />
-          <p className="text-xs text-muted-foreground">
-            Open-source budgeting app. Your data is encrypted end-to-end.
+          <p className="text-xs text-muted-foreground max-w-md">
+            MIT-licensed envelope budgeting (vanilla view). End-to-end encrypted payees and notes. Optional Premium for
+            hosted sync and capture on bitbudget.io.
           </p>
           <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-4">
             <Link

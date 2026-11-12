@@ -1,9 +1,9 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "BitBudget — Private budgeting",
+  title: "BitBudget — Private budgeting (vanilla view)",
   description:
-    "A private, encrypted budgeting app. Allocate your income, track spending, and build better habits — your data stays yours.",
+    "MIT-licensed private envelope budgeting without Bitcoin opportunity-cost UI. Core features free; optional Premium on bitbudget.io for bank sync and AI capture.",
   icons: {
     icon: [{ url: "/icon-vanilla.svg", type: "image/svg+xml" }],
   },
