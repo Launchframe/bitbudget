@@ -26,6 +26,7 @@ import {
   type RiskAnswers,
 } from "@/lib/runway-risk"
 import { formatUsd } from "@/lib/data"
+import { MAX_BITCOIN_OVERRIDE_SATS } from "@/lib/runway-plan"
 
 const SATS_PER_BTC = 1e8
 const DAYS_PER_MONTH = 365.25 / 12
@@ -234,7 +235,124 @@ export function buildPlanPutBody(
   const merged: Record<string, unknown> = { ...plan, ...patch }
   delete merged.createdAt
   delete merged.updatedAt
+  // Checkup month is written only by POST /api/runway/checkup/opened.
+  delete merged.checkupOpenedMonthKey
   return merged
+}
+
+/**
+ * Undo a patch when the matching save failed, but only for fields that still
+ * hold the value we wrote. A newer edit that replaced one of those fields is
+ * left alone.
+ */
+function writePlanField<K extends keyof RunwayPlanResponse>(
+  target: RunwayPlanResponse,
+  key: K,
+  value: RunwayPlanResponse[K],
+): void {
+  target[key] = value
+}
+
+export function rollbackPlanPatch(
+  latest: RunwayPlanResponse,
+  baseline: RunwayPlanResponse,
+  patch: Partial<RunwayPlanResponse>,
+): RunwayPlanResponse {
+  const applied = { ...baseline, ...patch }
+  const next: RunwayPlanResponse = { ...latest }
+  for (const key of Object.keys(patch) as (keyof RunwayPlanResponse)[]) {
+    if (Object.is(latest[key], applied[key])) {
+      writePlanField(next, key, baseline[key])
+    }
+  }
+  return next
+}
+
+/**
+ * Apply a successful PUT without clobbering a newer edit. When `latest` is
+ * still the optimistic object, the server row wins. Otherwise only patched
+ * fields that nobody else has replaced are taken from the server, and the
+ * checkup month always follows the server (this PUT does not write it).
+ */
+export function mergeSavedPlan(
+  latest: RunwayPlanResponse,
+  optimistic: RunwayPlanResponse,
+  saved: RunwayPlanResponse,
+  patch: Partial<RunwayPlanResponse>,
+): RunwayPlanResponse {
+  if (latest === optimistic) return saved
+  const next: RunwayPlanResponse = { ...latest }
+  for (const key of Object.keys(patch) as (keyof RunwayPlanResponse)[]) {
+    if (Object.is(latest[key], optimistic[key])) {
+      writePlanField(next, key, saved[key])
+    }
+  }
+  next.checkupOpenedMonthKey = saved.checkupOpenedMonthKey
+  return next
+}
+
+/**
+ * Totals to store when a pending sale is linked. A typed bitcoin total loses
+ * the sold sats. Proceeds are added to the typed cash total, or to today's
+ * envelope cash when the user was still following the budget — otherwise the
+ * deposit drops out of the stack the moment "on the way" clears.
+ */
+export function holdingsAfterSaleLinked(
+  plan: Pick<RunwayPlanResponse, "bitcoinOverrideSats" | "cashOverrideUsd">,
+  sale: { sats: number; proceedsUsd: number | null },
+  envelopeCashUsd: number,
+): { bitcoinOverrideSats: number | null; cashOverrideUsd: number | null } {
+  const nextBtc =
+    plan.bitcoinOverrideSats != null
+      ? Math.max(0, plan.bitcoinOverrideSats - Math.max(0, sale.sats))
+      : plan.bitcoinOverrideSats
+  const proceeds = sale.proceedsUsd ?? 0
+  const nextCash =
+    proceeds > 0
+      ? (plan.cashOverrideUsd ?? Math.max(0, envelopeCashUsd)) + proceeds
+      : plan.cashOverrideUsd
+  return { bitcoinOverrideSats: nextBtc, cashOverrideUsd: nextCash }
+}
+
+/** Parse the "what you have today" editor. Blank means "follow the budget / no typed bitcoin". */
+export function parseHoldingsOverrides(
+  cashText: string,
+  btcText: string,
+):
+  | { ok: true; cashOverrideUsd: number | null; bitcoinOverrideSats: number | null }
+  | { ok: false; error: string } {
+  const cash = cashText.trim()
+  const btc = btcText.trim()
+  let cashOverrideUsd: number | null = null
+  if (cash !== "") {
+    const n = Number(cash)
+    if (!Number.isFinite(n) || n < 0) {
+      return {
+        ok: false,
+        error: "Cash total can't be negative. Leave it blank to use your budget.",
+      }
+    }
+    cashOverrideUsd = n
+  }
+  let bitcoinOverrideSats: number | null = null
+  if (btc !== "") {
+    const n = Number(btc)
+    if (!Number.isFinite(n) || n < 0) {
+      return {
+        ok: false,
+        error: "Bitcoin total can't be negative. Leave it blank if you don't want to type one.",
+      }
+    }
+    const sats = Math.round(n * SATS_PER_BTC)
+    if (sats > MAX_BITCOIN_OVERRIDE_SATS) {
+      return {
+        ok: false,
+        error: "That bitcoin total is larger than all the bitcoin that exists.",
+      }
+    }
+    bitcoinOverrideSats = sats
+  }
+  return { ok: true, cashOverrideUsd, bitcoinOverrideSats }
 }
 
 export interface RunwayComputationInput {

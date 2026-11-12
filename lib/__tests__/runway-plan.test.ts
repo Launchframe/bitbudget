@@ -5,6 +5,7 @@ import {
   MAX_HORIZON_MONTHS,
   RUNWAY_PLAN_DEFAULTS,
   parseRunwayPlanBody,
+  planValuesForClientWrite,
   validateEnvelopePriorities,
   validatePlannedLines,
   validateRiskFields,
@@ -429,5 +430,18 @@ describe("parseRunwayPlanBody", () => {
       expectOk(parseRunwayPlanBody({ checkupOpenedMonthKey: "2026-12" }))
         .checkupOpenedMonthKey,
     ).toBe("2026-12")
+  })
+})
+
+describe("planValuesForClientWrite", () => {
+  it("drops the checkup month so a plan save cannot clear it", () => {
+    const values: RunwayPlanValues = {
+      ...RUNWAY_PLAN_DEFAULTS,
+      checkupOpenedMonthKey: "2026-06",
+      runwayIncomeUsd: 400,
+    }
+    const writable = planValuesForClientWrite(values)
+    expect(writable.runwayIncomeUsd).toBe(400)
+    expect("checkupOpenedMonthKey" in writable).toBe(false)
   })
 })
