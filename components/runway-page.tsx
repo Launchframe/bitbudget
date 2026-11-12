@@ -21,6 +21,7 @@ import {
   runwayHeroDetail,
   runwayMonthsHeadline,
   runwayPrimaryAction,
+  shouldPromptHoldings,
   RUNWAY_JUST_SETUP_KEY,
   satsToUsd,
   type RunwayPlanResponse,
@@ -160,6 +161,7 @@ export function RunwayPage() {
     reload,
     insightMonthlyUsd: livingPlaceholder,
     envelopeCashUsd,
+    walletSats,
     btcPriceOrNull,
     loans,
     loansEval,
@@ -340,7 +342,12 @@ export function RunwayPage() {
           plan={plan}
           livingPlaceholderUsd={livingPlaceholder}
           suggestedStressPercent={suggestedStressPercent}
-          promptHoldings={envelopeCashUsd <= 0.5 && (plan == null || plan.bitcoinOverrideSats == null)}
+          promptHoldings={shouldPromptHoldings({
+            envelopeCashUsd,
+            walletSats,
+            cashOverrideUsd: plan?.cashOverrideUsd ?? null,
+            bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
+          })}
           onSaved={onPlanSaved}
         />
       </div>
@@ -352,17 +359,18 @@ export function RunwayPage() {
   const priceKnown = btcPriceOrNull != null && btcPriceOrNull > 0
   const scenarios = plan.scenarios
 
-  const bitcoinKnownUsd = need ? satsToUsd(need.spendableSats, btcPriceOrNull ?? 0) : 0
+  const bitcoinSats = need?.spendableSats ?? 0
+  const bitcoinKnownUsd = need ? satsToUsd(bitcoinSats, btcPriceOrNull ?? 0) : 0
   const monthsUntil = comp?.monthsUntilQuit ?? 0
+  const alreadySteppedBack = plan.phase === "runway"
   const holdingsEmpty = holdingsLookEmpty({
     cashUsd: need?.cashUsd ?? 0,
-    bitcoinUsd: bitcoinKnownUsd,
+    bitcoinSats,
     cashOverrideUsd: plan.cashOverrideUsd,
     bitcoinOverrideSats: plan.bitcoinOverrideSats,
   })
   const cashUnset = plan.cashOverrideUsd == null && (need?.cashUsd ?? 0) <= 0.5
-  const bitcoinUnset =
-    plan.bitcoinOverrideSats == null && bitcoinKnownUsd <= 0.5
+  const bitcoinUnset = plan.bitcoinOverrideSats == null && bitcoinSats <= 0
 
   const refill = need
     ? refillStatus({
@@ -387,6 +395,7 @@ export function RunwayPage() {
           shortfallUsd: refill?.shortfallUsd ?? 0,
           projectedCashGapUsd: gap.flat.cashGapUsd,
           projectedBitcoinGapUsd: gap.flat.bitcoinGapUsd,
+          alreadySteppedBack,
         })
       : ""
   const headline = runwayMonthsHeadline(need?.monthsLeft ?? null)
@@ -708,7 +717,12 @@ export function RunwayPage() {
         plan={plan}
         livingPlaceholderUsd={livingPlaceholder}
         suggestedStressPercent={suggestedStressPercent}
-        promptHoldings={envelopeCashUsd <= 0.5 && plan.bitcoinOverrideSats == null}
+        promptHoldings={shouldPromptHoldings({
+          envelopeCashUsd,
+          walletSats,
+          cashOverrideUsd: plan.cashOverrideUsd,
+          bitcoinOverrideSats: plan.bitcoinOverrideSats,
+        })}
         onSaved={onPlanSaved}
       />
       <RunwayLoanDialog
@@ -1084,7 +1098,7 @@ function BillList({
               size="sm"
               className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90"
               onClick={add}
-              disabled={!label.trim()}
+              disabled={!label.trim() || !(parseFloat(amount) > 0)}
             >
               Add
             </Button>

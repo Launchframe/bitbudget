@@ -23,7 +23,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { clearDraft, loadDraft, saveDraft } from "@/lib/draft-storage"
 import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
-import { OFFERED_PLANNED_LINE_LABELS, type PlannedLine } from "@/lib/runway-need"
 import type {
   BorrowStance,
   BtcSharePreference,
@@ -64,8 +63,6 @@ interface RunwaySetupDraft {
   borrowStance: BorrowStance
   runwayIncomeUsd: string
   livingBaselineUsd: string
-  /** label → monthly amount string. */
-  plannedAmounts: Record<string, string>
   cashHoldings?: string
   btcHoldings?: string
 }
@@ -205,7 +202,6 @@ export function RunwaySetupDialog({
   const [borrowStance, setBorrowStance] = useState<BorrowStance>("deep_drop")
   const [runwayIncomeUsd, setRunwayIncomeUsd] = useState("0")
   const [livingBaselineUsd, setLivingBaselineUsd] = useState("")
-  const [plannedAmounts, setPlannedAmounts] = useState<Record<string, string>>({})
   const [cashHoldings, setCashHoldings] = useState("")
   const [btcHoldings, setBtcHoldings] = useState("")
   const [saving, setSaving] = useState(false)
@@ -239,7 +235,6 @@ export function RunwaySetupDialog({
       setBorrowStance(draft.borrowStance)
       setRunwayIncomeUsd(draft.runwayIncomeUsd)
       setLivingBaselineUsd(draft.livingBaselineUsd)
-      setPlannedAmounts(draft.plannedAmounts ?? {})
       setCashHoldings(draft.cashHoldings ?? "")
       setBtcHoldings(draft.btcHoldings ?? "")
       return
@@ -259,11 +254,6 @@ export function RunwaySetupDialog({
           ? String(plan.livingBaselineOverrideUsd)
           : livingFallback,
       )
-      const amounts: Record<string, string> = {}
-      for (const line of plan.plannedLines) {
-        if (line.monthlyUsd > 0) amounts[line.label] = String(line.monthlyUsd)
-      }
-      setPlannedAmounts(amounts)
     } else {
       setLivingBaselineUsd(livingFallback)
     }
@@ -284,7 +274,6 @@ export function RunwaySetupDialog({
       borrowStance,
       runwayIncomeUsd,
       livingBaselineUsd,
-      plannedAmounts,
       cashHoldings,
       btcHoldings,
     })
@@ -299,7 +288,6 @@ export function RunwaySetupDialog({
     borrowStance,
     runwayIncomeUsd,
     livingBaselineUsd,
-    plannedAmounts,
     cashHoldings,
     btcHoldings,
   ])
@@ -314,7 +302,6 @@ export function RunwaySetupDialog({
     setBorrowStance("deep_drop")
     setRunwayIncomeUsd("0")
     setLivingBaselineUsd(livingFallback)
-    setPlannedAmounts({})
     setCashHoldings("")
     setBtcHoldings("")
     setError(null)
@@ -359,29 +346,6 @@ export function RunwaySetupDialog({
     setStep((s) => Math.max(0, s - 1))
   }, [])
 
-  const buildPlannedLines = useCallback((): PlannedLine[] => {
-    const lines: PlannedLine[] = []
-    for (const offered of OFFERED_PLANNED_LINE_LABELS) {
-      const raw = plannedAmounts[offered.label]
-      const amount = parseFloat(raw ?? "")
-      if (Number.isFinite(amount) && amount > 0) {
-        lines.push({
-          id: `offered-${offered.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-          group: offered.group,
-          label: offered.label,
-          monthlyUsd: Math.round(amount * 100) / 100,
-          mode: "add",
-        })
-      }
-    }
-    // Preserve any custom (non-offered) planned lines already on the plan.
-    const offeredLabels = new Set(OFFERED_PLANNED_LINE_LABELS.map((o) => o.label))
-    for (const line of plan?.plannedLines ?? []) {
-      if (!offeredLabels.has(line.label)) lines.push(line)
-    }
-    return lines
-  }, [plannedAmounts, plan])
-
   const finish = useCallback(async () => {
     if (!stepValid) return
     setSaving(true)
@@ -420,7 +384,9 @@ export function RunwaySetupDialog({
       dipResponse,
       btcSharePreference,
       borrowStance,
-      plannedLines: buildPlannedLines(),
+      // Bills are edited on the plan page. The wizard no longer shows them, so
+      // a stale setup draft must not rebuild or drop those lines.
+      plannedLines: plan?.plannedLines ?? [],
       ...holdingsPatch,
       ...seedStress,
     }
@@ -461,7 +427,6 @@ export function RunwaySetupDialog({
     dipResponse,
     btcSharePreference,
     borrowStance,
-    buildPlannedLines,
     suggestedStressPercent,
     promptHoldings,
     cashHoldings,

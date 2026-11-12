@@ -243,18 +243,39 @@ export function runwayPrimaryAction(input: {
 
 /**
  * Both sides look unanswered: nothing typed, and the budget/wallet totals are
- * still ~$0. A typed zero is an answer, not a missing one.
+ * still empty. A typed zero is an answer, not a missing one.
+ *
+ * Bitcoin is judged in sats. A missing spot price makes the dollar value 0
+ * (`satsToUsd`), which must not read as "you have no bitcoin."
  */
 export function holdingsLookEmpty(input: {
   cashUsd: number
-  bitcoinUsd: number
+  bitcoinSats: number
   cashOverrideUsd: number | null
   bitcoinOverrideSats: number | null
 }): boolean {
   const cashUnset = input.cashOverrideUsd == null && input.cashUsd <= 0.5
   const bitcoinUnset =
-    input.bitcoinOverrideSats == null && input.bitcoinUsd <= 0.5
+    input.bitcoinOverrideSats == null && input.bitcoinSats <= 0
   return cashUnset && bitcoinUnset
+}
+
+/**
+ * Last setup step asks for cash and bitcoin only when neither side has an
+ * answer yet. A watched wallet counts; a typed zero counts.
+ */
+export function shouldPromptHoldings(input: {
+  envelopeCashUsd: number
+  walletSats: number
+  cashOverrideUsd: number | null
+  bitcoinOverrideSats: number | null
+}): boolean {
+  return holdingsLookEmpty({
+    cashUsd: input.envelopeCashUsd,
+    bitcoinSats: input.walletSats,
+    cashOverrideUsd: input.cashOverrideUsd,
+    bitcoinOverrideSats: input.bitcoinOverrideSats,
+  })
 }
 
 /** Large first line. Months the money lasts, not the quit-date countdown. */
@@ -277,6 +298,8 @@ export function runwayHeroDetail(input: {
   shortfallUsd: number
   projectedCashGapUsd: number
   projectedBitcoinGapUsd: number
+  /** Plan phase is already "living off savings" — there is no future step-back date. */
+  alreadySteppedBack: boolean
 }): string {
   if (input.holdingsEmpty) {
     return "Add the cash and bitcoin you have today so this number means something."
@@ -290,7 +313,9 @@ export function runwayHeroDetail(input: {
     !Number.isFinite(input.projectedBitcoinGapUsd) ||
     input.projectedBitcoinGapUsd > 0.5
   if (!cashShort && !bitcoinShort) {
-    return "You're on track for the date you picked."
+    return input.alreadySteppedBack
+      ? "You have enough set aside for the months you planned."
+      : "You're on track for the date you picked."
   }
   const parts: string[] = []
   if (cashShort) parts.push(`${formatUsd(input.projectedCashGapUsd)} more cash`)
@@ -301,7 +326,10 @@ export function runwayHeroDetail(input: {
         : "more bitcoin",
     )
   }
-  return `By the time you step back, you're still short ${parts.join(" and ")}.`
+  const short = parts.join(" and ")
+  return input.alreadySteppedBack
+    ? `For the months you planned, you're still short ${short}.`
+    : `By the time you step back, you're still short ${short}.`
 }
 
 /**
