@@ -2,24 +2,15 @@
  * Capture walkthrough screenshots of the shared shopping list feature.
  * Assumes: E2E_TEST=true server on :3001, qa:shopping:seed already run.
  */
-import { createRequire } from "node:module"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
-import { pathToFileURL } from "node:url"
 import { waitForDialogSettled } from "./lib/playwright-screenshot-helpers.mjs"
+import { defaultScreenshotOutDir, loadPlaywrightChromium } from "./lib/playwright-screenshot-runtime.mjs"
 
-const require = createRequire(import.meta.url)
-const playwrightPkg = path.dirname(
-  require.resolve("playwright/package.json", {
-    paths: ["/workspace/node_modules/.pnpm/playwright@1.59.1/node_modules"],
-  }),
-)
-const playwrightMod = await import(pathToFileURL(path.join(playwrightPkg, "index.js")).href)
-const chromium = playwrightMod.chromium ?? playwrightMod.default?.chromium
-if (!chromium) throw new Error("Could not load playwright chromium")
+const chromium = await loadPlaywrightChromium()
 
 const ORIGIN = process.env.ORIGIN || "http://localhost:3001"
-const OUT = process.env.OUT_DIR || "/opt/cursor/artifacts"
+const OUT = defaultScreenshotOutDir()
 const OWNER = "shopping-owner@bitbudget.test"
 const MEMBER = "shopping-member@bitbudget.test"
 const CODE = "424242"
@@ -114,7 +105,7 @@ async function main() {
   await shotDialog(owner, "shopping_invite_link_created")
 
   const inviteUrl = (await owner.locator("p.break-all.font-mono").innerText()).trim()
-  console.log("inviteUrl", inviteUrl.slice(0, 80) + "…")
+  console.log("invite link captured (URL not logged)")
   await owner.getByRole("dialog").getByRole("button", { name: "Close" }).first().click()
 
   // Add a request

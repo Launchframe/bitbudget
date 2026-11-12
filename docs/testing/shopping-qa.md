@@ -28,9 +28,9 @@ Use **local dev** or **staging** only. Do not run the seed script against produc
    ORIGIN=http://localhost:3001 pnpm qa:shopping:settle-finish      # tab payment + envelope posts only
    ```
 
-   Artifacts default to `/opt/cursor/artifacts` when `OUT_DIR` is unset (set `OUT_DIR` locally as needed).
+   When `OUT_DIR` is unset, screenshots go to `/opt/cursor/artifacts` on cloud agents; elsewhere they land in gitignored `test-results/shopping-qa-screenshots/`.
 
-   Dialog screenshots wait **1s** after the modal opens (`scripts/lib/playwright-screenshot-helpers.mjs`) so Radix fade-in finishes; override with `DIALOG_SETTLE_MS` if needed.
+   Dialog screenshots wait for full opacity (`scripts/lib/playwright-screenshot-helpers.mjs`); override with `DIALOG_SETTLE_MS`. The run fails instead of saving a fading modal.
 
 3. Start the dev server with the test sign-in code enabled (do not put these in `.env.local`):
 

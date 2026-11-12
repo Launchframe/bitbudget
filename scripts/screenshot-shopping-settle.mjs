@@ -2,24 +2,15 @@
  * Full shared-shopping settlement demo:
  * create group → invite/join → requests → receipt → tab → envelope posts → payment → $0.
  */
-import { createRequire } from "node:module"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { pathToFileURL } from "node:url"
 import { waitForDialogSettled } from "./lib/playwright-screenshot-helpers.mjs"
+import { defaultScreenshotOutDir, loadPlaywrightChromium } from "./lib/playwright-screenshot-runtime.mjs"
 
-const require = createRequire(import.meta.url)
-const playwrightPkg = path.dirname(
-  require.resolve("playwright/package.json", {
-    paths: ["/workspace/node_modules/.pnpm/playwright@1.59.1/node_modules"],
-  }),
-)
-const playwrightMod = await import(pathToFileURL(path.join(playwrightPkg, "index.js")).href)
-const chromium = playwrightMod.chromium ?? playwrightMod.default?.chromium
-if (!chromium) throw new Error("Could not load playwright chromium")
+const chromium = await loadPlaywrightChromium()
 
 const ORIGIN = process.env.ORIGIN || "http://localhost:3001"
-const OUT = process.env.OUT_DIR || "/opt/cursor/artifacts"
+const OUT = defaultScreenshotOutDir()
 const OWNER = "shopping-owner@bitbudget.test"
 const MEMBER = "shopping-member@bitbudget.test"
 const CODE = "424242"
@@ -159,7 +150,7 @@ async function enableBudgetPosting(page, who) {
   const err = await card.locator(".text-destructive, [class*=destructive]").first().textContent().catch(() => null)
   if (err) note(`${who}: budget card error: ${err}`)
   const cardText = await card.innerText()
-  note(`${who}: budget card after post: ${cardText.replace(/\s+/g, " ").slice(0, 220)}`)
+  note(`${who}: budget card captured (posted=${/\bposted\b/i.test(cardText)})`)
   await shot(page, `shopping_settle_${who}_budget_posted`)
 }
 
@@ -205,7 +196,7 @@ async function main() {
   await owner.getByRole("button", { name: "Create invite link" }).click()
   await owner.locator("p.break-all.font-mono").waitFor({ state: "visible" })
   const inviteUrl = (await owner.locator("p.break-all.font-mono").innerText()).trim()
-  note(`invite: ${inviteUrl.slice(0, 72)}…`)
+  note("invite link captured (URL not logged)")
   await shot(owner, "shopping_settle_02_invite_link")
   await owner.getByRole("dialog").getByRole("button", { name: "Close" }).first().click()
 
@@ -291,7 +282,7 @@ async function main() {
   await owner.getByRole("tab", { name: "Tab", exact: true }).click()
   await owner.getByText(/Net owed to you|\$26/).first().waitFor({ state: "visible", timeout: 15_000 })
   const ownerTabText = await owner.locator("main").innerText()
-  note(`owner tab snippet: ${ownerTabText.match(/Net owed to you[\s\S]{0,40}/)?.[0] ?? ownerTabText.slice(0, 200)}`)
+  note(`owner tab captured (showsNetOwed=$26=${/\$26/.test(ownerTabText)})`)
   await shot(owner, "shopping_settle_09_owner_tab_26")
 
   await openGroup(member)
@@ -309,12 +300,12 @@ async function main() {
   await openTransactions(owner)
   await shot(owner, "shopping_settle_11_owner_transactions")
   const ownerTxnText = await owner.locator("main").innerText()
-  note(`owner txns contain Trader: ${/Trader/i.test(ownerTxnText)}; snippet: ${ownerTxnText.replace(/\s+/g, " ").slice(0, 280)}`)
+  note(`owner transactions captured (hasTraderMerchant=${/Trader/i.test(ownerTxnText)})`)
 
   await openTransactions(member)
   await shot(member, "shopping_settle_12_member_transactions")
   const memberTxnText = await member.locator("main").innerText()
-  note(`member txns contain Trader: ${/Trader/i.test(memberTxnText)}; snippet: ${memberTxnText.replace(/\s+/g, " ").slice(0, 280)}`)
+  note(`member transactions captured (hasTraderMerchant=${/Trader/i.test(memberTxnText)})`)
   // --- 7. Member records $26 payment ---
   await openGroup(member)
   await member.getByRole("tab", { name: "Tab", exact: true }).click()
@@ -356,21 +347,25 @@ async function main() {
 
   await openTransactions(member)
   await shot(member, "shopping_settle_16_member_transactions_final")
-  note(`member final txns: ${(await member.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 320)}`)
+  const memberFinalTxn = await member.locator("main").innerText()
+  note(`member final transactions screenshot captured (hasShoppingRows=${/Shopping/i.test(memberFinalTxn)})`)
 
   await openTransactions(owner)
   await shot(owner, "shopping_settle_17_owner_transactions_final")
-  note(`owner final txns: ${(await owner.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 320)}`)
+  const ownerFinalTxn = await owner.locator("main").innerText()
+  note(`owner final transactions screenshot captured (hasShoppingRows=${/Shopping/i.test(ownerFinalTxn)})`)
 
   await owner.getByRole("button", { name: "ENVELOPES" }).click()
   await owner.waitForTimeout(1000)
   await shot(owner, "shopping_settle_18_owner_envelopes")
-  note(`owner envelopes: ${(await owner.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 280)}`)
+  const ownerEnv = await owner.locator("main").innerText()
+  note(`owner envelopes captured (hasGroceries=${/Groceries/i.test(ownerEnv)})`)
 
   await member.getByRole("button", { name: "ENVELOPES" }).click()
   await member.waitForTimeout(1000)
   await shot(member, "shopping_settle_19_member_envelopes")
-  note(`member envelopes: ${(await member.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 280)}`)
+  const memberEnv = await member.locator("main").innerText()
+  note(`member envelopes captured (hasGroceries=${/Groceries/i.test(memberEnv)})`)
 
   await writeFile(path.join(OUT, "shopping_settle_notes.txt"), NOTES.join("\n") + "\n")
   await browser.close()

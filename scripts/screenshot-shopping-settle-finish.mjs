@@ -2,22 +2,14 @@
  * Finish settlement demo from current DB (or create if missing):
  * verify tab → member payment → member envelope repayment → proof screenshots.
  */
-import { createRequire } from "node:module"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { pathToFileURL } from "node:url"
 import { waitForDialogSettled } from "./lib/playwright-screenshot-helpers.mjs"
+import { defaultScreenshotOutDir, loadPlaywrightChromium } from "./lib/playwright-screenshot-runtime.mjs"
 
-const require = createRequire(import.meta.url)
-const playwrightPkg = path.dirname(
-  require.resolve("playwright/package.json", {
-    paths: ["/workspace/node_modules/.pnpm/playwright@1.59.1/node_modules"],
-  }),
-)
-const playwrightMod = await import(pathToFileURL(path.join(playwrightPkg, "index.js")).href)
-const chromium = playwrightMod.chromium ?? playwrightMod.default?.chromium
+const chromium = await loadPlaywrightChromium()
 const ORIGIN = process.env.ORIGIN || "http://localhost:3001"
-const OUT = process.env.OUT_DIR || "/opt/cursor/artifacts"
+const OUT = defaultScreenshotOutDir()
 const NOTES = []
 const note = (m) => {
   console.log(m)
@@ -97,7 +89,8 @@ async function enableAndAddBudget(page, who) {
     await page.waitForTimeout(1200)
   }
   await shot(page, `shopping_settle_fin_${who}_budget_posted`)
-  note(`${who} budget: ${(await card.innerText()).replace(/\s+/g, " ").slice(0, 240)}`)
+  const cardText = await card.innerText()
+  note(`${who} budget captured (hasPosted=${/\bposted\b/i.test(cardText)})`)
 }
 
 async function gotoHash(page, hash) {
@@ -119,7 +112,7 @@ async function main() {
   await owner.getByRole("tab", { name: "Tab", exact: true }).click()
   await shot(owner, "shopping_settle_fin_01_owner_tab_before")
   const ownerTabBefore = await owner.locator("main").innerText()
-  note(`owner tab before: ${ownerTabBefore.match(/Net owed to you[\s\S]{0,30}/)?.[0]}`)
+  note(`owner tab before captured (has26=${/\$26/.test(ownerTabBefore)}, hasNetOwed=${/Net owed/i.test(ownerTabBefore)})`)
 
   // Ensure owner budget rows posted
   await enableAndAddBudget(owner, "owner")
@@ -127,7 +120,8 @@ async function main() {
   // Owner transactions proof
   await gotoHash(owner, "#/transactions")
   await shot(owner, "shopping_settle_fin_02_owner_transactions")
-  note(`owner txns: ${(await owner.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 400)}`)
+  const ownerTxn = await owner.locator("main").innerText()
+  note(`owner transactions captured (hasShoppingRows=${/Shopping/i.test(ownerTxn)})`)
 
   // Member payment
   await signIn(member, "shopping-member@bitbudget.test")
@@ -136,7 +130,7 @@ async function main() {
   await member.getByRole("tab", { name: "Tab", exact: true }).click()
   await shot(member, "shopping_settle_fin_03_member_tab_before")
   const memberTabBefore = await member.locator("main").innerText()
-  note(`member tab before: ${memberTabBefore.match(/You owe[\s\S]{0,30}/)?.[0]}`)
+  note(`member tab before captured (owes26=${/\$26/.test(memberTabBefore)}, youOwe=${/You owe/i.test(memberTabBefore)})`)
 
   if (/\$26/.test(memberTabBefore)) {
     await member.getByRole("button", { name: /Record payment/i }).click()
@@ -150,14 +144,18 @@ async function main() {
 
   await member.getByRole("tab", { name: "Tab", exact: true }).click()
   await shot(member, "shopping_settle_fin_05_member_tab_after_pay")
-  note(`member tab after pay: ${(await member.locator("main").innerText()).match(/You owe[\s\S]{0,40}|Net owed[\s\S]{0,40}|\$0\.00/g)}`)
+  const memberTabAfter = await member.locator("main").innerText()
+  note(
+    `member tab after pay captured (showsZero=${/\$0\.00/.test(memberTabAfter)}, stillOwes26=${/\$26/.test(memberTabAfter)})`,
+  )
 
   // Member posts repayment into Groceries
   await enableAndAddBudget(member, "member")
 
   await gotoHash(member, "#/transactions")
   await shot(member, "shopping_settle_fin_06_member_transactions")
-  note(`member txns: ${(await member.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 400)}`)
+  const memberTxn = await member.locator("main").innerText()
+  note(`member transactions captured (hasShoppingRows=${/Shopping/i.test(memberTxn)})`)
 
   // Owner tab after payment
   await openGroup(owner)
@@ -170,15 +168,18 @@ async function main() {
     await owner.getByRole("tab", { name: "Tab", exact: true }).click()
   }
   await shot(owner, "shopping_settle_fin_07_owner_tab_settled")
-  note(`owner tab settled: ${(await owner.locator("main").innerText()).match(/Net owed to you[\s\S]{0,40}/)?.[0]}`)
+  const ownerTabSettled = await owner.locator("main").innerText()
+  note(`owner tab settled captured (settledZero=${/\$0\.00/.test(ownerTabSettled) && !/\$26/.test(ownerTabSettled)})`)
 
   await gotoHash(owner, "#/envelopes")
   await shot(owner, "shopping_settle_fin_08_owner_envelopes")
-  note(`owner envelopes: ${(await owner.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 300)}`)
+  const ownerEnv = await owner.locator("main").innerText()
+  note(`owner envelopes captured (hasGroceries=${/Groceries/i.test(ownerEnv)})`)
 
   await gotoHash(member, "#/envelopes")
   await shot(member, "shopping_settle_fin_09_member_envelopes")
-  note(`member envelopes: ${(await member.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 300)}`)
+  const memberEnv = await member.locator("main").innerText()
+  note(`member envelopes captured (hasGroceries=${/Groceries/i.test(memberEnv)})`)
 
   // Envelope detail for Groceries if clickable
   const g = owner.getByText("Groceries").first()
@@ -186,7 +187,7 @@ async function main() {
     await g.click()
     await owner.waitForTimeout(1000)
     await shot(owner, "shopping_settle_fin_10_owner_groceries_detail")
-    note(`owner groceries detail: ${(await owner.locator("main").innerText()).replace(/\s+/g, " ").slice(0, 400)}`)
+    note("owner groceries detail screenshot captured")
   }
 
   await writeFile(path.join(OUT, "shopping_settle_finish_notes.txt"), NOTES.join("\n") + "\n")
