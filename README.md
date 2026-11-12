@@ -4,7 +4,7 @@ Privacy-first, **Bitcoin-first** envelope budgeting on the web. Track spending, 
 
 - **Live app:** [bitbudget.io](https://bitbudget.io)
 - **License:** [MIT](LICENSE) — you can read, run, and fork the software.
-- **Source:** [github.com/Launchframe/bitbudget](https://github.com/Launchframe/bitbudget) (public release planned; this tree ships the MIT license file either way.)
+- **Source:** [github.com/Launchframe/bitbudget](https://github.com/Launchframe/bitbudget) (MIT-licensed; clone and run self-hosted or contribute via pull request).
 
 ## Free vs Premium on bitbudget.io
 

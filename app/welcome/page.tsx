@@ -78,8 +78,8 @@ export default function WelcomePage() {
           />
           <FeatureCard
             icon={<Shield className="h-6 w-6 text-[#22C55E]" />}
-            title="End-to-End Encrypted"
-            description="Your financial data is encrypted before it leaves your browser. Not even we can read it. Your data stays yours."
+            title="Encrypted payees & notes"
+            description="Transaction payees and notes are encrypted on your device before they reach our servers—we can't read those fields. Amounts, dates, envelope names, and income stay visible so funding, sweeps, and reports work on bitbudget.io."
           />
         </div>
       </section>
@@ -91,7 +91,12 @@ export default function WelcomePage() {
         </h2>
         <div className="flex flex-col gap-8">
           {[
-            { step: "1", title: "Sign in securely", description: "Use your email, Google, or GitHub account. Your data is encrypted end-to-end — only you can read it." },
+            {
+              step: "1",
+              title: "Sign in securely",
+              description:
+                "Use your email, Google, or GitHub account. Payees and notes are encrypted client-side; amounts, dates, and budget structure stay on the server so your ledger can sync and run.",
+            },
             { step: "2", title: "Set up your budget", description: "Enter your income and create envelopes for your spending categories. Allocate every dollar before it's spent." },
             { step: "3", title: "Track transactions", description: "Record expenses as they happen or import your history from a CSV file. Stay on top of your spending in real time." },
             { step: "4", title: "Build better habits", description: "Review your spending trends and see where adjustments can help you save more and stress less." },
