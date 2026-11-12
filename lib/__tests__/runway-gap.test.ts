@@ -368,4 +368,294 @@ describe("computeRunwayGap — Infinity required bitcoin", () => {
     )
     expect(r.monthsToCloseDollarGap).toBe(Infinity)
   })
+
+  it("does not treat NaN or a negative requirement as an infinite gap", () => {
+    const nanReq = computeRunwayGap(makeInput({ monthsUntilQuit: 0, requiredBitcoinSats: NaN }))
+    expect(nanReq.requiredBitcoinSats).toBe(0)
+    expect(nanReq.flat.bitcoinGapSats).toBe(0)
+    expect(nanReq.combinedDollarGapUsd).toBe(1_000)
+    expect(Number.isNaN(nanReq.flat.bitcoinGapUsd)).toBe(false)
+
+    // A negative target must not invent surplus that swallows a cost.
+    const negativeReq = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 0,
+        monthlySavingsUsd: 0,
+        cashUsd: 0,
+        cashRequiredUsd: 0,
+        spendableSats: 0,
+        requiredBitcoinSats: -1_000_000,
+        scenarios: [{ id: "cost", label: "Cost", monthlyDeltaUsd: 0, oneTimeUsd: -100 }],
+      }),
+    )
+    expect(negativeReq.flat.bitcoinSurplusSats).toBe(0)
+    expect(negativeReq.scenarios[0]!.bitcoinGapClosedUsd).toBe(-100)
+    expect(negativeReq.scenarios[0]!.bitcoinGapClosedSats).toBe(-100_000)
+  })
+})
+
+describe("computeRunwayGap — sat conversion matches the dollars", () => {
+  it("buys 490 sats for $0.49 at $100k once the floor is already met", () => {
+    // (0.49 / 100_000) * 1e8 is 489.99999999999994; a float floor drops a sat
+    // and leaves a phantom gap after the cash floor is already met.
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 1,
+        monthlySavingsUsd: 0.49,
+        cashUsd: 1_000,
+        cashRequiredUsd: 1_000,
+        spendableSats: 0,
+        requiredBitcoinSats: 490,
+      }),
+    )
+    expect(r.flat.toCashUsd).toBe(0)
+    expect(r.flat.toBitcoinUsd).toBe(0.49)
+    expect(r.flat.projectedCashUsd).toBe(1_000)
+    expect(r.flat.projectedSats).toBe(490)
+    expect(r.flat.bitcoinGapSats).toBe(0)
+    expect(r.flat.cashGapUsd).toBe(0)
+    expect(r.combinedDollarGapUsd).toBe(0)
+    expect(r.monthsToCloseDollarGap).toBe(0)
+  })
+
+  it("floors only the remainder that spills past a filled floor", () => {
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 1,
+        monthlySavingsUsd: 1_000.49,
+        cashUsd: 0,
+        cashRequiredUsd: 1_000,
+        spendableSats: 0,
+        requiredBitcoinSats: 490,
+      }),
+    )
+    expect(r.flat.toCashUsd).toBe(1_000)
+    // 1000.49 - 1000 is not exact in binary; the sat count still rounds to 490.
+    expect(r.flat.toBitcoinUsd).toBeCloseTo(0.49, 10)
+    expect(r.flat.projectedSats).toBe(490)
+    expect(r.flat.bitcoinGapSats).toBe(0)
+  })
+})
+
+describe("computeRunwayGap — cash floor already met", () => {
+  it("sends every new dollar to bitcoin and leaves surplus cash alone", () => {
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 4,
+        monthlySavingsUsd: 500,
+        cashUsd: 5_000,
+        cashRequiredUsd: 1_000,
+        spendableSats: 0,
+        requiredBitcoinSats: 3_000_000,
+      }),
+    )
+    expect(r.flat.toCashUsd).toBe(0)
+    expect(r.flat.toBitcoinUsd).toBe(2_000)
+    expect(r.flat.projectedCashUsd).toBe(5_000)
+    expect(r.flat.projectedSats).toBe(2_000_000)
+    expect(r.flat.cashGapUsd).toBe(0)
+    expect(r.flat.cashSurplusUsd).toBe(4_000)
+    expect(r.flat.bitcoinGapSats).toBe(1_000_000)
+  })
+
+  it("does not nick the floor when a burn sells a fraction of a sat", () => {
+    // $1 at $60k is 1666.666 sats. Ceil sells 1667 ($1.0002) so cash stays put.
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 1,
+        monthlySavingsUsd: -1,
+        btcPriceUsd: 60_000,
+        cashUsd: 2_000,
+        cashRequiredUsd: 2_000,
+        spendableSats: 10_000_000,
+        requiredBitcoinSats: 0,
+      }),
+    )
+    expect(r.flat.projectedSats).toBe(10_000_000 - 1_667)
+    expect(r.flat.projectedCashUsd).toBe(2_000)
+    expect(r.flat.cashGapUsd).toBe(0)
+    expect(r.flat.toCashUsd).toBe(0)
+    expect(r.flat.toBitcoinUsd).toBeCloseTo(-1.0002, 10)
+  })
+})
+
+describe("computeRunwayGap — zero savings", () => {
+  it("does not fill a short floor or buy bitcoin, and never closes", () => {
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 12,
+        monthlySavingsUsd: 0,
+        cashUsd: 100,
+        cashRequiredUsd: 1_000,
+        spendableSats: 0,
+        requiredBitcoinSats: 1_000_000,
+      }),
+    )
+    expect(r.flat.newSavingsUsd).toBe(0)
+    expect(r.flat.projectedCashUsd).toBe(100)
+    expect(r.flat.projectedSats).toBe(0)
+    expect(r.flat.cashGapUsd).toBe(900)
+    expect(r.flat.bitcoinGapSats).toBe(1_000_000)
+    expect(r.monthsToCloseDollarGap).toBeNull()
+  })
+
+  it("leaves a met floor and a bitcoin shortfall untouched", () => {
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 6,
+        monthlySavingsUsd: 0,
+        cashUsd: 5_000,
+        cashRequiredUsd: 1_000,
+        spendableSats: 0,
+        requiredBitcoinSats: 1_000_000,
+      }),
+    )
+    expect(r.flat.projectedCashUsd).toBe(5_000)
+    expect(r.flat.cashGapUsd).toBe(0)
+    expect(r.flat.cashSurplusUsd).toBe(4_000)
+    expect(r.flat.bitcoinGapUsd).toBe(1_000)
+    expect(r.monthsToCloseDollarGap).toBeNull()
+  })
+
+  it("returns null rather than a negative month count when savings are a burn", () => {
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 0,
+        monthlySavingsUsd: -400,
+        cashUsd: 0,
+        cashRequiredUsd: 1_000,
+        spendableSats: 0,
+        requiredBitcoinSats: 0,
+      }),
+    )
+    expect(r.combinedDollarGapUsd).toBe(1_000)
+    expect(r.monthsToCloseDollarGap).toBeNull()
+  })
+})
+
+describe("computeRunwayGap — quit date in the past", () => {
+  it("does not burn and ignores a monthly scenario delta", () => {
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: -4,
+        monthlySavingsUsd: -500,
+        flexibleCutMonthlyUsd: 800,
+        cashUsd: 3_000,
+        spendableSats: 2_000_000,
+        cashRequiredUsd: 1_000,
+        requiredBitcoinSats: 1_000_000,
+        scenarios: [{ id: "trim", label: "Trim", monthlyDeltaUsd: -250, oneTimeUsd: 100 }],
+      }),
+    )
+    expect(r.monthsUntilQuit).toBe(0)
+    expect(r.flat.newSavingsUsd).toBe(0)
+    expect(r.flat.projectedCashUsd).toBe(3_000)
+    expect(r.flat.projectedSats).toBe(2_000_000)
+    expect(r.withCuts.newSavingsUsd).toBe(0)
+    expect(r.withCuts.projectedSats).toBe(2_000_000)
+    expect(r.flat.cashGapUsd).toBe(0)
+    expect(r.scenarios[0]!.fromMonthlyUsd).toBe(0)
+    expect(r.scenarios[0]!.extraUsd).toBe(100)
+    expect(r.scenarios[0]!.cashGapClosedUsd).toBe(0)
+    expect(r.scenarios[0]!.bitcoinGapClosedUsd).toBe(0)
+  })
+
+  it("treats a non-finite horizon as no time left, not as infinite savings", () => {
+    const infinite = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: Infinity,
+        monthlySavingsUsd: 1,
+        cashUsd: 0,
+        cashRequiredUsd: 0,
+        spendableSats: 0,
+        requiredBitcoinSats: 5_000_000,
+      }),
+    )
+    expect(infinite.monthsUntilQuit).toBe(0)
+    expect(infinite.flat.projectedSats).toBe(0)
+    expect(infinite.flat.bitcoinGapSats).toBe(5_000_000)
+    expect(infinite.monthsToCloseDollarGap).toBe(5_000)
+
+    const missing = computeRunwayGap(makeInput({ monthsUntilQuit: Number.NaN, cashUsd: 40 }))
+    expect(missing.monthsUntilQuit).toBe(0)
+    expect(missing.flat.projectedCashUsd).toBe(40)
+    expect(Number.isNaN(missing.flat.projectedSats)).toBe(false)
+    expect(Number.isNaN(missing.combinedDollarGapUsd)).toBe(false)
+  })
+})
+
+describe("computeRunwayGap — unpriced bitcoin and bad holdings", () => {
+  it("keeps dollars as cash when the price is not a positive finite number", () => {
+    const floorMet = {
+      monthsUntilQuit: 1,
+      monthlySavingsUsd: 100,
+      cashUsd: 1_000,
+      cashRequiredUsd: 1_000,
+      spendableSats: 50_000,
+      requiredBitcoinSats: 5_000_000,
+    }
+    for (const btcPriceUsd of [Infinity, Number.NaN, -1]) {
+      const r = computeRunwayGap(makeInput({ ...floorMet, btcPriceUsd }))
+      expect(r.flat.projectedCashUsd).toBe(1_100)
+      expect(r.flat.projectedSats).toBe(50_000)
+      expect(r.flat.toBitcoinUsd).toBe(0)
+      expect(r.flat.bitcoinGapSats).toBe(4_950_000)
+      expect(Number.isNaN(r.flat.bitcoinGapUsd)).toBe(false)
+      expect(Number.isNaN(r.monthsToCloseDollarGap as number)).toBe(false)
+    }
+  })
+
+  it("does not turn an unrepresentable purchase into a closed gap", () => {
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 1,
+        monthlySavingsUsd: 1e12,
+        btcPriceUsd: 1e-7,
+        cashUsd: 0,
+        cashRequiredUsd: 0,
+        spendableSats: 0,
+        requiredBitcoinSats: 1,
+      }),
+    )
+    expect(r.flat.projectedSats).toBe(0)
+    expect(r.flat.projectedCashUsd).toBe(1e12)
+    expect(r.flat.bitcoinGapSats).toBe(1)
+    expect(Number.isFinite(r.flat.projectedSats)).toBe(true)
+  })
+
+  it("burns cash, not a phantom bitcoin credit, when a NaN price meets a drain", () => {
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 1,
+        monthlySavingsUsd: -100,
+        btcPriceUsd: Number.NaN,
+        cashUsd: 5_000,
+        cashRequiredUsd: 1_000,
+        spendableSats: 1_000_000,
+        requiredBitcoinSats: 0,
+      }),
+    )
+    expect(r.flat.projectedSats).toBe(1_000_000)
+    expect(r.flat.projectedCashUsd).toBe(4_900)
+    expect(r.flat.toBitcoinUsd).toBe(0)
+    expect(r.flat.toCashUsd).toBe(-100)
+    expect(Number.isNaN(r.flat.bitcoinGapUsd)).toBe(false)
+  })
+
+  it("treats negative sats as none so a drain cannot over-debit cash", () => {
+    const r = computeRunwayGap(
+      makeInput({
+        monthsUntilQuit: 1,
+        monthlySavingsUsd: -10,
+        cashUsd: 100,
+        cashRequiredUsd: 0,
+        spendableSats: -50_000,
+        requiredBitcoinSats: 0,
+      }),
+    )
+    expect(r.flat.projectedSats).toBe(0)
+    expect(r.flat.projectedCashUsd).toBe(90)
+    expect(r.flat.toBitcoinUsd).toBe(0)
+    expect(r.flat.toCashUsd).toBe(-10)
+  })
 })

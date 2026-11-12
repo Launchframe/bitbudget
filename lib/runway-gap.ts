@@ -26,25 +26,125 @@
 // Cash and bitcoin gaps stay separate everywhere so a high bitcoin target never
 // hides a cash floor that is short.
 //
-// Infinity handling: when the required bitcoin side is Infinity (A1 returns this
-// under a 100% stress drop / non-positive price), the bitcoin gap stays Infinity
-// in both sats and USD and never produces NaN. `monthsToCloseDollarGap` then
-// also surfaces as Infinity.
+// Infinity handling: when the required bitcoin side is +Infinity (A1 returns
+// this under a 100% stress drop / non-positive price), the bitcoin gap stays
+// Infinity in both sats and USD and never produces NaN. `monthsToCloseDollarGap`
+// then also surfaces as Infinity. NaN, -Infinity, and negative requirements are
+// not that sentinel — they count as no bitcoin requirement, so a bad input
+// cannot look like a gap that never closes.
+//
+// Months that are not a finite number (NaN, Infinity) clamp to 0, same as a
+// quit date already in the past. An infinite horizon would buy infinite sats
+// and wipe a finite bitcoin gap.
+//
+// Sat conversion uses integer micro-dollars. `(usd / price) * 1e8` is often a
+// hair under the real sat count, so a float floor drops one sat ($0.49 at
+// $100k → 489 instead of 490) and leaves a phantom gap after the cash floor is
+// already met. Buys floor (only sats fully paid for). Sales ceil, so a drain
+// does not nick a cash floor that was already met by a fraction of a sat.
+// A non-finite price buys and sells nothing; those dollars stay in cash.
 
 const SATS_PER_BTC = 1e8
+/** Micro-dollars. Exact for cent prices inside the safe-integer range. */
+const USD_MICROS = 1_000_000
 
-/** Convert a USD amount to integer sats at a spot price. Non-positive price or
- * amount yields 0 sats (bitcoin cannot be bought / valued). Floored to keep the
- * projected balance conservative. */
-function usdToSats(usd: number, priceUsd: number): number {
-  if (usd <= 0 || priceUsd <= 0) return 0
-  return Math.max(0, Math.floor((usd / priceUsd) * SATS_PER_BTC))
+function finiteOrZero(n: number): number {
+  return typeof n === "number" && Number.isFinite(n) ? n : 0
 }
 
-/** Value a sats amount in USD at a spot price; Infinity sats stays Infinity. */
+/** Past, NaN, and infinite horizons all project "no months left to save". */
+function sanitizeMonths(n: number): number {
+  if (typeof n !== "number" || !Number.isFinite(n)) return 0
+  return Math.max(0, n)
+}
+
+function sanitizeCashRequired(n: number): number {
+  if (n === Infinity) return Infinity
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return 0
+  return n
+}
+
+/** Holdings are a non-negative sat count. Negative and non-finite input is 0. */
+function sanitizeHoldingsSats(n: number): number {
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return 0
+  const rounded = Math.round(n)
+  if (!Number.isSafeInteger(rounded) || rounded <= 0) return 0
+  return rounded
+}
+
+/**
+ * Required sats. +Infinity is the A1 "bitcoin cannot fund this" sentinel.
+ * Anything else that is not a positive safe integer is no requirement — a
+ * negative target must not invent surplus that swallows a later cost.
+ * A positive count that does not fit in a safe integer stays Infinity so the
+ * gap cannot show as closed.
+ */
+function sanitizeRequiredSats(n: number): number {
+  if (n === Infinity) return Infinity
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return 0
+  const rounded = Math.round(n)
+  if (!Number.isSafeInteger(rounded)) return Infinity
+  return rounded
+}
+
+function priceIsUsable(priceUsd: number): boolean {
+  return Number.isFinite(priceUsd) && priceUsd > 0
+}
+
+type SatRound = "floor" | "ceil"
+
+/**
+ * Convert USD to integer sats at a spot price.
+ *
+ * Returns null when bitcoin cannot be priced (non-positive or non-finite) or
+ * the sat count does not fit in a safe integer — the caller must not pretend
+ * the trade happened. Returns 0 when the amount is not a positive number, or
+ * when a floored purchase is worth less than one sat.
+ */
+function usdToSats(usd: number, priceUsd: number, round: SatRound): number | null {
+  if (!(typeof usd === "number" && usd > 0)) return 0
+  if (!priceIsUsable(priceUsd)) return null
+  const usdMicros = Math.round(usd * USD_MICROS)
+  const priceMicros = Math.round(priceUsd * USD_MICROS)
+  if (
+    !Number.isSafeInteger(usdMicros) ||
+    !Number.isSafeInteger(priceMicros) ||
+    priceMicros <= 0
+  ) {
+    const raw = (usd * SATS_PER_BTC) / priceUsd
+    if (!Number.isFinite(raw) || raw <= 0) return null
+    const nearest = Math.round(raw)
+    const sats =
+      Math.abs(raw - nearest) <= 1e-6
+        ? nearest
+        : round === "ceil"
+          ? Math.ceil(raw)
+          : Math.floor(raw)
+    if (!Number.isSafeInteger(sats) || sats < 0) return null
+    return sats
+  }
+  const usdB = BigInt(usdMicros)
+  const priceB = BigInt(priceMicros)
+  const perBtc = BigInt(SATS_PER_BTC)
+  const sats = round === "ceil" ? (usdB * perBtc + priceB - 1n) / priceB : (usdB * perBtc) / priceB
+  if (sats > BigInt(Number.MAX_SAFE_INTEGER)) return null
+  return Number(sats)
+}
+
+/** Sats a dollar amount represents. Unpriced → 0. Too large to count → Infinity. */
+function satsForDollars(usd: number, priceUsd: number, round: SatRound): number {
+  if (!(usd > 0)) return 0
+  const sats = usdToSats(usd, priceUsd, round)
+  if (sats === null) return priceIsUsable(priceUsd) ? Infinity : 0
+  return sats
+}
+
+/** Value a positive sat count in USD. Unpriced bitcoin marks at 0; +Infinity sats stays Infinity. */
 function satsToUsd(sats: number, priceUsd: number): number {
-  if (!Number.isFinite(sats)) return Infinity
-  return (sats / SATS_PER_BTC) * Math.max(0, priceUsd)
+  if (sats === Infinity) return Infinity
+  if (!Number.isFinite(sats) || !(sats > 0)) return 0
+  if (!priceIsUsable(priceUsd)) return 0
+  return (sats / SATS_PER_BTC) * priceUsd
 }
 
 export interface RunwayGapScenarioInput {
@@ -184,48 +284,69 @@ interface ProjectArgs {
  * it threatens the floor.
  */
 function projectStack(args: ProjectArgs): RunwayGapProjection {
-  const months = Math.max(0, args.monthsUntilQuit)
-  const newSavingsUsd = args.monthlyAddUsd * months + args.oneTimeUsd
+  const months = sanitizeMonths(args.monthsUntilQuit)
+  const monthlyAdd = finiteOrZero(args.monthlyAddUsd)
+  const oneTime = finiteOrZero(args.oneTimeUsd)
+  let newSavingsUsd = monthlyAdd * months + oneTime
+  // A non-finite product (huge rate × huge horizon) must not become an infinite stack.
+  if (!Number.isFinite(newSavingsUsd)) newSavingsUsd = 0
 
-  let projectedCashUsd = args.startCashUsd
-  let projectedSats = args.startSats
+  const startCashUsd = finiteOrZero(args.startCashUsd)
+  const startSats = sanitizeHoldingsSats(args.startSats)
+  const cashRequiredUsd = sanitizeCashRequired(args.cashRequiredUsd)
+
+  let projectedCashUsd = startCashUsd
+  let projectedSats = startSats
   let toCashUsd = 0
   let toBitcoinUsd = 0
 
   if (newSavingsUsd >= 0) {
-    const gapToFloor = Math.max(0, args.cashRequiredUsd - args.startCashUsd)
+    const gapToFloor =
+      cashRequiredUsd === Infinity ? Infinity : Math.max(0, cashRequiredUsd - startCashUsd)
     toCashUsd = Math.min(newSavingsUsd, gapToFloor)
     toBitcoinUsd = newSavingsUsd - toCashUsd
-    if (args.btcPriceUsd > 0) {
-      projectedCashUsd = args.startCashUsd + toCashUsd
-      projectedSats = args.startSats + usdToSats(toBitcoinUsd, args.btcPriceUsd)
-    } else {
-      // Bitcoin can't be bought at a non-positive price. Keep those dollars as
-      // cash so the projected stack doesn't silently lose value; the bitcoin
-      // gap stays whatever it was (no sats added).
-      projectedCashUsd = args.startCashUsd + toCashUsd + toBitcoinUsd
-      projectedSats = args.startSats
+    const bought = usdToSats(toBitcoinUsd, args.btcPriceUsd, "floor")
+    const summed = bought === null ? null : startSats + bought
+    if (bought === null || summed === null || !Number.isSafeInteger(summed)) {
+      // Can't price the coins, or the sat count doesn't fit. Keep the dollars
+      // as cash so the stack doesn't silently lose them (and so an overflow
+      // can't look like infinite bitcoin that closes the gap).
+      projectedCashUsd = startCashUsd + toCashUsd + toBitcoinUsd
+      projectedSats = startSats
       toCashUsd += toBitcoinUsd
       toBitcoinUsd = 0
+    } else {
+      projectedCashUsd = startCashUsd + toCashUsd
+      projectedSats = summed
     }
   } else {
-    // Net drain: take it out of bitcoin first (protect the floor), then cash.
+    // Net drain: sell bitcoin first (protect the floor), then cash.
+    // Ceil the sale so a fraction of a sat is not taken out of a floor that
+    // is already met. The leg is the mark of the sats actually removed, which
+    // can be up to one sat more than the dollar drain.
     const drainUsd = -newSavingsUsd
-    const drainSats = usdToSats(drainUsd, args.btcPriceUsd)
-    const satsRemoved = Math.min(args.startSats, drainSats)
-    projectedSats = args.startSats - satsRemoved
+    const sale = usdToSats(drainUsd, args.btcPriceUsd, "ceil")
+    let satsRemoved = 0
+    if (sale === null) {
+      // Unpriced: sell nothing. A usable price whose sale doesn't fit in a
+      // safe integer is larger than any balance we can count — sell what we have.
+      if (priceIsUsable(args.btcPriceUsd)) satsRemoved = startSats
+    } else {
+      satsRemoved = Math.min(startSats, sale)
+    }
+    projectedSats = startSats - satsRemoved
     const drainedBitcoinUsd = satsToUsd(satsRemoved, args.btcPriceUsd)
     const remainingDrainUsd = Math.max(0, drainUsd - drainedBitcoinUsd)
-    projectedCashUsd = args.startCashUsd - remainingDrainUsd
+    projectedCashUsd = startCashUsd - remainingDrainUsd
     // Avoid -0 for clean equality when nothing was drained from a side.
     toBitcoinUsd = drainedBitcoinUsd === 0 ? 0 : -drainedBitcoinUsd
     toCashUsd = remainingDrainUsd === 0 ? 0 : -remainingDrainUsd
   }
 
-  const cashSurplusUsd = projectedCashUsd - args.cashRequiredUsd
-  const cashGapUsd = Math.max(0, -cashSurplusUsd)
+  const cashSurplusUsd = projectedCashUsd - cashRequiredUsd
+  const cashGapUsd = cashRequiredUsd === Infinity ? Infinity : Math.max(0, -cashSurplusUsd)
 
-  const reqSats = args.requiredBitcoinSats
+  const reqSats = sanitizeRequiredSats(args.requiredBitcoinSats)
   const bitcoinGapSats = Number.isFinite(reqSats)
     ? Math.max(0, reqSats - projectedSats)
     : Infinity
@@ -264,13 +385,16 @@ function closeGaps(
   bitcoinSurplusUsd: number,
   btcPriceUsd: number,
 ): { cashGapClosedUsd: number; bitcoinGapClosedUsd: number; bitcoinGapClosedSats: number } {
-  if (extraUsd >= 0) {
+  if (!Number.isFinite(extraUsd) || extraUsd === 0) {
+    return { cashGapClosedUsd: 0, bitcoinGapClosedUsd: 0, bitcoinGapClosedSats: 0 }
+  }
+  if (extraUsd > 0) {
     const cashGapClosedUsd = Math.min(cashGapUsd, extraUsd)
     const remainingUsd = extraUsd - cashGapClosedUsd
     const bitcoinGapClosedUsd = Number.isFinite(bitcoinGapUsd)
       ? Math.min(bitcoinGapUsd, remainingUsd)
       : remainingUsd
-    const bitcoinGapClosedSats = usdToSats(bitcoinGapClosedUsd, btcPriceUsd)
+    const bitcoinGapClosedSats = satsForDollars(bitcoinGapClosedUsd, btcPriceUsd, "floor")
     return { cashGapClosedUsd, bitcoinGapClosedUsd, bitcoinGapClosedSats }
   }
   // Net cost: bitcoin is drained to protect the cash floor. A surplus of sats
@@ -281,28 +405,43 @@ function closeGaps(
   const gapWidenedUsd = Math.max(0, costUsd - surplusUsd)
   // Avoid -0 when the surplus fully absorbs the cost (clean equality in tests).
   const bitcoinGapClosedUsd = gapWidenedUsd === 0 ? 0 : -gapWidenedUsd
-  const widenedSats = usdToSats(gapWidenedUsd, btcPriceUsd)
-  const bitcoinGapClosedSats = widenedSats === 0 ? 0 : -widenedSats
+  const widenedSats = satsForDollars(gapWidenedUsd, btcPriceUsd, "ceil")
+  const bitcoinGapClosedSats =
+    widenedSats === 0 ? 0 : widenedSats === Infinity ? -Infinity : -widenedSats
   return { cashGapClosedUsd: 0, bitcoinGapClosedUsd, bitcoinGapClosedSats }
 }
 
 export function computeRunwayGap(input: RunwayGapInput): RunwayGapResult {
-  const months = Math.max(0, input.monthsUntilQuit)
+  const months = sanitizeMonths(input.monthsUntilQuit)
+  const monthlySavingsUsd = finiteOrZero(input.monthlySavingsUsd)
+  const flexibleCutMonthlyUsd = finiteOrZero(input.flexibleCutMonthlyUsd)
+  const cashUsd = finiteOrZero(input.cashUsd)
+  const spendableSats = sanitizeHoldingsSats(input.spendableSats)
+  const cashRequiredUsd = sanitizeCashRequired(input.cashRequiredUsd)
+  const requiredBitcoinSats = sanitizeRequiredSats(input.requiredBitcoinSats)
+  // Keep a real non-positive price visible. Non-finite prices cannot be used
+  // and are reported as 0 so the result itself is not NaN.
+  const btcPriceUsd = priceIsUsable(input.btcPriceUsd)
+    ? input.btcPriceUsd
+    : Number.isFinite(input.btcPriceUsd)
+      ? input.btcPriceUsd
+      : 0
 
   const base = {
-    startCashUsd: input.cashUsd,
-    startSats: input.spendableSats,
+    startCashUsd: cashUsd,
+    startSats: spendableSats,
     monthsUntilQuit: months,
     oneTimeUsd: 0,
-    cashRequiredUsd: input.cashRequiredUsd,
-    requiredBitcoinSats: input.requiredBitcoinSats,
-    btcPriceUsd: input.btcPriceUsd,
+    cashRequiredUsd,
+    requiredBitcoinSats,
+    btcPriceUsd,
   }
 
-  const flat = projectStack({ ...base, monthlyAddUsd: input.monthlySavingsUsd })
+  const flat = projectStack({ ...base, monthlyAddUsd: monthlySavingsUsd })
+  const withCutsMonthly = monthlySavingsUsd + flexibleCutMonthlyUsd
   const withCuts = projectStack({
     ...base,
-    monthlyAddUsd: input.monthlySavingsUsd + input.flexibleCutMonthlyUsd,
+    monthlyAddUsd: Number.isFinite(withCutsMonthly) ? withCutsMonthly : 0,
   })
 
   // Combined dollar view uses the flat projection (current savings rate).
@@ -313,10 +452,13 @@ export function computeRunwayGap(input: RunwayGapInput): RunwayGapResult {
   let monthsToCloseDollarGap: number | null
   if (combinedDollarGapUsd <= 0) {
     monthsToCloseDollarGap = 0
-  } else if (input.monthlySavingsUsd > 0) {
-    monthsToCloseDollarGap = combinedDollarGapUsd / input.monthlySavingsUsd
+  } else if (monthlySavingsUsd > 0) {
+    monthsToCloseDollarGap = Number.isFinite(combinedDollarGapUsd)
+      ? combinedDollarGapUsd / monthlySavingsUsd
+      : Infinity
   } else {
     // Savings <= 0 and a finite gap remains: it never closes.
+    // An infinite gap still never closes when nothing is being saved.
     monthsToCloseDollarGap = Number.isFinite(combinedDollarGapUsd) ? null : Infinity
   }
 
@@ -324,8 +466,15 @@ export function computeRunwayGap(input: RunwayGapInput): RunwayGapResult {
   // A net cost eats this surplus before it can widen the bitcoin gap.
   // -Infinity surplus (Infinity requirement) means no surplus to spend down.
   const flatBitcoinSurplusUsd = Number.isFinite(flat.bitcoinSurplusSats)
-    ? satsToUsd(flat.bitcoinSurplusSats, input.btcPriceUsd)
+    ? satsToUsd(Math.max(0, flat.bitcoinSurplusSats), btcPriceUsd)
     : 0
+
+  const scenarioInputs = input.scenarios.map((s) => ({
+    id: s.id,
+    label: s.label,
+    monthlyDeltaUsd: finiteOrZero(s.monthlyDeltaUsd),
+    oneTimeUsd: finiteOrZero(s.oneTimeUsd),
+  }))
 
   const scenarioClosure = (
     id: string,
@@ -341,7 +490,7 @@ export function computeRunwayGap(input: RunwayGapInput): RunwayGapResult {
       flat.cashGapUsd,
       flat.bitcoinGapUsd,
       flatBitcoinSurplusUsd,
-      input.btcPriceUsd,
+      btcPriceUsd,
     )
     return {
       id,
@@ -355,22 +504,22 @@ export function computeRunwayGap(input: RunwayGapInput): RunwayGapResult {
     }
   }
 
-  const scenarios = input.scenarios.map((s) =>
+  const scenarios = scenarioInputs.map((s) =>
     scenarioClosure(s.id, s.label, s.monthlyDeltaUsd, s.oneTimeUsd),
   )
 
-  const aggMonthlyDelta = input.scenarios.reduce((sum, s) => sum + s.monthlyDeltaUsd, 0)
-  const aggOneTime = input.scenarios.reduce((sum, s) => sum + s.oneTimeUsd, 0)
+  const aggMonthlyDelta = scenarioInputs.reduce((sum, s) => sum + s.monthlyDeltaUsd, 0)
+  const aggOneTime = scenarioInputs.reduce((sum, s) => sum + s.oneTimeUsd, 0)
   const allEnabled = scenarioClosure("all", "All scenarios", aggMonthlyDelta, aggOneTime)
 
   return {
     monthsUntilQuit: months,
-    btcPriceUsd: input.btcPriceUsd,
-    cashRequiredUsd: input.cashRequiredUsd,
-    requiredBitcoinSats: input.requiredBitcoinSats,
+    btcPriceUsd,
+    cashRequiredUsd,
+    requiredBitcoinSats,
     flat,
     withCuts,
-    flexibleCutMonthlyUsd: input.flexibleCutMonthlyUsd,
+    flexibleCutMonthlyUsd,
     combinedDollarGapUsd,
     monthsToCloseDollarGap,
     scenarios,
