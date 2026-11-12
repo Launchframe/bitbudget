@@ -90,11 +90,13 @@ export function RunwayDashboardCard() {
           bitcoinUsd,
           cashOverrideUsd: plan?.cashOverrideUsd ?? null,
           bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
+          bitcoinSats: comp.need.spendableSats,
         }),
         underFloor: Boolean(refill?.underFloor),
         shortfallUsd: refill?.shortfallUsd ?? 0,
         projectedCashGapUsd: comp.gap.flat.cashGapUsd,
         projectedBitcoinGapUsd: comp.gap.flat.bitcoinGapUsd,
+        alreadySteppedBack: plan?.phase === "runway",
       })
     }
   }
