@@ -331,6 +331,14 @@ describe("runway glance copy", () => {
         bitcoinOverrideSats: null,
       }),
     ).toBe(false)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: 0,
+      }),
+    ).toBe(false)
   })
 
   it("headlines months left, or a prompt when the plan has no draw", () => {
