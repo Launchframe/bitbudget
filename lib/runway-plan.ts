@@ -619,7 +619,7 @@ export function parseRunwayPlanBody(
 export function planValuesForClientWrite(
   values: RunwayPlanValues,
 ): Omit<RunwayPlanValues, "checkupOpenedMonthKey"> {
-  const writable = { ...values }
-  delete writable.checkupOpenedMonthKey
+  const { checkupOpenedMonthKey, ...writable } = values
+  void checkupOpenedMonthKey
   return writable
 }
