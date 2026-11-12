@@ -50,6 +50,7 @@ import {
   setCachedPrivacyKeyHex,
 } from "@/lib/privacy-key-storage"
 import { clearAllDrafts } from "@/lib/draft-storage"
+import { clearAllWalletWatches } from "@/lib/wallet-watch-store"
 import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 import {
   type ApiTransactionRow,
@@ -1603,6 +1604,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       sessionStorage.removeItem("bitbudget-survey-shown")
       sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
       clearAllDrafts()
+      clearAllWalletWatches()
     } catch {
       /* ignore */
     }

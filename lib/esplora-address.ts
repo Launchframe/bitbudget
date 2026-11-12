@@ -8,6 +8,12 @@ export const DEFAULT_ESPLORA_BASE = "https://mempool.space/api"
 const BASE58_ADDRESS = /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/
 const BECH32_ADDRESS = /^bc1[02-9ac-hj-np-z]{11,87}$/i
 
+/** Bech32 is case-insensitive. Base58 addresses keep their original case. */
+export function canonicalBitcoinAddress(value: string): string {
+  const trimmed = value.trim()
+  return trimmed.toLowerCase().startsWith("bc1") ? trimmed.toLowerCase() : trimmed
+}
+
 export function addressWatchError(value: string): string | null {
   const trimmed = value.trim()
   if (!trimmed) return "Enter an address."
@@ -15,6 +21,12 @@ export function addressWatchError(value: string): string | null {
     return "Paste one address. A seed is not accepted."
   }
   if (/^(xprv|yprv|zprv|xpub|ypub|zpub)/i.test(trimmed)) {
+    return "Paste one address. A key is not accepted."
+  }
+  if (/^[5KL]/.test(trimmed) && trimmed.length >= 51 && trimmed.length <= 52) {
+    return "Paste one address. A key is not accepted."
+  }
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
     return "Paste one address. A key is not accepted."
   }
   if (!BASE58_ADDRESS.test(trimmed) && !BECH32_ADDRESS.test(trimmed)) {
@@ -107,7 +119,10 @@ export async function fetchAddressConfirmedSats(
 ): Promise<number> {
   const fetchFn = init?.fetchFn ?? fetch
   const base = (init?.baseUrl ?? DEFAULT_ESPLORA_BASE).replace(/\/$/, "")
-  const response = await fetchFn(`${base}/address/${encodeURIComponent(address.trim())}`)
+  const lookup = canonicalBitcoinAddress(address)
+  const response = await fetchFn(`${base}/address/${encodeURIComponent(lookup)}`, {
+    signal: AbortSignal.timeout(12_000),
+  })
   if (!response.ok) {
     throw new Error("Address lookup failed")
   }

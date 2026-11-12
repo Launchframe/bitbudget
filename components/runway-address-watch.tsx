@@ -2,14 +2,16 @@
 
 import { useEffect, useRef, useState } from "react"
 import { Loader2, RefreshCw, Trash2 } from "lucide-react"
+import { useApp } from "@/lib/app-context"
 import {
   addressWatchError,
+  canonicalBitcoinAddress,
   fetchAddressChainMovements,
   fetchAddressConfirmedSats,
   type AddressChainMovement,
 } from "@/lib/esplora-address"
 import { useWalletWatches } from "@/lib/use-wallet-watch"
-import { writeWalletWatches, type WalletWatch } from "@/lib/wallet-watch-store"
+import { patchWalletWatch, writeWalletWatches, type WalletWatch } from "@/lib/wallet-watch-store"
 
 type AddressRole = "wallet" | "exchange"
 
@@ -18,7 +20,8 @@ type AddressRole = "wallet" | "exchange"
  * Change outputs are not discovered. No seed field.
  */
 export function RunwayAddressWatch() {
-  const watches = useWalletWatches()
+  const { currentUserId } = useApp()
+  const watches = useWalletWatches(currentUserId)
   const addresses = watches.filter((watch) => watch.kind === "address")
   const [address, setAddress] = useState("")
   const [role, setRole] = useState<AddressRole>("wallet")
@@ -28,6 +31,7 @@ export function RunwayAddressWatch() {
   const [activityError, setActivityError] = useState<Record<string, boolean>>({})
   const addressKey = addresses.map((watch) => `${watch.id}:${watch.descriptor}`).join("|")
   const addressesRef = useRef(addresses)
+  const busyRef = useRef(false)
   addressesRef.current = addresses
 
   useEffect(() => {
@@ -51,24 +55,23 @@ export function RunwayAddressWatch() {
     }
   }, [addressKey])
 
-  async function refreshOne(watch: WalletWatch, list: readonly WalletWatch[]) {
+  async function refreshOne(watch: WalletWatch) {
     const sats = await fetchAddressConfirmedSats(watch.descriptor)
-    const updatedAt = new Date().toISOString()
-    writeWalletWatches(
-      list.map((row) =>
-        row.id === watch.id ? { ...row, confirmedSats: sats, updatedAt } : row,
-      ),
-    )
+    patchWalletWatch(currentUserId, watch.id, {
+      confirmedSats: sats,
+      updatedAt: new Date().toISOString(),
+    })
   }
 
   async function onAdd() {
+    if (busyRef.current || !currentUserId) return
     const problem = addressWatchError(address)
     if (problem) {
       setError(problem)
       return
     }
-    const descriptor = address.trim()
-    if (addresses.some((watch) => watch.descriptor === descriptor)) {
+    const descriptor = canonicalBitcoinAddress(address)
+    if (addresses.some((watch) => canonicalBitcoinAddress(watch.descriptor) === descriptor)) {
       setError("That address is already on the list.")
       return
     }
@@ -81,40 +84,47 @@ export function RunwayAddressWatch() {
       confirmedSats: 0,
       updatedAt: null,
     }
-    const list = [...watches, next]
-    writeWalletWatches(list)
+    writeWalletWatches(currentUserId, [...watches, next])
     setAddress("")
     setError(null)
+    busyRef.current = true
     setBusyId(next.id)
     try {
-      await refreshOne(next, list)
+      await refreshOne(next)
       const rows = await fetchAddressChainMovements(next.descriptor)
       setActivity((prev) => ({ ...prev, [next.id]: rows }))
       setActivityError((prev) => ({ ...prev, [next.id]: false }))
     } catch {
       setError("Couldn't look up that address. Try again.")
     } finally {
+      busyRef.current = false
       setBusyId(null)
     }
   }
 
   async function onRefresh(watch: WalletWatch) {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusyId(watch.id)
     setError(null)
     try {
-      await refreshOne(watch, watches)
+      await refreshOne(watch)
       const rows = await fetchAddressChainMovements(watch.descriptor)
       setActivity((prev) => ({ ...prev, [watch.id]: rows }))
       setActivityError((prev) => ({ ...prev, [watch.id]: false }))
     } catch {
       setError("Couldn't look up that address. Try again.")
     } finally {
+      busyRef.current = false
       setBusyId(null)
     }
   }
 
   function onRemove(id: string) {
-    writeWalletWatches(watches.filter((watch) => watch.id !== id))
+    writeWalletWatches(
+      currentUserId,
+      watches.filter((watch) => watch.id !== id),
+    )
   }
 
   return (
@@ -124,7 +134,8 @@ export function RunwayAddressWatch() {
         <p className="text-xs text-muted-foreground mt-1">
           Watching one address misses change. Wallets send leftover bitcoin to a new address, so
           one address can show too little. Add each address you want counted. The lookup runs in
-          your browser and the address is not sent to BitBudget.
+          your browser and asks a public block explorer (mempool.space). BitBudget never receives
+          the address. The explorer can see your IP address together with the address you look up.
         </p>
       </div>
 
@@ -150,7 +161,7 @@ export function RunwayAddressWatch() {
                 <button
                   type="button"
                   onClick={() => void onRefresh(watch)}
-                  disabled={busyId === watch.id}
+                  disabled={busyId !== null}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-[#333] px-3 py-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
                   aria-label="Refresh this address"
                 >
@@ -181,6 +192,12 @@ export function RunwayAddressWatch() {
           <input
             value={address}
             onChange={(event) => setAddress(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                void onAdd()
+              }
+            }}
             placeholder="Bitcoin address"
             autoComplete="off"
             spellCheck={false}
@@ -190,7 +207,8 @@ export function RunwayAddressWatch() {
           <button
             type="button"
             onClick={() => void onAdd()}
-            className="w-full shrink-0 rounded-lg bg-[#F7931A] px-4 py-2 text-sm font-semibold text-[#0D0D0D] hover:bg-[#F7931A]/90 sm:w-auto"
+            disabled={busyId !== null}
+            className="w-full shrink-0 rounded-lg bg-[#F7931A] px-4 py-2 text-sm font-semibold text-[#0D0D0D] hover:bg-[#F7931A]/90 disabled:opacity-50 sm:w-auto"
           >
             Add address
           </button>

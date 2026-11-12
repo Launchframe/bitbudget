@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   addressWatchError,
+  canonicalBitcoinAddress,
   chainMovementsFromEsploraTxs,
   confirmedSatsFromEsploraBody,
   fetchAddressChainMovements,
@@ -19,6 +20,13 @@ describe("addressWatchError", () => {
 
   it("rejects an xpub in the address box", () => {
     expect(addressWatchError("xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8")).toMatch(/key/i)
+  })
+
+  it("rejects a private key and lowercases bech32", () => {
+    expect(addressWatchError("5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ")).toMatch(/key/i)
+    const mixed = "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4"
+    expect(addressWatchError(mixed)).toBeNull()
+    expect(canonicalBitcoinAddress(mixed)).toBe("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")
   })
 })
 
@@ -53,6 +61,7 @@ describe("fetchAddressConfirmedSats", () => {
     ).resolves.toBe(7)
     expect(fetchFn).toHaveBeenCalledWith(
       "https://example.test/api/address/bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
   })
 })

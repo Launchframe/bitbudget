@@ -85,7 +85,8 @@ export async function POST(req: NextRequest) {
           .filter((snapshot) => snapshot != null)
         await upsertPlaidAccountSnapshots(plaidItem.id, snapshots)
       } catch (balanceErr) {
-        console.error("Plaid balance refresh failed:", balanceErr)
+        const message = balanceErr instanceof Error ? balanceErr.message : "unknown error"
+        console.error("Plaid balance refresh failed:", message.slice(0, 200))
       }
 
       for (;;) {
