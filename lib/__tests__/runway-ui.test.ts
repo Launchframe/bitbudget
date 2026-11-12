@@ -6,6 +6,10 @@ import {
   borrowingAllowed,
   buildPlanPutBody,
   buildRunwayComputation,
+  holdingsAfterSaleLinked,
+  mergeSavedPlan,
+  parseHoldingsOverrides,
+  rollbackPlanPatch,
   checkupMonthName,
   effectiveBorrowCapFraction,
   formatLiquidationRoomPct,
@@ -15,6 +19,7 @@ import {
   isCheckupReady,
   isRunwayConfigured,
   knownBitcoinSats,
+  runwayMoneyLabel,
   knownCashUsd,
   monthsUntilQuit,
   resolveLivingBaselineUsd,
@@ -350,14 +355,117 @@ describe("runway glance copy", () => {
 })
 
 describe("buildPlanPutBody", () => {
-  it("echoes the plan, applies the patch, and drops timestamps", () => {
-    const plan = makePlan({ runwayIncomeUsd: 500, scenarios: [] })
+  it("echoes the plan, applies the patch, and drops timestamps and the checkup month", () => {
+    const plan = makePlan({
+      runwayIncomeUsd: 500,
+      scenarios: [],
+      checkupOpenedMonthKey: "2026-03",
+    })
     const body = buildPlanPutBody(plan, { cashOverrideUsd: 1234 })
     expect(body.cashOverrideUsd).toBe(1234)
     expect(body.runwayIncomeUsd).toBe(500)
     expect(body.phase).toBe("buildup")
     expect("createdAt" in body).toBe(false)
     expect("updatedAt" in body).toBe(false)
+    expect("checkupOpenedMonthKey" in body).toBe(false)
+  })
+})
+
+describe("rollbackPlanPatch", () => {
+  it("restores only the fields this save wrote", () => {
+    const baseline = makePlan({ cashOverrideUsd: null, runwayIncomeUsd: 100 })
+    const patch = { cashOverrideUsd: 50 }
+    const optimistic = { ...baseline, ...patch }
+    const rolled = rollbackPlanPatch(optimistic, baseline, patch)
+    expect(rolled.cashOverrideUsd).toBeNull()
+    expect(rolled.runwayIncomeUsd).toBe(100)
+  })
+
+  it("leaves a newer edit of the same field alone", () => {
+    const baseline = makePlan({ cashOverrideUsd: null })
+    const patch = { cashOverrideUsd: 50 }
+    const newer = makePlan({ cashOverrideUsd: 80 })
+    expect(rollbackPlanPatch(newer, baseline, patch).cashOverrideUsd).toBe(80)
+  })
+})
+
+describe("mergeSavedPlan", () => {
+  it("keeps a newer field and still takes the server checkup month", () => {
+    const baseline = makePlan({ cashOverrideUsd: null, scenarios: [] })
+    const patch = { cashOverrideUsd: 50 }
+    const optimistic = { ...baseline, ...patch }
+    const saved = makePlan({
+      cashOverrideUsd: 50,
+      checkupOpenedMonthKey: "2026-04",
+    })
+    const newer = { ...optimistic, runwayIncomeUsd: 900 }
+    const merged = mergeSavedPlan(newer, optimistic, saved, patch)
+    expect(merged.runwayIncomeUsd).toBe(900)
+    expect(merged.cashOverrideUsd).toBe(50)
+    expect(merged.checkupOpenedMonthKey).toBe("2026-04")
+  })
+
+  it("returns the server row when nothing newer landed", () => {
+    const baseline = makePlan()
+    const patch = { cashOverrideUsd: 10 }
+    const optimistic = { ...baseline, ...patch }
+    const saved = makePlan({ cashOverrideUsd: 10, updatedAt: "2026-05-01T00:00:00.000Z" })
+    expect(mergeSavedPlan(optimistic, optimistic, saved, patch)).toBe(saved)
+  })
+})
+
+describe("holdingsAfterSaleLinked", () => {
+  it("adds proceeds onto envelope cash when no cash total was typed", () => {
+    expect(
+      holdingsAfterSaleLinked(
+        { bitcoinOverrideSats: null, cashOverrideUsd: null },
+        { sats: 1000, proceedsUsd: 250 },
+        1000,
+      ),
+    ).toEqual({ bitcoinOverrideSats: null, cashOverrideUsd: 1250 })
+  })
+
+  it("subtracts sold sats from a typed bitcoin total and stacks proceeds on a typed cash total", () => {
+    expect(
+      holdingsAfterSaleLinked(
+        { bitcoinOverrideSats: 50_000, cashOverrideUsd: 40 },
+        { sats: 10_000, proceedsUsd: 20 },
+        999,
+      ),
+    ).toEqual({ bitcoinOverrideSats: 40_000, cashOverrideUsd: 60 })
+  })
+
+  it("does not invent a cash total when proceeds are missing", () => {
+    expect(
+      holdingsAfterSaleLinked(
+        { bitcoinOverrideSats: 5, cashOverrideUsd: null },
+        { sats: 5, proceedsUsd: null },
+        100,
+      ),
+    ).toEqual({ bitcoinOverrideSats: 0, cashOverrideUsd: null })
+  })
+})
+
+describe("parseHoldingsOverrides", () => {
+  it("treats blanks as follow-the-budget", () => {
+    expect(parseHoldingsOverrides("  ", "")).toEqual({
+      ok: true,
+      cashOverrideUsd: null,
+      bitcoinOverrideSats: null,
+    })
+  })
+
+  it("rejects a negative cash or bitcoin total", () => {
+    expect(parseHoldingsOverrides("-1", "").ok).toBe(false)
+    expect(parseHoldingsOverrides("", "-0.1").ok).toBe(false)
+  })
+
+  it("converts bitcoin to sats", () => {
+    expect(parseHoldingsOverrides("10.5", "0.5")).toEqual({
+      ok: true,
+      cashOverrideUsd: 10.5,
+      bitcoinOverrideSats: 50_000_000,
+    })
   })
 })
 
@@ -388,5 +496,16 @@ describe("buildRunwayComputation", () => {
     expect(result.need.cashUsd).toBe(10_000)
     expect(result.gap.cashRequiredUsd).toBe(result.need.cashFloorUsedUsd)
     expect(result.gap.requiredBitcoinSats).toBe(result.need.requiredBitcoinSatsSpot)
+  })
+})
+
+describe("runwayMoneyLabel", () => {
+  it("formats a finite bill and hides a non-finite one", () => {
+    expect(runwayMoneyLabel(1200)).toBe("$1,200")
+    expect(runwayMoneyLabel(0)).toBe("$0")
+    expect(runwayMoneyLabel(Number.NaN)).toBe("—")
+    expect(runwayMoneyLabel(Number.POSITIVE_INFINITY)).toBe("—")
+    expect(runwayMoneyLabel(null)).toBe("—")
+    expect(runwayMoneyLabel(undefined)).toBe("—")
   })
 })

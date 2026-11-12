@@ -16,11 +16,16 @@ import {
   formatLiquidationRoomPct,
   formatSharePct,
   holdingsLookEmpty,
+  holdingsAfterSaleLinked,
   isCheckupReady,
   isRunwayConfigured,
+  mergeSavedPlan,
   runwayHeroDetail,
   runwayMonthsHeadline,
+  runwayMoneyLabel,
   runwayPrimaryAction,
+  parseHoldingsOverrides,
+  rollbackPlanPatch,
   shouldPromptHoldings,
   RUNWAY_JUST_SETUP_KEY,
   satsToUsd,
@@ -32,6 +37,16 @@ import {
   formatMonthsLeft,
 } from "@/lib/runway-expense-impact"
 import type { LoanEvaluation } from "@/lib/loan-health"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -123,7 +138,7 @@ function LoanRow({
         <div className="flex flex-col">
           <span className="text-muted-foreground">Bill due</span>
           <span className="text-foreground tabular-nums">
-            {evaluation ? formatUsd(evaluation.amountDueTodayUsd) : formatUsd(loan.principalUsd)}
+            {runwayMoneyLabel(evaluation ? evaluation.amountDueTodayUsd : loan.principalUsd)}
           </span>
         </div>
         <div className="flex flex-col">
@@ -172,8 +187,9 @@ export function RunwayPage() {
     btcPriceUsd,
     watchCount,
     suggestedStressPercent,
+    holdingsReady,
     compute,
-  } = useRunway({ withLoans: true })
+  } = useRunway()
 
   const [setupOpen, setSetupOpen] = useState(false)
   const [applyScenarios, setApplyScenarios] = useState(false)
@@ -184,6 +200,8 @@ export function RunwayPage() {
   const [refillOpen, setRefillOpen] = useState(false)
   const [editTotals, setEditTotals] = useState(false)
   const [scenariosOpen, setScenariosOpen] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [loanToDelete, setLoanToDelete] = useState<RunwayLoan | null>(null)
 
   const monthKey = getCurrentMonthKey()
   const configured = isRunwayConfigured(plan)
@@ -251,26 +269,68 @@ export function RunwayPage() {
   }, [setRunwayWhatIf])
 
   const savePatch = useCallback(
-    async (patch: Partial<RunwayPlanResponse>) => {
+    async (patch: Partial<RunwayPlanResponse>): Promise<boolean> => {
       const current = planRef.current
-      if (!current) return
+      if (!current) return false
       const optimistic = { ...current, ...patch }
       setPlan(optimistic)
+      setSaveError(null)
       try {
         const res = await fetch("/api/runway/plan", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(buildPlanPutBody(current, patch)),
         })
-        if (res.ok) {
-          const saved = (await res.json()) as RunwayPlanResponse
-          setPlan(saved)
+        if (!res.ok) {
+          setPlan((prev) => (prev ? rollbackPlanPatch(prev, current, patch) : current))
+          setSaveError("Couldn't save that change. Your runway is unchanged.")
+          return false
         }
+        const saved = (await res.json()) as RunwayPlanResponse
+        setPlan((prev) => (prev ? mergeSavedPlan(prev, optimistic, saved, patch) : saved))
+        return true
       } catch {
-        /* optimistic update already applied; next reload reconciles */
+        setPlan((prev) => (prev ? rollbackPlanPatch(prev, current, patch) : current))
+        setSaveError("Couldn't save that change. Check your connection and try again.")
+        return false
       }
     },
     [setPlan],
+  )
+
+  const linkSale = useCallback(
+    async (sale: RunwayPendingSale): Promise<string | null> => {
+      const current = planRef.current
+      if (!current) return "Couldn't update your totals."
+      const adjustment = holdingsAfterSaleLinked(current, sale, envelopeCashUsd)
+      const saved = await savePatch(adjustment)
+      if (!saved) return "Couldn't update your totals. The deposit is still on the way."
+      try {
+        const res = await fetch(`/api/runway/pending-sales?id=${encodeURIComponent(sale.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "linked" }),
+        })
+        if (!res.ok) {
+          await savePatch({
+            bitcoinOverrideSats: current.bitcoinOverrideSats,
+            cashOverrideUsd: current.cashOverrideUsd,
+          })
+          setSaveError("Couldn't link the deposit, so your totals were put back.")
+          return "Couldn't link the deposit, so your totals were put back."
+        }
+        reloadSales()
+        return null
+      } catch {
+        await savePatch({
+          bitcoinOverrideSats: current.bitcoinOverrideSats,
+          cashOverrideUsd: current.cashOverrideUsd,
+        })
+        setSaveError("Couldn't link the deposit, so your totals were put back.")
+        return "Couldn't link the deposit, so your totals were put back."
+      }
+    },
+    [envelopeCashUsd, reloadSales, savePatch],
   )
 
   // Gate first: a user who reaches #/runway with bitcoin features off (e.g. a
@@ -293,7 +353,7 @@ export function RunwayPage() {
     )
   }
 
-  if (loading) {
+  if (loading || !holdingsReady) {
     return (
       <div className="flex items-center justify-center py-24" role="status" aria-label="Loading your runway">
         <Spinner className="h-8 w-8 text-[#F7931A]" />
@@ -435,6 +495,12 @@ export function RunwayPage() {
         </div>
       </div>
 
+      {saveError && (
+        <p className="text-sm text-amber-400/95" role="alert">
+          {saveError}
+        </p>
+      )}
+
       {need && (
         <div className="flex flex-col gap-3 p-4 md:p-6 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F] min-w-0">
           <p className="text-3xl md:text-4xl font-bold text-foreground tracking-tight min-h-[2.75rem]">
@@ -524,7 +590,7 @@ export function RunwayPage() {
                   {cashUnset
                     ? "Tap to enter"
                     : plan.cashOverrideUsd != null
-                      ? "You typed this"
+                      ? "You typed this — clears back to your savings and envelopes"
                       : "From your savings and envelopes"}
                 </span>
               </button>
@@ -659,11 +725,7 @@ export function RunwayPage() {
                           loan={loan}
                           evaluation={loansEval.find((e) => e.id === loan.id)}
                           priceKnown={priceKnown}
-                          onDelete={() => {
-                            void fetch(`/api/runway/loans?id=${encodeURIComponent(loan.id)}`, {
-                              method: "DELETE",
-                            }).then(() => reloadLoans())
-                          }}
+                          onDelete={() => setLoanToDelete(loan)}
                         />
                       ))}
                     </div>
@@ -689,25 +751,7 @@ export function RunwayPage() {
         <PendingSalesSection
           sales={openSales}
           onChanged={reloadSales}
-          onLinked={(sale) => {
-            // Permanently move sold sats out of the typed bitcoin total and
-            // credit cash with proceeds so linking doesn't snap holdings back.
-            const current = planRef.current
-            if (!current) return
-            const nextBtc =
-              current.bitcoinOverrideSats != null
-                ? Math.max(0, current.bitcoinOverrideSats - sale.sats)
-                : current.bitcoinOverrideSats
-            const proceeds = sale.proceedsUsd ?? 0
-            const nextCash =
-              proceeds > 0
-                ? (current.cashOverrideUsd ?? envelopeCashUsd) + proceeds
-                : current.cashOverrideUsd
-            void savePatch({
-              bitcoinOverrideSats: nextBtc,
-              cashOverrideUsd: nextCash,
-            })
-          }}
+          onLink={linkSale}
         />
       )}
 
@@ -762,6 +806,38 @@ export function RunwayPage() {
           }}
         />
       )}
+
+      <AlertDialog open={loanToDelete != null} onOpenChange={(next) => { if (!next) setLoanToDelete(null) }}>
+        <AlertDialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-[min(96vw,28rem)]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this loan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {loanToDelete
+                ? `${loanToDelete.label} will drop out of your runway, including its bill and the bitcoin held as collateral.`
+                : "This loan will drop out of your runway."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-[#333]">Keep loan</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-500/90 text-[#0D0D0D] hover:bg-amber-500"
+              onClick={() => {
+                const id = loanToDelete?.id
+                setLoanToDelete(null)
+                if (!id) return
+                void fetch(`/api/runway/loans?id=${encodeURIComponent(id)}`, { method: "DELETE" })
+                  .then((res) => {
+                    if (!res.ok) setSaveError("Couldn't remove that loan.")
+                    reloadLoans()
+                  })
+                  .catch(() => setSaveError("Couldn't remove that loan. Check your connection and try again."))
+              }}
+            >
+              Remove loan
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -769,11 +845,12 @@ export function RunwayPage() {
 function PendingSalesSection({
   sales,
   onChanged,
-  onLinked,
+  onLink,
 }: {
   sales: RunwayPendingSale[]
   onChanged: () => void
-  onLinked: (sale: RunwayPendingSale) => void
+  /** Saves totals, then marks the sale linked. Returns an error string, or null. */
+  onLink: (sale: RunwayPendingSale) => Promise<string | null>
 }) {
   return (
     <div className="flex flex-col gap-3 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border border-[#1F1F1F]">
@@ -791,7 +868,7 @@ function PendingSalesSection({
             key={sale.id}
             sale={sale}
             onChanged={onChanged}
-            onLinked={onLinked}
+            onLink={onLink}
           />
         ))}
       </div>
@@ -802,16 +879,17 @@ function PendingSalesSection({
 function PendingSaleRow({
   sale,
   onChanged,
-  onLinked,
+  onLink,
 }: {
   sale: RunwayPendingSale
   onChanged: () => void
-  onLinked: (sale: RunwayPendingSale) => void
+  onLink: (sale: RunwayPendingSale) => Promise<string | null>
 }) {
   const [recording, setRecording] = useState(false)
   const [proceeds, setProceeds] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [cancelOpen, setCancelOpen] = useState(false)
 
   const patch = useCallback(
     async (body: Record<string, unknown>) => {
@@ -828,14 +906,6 @@ function PendingSaleRow({
           setError(typeof data.error === "string" ? data.error : "Couldn't update this sale.")
           return
         }
-        if (body.status === "linked") {
-          onLinked({
-            ...sale,
-            status: "linked",
-            proceedsUsd:
-              typeof body.proceedsUsd === "number" ? body.proceedsUsd : sale.proceedsUsd,
-          })
-        }
         onChanged()
       } catch {
         setError("Network error — try again.")
@@ -843,8 +913,19 @@ function PendingSaleRow({
         setBusy(false)
       }
     },
-    [sale, onChanged, onLinked],
+    [sale.id, onChanged],
   )
+
+  const linkDeposit = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const message = await onLink(sale)
+      if (message) setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }, [onLink, sale])
 
   const btcLabel = (sale.sats / SATS_PER_BTC).toLocaleString("en-US", {
     maximumFractionDigits: 8,
@@ -860,7 +941,7 @@ function PendingSaleRow({
         </span>
         <button
           type="button"
-          onClick={() => void patch({ status: "cancelled" })}
+          onClick={() => setCancelOpen(true)}
           disabled={busy}
           className="p-1 text-muted-foreground hover:text-amber-400 transition-colors shrink-0"
           aria-label="Cancel this sale"
@@ -919,11 +1000,35 @@ function PendingSaleRow({
           size="sm"
           className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90 self-start"
           disabled={busy}
-          onClick={() => void patch({ status: "linked" })}
+          onClick={() => void linkDeposit()}
         >
           Link the deposit
         </Button>
       )}
+
+      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <AlertDialogContent className="bg-[#0D0D0D] border-[#1F1F1F] text-foreground max-w-[min(96vw,28rem)]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this refill?</AlertDialogTitle>
+            <AlertDialogDescription>
+              We&apos;ll take it out of your total. You can start another refill if the cash still
+              hasn&apos;t landed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-[#333]">Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-500/90 text-[#0D0D0D] hover:bg-amber-500"
+              onClick={() => {
+                setCancelOpen(false)
+                void patch({ status: "cancelled" })
+              }}
+            >
+              Cancel refill
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {error && (
         <p className="text-xs text-amber-400/95" role="alert">
@@ -940,7 +1045,7 @@ function TotalsEditor({
   onDone,
 }: {
   plan: RunwayPlanResponse
-  onSave: (patch: Partial<RunwayPlanResponse>) => Promise<void>
+  onSave: (patch: Partial<RunwayPlanResponse>) => Promise<boolean>
   onDone: () => void
 }) {
   const [cash, setCash] = useState(plan.cashOverrideUsd != null ? String(plan.cashOverrideUsd) : "")
@@ -948,13 +1053,18 @@ function TotalsEditor({
     plan.bitcoinOverrideSats != null ? String(plan.bitcoinOverrideSats / SATS_PER_BTC) : "",
   )
 
+  const [formError, setFormError] = useState<string | null>(null)
+
   const save = () => {
-    const cashNum = parseFloat(cash)
-    const btcNum = parseFloat(btc)
+    const parsed = parseHoldingsOverrides(cash, btc)
+    if (!parsed.ok) {
+      setFormError(parsed.error)
+      return
+    }
+    setFormError(null)
     void onSave({
-      cashOverrideUsd: cash.trim() === "" || !Number.isFinite(cashNum) ? null : cashNum,
-      bitcoinOverrideSats:
-        btc.trim() === "" || !Number.isFinite(btcNum) ? null : Math.round(btcNum * SATS_PER_BTC),
+      cashOverrideUsd: parsed.cashOverrideUsd,
+      bitcoinOverrideSats: parsed.bitcoinOverrideSats,
     })
     onDone()
   }
@@ -994,6 +1104,11 @@ function TotalsEditor({
           />
         </div>
       </div>
+      {formError && (
+        <p className="text-xs text-amber-400/95" role="alert">
+          {formError}
+        </p>
+      )}
       <div className="flex justify-end">
         <Button
           type="button"

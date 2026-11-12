@@ -19,6 +19,7 @@ import {
   type GoalImpactResult,
 } from "@/lib/runway-expense-impact"
 import { PlaneTakeoff, Target } from "lucide-react"
+import { SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
 interface SavingsGoalLite {
   targetAmount?: number | null
@@ -65,7 +66,7 @@ export function ExpenseImpactBand({
   envelopeId: string
 }) {
   const { state, activeTransactions } = useApp()
-  const { plan, loading, compute, btcPriceOrNull } = useRunway({ withLoans: false })
+  const { plan, loading, compute, btcPriceOrNull, holdingsReady } = useRunway()
 
   const monthKey = getCurrentMonthKey()
   const [goal, setGoal] = useState<SavingsGoalLite | null>(null)
@@ -146,7 +147,7 @@ export function ExpenseImpactBand({
     monthsImpact?.monthsAfterGrowth != null
 
   // Not configured (or still loading the plan): no band, no reserved space.
-  if (loading || !configured) return null
+  if (loading || !holdingsReady || !configured) return null
 
   return (
     <div
@@ -162,7 +163,8 @@ export function ExpenseImpactBand({
           {goalMsg && (
             <div className="flex items-start gap-2">
               <Target
-                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#D4AF37]"
+                className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                style={{ color: SAVINGS_GOLD_ACCENT }}
                 aria-hidden
               />
               <p className="text-xs leading-relaxed text-foreground">{goalMsg}</p>

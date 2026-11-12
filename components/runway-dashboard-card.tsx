@@ -22,7 +22,7 @@ import { ArrowRight, CalendarCheck, Plane } from "lucide-react"
  */
 export function RunwayDashboardCard() {
   const { navigateTo } = useApp()
-  const { plan, loading, compute } = useRunway({ withLoans: false })
+  const { plan, loading, error, compute, holdingsReady } = useRunway()
 
   const monthKey = getCurrentMonthKey()
   const configured = isRunwayConfigured(plan)
@@ -49,7 +49,7 @@ export function RunwayDashboardCard() {
     : "border-[#1F1F1F] hover:border-[#F7931A]/50"
   const textCol = "flex flex-col gap-0.5 min-w-0 flex-1 min-h-[2.5rem] justify-center"
 
-  if (loading) {
+  if (loading || !holdingsReady) {
     return (
       <div className={`${shell} border-[#1F1F1F]`} aria-hidden>
         <div className="p-2.5 rounded-xl bg-[#F7931A]/10 shrink-0">
@@ -65,7 +65,10 @@ export function RunwayDashboardCard() {
 
   let title: string
   let detail: string
-  if (!configured) {
+  if (error || !plan) {
+    title = "Runway"
+    detail = "We couldn't load your runway. Tap to open it and try again."
+  } else if (!configured) {
     title = "Plan your runway"
     detail = "Map how long your money lasts if you stop earning."
   } else {
@@ -104,11 +107,13 @@ export function RunwayDashboardCard() {
       onClick={() => navigateTo("runway")}
       className={`${shell} ${borderClass}`}
       aria-label={
-        checkupReady
-          ? `Open your runway — ${checkupMonthName(monthKey)} checkup ready`
-          : configured
-            ? "Open your runway"
-            : "Set up your runway"
+        error || !plan
+          ? "Open your runway"
+          : checkupReady
+            ? `Open your runway — ${checkupMonthName(monthKey)} checkup ready`
+            : configured
+              ? "Open your runway"
+              : "Set up your runway"
       }
     >
       <div className="p-2.5 rounded-xl bg-[#F7931A]/10 shrink-0">

@@ -1,6 +1,7 @@
-import { isBudgetEnvelope } from "@/lib/constants"
+import { isBudgetEnvelope, TX_SOURCE_ENVELOPE_SWEEP } from "@/lib/constants"
 import type { Envelope, Transaction } from "@/lib/data"
 import { getMonthKey } from "@/lib/data"
+import { deletedEnvelopeIdSet } from "@/lib/envelope-ledger-visibility"
 import { isUserFacingExpense } from "@/lib/transaction-visibility"
 
 /**
@@ -13,6 +14,9 @@ import { isUserFacingExpense } from "@/lib/transaction-visibility"
  * spending, which ran hotter than usual, and single purchases that were much larger
  * than that envelope's typical purchase size.
  *
+ * Savings, soft-deleted envelopes, funding legs, sweeps, and other non-user-facing
+ * expenses are left out. Archived envelopes stay in, matching spend analytics.
+ *
  * All money is in the app's canonical USD-cents-free number units (same as
  * {@link Transaction.amount}); callers format for display.
  */
@@ -22,7 +26,10 @@ export type EnvelopePriority = "essential" | "flexible" | "unset"
 
 export interface ExpenseInsightInput {
   transactions: Transaction[]
-  /** May include the system Savings envelope — it is filtered out internally. */
+  /**
+   * May include the system Savings envelope and soft-deleted envelopes — both are
+   * filtered out internally. Archived envelopes are scored.
+   */
   envelopes: Envelope[]
   /** Map envelopeId → priority; a missing entry is treated as `unset`. */
   priorities?: Record<string, EnvelopePriority>
@@ -105,6 +112,20 @@ function monthKeyOffset(asOf: Date, monthsBack: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
 }
 
+/**
+ * Purchases that count toward this insight.
+ *
+ * `isUserFacingExpense` removes hidden rows, funding legs, move-funds, and deficit
+ * cover. Sweep expenses stay in transaction history (`excludeFromMainHistory` is
+ * false) but they move leftover money to Savings, so they are not purchases.
+ */
+function isInsightSpending(
+  txn: Pick<Transaction, "type" | "excludeFromMainHistory" | "source">,
+): boolean {
+  if (!isUserFacingExpense(txn)) return false
+  return txn.source !== TX_SOURCE_ENVELOPE_SWEEP
+}
+
 function median(values: readonly number[]): number {
   if (values.length === 0) return 0
   const sorted = [...values].sort((a, b) => a - b)
@@ -137,8 +158,12 @@ export function computeExpenseInsight(input: ExpenseInsightInput): ExpenseInsigh
   const recentSet = new Set(recentMonthKeys)
   const baselineSet = new Set(baselineMonthKeys)
 
-  // Discretionary envelopes only (exclude the system Savings envelope).
-  const discretionary = envelopes.filter((e) => isBudgetEnvelope(e.systemRole))
+  // Discretionary envelopes only. Drop Savings and soft-deleted envelopes;
+  // archived envelopes remain part of spend analytics.
+  const deletedIds = deletedEnvelopeIdSet(envelopes)
+  const discretionary = envelopes.filter(
+    (e) => isBudgetEnvelope(e.systemRole) && !deletedIds.has(e.id),
+  )
   const envById = new Map(discretionary.map((e) => [e.id, e]))
 
   // Per-envelope accumulators.
@@ -149,7 +174,7 @@ export function computeExpenseInsight(input: ExpenseInsightInput): ExpenseInsigh
   const windowPurchaseAmountsById = new Map<string, number[]>()
 
   for (const t of transactions) {
-    if (!isUserFacingExpense(t)) continue
+    if (!isInsightSpending(t)) continue
     if (!envById.has(t.envelopeId)) continue
     const mk = getMonthKey(t.date)
     const inRecent = recentSet.has(mk)
