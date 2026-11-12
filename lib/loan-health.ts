@@ -158,6 +158,19 @@ export interface BtcLoanInput {
   collateralSats: number
   /** Lender's liquidation ("sell") price in USD for the collateral. */
   liquidationPriceUsd: number
+  /**
+   * Optional typed final bill that overrides the computed maturity bill. When
+   * present (finite), it is the authoritative amount owed at maturity, so both
+   * `maturityBillUsd` and (through it) the interest portion and accrued due are
+   * derived from it instead of principal + APR interest.
+   */
+  maturityBillOverrideUsd?: number | null
+}
+
+/** The override maturity bill when it is set and usable, else null. */
+function overrideBillUsd(loan: BtcLoanInput): number | null {
+  const override = loan.maturityBillOverrideUsd
+  return override != null && Number.isFinite(override) ? override : null
 }
 
 function simpleInterestUsd(principalUsd: number, aprFraction: number, days: number): number {
@@ -168,15 +181,29 @@ function simpleInterestUsd(principalUsd: number, aprFraction: number, days: numb
   return principalUsd * aprFraction * (days / DAYS_PER_YEAR)
 }
 
-/** Whole-term interest for a loan (the interest baked into the maturity bill). */
+/**
+ * Interest baked into the maturity bill. A typed override is bill − principal
+ * (may be negative). Otherwise simple pro-rata actual/365. NaN when the term
+ * or the rate is not usable — a bad rate must not look like zero interest.
+ */
 export function maturityInterestUsd(loan: BtcLoanInput): number {
+  const override = overrideBillUsd(loan)
+  if (override != null) {
+    if (!Number.isFinite(loan.principalUsd)) return Number.NaN
+    return override - loan.principalUsd
+  }
   const termDays = daysBetween(loan.openDate, loan.maturityDate)
   if (!Number.isFinite(termDays)) return Number.NaN
   return simpleInterestUsd(loan.principalUsd, loan.aprFraction, Math.max(0, termDays))
 }
 
-/** The single balloon bill owed on the maturity date (principal + full interest). */
+/**
+ * The single balloon bill owed on the maturity date. A typed override takes
+ * precedence over the computed principal + full interest.
+ */
 export function maturityBillUsd(loan: BtcLoanInput): number {
+  const override = overrideBillUsd(loan)
+  if (override != null) return override
   const interest = maturityInterestUsd(loan)
   if (!Number.isFinite(loan.principalUsd) || !Number.isFinite(interest)) return Number.NaN
   return loan.principalUsd + interest
@@ -185,9 +212,9 @@ export function maturityBillUsd(loan: BtcLoanInput): number {
 /**
  * Amount due as of a given date.
  *
- * - `accrued`   → principal + interest accrued so far (pro-rata actual/365,
- *                 clamped to the term so nothing accrues before open or after
- *                 maturity).
+ * - `accrued`   → principal + interest accrued so far, pro-rata over the term
+ *                 toward the (possibly overridden) maturity interest, clamped so
+ *                 nothing accrues before open or after maturity.
  * - `full_bill` → the full maturity bill for the entire term (locked day one).
  *
  * NaN when dates, principal, or APR are not finite — a bad rate must not look
@@ -199,10 +226,18 @@ export function amountDueUsd(loan: BtcLoanInput, asOfDate: string): number {
   const termDays = daysBetween(loan.openDate, loan.maturityDate)
   const elapsedRaw = daysBetween(loan.openDate, asOfDate)
   if (!Number.isFinite(termDays) || !Number.isFinite(elapsedRaw)) return Number.NaN
-  const elapsed = Math.min(Math.max(0, elapsedRaw), Math.max(0, termDays))
-  const accrued = simpleInterestUsd(loan.principalUsd, loan.aprFraction, elapsed)
-  if (!Number.isFinite(loan.principalUsd) || !Number.isFinite(accrued)) return Number.NaN
-  return loan.principalUsd + accrued
+  // A zero-day term matures on the open date. Before that, accrued style owes
+  // principal only. On or after open, the full bill is due immediately.
+  if (termDays <= 0) {
+    if (elapsedRaw < 0) {
+      return Number.isFinite(loan.principalUsd) ? loan.principalUsd : Number.NaN
+    }
+    return maturityBillUsd(loan)
+  }
+  const elapsed = Math.min(Math.max(0, elapsedRaw), termDays)
+  const interest = maturityInterestUsd(loan)
+  if (!Number.isFinite(loan.principalUsd) || !Number.isFinite(interest)) return Number.NaN
+  return loan.principalUsd + interest * (elapsed / termDays)
 }
 
 export interface StackInput {
