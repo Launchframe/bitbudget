@@ -93,7 +93,7 @@ Not every `Transaction` row belongs in every feed. Ledger funding creates **batc
 5. If delete semantics apply, extend **`shouldCascadeDeleteFundingBatch`** / server delete and the confirm dialog copy.
 6. Run dashboard + Transactions manually after changes — funding legs are the most common source of chart spikes and orphan rows.
 
-**`csv_import` source:** CSV imports create plain user-facing rows (`source: "csv_import"`, `excludeFromMainHistory: false`, no `fundingBatchId`). They count in main history, envelope lists, spend analytics, and cash flow like any manual expense/credit.
+**`csv_import` source:** CSV imports create plain user-facing rows (`source: "csv_import"`, `excludeFromMainHistory: false`, no `fundingBatchId`). They count in main history, envelope lists, spend analytics, and cash flow like any manual expense/credit. Statement files (`lib/statement-csv.ts`) accept Fold, Chase (`Posting Date` / `Amount` / `Type`), and Coinbase history. Coinbase buys, sells, and coin transfers are counted as `ignoredTrades` and are not imported as spending or income.
 
 ### CSV import: chunking + privacy-preserving idempotency
 
@@ -492,7 +492,9 @@ The setup wizard (`components/runway-setup-dialog.tsx`) **pre-selects** middle-p
 
 ### Known totals and overrides
 
-Runway resolves holdings from the budget: **envelope cash** = Savings remaining + discretionary remaining (all-time, genesis-floored), and **wallet sats** (currently 0 until a wallet source is wired). A typed **override replaces one side only**: `cashOverrideUsd` replaces the cash total, `bitcoinOverrideSats` replaces the bitcoin total; the other side still comes from the budget. See `knownCashUsd` / `knownBitcoinSats` in `lib/runway-ui.ts` and the holdings resolution in `computeRunwayNeed`.
+Runway resolves holdings from the budget: **envelope cash** = Savings remaining + discretionary remaining (all-time, genesis-floored), and **wallet sats** from the client watch list (`runwayWalletSats` in `lib/wallet-confirmed-sats.ts`, stored in `localStorage` under `bitbudget-wallet-watch`). An exchange watch that still shows coins in an open sale is reduced by that sale so those sats live only in the placeholder. A typed **override replaces one side only**: `cashOverrideUsd` replaces the cash total, `bitcoinOverrideSats` replaces the bitcoin total; the other side still comes from the budget. See `knownCashUsd` / `knownBitcoinSats` in `lib/runway-ui.ts` and the holdings resolution in `computeRunwayNeed`. Descriptors (address or xpub) stay in the browser. No server route accepts them. Address watch (`components/runway-address-watch.tsx`) looks up confirmed sats from Esplora in the browser and warns that a single address misses change. Seeds and private keys are rejected. Chain rows are not spending and not income until the user marks a spend (`chainActivityCountsAsSpending`).
+
+Plaid depository balances (`depositoryCashUsd`) are a bank snapshot on the connection card. They do **not** replace envelope remaining. Plaid inflows are stored as **credits** (`plaidAmountToLedger`: positive Plaid amount = money out). Credit-card rows show what is owed and stay out of that cash sum.
 
 ### Cash floor vs required bitcoin — keep them separate
 

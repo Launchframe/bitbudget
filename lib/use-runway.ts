@@ -24,6 +24,8 @@ import {
   type PendingSaleStatus,
 } from "@/lib/runway-refill"
 import { suggestedStressPercent } from "@/lib/runway-stress"
+import { useWalletWatches } from "@/lib/use-wallet-watch"
+import { runwayWalletSats } from "@/lib/wallet-confirmed-sats"
 
 /** Serialized loan row from GET /api/runway/loans. */
 export interface RunwayLoan {
@@ -268,6 +270,7 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
     return { ...holdings, reservedForSaleSats }
   }, [pendingSales])
 
+  const watches = useWalletWatches()
   const livingBaselineUsd = plan
     ? resolveLivingBaselineUsd(plan, insightMonthlyUsd)
     : 0
@@ -276,6 +279,10 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
   // chip at a cash-floor shortfall. Use monthly income as the paycheck estimate.
   const nextPaycheckUsd =
     plan && plan.phase !== "runway" ? Math.max(0, state.monthlyIncome) : 0
+  const walletSats = useMemo(
+    () => runwayWalletSats(watches, reservedForSaleSats),
+    [watches, reservedForSaleSats],
+  )
 
   const compute = useCallback(
     (scenarioMode: ScenarioMode): RunwayComputation | null => {
@@ -284,7 +291,7 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
         plan,
         livingBaselineUsd,
         envelopeCashUsd,
-        walletSats: 0,
+        walletSats,
         lenderHeldSats,
         amountDueUsd,
         btcPriceUsd,
@@ -301,6 +308,7 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
       plan,
       livingBaselineUsd,
       envelopeCashUsd,
+      walletSats,
       lenderHeldSats,
       amountDueUsd,
       btcPriceUsd,
@@ -332,6 +340,8 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
     envelopeCashUsd,
     savingsUsd,
     discretionaryUsd,
+    walletSats,
+    watchCount: watches.length,
     btcPriceUsd,
     btcPriceOrNull,
     loans,

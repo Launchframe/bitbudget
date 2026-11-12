@@ -20,6 +20,8 @@ interface ParsedTransaction {
   source: string
   rawInput?: string | null
   tags?: string | null
+  /** Money out (expense) or money in (credit). Defaults to expense. */
+  type?: "expense" | "credit"
 }
 
 export async function routeTransaction(
@@ -36,6 +38,7 @@ export async function routeTransaction(
   const encryptedNotes =
     encryptFieldForUser(parsed.notes, user?.publicKey) ?? parsed.notes ?? null
 
+  const ledgerType = parsed.type === "credit" ? "credit" : "expense"
   const route = routeByConfidence(parsed.confidence)
 
   // When the suggested envelope fails the ownership check, null it out so the
@@ -54,7 +57,7 @@ export async function routeTransaction(
           date: parsed.date,
           payee: encryptedPayee,
           amount: parsed.amount,
-          type: "expense",
+          type: ledgerType,
           source: parsed.source,
           notes: encryptedNotes,
           tags: parsed.tags ?? "[]",
@@ -76,6 +79,7 @@ export async function routeTransaction(
       source: parsed.source,
       payee: encryptedPayee,
       amount: parsed.amount,
+      type: ledgerType,
       date: parsed.date,
       notes: encryptedNotes,
       suggestedEnvelopeId: effectiveSuggestedEnvelopeId,

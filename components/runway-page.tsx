@@ -7,6 +7,7 @@ import { useRunway, type RunwayLoan, type RunwayPendingSale } from "@/lib/use-ru
 import { RunwaySetupDialog } from "@/components/runway-setup-dialog"
 import { RunwayLoanDialog } from "@/components/runway-loan-dialog"
 import { RunwayRefillDialog } from "@/components/runway-refill-dialog"
+import { RunwayAddressWatch } from "@/components/runway-address-watch"
 import { refillStatus } from "@/lib/runway-refill"
 import {
   borrowingAllowed,
@@ -167,6 +168,7 @@ export function RunwayPage() {
     reloadSales,
     nextPaycheckUsd,
     btcPriceUsd,
+    watchCount,
     suggestedStressPercent,
     compute,
   } = useRunway({ withLoans: true })
@@ -529,11 +531,13 @@ export function RunwayPage() {
                   {bitcoinUnset ? "Add your bitcoin" : priceKnown ? formatUsd(bitcoinKnownUsd) : "—"}
                 </span>
                 <span className="text-[11px] text-muted-foreground block mt-0.5">
-                  {bitcoinUnset
-                    ? "Tap to enter"
-                    : plan.bitcoinOverrideSats != null
-                      ? "You typed this"
-                      : "From your wallet"}
+                  {plan.bitcoinOverrideSats != null
+                    ? "You typed this"
+                    : watchCount > 0
+                      ? "From wallets you watch"
+                      : bitcoinUnset
+                        ? "Tap to enter"
+                        : "From your wallet"}
                 </span>
               </button>
             </div>
@@ -551,7 +555,7 @@ export function RunwayPage() {
               <div className="min-w-0">
                 <span className="text-sm font-semibold text-foreground">More</span>
                 <p className="text-xs text-muted-foreground">
-                  Bitcoin share, what-ifs, bills, and loans.
+                  Bitcoin share, addresses you watch, what-ifs, bills, and loans.
                 </p>
               </div>
               <ChevronDown
@@ -572,6 +576,7 @@ export function RunwayPage() {
                     ? ` Short ${formatUsd(refill.shortfallUsd)} today.`
                     : " You're at or above that cushion today."}
                 </p>
+                <RunwayAddressWatch />
               </div>
               <div className="flex flex-col gap-2">
                 <span className="text-sm font-semibold text-foreground">What if…</span>

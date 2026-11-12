@@ -299,8 +299,17 @@ export function ReviewInbox() {
                     </p>
                   </div>
                 </div>
-                <p className="text-foreground font-semibold text-lg">
-                  ${pt.amount.toFixed(2)}
+                <p
+                  className={`font-semibold text-lg tabular-nums ${
+                    pt.type === "credit" ? "text-[#22C55E]" : "text-foreground"
+                  }`}
+                >
+                  {pt.type === "credit" ? "+" : ""}${pt.amount.toFixed(2)}
+                  {pt.type === "credit" ? (
+                    <span className="block text-[11px] font-medium text-[#22C55E]/80 text-right">
+                      Money in
+                    </span>
+                  ) : null}
                 </p>
               </div>
 

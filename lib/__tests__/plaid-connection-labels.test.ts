@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  formatPlaidAccountBalance,
   formatPlaidAccountLabel,
   formatPlaidInstitutionTitle,
   plaidConnectSuccessMessage,
@@ -34,6 +35,43 @@ describe("formatPlaidAccountLabel", () => {
         type: "depository",
       }),
     ).toBe("Checking ••1234")
+  })
+})
+
+describe("formatPlaidAccountBalance", () => {
+  it("shows a checking balance as dollars", () => {
+    expect(
+      formatPlaidAccountBalance({
+        accountName: "Checking",
+        mask: "1234",
+        type: "depository",
+        currentBalance: 1240.5,
+        isoCurrencyCode: "USD",
+      }),
+    ).toBe("$1,240.50")
+  })
+
+  it("shows a credit card as an amount owed", () => {
+    expect(
+      formatPlaidAccountBalance({
+        accountName: "Sapphire",
+        mask: "9999",
+        type: "credit",
+        currentBalance: 320,
+        isoCurrencyCode: "USD",
+      }),
+    ).toBe("$320.00 owed")
+  })
+
+  it("returns null until a balance exists", () => {
+    expect(
+      formatPlaidAccountBalance({
+        accountName: "Checking",
+        mask: null,
+        type: "depository",
+        currentBalance: null,
+      }),
+    ).toBeNull()
   })
 })
 

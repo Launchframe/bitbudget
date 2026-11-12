@@ -7,6 +7,8 @@ import crypto from "crypto"
 import { activateReferral } from "@/lib/referral"
 import { requirePremiumOrTrialOrReferralBankLinkPending } from "@/lib/subscription"
 import { Prisma } from "@prisma/client"
+import { plaidAmountToLedger, snapshotFromPlaidAccount } from "@/lib/plaid-ledger"
+import { upsertPlaidAccountSnapshots } from "@/lib/plaid-account-sync"
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
@@ -74,6 +76,18 @@ export async function POST(req: NextRequest) {
         plaidItem.transactionsSyncCursor ?? undefined
       let processed = 0
 
+      try {
+        const accountsResponse = await plaidClient.accountsGet({
+          access_token: plaidItem.accessToken,
+        })
+        const snapshots = accountsResponse.data.accounts
+          .map((account) => snapshotFromPlaidAccount(account))
+          .filter((snapshot) => snapshot != null)
+        await upsertPlaidAccountSnapshots(plaidItem.id, snapshots)
+      } catch (balanceErr) {
+        console.error("Plaid balance refresh failed:", balanceErr)
+      }
+
       for (;;) {
         const syncResponse = await plaidClient.transactionsSync({
           access_token: plaidItem.accessToken,
@@ -104,6 +118,11 @@ export async function POST(req: NextRequest) {
           }
 
           try {
+            const ledger = plaidAmountToLedger(txn.amount)
+            if (!ledger) {
+              continue
+            }
+
             const envelopeMatch = await matchEnvelope(
               plaidItem.user.id,
               txn.name || txn.merchant_name || "Unknown",
@@ -112,7 +131,8 @@ export async function POST(req: NextRequest) {
 
             await routeTransaction(plaidItem.user.id, {
               payee: txn.merchant_name || txn.name || "Unknown",
-              amount: Math.abs(txn.amount),
+              amount: ledger.amount,
+              type: ledger.type,
               date: new Date(txn.date),
               source: "plaid",
               suggestedEnvelopeId: envelopeMatch?.envelopeId ?? null,
