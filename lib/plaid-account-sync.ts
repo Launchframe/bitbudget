@@ -14,13 +14,19 @@ function balanceData(snapshot: PlaidAccountSnapshot) {
   }
 }
 
-/** Insert or refresh linked accounts for one Plaid item. Balances included. */
+/**
+ * Insert or refresh linked accounts for one Plaid item, then drop rows Plaid
+ * no longer returned. A closed account must not keep inflating the cash total.
+ * Call this only with the full account list from a successful accounts fetch.
+ */
 export async function upsertPlaidAccountSnapshots(
   plaidItemDbId: string,
   snapshots: readonly PlaidAccountSnapshot[],
 ): Promise<void> {
+  const seen: string[] = []
   for (const snapshot of snapshots) {
     const data = balanceData(snapshot)
+    seen.push(snapshot.accountId)
     const existing = await prisma.plaidAccount.findFirst({
       where: { plaidItemId: plaidItemDbId, plaidAccountId: snapshot.accountId },
       select: { id: true },
@@ -48,4 +54,14 @@ export async function upsertPlaidAccountSnapshots(
       data: { plaidItemId: plaidItemDbId, ...data },
     })
   }
+
+  await prisma.plaidAccount.deleteMany({
+    where:
+      seen.length === 0
+        ? { plaidItemId: plaidItemDbId }
+        : {
+            plaidItemId: plaidItemDbId,
+            OR: [{ plaidAccountId: null }, { plaidAccountId: { notIn: seen } }],
+          },
+  })
 }

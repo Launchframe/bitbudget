@@ -7,6 +7,11 @@ import type { WatchRole } from "@/lib/wallet-confirmed-sats"
 
 export const WALLET_WATCH_STORAGE_KEY = "bitbudget-wallet-watch"
 
+/** Per-user key so a shared browser does not mix two accounts' addresses. */
+export function walletWatchStorageKey(userId: string): string {
+  return `${WALLET_WATCH_STORAGE_KEY}:${userId}`
+}
+
 export type WatchKind = "address" | "xpub"
 
 export interface WalletWatch {
@@ -26,6 +31,7 @@ type Listener = () => void
 
 const listeners = new Set<Listener>()
 const EMPTY_WATCHES: readonly WalletWatch[] = []
+let cachedKey: string | null = null
 let cachedRaw: string | null | undefined
 let cachedWatches: readonly WalletWatch[] = EMPTY_WATCHES
 
@@ -43,15 +49,17 @@ export function subscribeWalletWatch(listener: Listener): () => void {
   }
 }
 
-export function getWalletWatchSnapshot(): readonly WalletWatch[] {
-  if (typeof window === "undefined") return EMPTY_WATCHES
+export function getWalletWatchSnapshot(userId: string | null): readonly WalletWatch[] {
+  if (!userId || typeof window === "undefined") return EMPTY_WATCHES
+  const key = walletWatchStorageKey(userId)
   let raw: string | null = null
   try {
-    raw = window.localStorage.getItem(WALLET_WATCH_STORAGE_KEY)
+    raw = window.localStorage.getItem(key)
   } catch {
-    return cachedWatches
+    return cachedKey === key ? cachedWatches : EMPTY_WATCHES
   }
-  if (raw === cachedRaw) return cachedWatches
+  if (key === cachedKey && raw === cachedRaw) return cachedWatches
+  cachedKey = key
   cachedRaw = raw
   cachedWatches = parseWalletWatches(raw)
   return cachedWatches
@@ -84,16 +92,19 @@ export function serializeWalletWatches(watches: readonly WalletWatch[]): string 
   return JSON.stringify({ version: 1, watches })
 }
 
-export function writeWalletWatches(watches: readonly WalletWatch[]): void {
+export function writeWalletWatches(userId: string | null, watches: readonly WalletWatch[]): void {
+  if (!userId) return
   const safe = watches
     .map((watch) => parseWatch(watch))
     .filter((watch): watch is WalletWatch => watch != null)
   const raw = serializeWalletWatches(safe)
+  const key = walletWatchStorageKey(userId)
+  cachedKey = key
   cachedRaw = raw
   cachedWatches = safe
   try {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(WALLET_WATCH_STORAGE_KEY, raw)
+      window.localStorage.setItem(key, raw)
     }
   } catch {
     /* private mode or a full disk — keep the in-memory snapshot */
@@ -101,8 +112,57 @@ export function writeWalletWatches(watches: readonly WalletWatch[]): void {
   emit()
 }
 
+/**
+ * Update one watch from the latest stored list. A refresh that finishes after
+ * the user removed the address must not write the address back.
+ */
+export function patchWalletWatch(
+  userId: string | null,
+  id: string,
+  patch: Pick<WalletWatch, "confirmedSats" | "updatedAt">,
+): void {
+  if (!userId) return
+  const current = getWalletWatchSnapshot(userId)
+  if (!current.some((watch) => watch.id === id)) return
+  writeWalletWatches(
+    userId,
+    current.map((watch) => (watch.id === id ? { ...watch, ...patch } : watch)),
+  )
+}
+
+/** Logout: drop every account's watch list from this browser. */
+export function clearAllWalletWatches(): void {
+  cachedKey = null
+  cachedRaw = undefined
+  cachedWatches = EMPTY_WATCHES
+  try {
+    if (typeof window !== "undefined") {
+      const keys: string[] = []
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i)
+        if (
+          key === WALLET_WATCH_STORAGE_KEY ||
+          key?.startsWith(`${WALLET_WATCH_STORAGE_KEY}:`)
+        ) {
+          keys.push(key)
+        }
+      }
+      for (const key of keys) window.localStorage.removeItem(key)
+    }
+  } catch {
+    /* ignore */
+  }
+  emit()
+}
+
 function onStorage(event: StorageEvent) {
-  if (event.key !== WALLET_WATCH_STORAGE_KEY) return
+  if (
+    event.key !== WALLET_WATCH_STORAGE_KEY &&
+    !event.key?.startsWith(`${WALLET_WATCH_STORAGE_KEY}:`)
+  ) {
+    return
+  }
+  cachedKey = null
   cachedRaw = undefined
   emit()
 }
@@ -145,5 +205,7 @@ function isSafeDescriptor(value: string): boolean {
   if (/\s/.test(trimmed)) return false
   const lower = trimmed.toLowerCase()
   if (lower.startsWith("xprv") || lower.startsWith("yprv") || lower.startsWith("zprv")) return false
+  if (/^[5kl]/i.test(trimmed) && trimmed.length >= 51 && trimmed.length <= 52) return false
+  if (/^[0-9a-f]{64}$/i.test(trimmed)) return false
   return true
 }
