@@ -1026,7 +1026,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     window.addEventListener("hashchange", onHashChange)
 
     if (!window.location.hash) {
-      const route = initialRouteFromLocation("", loadPendingShoppingInvite() !== null)
+      const route = readInitialRoute()
       const hash = pageToHash(route.page, route.envelopeId)
       window.history.replaceState({ page: route.page }, "", hash)
     }
