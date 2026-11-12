@@ -306,7 +306,7 @@ export function ReviewInbox() {
                 >
                   {pt.type === "credit" ? "+" : ""}${pt.amount.toFixed(2)}
                   {pt.type === "credit" ? (
-                    <span className="block text-[11px] font-medium text-[#22C55E]/80 text-right">
+                    <span className="ml-1 text-[11px] font-medium text-[#22C55E]/80">
                       Money in
                     </span>
                   ) : null}

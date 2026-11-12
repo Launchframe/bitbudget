@@ -1,6 +1,6 @@
 "use client"
 
-import { useSyncExternalStore } from "react"
+import { useCallback, useSyncExternalStore } from "react"
 import {
   getWalletWatchServerSnapshot,
   getWalletWatchSnapshot,
@@ -8,11 +8,15 @@ import {
   type WalletWatch,
 } from "@/lib/wallet-watch-store"
 
-/** Confirmed-sats watches stored in this browser. Empty during SSR. */
-export function useWalletWatches(): readonly WalletWatch[] {
+/** Confirmed-sats watches for this signed-in user. Empty during SSR and when signed out. */
+export function useWalletWatches(userId: string | null): readonly WalletWatch[] {
+  const getSnapshot = useCallback(
+    () => getWalletWatchSnapshot(userId),
+    [userId],
+  )
   return useSyncExternalStore(
     subscribeWalletWatch,
-    getWalletWatchSnapshot,
+    getSnapshot,
     getWalletWatchServerSnapshot,
   )
 }

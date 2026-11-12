@@ -51,6 +51,19 @@ describe("formatPlaidAccountBalance", () => {
     ).toBe("$1,240.50")
   })
 
+  it("shows available checking cash when Plaid sent it", () => {
+    expect(
+      formatPlaidAccountBalance({
+        accountName: "Checking",
+        mask: "1234",
+        type: "depository",
+        currentBalance: 2000,
+        availableBalance: 1800,
+        isoCurrencyCode: "USD",
+      }),
+    ).toBe("$1,800.00")
+  })
+
   it("shows a credit card as an amount owed", () => {
     expect(
       formatPlaidAccountBalance({
@@ -61,6 +74,18 @@ describe("formatPlaidAccountBalance", () => {
         isoCurrencyCode: "USD",
       }),
     ).toBe("$320.00 owed")
+  })
+
+  it("shows a negative credit balance as a credit on the card", () => {
+    expect(
+      formatPlaidAccountBalance({
+        accountName: "Sapphire",
+        mask: "9999",
+        type: "credit",
+        currentBalance: -50,
+        isoCurrencyCode: "USD",
+      }),
+    ).toBe("$50.00 credit")
   })
 
   it("returns null until a balance exists", () => {

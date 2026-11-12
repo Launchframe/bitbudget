@@ -114,7 +114,7 @@ export interface UseRunwayResult {
  */
 export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
   const withLoans = opts?.withLoans ?? false
-  const { state, activeTransactions, discretionaryEnvelopes } = useApp()
+  const { state, activeTransactions, discretionaryEnvelopes, currentUserId } = useApp()
   const { currentPrice, priceHistory } = useBtcPrices()
 
   const [plan, setPlanState] = useState<RunwayPlanResponse | null>(null)
@@ -270,7 +270,7 @@ export function useRunway(opts?: { withLoans?: boolean }): UseRunwayResult {
     return { ...holdings, reservedForSaleSats }
   }, [pendingSales])
 
-  const watches = useWalletWatches()
+  const watches = useWalletWatches(currentUserId)
   const livingBaselineUsd = plan
     ? resolveLivingBaselineUsd(plan, insightMonthlyUsd)
     : 0
