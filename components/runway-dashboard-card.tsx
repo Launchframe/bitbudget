@@ -88,7 +88,6 @@ export function RunwayDashboardCard() {
           bitcoinSats: comp.need.spendableSats,
           cashOverrideUsd: plan?.cashOverrideUsd ?? null,
           bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
-          bitcoinSats: comp.need.spendableSats,
         }),
         underFloor: Boolean(refill?.underFloor),
         shortfallUsd: refill?.shortfallUsd ?? 0,
