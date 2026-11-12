@@ -138,10 +138,11 @@ export function parseFoldStatementCsv(text: string): StatementParseResult {
  * Returns the first successful parse result, or null if no format matches.
  */
 export function tryParseStatementCsv(text: string): StatementParseResult | null {
+  const cleaned = stripBom(text)
   const parsers = [parseFoldStatementCsv, parseChaseStatementCsv, parseCoinbaseHistoryCsv]
   for (const parse of parsers) {
     try {
-      return parse(text)
+      return parse(cleaned)
     } catch {
       // header does not match this format
     }
@@ -149,8 +150,40 @@ export function tryParseStatementCsv(text: string): StatementParseResult | null 
   return null
 }
 
+function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+}
+
+function statementLines(text: string): string[] {
+  return stripBom(text).split(/\r?\n/).filter((line) => line.trim())
+}
+
+/** Coinbase puts a title and account lines above the real header. */
+function findHeaderIndex(lines: readonly string[], matches: (headers: string[]) => boolean): number {
+  const limit = Math.min(lines.length, 15)
+  for (let i = 0; i < limit; i++) {
+    if (matches(normalizedHeaders(lines[i] ?? ""))) return i
+  }
+  return -1
+}
+
 function normalizedHeaders(headerLine: string): string[] {
   return parseCSVLine(headerLine).map((h) => h.toLowerCase().replace(/['"]/g, "").trim())
+}
+
+function parseMoney(raw: string): number {
+  const cleaned = raw.replace(/[^0-9.+-]/g, "")
+  if (!cleaned || cleaned === "+" || cleaned === "-" || cleaned === ".") return Number.NaN
+  return Number.parseFloat(cleaned)
+}
+
+/** Plain-language note when buys, sells, and coin transfers are left out. */
+export function ignoredTradesMessage(count: number): string | null {
+  if (!Number.isFinite(count) || count <= 0) return null
+  if (count === 1) {
+    return "1 bitcoin buy, sell, or transfer was left out. Those are not spending or income."
+  }
+  return `${count} bitcoin buys, sells, or transfers were left out. Those are not spending or income.`
 }
 
 function hasHeader(headers: string[], re: RegExp): boolean {
@@ -173,26 +206,32 @@ export function isChaseStatementCsv(headers: string[]): boolean {
 }
 
 export function parseChaseStatementCsv(text: string): StatementParseResult {
-  const lines = text.split("\n").filter((l) => l.trim())
+  const lines = statementLines(text)
   if (lines.length < 2) throw new Error("File is empty or has no data rows.")
-  const headers = normalizedHeaders(lines[0])
-  if (!isChaseStatementCsv(headers)) {
+  const headerIndex = findHeaderIndex(lines, isChaseStatementCsv)
+  if (headerIndex < 0) {
     throw new Error(
       "This doesn't look like a Chase statement CSV. Expected columns: Posting Date, Description, Amount, Type.",
     )
   }
+  const headers = normalizedHeaders(lines[headerIndex] ?? "")
   const dateIdx = headers.findIndex((h) => /posting date/.test(h))
   const descIdx = headers.findIndex((h) => h === "description")
   const amountIdx = headers.findIndex((h) => h === "amount")
   const typeIdx = headers.findIndex((h) => h === "type")
+  const detailsIdx = headers.findIndex((h) => h === "details")
 
   const transactions: ParsedTransaction[] = []
   let skipped = 0
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i])
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i] ?? "")
     const date = statementDay(cols[dateIdx] ?? "")
-    const rawAmount = Number.parseFloat((cols[amountIdx] ?? "").replace(/[$,]/g, ""))
-    const ledger = chaseLedger(rawAmount, typeIdx >= 0 ? (cols[typeIdx] ?? "") : "")
+    const rawAmount = parseMoney(cols[amountIdx] ?? "")
+    const ledger = chaseLedger(
+      rawAmount,
+      detailsIdx >= 0 ? (cols[detailsIdx] ?? "") : "",
+      typeIdx >= 0 ? (cols[typeIdx] ?? "") : "",
+    )
     const payee = (cols[descIdx] ?? "").trim()
     if (!date || !ledger || !payee) {
       skipped++
@@ -209,7 +248,7 @@ export function parseChaseStatementCsv(text: string): StatementParseResult {
   }
   return {
     transactions,
-    totalRows: lines.length - 1,
+    totalRows: lines.length - headerIndex - 1,
     skippedRows: skipped,
     format: "chase_csv",
     institutionName: "Chase",
@@ -218,13 +257,19 @@ export function parseChaseStatementCsv(text: string): StatementParseResult {
 
 function chaseLedger(
   amount: number,
+  details: string,
   typeCell: string,
 ): { type: "expense" | "credit"; amount: number } | null {
   if (!Number.isFinite(amount) || amount === 0) return null
-  const kind = typeCell.trim().toLowerCase()
   const abs = Math.abs(amount)
-  if (kind.startsWith("debit") || kind === "sale") return { type: "expense", amount: abs }
-  if (kind.startsWith("credit") || kind.includes("deposit")) return { type: "credit", amount: abs }
+  const direction = `${details} ${typeCell}`.toLowerCase()
+  // Details is DEBIT, CREDIT, CHECK, or DSLIP. Type is ACH_DEBIT, CHECK_PAID, and similar.
+  if (direction.includes("debit") || direction.includes("check") || /\bsale\b/.test(direction)) {
+    return { type: "expense", amount: abs }
+  }
+  if (direction.includes("credit") || direction.includes("deposit") || direction.includes("dslip")) {
+    return { type: "credit", amount: abs }
+  }
   return amount < 0 ? { type: "expense", amount: abs } : { type: "credit", amount: abs }
 }
 
@@ -239,14 +284,15 @@ export function isCoinbaseHistoryCsv(headers: string[]): boolean {
 }
 
 export function parseCoinbaseHistoryCsv(text: string): StatementParseResult {
-  const lines = text.split("\n").filter((l) => l.trim())
+  const lines = statementLines(text)
   if (lines.length < 2) throw new Error("File is empty or has no data rows.")
-  const headers = normalizedHeaders(lines[0])
-  if (!isCoinbaseHistoryCsv(headers)) {
+  const headerIndex = findHeaderIndex(lines, isCoinbaseHistoryCsv)
+  if (headerIndex < 0) {
     throw new Error(
       "This doesn't look like a Coinbase history CSV. Expected columns: Timestamp, Transaction Type, Asset, Quantity Transacted.",
     )
   }
+  const headers = normalizedHeaders(lines[headerIndex] ?? "")
   const dateIdx = headers.findIndex((h) => h === "timestamp")
   const typeIdx = headers.findIndex((h) => /transaction type/.test(h))
   const assetIdx = headers.findIndex((h) => h === "asset")
@@ -256,12 +302,12 @@ export function parseCoinbaseHistoryCsv(text: string): StatementParseResult {
   const transactions: ParsedTransaction[] = []
   let skipped = 0
   let ignoredTrades = 0
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i])
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i] ?? "")
     const date = statementDay(cols[dateIdx] ?? "")
     const asset = (cols[assetIdx] ?? "").trim()
     const txType = (cols[typeIdx] ?? "").trim()
-    const quantity = Number.parseFloat((cols[qtyIdx] ?? "").replace(/[$,]/g, ""))
+    const quantity = parseMoney(cols[qtyIdx] ?? "")
     const classified = coinbaseLedger(txType, asset, quantity)
     if (!date || classified == null) {
       skipped++
@@ -283,7 +329,7 @@ export function parseCoinbaseHistoryCsv(text: string): StatementParseResult {
   }
   return {
     transactions,
-    totalRows: lines.length - 1,
+    totalRows: lines.length - headerIndex - 1,
     skippedRows: skipped,
     format: "coinbase_csv",
     institutionName: "Coinbase",

@@ -3,6 +3,7 @@ import {
   parseFoldDate,
   isFoldStatementCsv,
   parseFoldStatementCsv,
+  ignoredTradesMessage,
   parseChaseStatementCsv,
   parseCoinbaseHistoryCsv,
   tryParseStatementCsv,
@@ -152,6 +153,22 @@ describe("parseChaseStatementCsv", () => {
       expect.objectContaining({ payee: "RENT", type: "expense", amount: 1500, date: "2024-01-17" }),
     ])
   })
+
+  it("reads ACH debits, ACH credits, and paid checks from a Chase download", () => {
+    const csv = `Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
+DEBIT,01/16/2026,"NORTHWIND COFFEE",-6.45,DEBIT_CARD,2843.55,
+CREDIT,01/15/2026,"CONTOSO LTD PAYROLL",2150.00,ACH_CREDIT,2850.00,
+DEBIT,01/13/2026,"FABRIKAM ELECTRIC",-112.30,ACH_DEBIT,700.00,
+CHECK,01/12/2026,"CHECK 1043",-250.00,CHECK_PAID,812.30,1043
+`
+    const result = parseChaseStatementCsv(`\uFEFF${csv}`)
+    expect(result.transactions.map((row) => [row.payee, row.type, row.amount])).toEqual([
+      ["NORTHWIND COFFEE", "expense", 6.45],
+      ["CONTOSO LTD PAYROLL", "credit", 2150],
+      ["FABRIKAM ELECTRIC", "expense", 112.3],
+      ["CHECK 1043", "expense", 250],
+    ])
+  })
 })
 
 const COINBASE_CSV = `Timestamp,Transaction Type,Asset,Quantity Transacted,Spot Price Currency,Spot Price at Transaction,Subtotal,Total (inclusive of fees and/or spread),Notes
@@ -170,6 +187,15 @@ describe("parseCoinbaseHistoryCsv", () => {
       expect.objectContaining({ type: "credit", amount: 500, payee: "Bank" }),
       expect.objectContaining({ type: "expense", amount: 100, payee: "To checking" }),
     ])
+  })
+
+  it("finds the header under the preamble and does not import the account line", () => {
+    const text = `Transactions\nuser@example.com,hidden-id\n${COINBASE_CSV}`
+    const result = parseCoinbaseHistoryCsv(text)
+    expect(result.transactions).toHaveLength(2)
+    expect(result.ignoredTrades).toBe(1)
+    expect(result.transactions.some((row) => row.payee.includes("@"))).toBe(false)
+    expect(ignoredTradesMessage(result.ignoredTrades ?? 0)).toMatch(/left out/)
   })
 })
 

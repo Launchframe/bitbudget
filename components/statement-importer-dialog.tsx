@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import { tryParseStatementCsv } from "@/lib/statement-csv"
+import { ignoredTradesMessage, tryParseStatementCsv } from "@/lib/statement-csv"
 import type { StatementParseResult } from "@/lib/statement-csv"
 import type { ParsedTransaction } from "@/lib/csv"
 import type { Transaction } from "@/lib/data"
@@ -246,6 +246,7 @@ export function StatementImporterDialog({
   const [statementFormat, setStatementFormat] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [parseError, setParseError] = useState<string | null>(null)
+  const [statementNotice, setStatementNotice] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -673,6 +674,7 @@ export function StatementImporterDialog({
   async function processFiles(fileList: File[]) {
     if (fileList.length === 0) return
     setParseError(null)
+    setStatementNotice(null)
     setLoading(true)
 
     const parsed: ParsedFile[] = []
@@ -742,9 +744,13 @@ export function StatementImporterDialog({
     if (parsed.length === 1) {
       const first = parsed[0]!
       if (first.result.transactions.length === 0) {
-        setParseError("No transactions found in this file.")
+        setParseError(
+          ignoredTradesMessage(first.result.ignoredTrades ?? 0) ??
+            "No transactions found in this file.",
+        )
         return
       }
+      setStatementNotice(ignoredTradesMessage(first.result.ignoredTrades ?? 0))
       await transitionToPreview(
         first.result.transactions,
         first.result.institutionName,
@@ -767,8 +773,16 @@ export function StatementImporterDialog({
   }
 
   async function applyFileChoice() {
+    const notice = ignoredTradesMessage(
+      files.reduce((sum, file) => sum + (file.result.ignoredTrades ?? 0), 0),
+    )
     if (fileMode === "merge") {
       const merged: ParsedTransaction[] = files.flatMap(f => f.result.transactions)
+      if (merged.length === 0) {
+        setParseError(notice ?? "No transactions found in these files.")
+        return
+      }
+      setStatementNotice(notice)
       const instName = files.every(f => f.result.institutionName === files[0]!.result.institutionName)
         ? files[0]!.result.institutionName
         : null
@@ -780,6 +794,14 @@ export function StatementImporterDialog({
       // Individual mode — start with first file
       setCurrentFileIndex(0)
       const first = files[0]!
+      if (first.result.transactions.length === 0) {
+        setParseError(
+          ignoredTradesMessage(first.result.ignoredTrades ?? 0) ??
+            "No transactions found in this file.",
+        )
+        return
+      }
+      setStatementNotice(ignoredTradesMessage(first.result.ignoredTrades ?? 0))
       await transitionToPreview(
         first.result.transactions,
         first.result.institutionName,
@@ -1675,6 +1697,9 @@ export function StatementImporterDialog({
           {/* ── Preview step ── */}
           {step === "preview" && parsed && (
             <div className="flex flex-col gap-3 py-2 flex-1 min-h-0">
+              {statementNotice ? (
+                <p className="text-xs text-muted-foreground">{statementNotice}</p>
+              ) : null}
               {/* Stats */}
               <div className="grid grid-cols-2 gap-3 shrink-0">
                 <div className="rounded-lg bg-[#1A1A1A] border border-[#252525] px-3 py-2.5">
