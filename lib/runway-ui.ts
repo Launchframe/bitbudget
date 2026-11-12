@@ -446,3 +446,11 @@ export function buildRunwayComputation(
 
   return { need, gap, monthsUntilQuit: gap.monthsUntilQuit }
 }
+
+/**
+ * Dollar label for Runway. A non-finite bill (bad loan date or broken price)
+ * is a dash, so the page never shows "$NaN".
+ */
+export function runwayMoneyLabel(amount: number | null | undefined): string {
+  return typeof amount === "number" && Number.isFinite(amount) ? formatUsd(amount) : "—"
+}

@@ -18,6 +18,7 @@ import {
   isCheckupReady,
   isRunwayConfigured,
   knownBitcoinSats,
+  runwayMoneyLabel,
   knownCashUsd,
   monthsUntilQuit,
   resolveLivingBaselineUsd,
@@ -324,5 +325,16 @@ describe("buildRunwayComputation", () => {
     expect(result.need.cashUsd).toBe(10_000)
     expect(result.gap.cashRequiredUsd).toBe(result.need.cashFloorUsedUsd)
     expect(result.gap.requiredBitcoinSats).toBe(result.need.requiredBitcoinSatsSpot)
+  })
+})
+
+describe("runwayMoneyLabel", () => {
+  it("formats a finite bill and hides a non-finite one", () => {
+    expect(runwayMoneyLabel(1200)).toBe("$1,200")
+    expect(runwayMoneyLabel(0)).toBe("$0")
+    expect(runwayMoneyLabel(Number.NaN)).toBe("—")
+    expect(runwayMoneyLabel(Number.POSITIVE_INFINITY)).toBe("—")
+    expect(runwayMoneyLabel(null)).toBe("—")
+    expect(runwayMoneyLabel(undefined)).toBe("—")
   })
 })

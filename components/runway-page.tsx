@@ -19,6 +19,7 @@ import {
   isCheckupReady,
   isRunwayConfigured,
   mergeSavedPlan,
+  runwayMoneyLabel,
   parseHoldingsOverrides,
   rollbackPlanPatch,
   satsToUsd,
@@ -169,7 +170,7 @@ function LoanRow({
         <div className="flex flex-col">
           <span className="text-muted-foreground">Bill due</span>
           <span className="text-foreground tabular-nums">
-            {evaluation ? formatUsd(evaluation.amountDueTodayUsd) : formatUsd(loan.principalUsd)}
+            {runwayMoneyLabel(evaluation ? evaluation.amountDueTodayUsd : loan.principalUsd)}
           </span>
         </div>
         <div className="flex flex-col">
