@@ -12,11 +12,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
+import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
 
 const SATS_PER_BTC = 100_000_000
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return todayTransactionCalendarDay()
 }
 
 /**

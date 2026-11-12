@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   parsePendingSaleCreateBody,
   parsePendingSaleUpdateBody,
+  pendingSaleUpdateError,
 } from "../pending-sale"
 
 describe("parsePendingSaleCreateBody", () => {
@@ -70,5 +71,59 @@ describe("parsePendingSaleUpdateBody", () => {
   it("treats a blank transaction id as cleared", () => {
     const r = parsePendingSaleUpdateBody({ status: "linked", linkedTransactionId: "   " })
     expect(r).toEqual({ ok: true, value: { status: "linked", linkedTransactionId: null } })
+  })
+
+  it("rejects zero or negative proceeds", () => {
+    expect(parsePendingSaleUpdateBody({ status: "cash_on_the_way", proceedsUsd: 0 }).ok).toBe(
+      false,
+    )
+    expect(parsePendingSaleUpdateBody({ proceedsUsd: -10 }).ok).toBe(false)
+  })
+})
+
+describe("pendingSaleUpdateError", () => {
+  it("allows the forward steps and blocks jumps", () => {
+    expect(
+      pendingSaleUpdateError({ status: "sent", proceedsUsd: null }, { status: "cancelled" }),
+    ).toBeNull()
+    expect(
+      pendingSaleUpdateError(
+        { status: "sent", proceedsUsd: null },
+        { status: "cash_on_the_way", proceedsUsd: 100 },
+      ),
+    ).toBeNull()
+    expect(
+      pendingSaleUpdateError({ status: "sent", proceedsUsd: null }, { status: "linked" }),
+    ).toMatch(/can't move/)
+    expect(
+      pendingSaleUpdateError(
+        { status: "cash_on_the_way", proceedsUsd: 80 },
+        { status: "linked" },
+      ),
+    ).toBeNull()
+    expect(
+      pendingSaleUpdateError({ status: "linked", proceedsUsd: 80 }, { status: "cancelled" }),
+    ).toMatch(/can't move/)
+    expect(
+      pendingSaleUpdateError(
+        { status: "cancelled", proceedsUsd: null },
+        { status: "cash_on_the_way", proceedsUsd: 10 },
+      ),
+    ).toMatch(/can't move/)
+  })
+
+  it("refuses to clear proceeds while cash is still on the way", () => {
+    expect(
+      pendingSaleUpdateError(
+        { status: "cash_on_the_way", proceedsUsd: 50 },
+        { proceedsUsd: null },
+      ),
+    ).toMatch(/proceeds/)
+  })
+
+  it("rejects an unknown current status", () => {
+    expect(pendingSaleUpdateError({ status: "nope", proceedsUsd: null }, {})).toMatch(
+      /can't be updated/,
+    )
   })
 })

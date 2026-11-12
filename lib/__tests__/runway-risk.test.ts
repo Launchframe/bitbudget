@@ -75,6 +75,23 @@ describe("recommendCashFloorMonths", () => {
     expect(recommendCashFloorMonths(sell, 1, 0.2)).toBe(MAX_CASH_FLOOR_MONTHS)
     expect(recommendCashFloorMonths(sell, 1, 0.2)).toBe(18)
   })
+
+  it("does not add a phantom month when the gap is exactly 30 percentage points", () => {
+    // 0.8 and 0.5 are the "most" and "half" targets. (0.8 - 0.5) * 10 is
+    // 3.0000000000000004 in IEEE, and a raw ceil of that is 4.
+    expect(recommendCashFloorMonths(cut, 0.8, 0.5)).toBe(9)
+  })
+
+  it("still rounds a partial block up", () => {
+    // 1pp over target is not a full extra month of the formula's 10pp unit,
+    // but ceil means any overage in the block adds one month: 6 + 1.
+    expect(recommendCashFloorMonths(cut, 0.51, 0.5)).toBe(7)
+  })
+
+  it("ignores a non-finite share instead of adding a cushion", () => {
+    expect(recommendCashFloorMonths(cut, Number.NaN, 0.5)).toBe(6)
+    expect(recommendCashFloorMonths(cut, 0.9, Number.NaN)).toBe(6)
+  })
 })
 
 describe("resolveRiskAnswers", () => {
