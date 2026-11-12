@@ -42,6 +42,14 @@ describe("daysBetween / conversions", () => {
     expect(btcToSats(1)).toBe(ONE_BTC)
     expect(btcToSats(0.25)).toBe(25_000_000)
   })
+
+  it("rejects impossible calendar days instead of rolling them forward", () => {
+    expect(daysBetween("2024-02-29", "2024-03-01")).toBe(1)
+    expect(daysBetween("2024-01-01", "2025-01-01")).toBe(366)
+    expect(daysBetween("2025-02-29", "2025-03-01")).toBeNaN()
+    expect(daysBetween("2025-02-31", "2025-03-03")).toBeNaN()
+    expect(daysBetween("not-a-date", "2025-01-01")).toBeNaN()
+  })
 })
 
 describe("interest / amount due (actual/365, balloon)", () => {
@@ -247,8 +255,28 @@ describe("liquidation distance", () => {
     expect(d.percent).toBeCloseTo(-0.25, 6)
   })
 
-  it("returns null percent when price is not positive", () => {
-    expect(liquidationDistance({ btcPriceUsd: 0, lenderSellPriceUsd: 10 }).percent).toBeNull()
+  it("returns null distance when price is not a positive finite quote", () => {
+    const zero = liquidationDistance({ btcPriceUsd: 0, lenderSellPriceUsd: 10 })
+    expect(zero.percent).toBeNull()
+    expect(zero.absoluteUsd).toBeNull()
+    const infinite = liquidationDistance({
+      btcPriceUsd: Number.POSITIVE_INFINITY,
+      lenderSellPriceUsd: 10,
+    })
+    expect(infinite.absoluteUsd).toBeNull()
+    expect(infinite.percent).toBeNull()
+    const badSell = liquidationDistance({
+      btcPriceUsd: 100_000,
+      lenderSellPriceUsd: Number.NaN,
+    })
+    expect(badSell.absoluteUsd).toBeNull()
+    expect(badSell.percent).toBeNull()
+  })
+
+  it("is exactly zero when spot equals the sell price", () => {
+    const d = liquidationDistance({ btcPriceUsd: 62_500, lenderSellPriceUsd: 62_500 })
+    expect(d.absoluteUsd).toBe(0)
+    expect(d.percent).toBe(0)
   })
 })
 
@@ -323,5 +351,141 @@ describe("evaluateLoan / evaluateLoans", () => {
     // worked bill 55k + second bill (20k + 10% = 22k) = 77k
     expect(result.totalBillAtMaturityUsd).toBeCloseTo(77_000, 6)
     expect(result.totalAmountDueTodayUsd).toBeCloseTo(77_000, 6)
+  })
+})
+
+describe("infinity, zero price, maturity, rounding", () => {
+  it("uses actual/365 across a leap-year span and refuses a rolled maturity", () => {
+    const leap: BtcLoanInput = {
+      ...workedLoan,
+      openDate: "2024-01-01",
+      maturityDate: "2025-01-01",
+    }
+    expect(maturityInterestUsd(leap)).toBeCloseTo(50_000 * 0.1 * (366 / 365), 8)
+    const impossible: BtcLoanInput = { ...workedLoan, maturityDate: "2025-02-31" }
+    expect(maturityBillUsd(impossible)).toBeNaN()
+    expect(amountDueUsd(impossible, "2025-06-01")).toBeNaN()
+    expect(amountDueUsd({ ...impossible, payoffStyle: "full_bill" }, "2025-01-01")).toBeNaN()
+  })
+
+  it("does not turn a non-finite APR into zero interest on one path and NaN on the other", () => {
+    const badApr: BtcLoanInput = { ...workedLoan, aprFraction: Number.POSITIVE_INFINITY }
+    expect(maturityInterestUsd(badApr)).toBeNaN()
+    expect(maturityBillUsd(badApr)).toBeNaN()
+    expect(amountDueUsd(badApr, "2025-07-02")).toBeNaN()
+    expect(amountDueUsd({ ...badApr, payoffStyle: "full_bill" }, "2025-01-01")).toBeNaN()
+  })
+
+  it("does not value held bitcoin at $0 when the quote is non-finite, or drop a NaN bill", () => {
+    expect(satsToUsd(0, Number.POSITIVE_INFINITY)).toBe(0)
+    expect(satsToUsd(ONE_BTC, 0)).toBe(0)
+    expect(satsToUsd(ONE_BTC, Number.POSITIVE_INFINITY)).toBeNaN()
+    expect(satsToUsd(ONE_BTC, -1)).toBeNaN()
+
+    expect(
+      stackUsd({
+        cashUsd: 1_000,
+        walletSats: ONE_BTC,
+        lenderHeldSats: 0,
+        amountDueUsd: 0,
+        btcPriceUsd: Number.POSITIVE_INFINITY,
+      }),
+    ).toBeNaN()
+    expect(
+      stackUsd({
+        cashUsd: 1_000,
+        walletSats: 0,
+        lenderHeldSats: 0,
+        amountDueUsd: 0,
+        btcPriceUsd: Number.POSITIVE_INFINITY,
+      }),
+    ).toBe(1_000)
+    expect(
+      stackUsd({
+        cashUsd: 1_000,
+        walletSats: ONE_BTC,
+        lenderHeldSats: 0,
+        amountDueUsd: 400,
+        btcPriceUsd: 0,
+      }),
+    ).toBe(600)
+    expect(
+      stackUsd({
+        cashUsd: 50_000,
+        walletSats: 0,
+        lenderHeldSats: 0,
+        amountDueUsd: Number.NaN,
+        btcPriceUsd: 100_000,
+      }),
+    ).toBeNaN()
+  })
+
+  it("rounds half-sats away from zero", () => {
+    expect(btcToSats(1.5e-8)).toBe(2)
+    expect(btcToSats(-1.5e-8)).toBe(-2)
+    expect(btcToSats(-5e-9)).toBe(-1)
+    expect(btcToSats(1.49e-8)).toBe(1)
+    expect(btcToSats(1.6e-8)).toBe(2)
+    expect(btcToSats(Number.POSITIVE_INFINITY)).toBeNaN()
+    expect(btcToSats(1e12)).toBeNaN()
+  })
+
+  it("keeps rollover infinity for a positive bill only", () => {
+    expect(
+      rolloverPriceUsd({ amountDueUsd: 0, collateralSats: 0, borrowCapFraction: 0 }),
+    ).toBe(0)
+    expect(
+      rolloverPriceUsd({
+        amountDueUsd: 55_000,
+        collateralSats: -ONE_BTC,
+        borrowCapFraction: -0.5,
+      }),
+    ).toBe(Number.POSITIVE_INFINITY)
+    expect(
+      rolloverPriceUsd({
+        amountDueUsd: 55_000,
+        collateralSats: ONE_BTC,
+        borrowCapFraction: Number.NaN,
+      }),
+    ).toBeNaN()
+    expect(
+      rolloverPriceUsd({
+        amountDueUsd: Number.POSITIVE_INFINITY,
+        collateralSats: ONE_BTC,
+        borrowCapFraction: 0.5,
+      }),
+    ).toBeNaN()
+  })
+
+  it("does not report a liquidation or a covered rollover at a $0 spot", () => {
+    const row = evaluateLoan(workedLoan, {
+      btcPriceUsd: 0,
+      asOfDate: "2025-01-01",
+      borrowCapFraction: 0.5,
+    })
+    expect(row.liquidationRoom.absoluteUsd).toBeNull()
+    expect(row.liquidationRoom.percent).toBeNull()
+    expect(row.rolloverCoversBillAtToday).toBe(false)
+    expect(row.rolloverPriceUsd).toBeCloseTo(100_000, 6)
+  })
+
+  it("treats a one-ulp rollover breakeven as covered", () => {
+    const row = evaluateLoan(
+      { ...workedLoan, principalUsd: 9.9e-7, collateralSats: 1 },
+      { btcPriceUsd: 100, asOfDate: "2025-01-01", borrowCapFraction: 0.99 },
+    )
+    expect(row.amountDueTodayUsd).toBeCloseTo(9.9e-7, 12)
+    expect(row.rolloverPriceUsd).toBeGreaterThan(100)
+    expect(row.rolloverPriceUsd - 100).toBeLessThan(1e-9)
+    expect(row.rolloverCoversBillAtToday).toBe(true)
+  })
+
+  it("does not publish a finite portfolio total when one maturity is impossible", () => {
+    const result = evaluateLoans(
+      [workedLoan, { ...workedLoan, id: "bad", maturityDate: "2025-02-31" }],
+      { btcPriceUsd: 100_000, asOfDate: "2026-01-01", borrowCapFraction: 0.5 },
+    )
+    expect(result.totalBillAtMaturityUsd).toBeNaN()
+    expect(result.totalAmountDueTodayUsd).toBeNaN()
   })
 })
