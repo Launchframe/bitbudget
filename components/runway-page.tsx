@@ -21,6 +21,7 @@ import {
   runwayHeroDetail,
   runwayMonthsHeadline,
   runwayPrimaryAction,
+  shouldPromptRunwayHoldings,
   RUNWAY_JUST_SETUP_KEY,
   satsToUsd,
   type RunwayPlanResponse,
@@ -168,6 +169,7 @@ export function RunwayPage() {
     reloadSales,
     nextPaycheckUsd,
     btcPriceUsd,
+    walletSats,
     watchCount,
     suggestedStressPercent,
     compute,
@@ -340,7 +342,12 @@ export function RunwayPage() {
           plan={plan}
           livingPlaceholderUsd={livingPlaceholder}
           suggestedStressPercent={suggestedStressPercent}
-          promptHoldings={envelopeCashUsd <= 0.5 && (plan == null || plan.bitcoinOverrideSats == null)}
+          promptHoldings={shouldPromptRunwayHoldings({
+            envelopeCashUsd,
+            walletSats,
+            cashOverrideUsd: plan?.cashOverrideUsd ?? null,
+            bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
+          })}
           onSaved={onPlanSaved}
         />
       </div>
@@ -363,8 +370,7 @@ export function RunwayPage() {
     bitcoinSats: spendableSats,
   })
   const cashUnset = plan.cashOverrideUsd == null && (need?.cashUsd ?? 0) <= 0.5
-  const bitcoinUnset =
-    plan.bitcoinOverrideSats == null && spendableSats <= 0 && bitcoinKnownUsd <= 0.5
+  const bitcoinUnset = plan.bitcoinOverrideSats == null && spendableSats <= 0
 
   const refill = need
     ? refillStatus({
@@ -389,6 +395,7 @@ export function RunwayPage() {
           shortfallUsd: refill?.shortfallUsd ?? 0,
           projectedCashGapUsd: gap.flat.cashGapUsd,
           projectedBitcoinGapUsd: gap.flat.bitcoinGapUsd,
+          alreadySteppedBack: plan.phase === "runway",
         })
       : ""
   const headline = runwayMonthsHeadline(need?.monthsLeft ?? null)
@@ -530,13 +537,7 @@ export function RunwayPage() {
                   <Bitcoin className="h-3.5 w-3.5 shrink-0" aria-hidden /> Bitcoin
                 </span>
                 <span className="block text-base sm:text-lg font-semibold text-foreground tabular-nums mt-1 break-words">
-                  {bitcoinUnset
-                    ? "Add your bitcoin"
-                    : priceKnown
-                      ? formatUsd(bitcoinKnownUsd)
-                      : spendableSats > 0
-                        ? `${(spendableSats / SATS_PER_BTC).toFixed(8).replace(/0+$/, "").replace(/\.$/, "")} bitcoin`
-                        : "—"}
+                  {bitcoinUnset ? "Add your bitcoin" : priceKnown ? formatUsd(bitcoinKnownUsd) : "—"}
                 </span>
                 <span className="text-[11px] text-muted-foreground block mt-0.5">
                   {plan.bitcoinOverrideSats != null
@@ -718,7 +719,12 @@ export function RunwayPage() {
         plan={plan}
         livingPlaceholderUsd={livingPlaceholder}
         suggestedStressPercent={suggestedStressPercent}
-        promptHoldings={envelopeCashUsd <= 0.5 && plan.bitcoinOverrideSats == null}
+        promptHoldings={shouldPromptRunwayHoldings({
+          envelopeCashUsd,
+          walletSats,
+          cashOverrideUsd: plan.cashOverrideUsd,
+          bitcoinOverrideSats: plan.bitcoinOverrideSats,
+        })}
         onSaved={onPlanSaved}
       />
       <RunwayLoanDialog
@@ -1094,7 +1100,7 @@ function BillList({
               size="sm"
               className="bg-[#F7931A] text-[#0D0D0D] hover:bg-[#F7931A]/90"
               onClick={add}
-              disabled={!label.trim()}
+              disabled={!label.trim() || !(parseFloat(amount) > 0)}
             >
               Add
             </Button>

@@ -96,6 +96,7 @@ export function RunwayDashboardCard() {
         shortfallUsd: refill?.shortfallUsd ?? 0,
         projectedCashGapUsd: comp.gap.flat.cashGapUsd,
         projectedBitcoinGapUsd: comp.gap.flat.bitcoinGapUsd,
+        alreadySteppedBack: plan?.phase === "runway",
       })
     }
   }

@@ -250,15 +250,29 @@ export function holdingsLookEmpty(input: {
   bitcoinUsd: number
   cashOverrideUsd: number | null
   bitcoinOverrideSats: number | null
-  /** Spendable sats already on a watch. A missing price must not look like "no bitcoin". */
+  /**
+   * Spendable sats already known (typed total or a watch). A missing price
+   * makes the dollar value $0, which must not look like "no bitcoin."
+   * When omitted, a dollar total above $0.50 still counts.
+   */
   bitcoinSats?: number | null
 }): boolean {
   const cashUnset = input.cashOverrideUsd == null && input.cashUsd <= 0.5
-  const watchedSats = input.bitcoinSats ?? 0
-  const bitcoinUnset =
-    input.bitcoinOverrideSats == null &&
-    input.bitcoinUsd <= 0.5 &&
-    watchedSats <= 0
+  const satsKnown =
+    input.bitcoinSats != null ? input.bitcoinSats > 0 : input.bitcoinUsd > 0.5
+  const bitcoinUnset = input.bitcoinOverrideSats == null && !satsKnown
+  return cashUnset && bitcoinUnset
+}
+
+/** Last setup step asks for holdings only when both sides are still unanswered. */
+export function shouldPromptRunwayHoldings(input: {
+  envelopeCashUsd: number
+  walletSats: number
+  cashOverrideUsd: number | null
+  bitcoinOverrideSats: number | null
+}): boolean {
+  const cashUnset = input.cashOverrideUsd == null && input.envelopeCashUsd <= 0.5
+  const bitcoinUnset = input.bitcoinOverrideSats == null && input.walletSats <= 0
   return cashUnset && bitcoinUnset
 }
 
@@ -282,6 +296,8 @@ export function runwayHeroDetail(input: {
   shortfallUsd: number
   projectedCashGapUsd: number
   projectedBitcoinGapUsd: number
+  /** True when the plan is already in the stepped-back phase (no future date). */
+  alreadySteppedBack?: boolean
 }): string {
   if (input.holdingsEmpty) {
     return "Add the cash and bitcoin you have today so this number means something."
@@ -294,8 +310,11 @@ export function runwayHeroDetail(input: {
   const bitcoinShort =
     !Number.isFinite(input.projectedBitcoinGapUsd) ||
     input.projectedBitcoinGapUsd > 0.5
+  const already = input.alreadySteppedBack === true
   if (!cashShort && !bitcoinShort) {
-    return "You're on track for the date you picked."
+    return already
+      ? "You have enough set aside for the months you planned."
+      : "You're on track for the date you picked."
   }
   const parts: string[] = []
   if (cashShort) parts.push(`${formatUsd(input.projectedCashGapUsd)} more cash`)
@@ -306,7 +325,10 @@ export function runwayHeroDetail(input: {
         : "more bitcoin",
     )
   }
-  return `By the time you step back, you're still short ${parts.join(" and ")}.`
+  const amounts = parts.join(" and ")
+  return already
+    ? `For the months you planned, you're still short ${amounts}.`
+    : `By the time you step back, you're still short ${amounts}.`
 }
 
 /**

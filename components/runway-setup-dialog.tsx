@@ -23,7 +23,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { clearDraft, loadDraft, saveDraft } from "@/lib/draft-storage"
 import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
-import { OFFERED_PLANNED_LINE_LABELS, type PlannedLine } from "@/lib/runway-need"
 import type {
   BorrowStance,
   BtcSharePreference,
@@ -359,29 +358,6 @@ export function RunwaySetupDialog({
     setStep((s) => Math.max(0, s - 1))
   }, [])
 
-  const buildPlannedLines = useCallback((): PlannedLine[] => {
-    const lines: PlannedLine[] = []
-    for (const offered of OFFERED_PLANNED_LINE_LABELS) {
-      const raw = plannedAmounts[offered.label]
-      const amount = parseFloat(raw ?? "")
-      if (Number.isFinite(amount) && amount > 0) {
-        lines.push({
-          id: `offered-${offered.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-          group: offered.group,
-          label: offered.label,
-          monthlyUsd: Math.round(amount * 100) / 100,
-          mode: "add",
-        })
-      }
-    }
-    // Preserve any custom (non-offered) planned lines already on the plan.
-    const offeredLabels = new Set(OFFERED_PLANNED_LINE_LABELS.map((o) => o.label))
-    for (const line of plan?.plannedLines ?? []) {
-      if (!offeredLabels.has(line.label)) lines.push(line)
-    }
-    return lines
-  }, [plannedAmounts, plan])
-
   const finish = useCallback(async () => {
     if (!stepValid) return
     setSaving(true)
@@ -420,7 +396,9 @@ export function RunwaySetupDialog({
       dipResponse,
       btcSharePreference,
       borrowStance,
-      plannedLines: buildPlannedLines(),
+      // The wizard no longer edits bills. Echo the saved lines so a leftover
+      // draft cannot delete one or put a removed one back.
+      plannedLines: plan?.plannedLines ?? [],
       ...holdingsPatch,
       ...seedStress,
     }
@@ -461,7 +439,6 @@ export function RunwaySetupDialog({
     dipResponse,
     btcSharePreference,
     borrowStance,
-    buildPlannedLines,
     suggestedStressPercent,
     promptHoldings,
     cashHoldings,

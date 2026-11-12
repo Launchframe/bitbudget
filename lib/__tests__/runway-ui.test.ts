@@ -21,6 +21,7 @@ import {
   runwayHeroDetail,
   runwayMonthsHeadline,
   runwayPrimaryAction,
+  shouldPromptRunwayHoldings,
   satsToUsd,
   type RunwayPlanResponse,
 } from "../runway-ui"
@@ -242,6 +243,64 @@ describe("runway glance copy", () => {
         cashOverrideUsd: null,
         bitcoinOverrideSats: null,
         bitcoinSats: 50_000_000,
+      }),
+    ).toBe(false)
+  })
+
+  it("does not talk about a future step-back date after the user already stepped back", () => {
+    const onTrack = runwayHeroDetail({
+      holdingsEmpty: false,
+      underFloor: false,
+      shortfallUsd: 0,
+      projectedCashGapUsd: 0,
+      projectedBitcoinGapUsd: 0,
+      alreadySteppedBack: true,
+    })
+    expect(onTrack).toBe("You have enough set aside for the months you planned.")
+    const short = runwayHeroDetail({
+      holdingsEmpty: false,
+      underFloor: false,
+      shortfallUsd: 0,
+      projectedCashGapUsd: 0,
+      projectedBitcoinGapUsd: 1200,
+      alreadySteppedBack: true,
+    })
+    expect(short).toMatch(/for the months you planned/i)
+    expect(short).toMatch(/\$1,200 more bitcoin/)
+    expect(short).not.toMatch(/step back/i)
+  })
+
+  it("asks for holdings only when cash and bitcoin are both still unanswered", () => {
+    expect(
+      shouldPromptRunwayHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(true)
+    expect(
+      shouldPromptRunwayHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 50_000_000,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(false)
+    expect(
+      shouldPromptRunwayHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: 0,
+      }),
+    ).toBe(false)
+    expect(
+      shouldPromptRunwayHoldings({
+        envelopeCashUsd: 8000,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
       }),
     ).toBe(false)
   })
