@@ -11,7 +11,7 @@ Read [AGENTS.md](../../AGENTS.md) first. Review the **full branch diff vs `main`
 
 1. `git fetch origin main && git log --oneline origin/main..HEAD` — scope and commit story
 2. `git diff --stat origin/main..HEAD` — touch surfaces (schema, crons, crypto, e2e)
-3. Confirm branch is rebased on current `main`; note if force-push is needed
+3. Confirm the branch includes current `main` via merge (`git merge origin/main`); never rebase or force-push
 4. Run or cite: `pnpm lint`, `pnpm test`, and e2e when UI/API contracts change
 
 ## Privacy (blockers)

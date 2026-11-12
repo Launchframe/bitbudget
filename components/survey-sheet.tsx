@@ -188,7 +188,10 @@ export function SurveySheetHost() {
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto rounded-t-2xl border-[#333] bg-[#0D0D0D]">
+      <SheetContent
+        side="bottom"
+        className="mx-auto max-h-[85vh] w-full max-w-[min(100vw,28rem)] overflow-y-auto rounded-t-2xl border-[#333] bg-[#0D0D0D]"
+      >
         <SheetHeader>
           <SheetTitle className="text-foreground">Quick feedback (step {step} of 6)</SheetTitle>
         </SheetHeader>

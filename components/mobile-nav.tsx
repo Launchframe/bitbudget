@@ -288,7 +288,10 @@ export function MobileNav() {
           </SheetHeader>
           <div className="px-4 pb-6">
             {isVoiceSupported() ? (
-              <VoiceDictationButton locked={!hasPremiumFeatures} />
+              <VoiceDictationButton
+                locked={!hasPremiumFeatures}
+                onOpenedTransaction={() => setVoiceSheetOpen(false)}
+              />
             ) : (
               <p className="text-sm text-muted-foreground">
                 Voice input is not supported in this browser. Try manual entry or scan receipt instead.
