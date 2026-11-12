@@ -127,6 +127,15 @@ export const MIN_GROWTH_RATE_YEAR = -1
 export const MAX_GROWTH_RATE_YEAR = 5
 /** Largest sat value we accept (21,000,000 BTC in sats). */
 export const MAX_BITCOIN_OVERRIDE_SATS = 21_000_000 * 100_000_000
+/**
+ * Caps free text stored on the plan (ids, groups, labels).
+ * Long notes do not belong in this JSON; a later journal must be encrypted.
+ */
+export const MAX_RUNWAY_TEXT_LENGTH = 200
+/** Abuse caps. Planned lines are budget rows, not one entry per month. */
+export const MAX_PLANNED_LINES = 500
+export const MAX_SCENARIOS = 200
+export const MAX_ENVELOPE_PRIORITIES = 500
 
 export type ValidationResult<T> =
   | { ok: true; value: T }
@@ -205,6 +214,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+/** Keys that normal assignment would drop or that shadow Object.prototype. */
+const RESERVED_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"])
+
 // ---------------------------------------------------------------------------
 // Field validators
 // ---------------------------------------------------------------------------
@@ -215,7 +227,14 @@ export function validatePlannedLines(
   if (!Array.isArray(value)) {
     return { ok: false, error: "Planned lines must be a list." }
   }
+  if (value.length > MAX_PLANNED_LINES) {
+    return {
+      ok: false,
+      error: `You can save up to ${MAX_PLANNED_LINES} planned lines.`,
+    }
+  }
   const out: PlannedLine[] = []
+  const seenIds = new Set<string>()
   for (let i = 0; i < value.length; i++) {
     const item = value[i]
     const where = `Planned line ${i + 1}`
@@ -225,11 +244,25 @@ export function validatePlannedLines(
     if (typeof item.id !== "string" || item.id.trim() === "") {
       return { ok: false, error: `${where} is missing an id.` }
     }
+    if (item.id.length > MAX_RUNWAY_TEXT_LENGTH) {
+      return { ok: false, error: `${where} id is too long.` }
+    }
+    const id = item.id.trim()
+    if (seenIds.has(id)) {
+      return { ok: false, error: `${where} repeats an id.` }
+    }
+    seenIds.add(id)
     if (typeof item.group !== "string") {
       return { ok: false, error: `${where} is missing a group.` }
     }
+    if (item.group.length > MAX_RUNWAY_TEXT_LENGTH) {
+      return { ok: false, error: `${where} group is too long.` }
+    }
     if (typeof item.label !== "string") {
       return { ok: false, error: `${where} is missing a label.` }
+    }
+    if (item.label.length > MAX_RUNWAY_TEXT_LENGTH) {
+      return { ok: false, error: `${where} label is too long.` }
     }
     if (!PLANNED_LINE_MODES.includes(item.mode as PlannedLineMode)) {
       return {
@@ -237,14 +270,15 @@ export function validatePlannedLines(
         error: `${where} has an unknown type. Use add or replaces.`,
       }
     }
+    const mode = item.mode as PlannedLineMode
     const monthly = validateUsdNonNegative(item.monthlyUsd, `${where} amount`)
     if (!monthly.ok) return monthly
 
     const line: PlannedLine = {
-      id: item.id,
-      group: item.group,
-      label: item.label,
-      mode: item.mode as PlannedLineMode,
+      id,
+      group: item.group.trim(),
+      label: item.label.trim(),
+      mode,
       monthlyUsd: monthly.value,
     }
 
@@ -257,7 +291,11 @@ export function validatePlannedLines(
         `${where} replaced amount`,
       )
       if (!replaces.ok) return replaces
-      line.replacesMonthlyUsd = replaces.value
+      // Only "replaces" lines keep the prior amount. An add line that also
+      // carries one would look like a swap to later math.
+      if (mode === "replaces") {
+        line.replacesMonthlyUsd = replaces.value
+      }
     }
 
     out.push(line)
@@ -271,7 +309,14 @@ export function validateScenarios(
   if (!Array.isArray(value)) {
     return { ok: false, error: "Scenarios must be a list." }
   }
+  if (value.length > MAX_SCENARIOS) {
+    return {
+      ok: false,
+      error: `You can save up to ${MAX_SCENARIOS} scenarios.`,
+    }
+  }
   const out: RunwayScenario[] = []
+  const seenIds = new Set<string>()
   for (let i = 0; i < value.length; i++) {
     const item = value[i]
     const where = `Scenario ${i + 1}`
@@ -281,8 +326,19 @@ export function validateScenarios(
     if (typeof item.id !== "string" || item.id.trim() === "") {
       return { ok: false, error: `${where} is missing an id.` }
     }
+    if (item.id.length > MAX_RUNWAY_TEXT_LENGTH) {
+      return { ok: false, error: `${where} id is too long.` }
+    }
+    const id = item.id.trim()
+    if (seenIds.has(id)) {
+      return { ok: false, error: `${where} repeats an id.` }
+    }
+    seenIds.add(id)
     if (typeof item.label !== "string") {
       return { ok: false, error: `${where} is missing a label.` }
+    }
+    if (item.label.length > MAX_RUNWAY_TEXT_LENGTH) {
+      return { ok: false, error: `${where} label is too long.` }
     }
     if (typeof item.enabled !== "boolean") {
       return { ok: false, error: `${where} must be on or off.` }
@@ -296,8 +352,8 @@ export function validateScenarios(
     if (!oneTime.ok) return oneTime
 
     out.push({
-      id: item.id,
-      label: item.label,
+      id,
+      label: item.label.trim(),
       monthlyDeltaUsd: monthlyDelta.value,
       oneTimeUsd: oneTime.value,
       enabled: item.enabled,
@@ -312,15 +368,41 @@ export function validateEnvelopePriorities(
   if (!isPlainObject(value)) {
     return { ok: false, error: "Envelope priorities must be an object." }
   }
+  const entries = Object.entries(value)
+  if (entries.length > MAX_ENVELOPE_PRIORITIES) {
+    return {
+      ok: false,
+      error: `You can mark up to ${MAX_ENVELOPE_PRIORITIES} envelopes.`,
+    }
+  }
   const out: EnvelopePriorityMap = {}
-  for (const [envelopeId, priority] of Object.entries(value)) {
+  for (const [rawId, priority] of entries) {
     if (!ENVELOPE_PRIORITIES.includes(priority as EnvelopePriority)) {
       return {
         ok: false,
         error: "Each envelope must be marked essential or flexible.",
       }
     }
-    out[envelopeId] = priority as EnvelopePriority
+    if (rawId.length > MAX_RUNWAY_TEXT_LENGTH) {
+      return { ok: false, error: "An envelope id is too long." }
+    }
+    const envelopeId = rawId.trim()
+    if (envelopeId === "") {
+      return { ok: false, error: "Each envelope needs an id." }
+    }
+    if (RESERVED_OBJECT_KEYS.has(envelopeId)) {
+      return { ok: false, error: "An envelope id is not valid." }
+    }
+    if (Object.hasOwn(out, envelopeId)) {
+      return { ok: false, error: "Each envelope can only be listed once." }
+    }
+    // defineProperty stores every key. Plain assignment drops "__proto__".
+    Object.defineProperty(out, envelopeId, {
+      value: priority as EnvelopePriority,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    })
   }
   return { ok: true, value: out }
 }
@@ -482,9 +564,11 @@ function validateOptionalRate(
 
 /**
  * Parse and normalize a full Runway plan body. Every field is optional; missing
- * fields fall back to {@link RUNWAY_PLAN_DEFAULTS}. The returned value is safe to
- * upsert directly. Does not touch user identity — the caller supplies userId
- * from the session.
+ * fields fall back to {@link RUNWAY_PLAN_DEFAULTS}. The returned value is a full
+ * replacement (safe to upsert directly): omitted fields are defaults, not "leave
+ * unchanged". Nested lists are fresh copies so editing a result cannot change
+ * the shared defaults. Does not touch user identity — the caller supplies
+ * userId from the session.
  */
 export function parseRunwayPlanBody(
   body: unknown,
@@ -493,7 +577,12 @@ export function parseRunwayPlanBody(
     return { ok: false, error: "Expected a plan object." }
   }
 
-  const result: RunwayPlanValues = { ...RUNWAY_PLAN_DEFAULTS }
+  const result: RunwayPlanValues = {
+    ...RUNWAY_PLAN_DEFAULTS,
+    plannedLines: [],
+    scenarios: [],
+    envelopePriorities: {},
+  }
 
   if (body.phase !== undefined) {
     if (!RUNWAY_PHASES.includes(body.phase as RunwayPhase)) {
