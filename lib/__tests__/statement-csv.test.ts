@@ -3,6 +3,9 @@ import {
   parseFoldDate,
   isFoldStatementCsv,
   parseFoldStatementCsv,
+  parseChaseStatementCsv,
+  parseCoinbaseHistoryCsv,
+  tryParseStatementCsv,
 } from "@/lib/statement-csv"
 
 // ─── parseFoldDate ────────────────────────────────────────────────────────────
@@ -129,5 +132,50 @@ abc12345-0000-0000-0000-000000000001,"2026-02-01 10:00:00+00:00","Motus,LLC",146
 `
     const result = parseFoldStatementCsv(csv)
     expect(result.transactions[0]!.payee).toBe("Motus,LLC")
+  })
+})
+
+const CHASE_CSV = `Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
+DEBIT,01/15/2024,STARBUCKS,-4.50,DEBIT,100.00,
+CREDIT,01/16/2024,PAYROLL,2000.00,CREDIT,2100.00,
+DEBIT,01/17/2024,RENT,1500.00,DEBIT,600.00,
+`
+
+describe("parseChaseStatementCsv", () => {
+  it("reads debits as expenses and credits as money in", () => {
+    const result = parseChaseStatementCsv(CHASE_CSV)
+    expect(result.format).toBe("chase_csv")
+    expect(result.institutionName).toBe("Chase")
+    expect(result.transactions).toEqual([
+      expect.objectContaining({ payee: "STARBUCKS", type: "expense", amount: 4.5, date: "2024-01-15" }),
+      expect.objectContaining({ payee: "PAYROLL", type: "credit", amount: 2000, date: "2024-01-16" }),
+      expect.objectContaining({ payee: "RENT", type: "expense", amount: 1500, date: "2024-01-17" }),
+    ])
+  })
+})
+
+const COINBASE_CSV = `Timestamp,Transaction Type,Asset,Quantity Transacted,Spot Price Currency,Spot Price at Transaction,Subtotal,Total (inclusive of fees and/or spread),Notes
+2024-03-01 16:22:11 UTC,Deposit,USD,500,USD,1,500,500,Bank
+2024-03-02 12:00:00 UTC,Buy,BTC,0.01,USD,50000,500,502,Bought bitcoin
+2024-03-03 12:00:00 UTC,Withdrawal,USD,100,USD,1,100,100,To checking
+`
+
+describe("parseCoinbaseHistoryCsv", () => {
+  it("imports USD deposits and withdrawals and skips bitcoin buys", () => {
+    const result = parseCoinbaseHistoryCsv(COINBASE_CSV)
+    expect(result.format).toBe("coinbase_csv")
+    expect(result.institutionName).toBe("Coinbase")
+    expect(result.ignoredTrades).toBe(1)
+    expect(result.transactions).toEqual([
+      expect.objectContaining({ type: "credit", amount: 500, payee: "Bank" }),
+      expect.objectContaining({ type: "expense", amount: 100, payee: "To checking" }),
+    ])
+  })
+})
+
+describe("tryParseStatementCsv formats", () => {
+  it("picks Chase and Coinbase without treating them as Fold", () => {
+    expect(tryParseStatementCsv(CHASE_CSV)?.format).toBe("chase_csv")
+    expect(tryParseStatementCsv(COINBASE_CSV)?.format).toBe("coinbase_csv")
   })
 })
