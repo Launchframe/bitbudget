@@ -545,15 +545,15 @@ export function RunwayPage() {
           <div className="flex flex-col sm:flex-row gap-3">
             <GapStat
               icon={<Wallet className="h-3.5 w-3.5" aria-hidden />}
-              label="Cash gap"
+              label="Cash by then"
               gapUsd={gap.flat.cashGapUsd}
-              onTrackCopy="Cash floor covered"
+              onTrackCopy="You'll reach the floor in time"
             />
             <GapStat
               icon={<Bitcoin className="h-3.5 w-3.5" aria-hidden />}
-              label="Bitcoin gap"
+              label="Bitcoin by then"
               gapUsd={gap.flat.bitcoinGapUsd}
-              onTrackCopy="Bitcoin target met"
+              onTrackCopy="You'll reach the bitcoin target"
             />
           </div>
           {!priceKnown && (
