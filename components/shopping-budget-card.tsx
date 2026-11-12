@@ -144,10 +144,12 @@ export function ShoppingBudgetCard({
     setError(null)
     try {
       const event = view.events.find((item) => item.id === row.sourceEventId)
-      const merchant =
-        event?.payload.type === "receipt_finalized"
-          ? view.receipts.find((receipt) => receipt.id === event.payload.receiptId)?.merchant
-          : undefined
+      let merchant: string | undefined
+      const payload = event?.payload
+      if (payload?.type === "receipt_finalized") {
+        merchant = view.receipts.find((receipt) => receipt.id === payload.receiptId)
+          ?.merchant
+      }
       const payee = await encryptForStorage(
         shoppingEntryPayee({ eventType: event?.payload.type, merchant }),
       )
