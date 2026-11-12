@@ -10,6 +10,10 @@ Adversarial, sequential PR review: each model pass **reviews the branch**, **pos
 
 Read [AGENTS.md](../../../AGENTS.md) (privacy, tests, PR comment replies). Do **not** resolve review threads unless the maintainer asks.
 
+## Worktree isolation
+
+Follow [`.cursor/rules/agent-git-hygiene.mdc`](../rules/agent-git-hygiene.mdc): review in the **primary clone** by default. Fall back to `./scripts/new-worktree.sh` and `move_agent_to_root` **once** only if the maintainer asks, or if colliding sessions / foreign dirty WIP would clobber the shared tree — ask when unsure.
+
 ## Invocation
 
 ```
@@ -46,12 +50,18 @@ If the user ends the chain with the same alias as the first (e.g. `... composer 
 You coordinate; you do **not** skip passes or collapse them into one review.
 
 1. **Resolve PR** — current branch → `gh pr view --json number,url,title,baseRefName` (create PR first if missing).
-2. **Baseline** — `git fetch origin`, note `base...HEAD` diff, open/unresolved review threads (`gh api graphql`).
-3. **Run log (local only)** — append to `.cursor/real-steel/pr-<number>-<YYYYMMDD>.md` (create dir if needed): pass order, model, commits, comment URLs, findings. **Do not commit run logs or review write-ups** — those belong on the PR via `gh`, not in the repo (see **Git and PR rules**).
-4. **For each pass in order** — launch a **Task** subagent (see below). **Wait for completion** before the next pass.
-5. **After each pass** — verify `pnpm lint` + scoped `pnpm test` (full suite before declaring done). Push if the pass committed.
-6. **Final summary** to the user: pass table, remaining risks, link to run log, CI status.
-7. **Apply `real-steel-ready` label** — once the full chain (including post-mortem) is complete and the post-mortem has been posted on the PR, apply the `real-steel-ready` label to the PR using `EditPullRequestLabels`. This signals to future agents that the PR has been through the full adversarial review gauntlet.
+2. **Merge parent onto the feature branch (required before first pass)** — reviewers read **remote** branch state. Integrate the latest parent with a **merge**, never a rebase, **before** the first pass:
+   - `git fetch origin`
+   - Ensure the checkout includes the latest **remote feature branch** first: `git merge origin/<headRef>` (fast-forward or merge commit). **Do not** `git reset --hard` onto a stale local tip; **do not** rebase. A stale local checkout plus a later force-push **destroys** remote commits the local branch did not have.
+   - `git merge origin/<baseRefName>` (no-op is fine if already up to date)
+   - **Merge conflicts:** high-confidence resolves only; otherwise **stop**, summarize, `git merge --abort` if leaving the tree dirty, and **await direction**.
+   - **Publish with a regular push only** if the merge created a commit. **Never** `git push --force`, `--force-with-lease`, or any other force push. If the remote advanced, `git pull --no-rebase` (merge) and push again.
+3. **Baseline** — note `origin/<base>...HEAD` diff after the merge, open/unresolved review threads (`gh api graphql`).
+4. **Run log (local only)** — append to `.cursor/real-steel/pr-<number>-<YYYYMMDD>.md` (create dir if needed): pass order, model, commits, comment URLs, findings, merge notes. **Do not commit run logs or review write-ups** — those belong on the PR via `gh`, not in the repo (see **Git and PR rules**).
+5. **For each pass in order** — launch a **Task** subagent (see below). **Wait for completion** before the next pass.
+6. **After each pass** — verify `pnpm lint` + scoped `pnpm test` (full suite before declaring done). Push if the pass committed (**regular push only** — never force-push).
+7. **Final summary** to the user: pass table, remaining risks, link to run log, CI status, merge/push status.
+8. **Apply `real-steel-ready` label** — once the full chain (including post-mortem) is complete and the post-mortem has been posted on the PR, apply the `real-steel-ready` label to the PR using `EditPullRequestLabels`. This signals to future agents that the PR has been through the full adversarial review gauntlet.
 
 Pass subagents **sequentially**, never in parallel — each pass depends on the prior branch state.
 
@@ -62,6 +72,7 @@ Launch with `Task`, `subagent_type: generalPurpose`, explicit `model` from the a
 Include in every pass prompt:
 
 - PR number, URL, base branch
+- **Parent is merged into the feature branch (no rebase, no force-push)** — review remote `HEAD`, including any remote feature-branch commits that were ahead of local
 - Path to run log
 - List of prior pass summaries (from run log)
 - `AGENTS.md` must be followed (encryption, ledger, tests, mobile UI)
@@ -124,7 +135,8 @@ Work top-down. Do not spend tokens on nits while correctness bugs remain unfixed
 
 ## Git and PR rules
 
-- **Never force-push `main`**
+- **Never force-push** any branch during Real Steel — not `main`, not the feature branch. `--force` and `--force-with-lease` are forbidden.
+- **Never rebase** the feature branch onto the parent. Merge `origin/<baseRefName>` into the feature branch instead, then regular-push. Integrate the latest `origin/<headRef>` **before** merging the parent so a stale local checkout cannot drop remote commits.
 - Commit after each pass that changes **product code or tests** (reviewable history)
 - **Never commit Real Steel artifacts** — `.cursor/real-steel/*.md` run logs are orchestrator scratch space only. Review comments, findings, and post-mortems go on the PR via `gh`, not into the branch. Before every commit/push, confirm `git status` does not stage `.cursor/real-steel/` (add that path to `.gitignore` if missing).
 - Do not amend prior pass commits unless hook requires it
@@ -136,7 +148,7 @@ Stop and report to the user if:
 
 - A pass finds **no valid issues** and makes **no code changes** (note "clean pass"; continue chain unless user said stop-on-clean)
 - CI is red for reasons **outside PR scope** — report, do not weaken CI
-- Merge conflicts with base — attempt intelligent merge once; else stop
+- **Merge conflicts** you cannot resolve with **high confidence** — summarize, prompt maintainer, **await direction** (do not start reviewer passes on a conflicted or unpublished merge). Never rebase or force-push to “fix” conflicts.
 
 ## Examples
 
@@ -156,6 +168,7 @@ Stop and report to the user if:
 - **Mega-commit at end** — loses attribution per reviewer
 - **Skipping tests** — each pass that edits code runs lint + relevant tests
 - **Soft-pedaling risks** — describing a known bug as "low-risk," "worth fixing later," or "fine for now" without immediately fixing it. If you found it, fix it this pass or explain why you cannot. Deferral without justification is a review miss, not a deliberate call.
+- **Rebasing or force-pushing** — rewriting history then `push --force` / `--force-with-lease` destroys remote feature-branch commits that local did not have
 - **Skipping `real-steel-ready` label** — forgetting to apply the label after a complete chain leaves the PR indistinguishable from one that has never been reviewed
 
 ## Related skills

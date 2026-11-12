@@ -142,6 +142,8 @@ export function WalkthroughOverlay() {
   }, [displayStep, steps.length, measureContentHeight])
 
   // ─── Reset & show on walkthroughCompleted change ────────────────────────────
+  // walkthroughCompleted defaults true in AppState until settings hydrate; only
+  // schedule the tour once the server confirms the user has not finished it.
   useEffect(() => {
     let cancelled = false
     const raf = requestAnimationFrame(() => {
