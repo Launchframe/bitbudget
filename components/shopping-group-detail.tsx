@@ -1088,7 +1088,7 @@ function RequestDialog({
   return (
     <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
       <DialogContent
-        className="max-w-[min(96vw,32rem)] rounded-2xl"
+        className="max-w-[min(96vw,32rem)] rounded-2xl border-border bg-card"
         onKeyDown={(e) =>
           handleDialogEnterToPrimary(e, { disabled: busy || !description.trim(), onPrimary: () => onSave(description, notes) })
         }
@@ -1146,7 +1146,7 @@ function PaymentDialog({
   const cents = dollarsToCents(amount)
   return (
     <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl">
+      <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl border-border bg-card">
         <DialogHeader className="pr-10 text-left">
           <DialogTitle>Record a payment</DialogTitle>
           <DialogDescription>This records a real-world payment for bookkeeping. No money is transferred automatically.</DialogDescription>
@@ -1216,7 +1216,7 @@ function ApproveRequestDialog({
   const [compared, setCompared] = useState(false)
   return (
     <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl">
+      <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl border-border bg-card">
         <DialogHeader className="pr-10 text-left">
           <DialogTitle>Let {alias} join?</DialogTitle>
           <DialogDescription>
@@ -1281,7 +1281,7 @@ function InviteDialog({
 
   return (
     <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl">
+      <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl border-border bg-card">
         <DialogHeader className="pr-10 text-left">
           <DialogTitle>Invite to {view.name}</DialogTitle>
           <DialogDescription>

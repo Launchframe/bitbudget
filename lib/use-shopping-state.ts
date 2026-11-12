@@ -42,6 +42,9 @@ export interface ShoppingGroupSummary {
   wraps: Array<{ keyVersion: number; wrappedKey: string }>
 }
 
+/** Stable empty list — a fresh `[]` each render retriggers ShoppingPage decrypt effects. */
+const EMPTY_SHOPPING_GROUPS: ShoppingGroupSummary[] = []
+
 async function shoppingFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, {
     ...init,
@@ -86,7 +89,9 @@ export function useShoppingState() {
   }
 
   const groups =
-    unlocked && groupsState?.userId === currentUserId ? groupsState.groups : []
+    unlocked && groupsState?.userId === currentUserId
+      ? groupsState.groups
+      : EMPTY_SHOPPING_GROUPS
   const error = errorState?.userId === currentUserId ? errorState.message : null
   const loadingGroups = Boolean(
     unlocked && currentUserId && (loading || settledUserId !== currentUserId),

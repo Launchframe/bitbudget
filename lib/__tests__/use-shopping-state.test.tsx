@@ -83,6 +83,14 @@ describe("useShoppingState refresh", () => {
     })
   }
 
+  it("returns a stable empty groups reference before the first load settles", () => {
+    const { result, rerender } = renderHook(() => useShoppingState())
+    const first = result.current.groups
+    expect(first).toEqual([])
+    rerender()
+    expect(result.current.groups).toBe(first)
+  })
+
   it("keeps the newer group list when an older poll finishes last", async () => {
     const { result } = renderHook(() => useShoppingState())
     expect(result.current.loading).toBe(true)

@@ -47,6 +47,8 @@ interface GroupCard {
   unreadable: boolean
 }
 
+const EMPTY_GROUP_CARDS: GroupCard[] = []
+
 export function ShoppingPage() {
   const { navigateTo, withPrivacyKey } = useApp()
   const shopping = useShoppingState()
@@ -67,7 +69,14 @@ export function ShoppingPage() {
         }
         return decrypted
       })
-      if (!cancelled) setCards(next ?? [])
+      if (cancelled) return
+      // Avoid setState when unchanged — a new [] each time would re-render forever
+      // if shopping.groups were also referentially unstable.
+      setCards((prev) => {
+        const resolved = next ?? EMPTY_GROUP_CARDS
+        if (prev.length === 0 && resolved.length === 0) return prev
+        return resolved
+      })
     })()
     return () => {
       cancelled = true
