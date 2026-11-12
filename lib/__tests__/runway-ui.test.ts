@@ -235,6 +235,15 @@ describe("runway glance copy", () => {
         bitcoinOverrideSats: 0,
       }),
     ).toBe(false)
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinUsd: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        bitcoinSats: 50_000_000,
+      }),
+    ).toBe(false)
   })
 
   it("headlines months left, or a prompt when the plan has no draw", () => {

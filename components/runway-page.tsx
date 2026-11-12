@@ -352,17 +352,19 @@ export function RunwayPage() {
   const priceKnown = btcPriceOrNull != null && btcPriceOrNull > 0
   const scenarios = plan.scenarios
 
-  const bitcoinKnownUsd = need ? satsToUsd(need.spendableSats, btcPriceOrNull ?? 0) : 0
+  const spendableSats = need?.spendableSats ?? 0
+  const bitcoinKnownUsd = need ? satsToUsd(spendableSats, btcPriceOrNull ?? 0) : 0
   const monthsUntil = comp?.monthsUntilQuit ?? 0
   const holdingsEmpty = holdingsLookEmpty({
     cashUsd: need?.cashUsd ?? 0,
     bitcoinUsd: bitcoinKnownUsd,
     cashOverrideUsd: plan.cashOverrideUsd,
     bitcoinOverrideSats: plan.bitcoinOverrideSats,
+    bitcoinSats: spendableSats,
   })
   const cashUnset = plan.cashOverrideUsd == null && (need?.cashUsd ?? 0) <= 0.5
   const bitcoinUnset =
-    plan.bitcoinOverrideSats == null && bitcoinKnownUsd <= 0.5
+    plan.bitcoinOverrideSats == null && spendableSats <= 0 && bitcoinKnownUsd <= 0.5
 
   const refill = need
     ? refillStatus({
@@ -528,11 +530,19 @@ export function RunwayPage() {
                   <Bitcoin className="h-3.5 w-3.5 shrink-0" aria-hidden /> Bitcoin
                 </span>
                 <span className="block text-base sm:text-lg font-semibold text-foreground tabular-nums mt-1 break-words">
-                  {bitcoinUnset ? "Add your bitcoin" : priceKnown ? formatUsd(bitcoinKnownUsd) : "—"}
+                  {bitcoinUnset
+                    ? "Add your bitcoin"
+                    : priceKnown
+                      ? formatUsd(bitcoinKnownUsd)
+                      : spendableSats > 0
+                        ? `${(spendableSats / SATS_PER_BTC).toFixed(8).replace(/0+$/, "").replace(/\.$/, "")} bitcoin`
+                        : "—"}
                 </span>
                 <span className="text-[11px] text-muted-foreground block mt-0.5">
                   {plan.bitcoinOverrideSats != null
-                    ? "You typed this"
+                    ? watchCount > 0
+                      ? "You typed this. Watched wallets are not included."
+                      : "You typed this"
                     : watchCount > 0
                       ? "From wallets you watch"
                       : bitcoinUnset

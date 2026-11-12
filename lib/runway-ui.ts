@@ -250,10 +250,15 @@ export function holdingsLookEmpty(input: {
   bitcoinUsd: number
   cashOverrideUsd: number | null
   bitcoinOverrideSats: number | null
+  /** Spendable sats already on a watch. A missing price must not look like "no bitcoin". */
+  bitcoinSats?: number | null
 }): boolean {
   const cashUnset = input.cashOverrideUsd == null && input.cashUsd <= 0.5
+  const watchedSats = input.bitcoinSats ?? 0
   const bitcoinUnset =
-    input.bitcoinOverrideSats == null && input.bitcoinUsd <= 0.5
+    input.bitcoinOverrideSats == null &&
+    input.bitcoinUsd <= 0.5 &&
+    watchedSats <= 0
   return cashUnset && bitcoinUnset
 }
 

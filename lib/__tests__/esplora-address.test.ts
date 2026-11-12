@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   addressWatchError,
+  chainMovementsFromEsploraTxs,
   confirmedSatsFromEsploraBody,
+  fetchAddressChainMovements,
   fetchAddressConfirmedSats,
 } from "@/lib/esplora-address"
 
@@ -52,5 +54,67 @@ describe("fetchAddressConfirmedSats", () => {
     expect(fetchFn).toHaveBeenCalledWith(
       "https://example.test/api/address/bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
     )
+  })
+})
+
+const ADDR = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+
+describe("chainMovementsFromEsploraTxs", () => {
+  it("keeps confirmed receives and sends and drops mempool rows", () => {
+    const rows = chainMovementsFromEsploraTxs(ADDR, [
+      {
+        txid: "aa",
+        status: { confirmed: true, block_time: 1_700_000_000 },
+        vin: [],
+        vout: [{ scriptpubkey_address: ADDR, value: 75_000_000 }],
+      },
+      {
+        txid: "bb",
+        status: { confirmed: true, block_time: 1_710_000_000 },
+        vin: [{ prevout: { scriptpubkey_address: ADDR, value: 25_000_000 } }],
+        vout: [],
+      },
+      {
+        txid: "cc",
+        status: { confirmed: false },
+        vin: [],
+        vout: [{ scriptpubkey_address: ADDR, value: 9_000 }],
+      },
+      {
+        txid: "dd",
+        status: { confirmed: true, block_time: 1_720_000_000 },
+        vin: [],
+        vout: [{ scriptpubkey_address: "bc1qother", value: 1_000 }],
+      },
+    ])
+    expect(rows).toEqual([
+      { txid: "aa", time: 1_700_000_000, netSats: 75_000_000 },
+      { txid: "bb", time: 1_710_000_000, netSats: -25_000_000 },
+    ])
+  })
+
+  it("returns nothing for a non-list body", () => {
+    expect(chainMovementsFromEsploraTxs(ADDR, null)).toEqual([])
+  })
+})
+
+describe("fetchAddressChainMovements", () => {
+  it("requests the address txs endpoint", async () => {
+    const fetchFn = vi.fn(async () => ({
+      ok: true,
+      json: async () => [
+        {
+          txid: "aa",
+          status: { confirmed: true, block_time: 1_700_000_000 },
+          vin: [],
+          vout: [{ scriptpubkey_address: ADDR, value: 5_000 }],
+        },
+      ],
+    })) as unknown as typeof fetch
+
+    await expect(
+      fetchAddressChainMovements(ADDR, { fetchFn, baseUrl: "https://example.test/api" }),
+    ).resolves.toEqual([{ txid: "aa", time: 1_700_000_000, netSats: 5_000 }])
+    expect(fetchFn).toHaveBeenCalledWith(`https://example.test/api/address/${ADDR}/txs`)
   })
 })

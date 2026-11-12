@@ -1,9 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Loader2, RefreshCw, Trash2 } from "lucide-react"
-import { formatSats } from "@/lib/data"
-import { addressWatchError, fetchAddressConfirmedSats } from "@/lib/esplora-address"
+import {
+  addressWatchError,
+  fetchAddressChainMovements,
+  fetchAddressConfirmedSats,
+  type AddressChainMovement,
+} from "@/lib/esplora-address"
 import { useWalletWatches } from "@/lib/use-wallet-watch"
 import { writeWalletWatches, type WalletWatch } from "@/lib/wallet-watch-store"
 
@@ -20,6 +24,32 @@ export function RunwayAddressWatch() {
   const [role, setRole] = useState<AddressRole>("wallet")
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [activity, setActivity] = useState<Record<string, AddressChainMovement[]>>({})
+  const [activityError, setActivityError] = useState<Record<string, boolean>>({})
+  const addressKey = addresses.map((watch) => `${watch.id}:${watch.descriptor}`).join("|")
+  const addressesRef = useRef(addresses)
+  addressesRef.current = addresses
+
+  useEffect(() => {
+    const current = addressesRef.current
+    if (current.length === 0) return
+    let cancelled = false
+    for (const watch of current) {
+      void fetchAddressChainMovements(watch.descriptor)
+        .then((rows) => {
+          if (cancelled) return
+          setActivity((prev) => ({ ...prev, [watch.id]: rows }))
+          setActivityError((prev) => ({ ...prev, [watch.id]: false }))
+        })
+        .catch(() => {
+          if (cancelled) return
+          setActivityError((prev) => ({ ...prev, [watch.id]: true }))
+        })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [addressKey])
 
   async function refreshOne(watch: WalletWatch, list: readonly WalletWatch[]) {
     const sats = await fetchAddressConfirmedSats(watch.descriptor)
@@ -58,6 +88,9 @@ export function RunwayAddressWatch() {
     setBusyId(next.id)
     try {
       await refreshOne(next, list)
+      const rows = await fetchAddressChainMovements(next.descriptor)
+      setActivity((prev) => ({ ...prev, [next.id]: rows }))
+      setActivityError((prev) => ({ ...prev, [next.id]: false }))
     } catch {
       setError("Couldn't look up that address. Try again.")
     } finally {
@@ -70,6 +103,9 @@ export function RunwayAddressWatch() {
     setError(null)
     try {
       await refreshOne(watch, watches)
+      const rows = await fetchAddressChainMovements(watch.descriptor)
+      setActivity((prev) => ({ ...prev, [watch.id]: rows }))
+      setActivityError((prev) => ({ ...prev, [watch.id]: false }))
     } catch {
       setError("Couldn't look up that address. Try again.")
     } finally {
@@ -102,9 +138,13 @@ export function RunwayAddressWatch() {
               <div className="min-w-0">
                 <p className="text-sm text-foreground">
                   {watch.role === "exchange" ? "Exchange" : "Wallet"}
-                  <span className="text-muted-foreground"> · {formatSats(watch.confirmedSats)}</span>
+                  <span className="text-muted-foreground"> · {formatBitcoin(watch.confirmedSats)}</span>
                 </p>
                 <p className="text-xs text-muted-foreground break-all">{watch.descriptor}</p>
+                <AddressActivity
+                  rows={activity[watch.id]}
+                  failed={activityError[watch.id] === true}
+                />
               </div>
               <div className="flex shrink-0 gap-2">
                 <button
@@ -167,6 +207,59 @@ export function RunwayAddressWatch() {
       </div>
     </div>
   )
+}
+
+function AddressActivity({
+  rows,
+  failed,
+}: {
+  rows: AddressChainMovement[] | undefined
+  failed: boolean
+}) {
+  if (failed && rows == null) {
+    return (
+      <p className="text-xs text-muted-foreground mt-2">
+        Couldn&apos;t load activity for this address.
+      </p>
+    )
+  }
+  if (rows == null) return null
+  const latest = rows.slice(0, 6)
+  if (latest.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground mt-2">No confirmed activity on this address yet.</p>
+    )
+  }
+  return (
+    <div className="mt-2 flex flex-col gap-1">
+      <p className="text-[11px] text-muted-foreground">
+        Recent activity. These rows are not spending or income.
+      </p>
+      <ul className="flex flex-col gap-1">
+        {latest.map((row) => (
+          <li key={row.txid} className="text-xs text-foreground break-words">
+            {row.netSats > 0 ? "Received" : "Sent"} {formatBitcoin(row.netSats)}
+            {row.time != null ? ` · ${formatChainDay(row.time)}` : ""}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function formatBitcoin(sats: number): string {
+  const btc = Math.abs(sats) / 100_000_000
+  const text = btc.toFixed(8).replace(/0+$/, "").replace(/\.$/, "")
+  return `${text} bitcoin`
+}
+
+function formatChainDay(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  })
 }
 
 function RoleButton({
