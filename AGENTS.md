@@ -494,6 +494,8 @@ The setup wizard (`components/runway-setup-dialog.tsx`) **pre-selects** middle-p
 
 Runway resolves holdings from the budget: **envelope cash** = Savings remaining + discretionary remaining (all-time, genesis-floored), and **wallet sats** (currently 0 until a wallet source is wired). A typed **override replaces one side only**: `cashOverrideUsd` replaces the cash total, `bitcoinOverrideSats` replaces the bitcoin total; the other side still comes from the budget. See `knownCashUsd` / `knownBitcoinSats` in `lib/runway-ui.ts` and the holdings resolution in `computeRunwayNeed`.
 
+Plaid depository balances (`depositoryCashUsd`) are a bank snapshot on the connection card. They do **not** replace envelope remaining. Plaid inflows are stored as **credits** (`plaidAmountToLedger`: positive Plaid amount = money out). Credit-card rows show what is owed and stay out of that cash sum.
+
 ### Cash floor vs required bitcoin — keep them separate
 
 The **cash floor** (months of spending kept in cash before leaning on bitcoin) and the **required bitcoin** (sats needed to fund the draw over the horizon) are reported as **two independent gaps** everywhere (`cashGapUsd` and `bitcoinGapUsd`). A bold bitcoin target must never mask a short cash floor, and vice-versa. `gapSummaryLine` phrases them as distinct shortfalls; the gap math (`lib/runway-gap.ts`) fills the cash floor **first**, then buys bitcoin, and keeps the bitcoin side Infinity-safe (a 100% stress drop yields an Infinity bitcoin requirement, never NaN).
