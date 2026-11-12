@@ -6,7 +6,7 @@ import {
   TX_SOURCE_IRREGULAR_INCOME,
   TX_SOURCE_RETRO_PAYCHECK,
 } from "@/lib/constants"
-import { isUserFacingExpense, todayUtcIso, txnIsoDate } from "@/lib/transaction-visibility"
+import { isAnalyticsExpense, todayUtcIso, txnIsoDate } from "@/lib/transaction-visibility"
 
 const SATS_PER_BTC = 100_000_000
 
@@ -50,8 +50,8 @@ export function isCashInflowCredit(txn: Pick<Transaction, "type" | "source" | "e
   return CASH_INFLOW_SOURCES.has(src)
 }
 
-export function isCashOutflowExpense(txn: Pick<Transaction, "type" | "excludeFromMainHistory" | "source">): boolean {
-  return isUserFacingExpense(txn)
+export function isCashOutflowExpense(txn: Pick<Transaction, "type" | "excludeFromMainHistory" | "source" | "tags">): boolean {
+  return isAnalyticsExpense(txn)
 }
 
 /** Signed USD delta per day from external cash inflows and outflows. */

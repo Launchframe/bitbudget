@@ -35,7 +35,7 @@ export interface PayeeCandidate {
 /** Only automatic reasons today; prefix matching removed for user control. */
 export type CanonicalMatchReason = "alias" | "soft-equal"
 
-export interface PayeeAliasRule {
+export interface PayeeNameRule {
   /** Database row id — present when loaded from the API, absent in test fixtures. */
   id?: string
   sourceNormalized: string
@@ -47,8 +47,8 @@ export interface CanonicalPayeeResult {
   /** Raw extracted string before canonicalization */
   originalExtracted: string
   reason: CanonicalMatchReason
-  /** The specific alias rule that fired (alias reason only). */
-  matchedAlias?: PayeeAliasRule
+  /** The specific rule that fired (alias reason only). */
+  matchedRule?: PayeeNameRule
 }
 
 export interface PayeeNameVariant {
@@ -67,22 +67,22 @@ export interface PayeeNameCluster {
  * Longest `sourceNormalized` wins so "wm super" beats "wm" when both prefix-match.
  *
  * Two passes:
- *  1. Exact normalized-key match (e.g. "wal-mart" alias matches "Wal-Mart" input).
- *  2. Soft-equal fallback: collapsed form matches (e.g. "walmart" input matches "wal-mart" alias).
- *     This ensures an existing "Wal-Mart → Walmart" alias also fires when the receipt says "Walmart".
+ *  1. Exact normalized-key match (e.g. "wal-mart" rule matches "Wal-Mart" input).
+ *  2. Soft-equal fallback: collapsed form matches (e.g. "walmart" input matches "wal-mart" rule).
+ *     This ensures an existing "Wal-Mart → Walmart" rule also fires when the receipt says "Walmart".
  */
-export function matchLongestAlias(
+export function matchLongestRule(
   extracted: string,
-  aliases: PayeeAliasRule[],
-): PayeeAliasRule | null {
+  rules: PayeeNameRule[],
+): PayeeNameRule | null {
   const e = normalizePayeeKey(extracted)
-  if (!e || aliases.length === 0) return null
+  if (!e || rules.length === 0) return null
 
   // Pass 1: exact normalized key match
-  let best: PayeeAliasRule | null = null
+  let best: PayeeNameRule | null = null
   let bestLen = -1
 
-  for (const a of aliases) {
+  for (const a of rules) {
     const s = a.sourceNormalized
     if (s.length < 2) continue
     if (e === s || e.startsWith(`${s} `)) {
@@ -96,10 +96,10 @@ export function matchLongestAlias(
 
   // Pass 2: soft-equal fallback (strips spaces, hyphens, apostrophes)
   const ec = collapsePayeeSoftKey(e)
-  let softBest: PayeeAliasRule | null = null
+  let softBest: PayeeNameRule | null = null
   let softBestLen = -1
 
-  for (const a of aliases) {
+  for (const a of rules) {
     const s = a.sourceNormalized
     if (s.length < 2) continue
     if (collapsePayeeSoftKey(s) === ec && s.length > softBestLen) {
@@ -111,26 +111,26 @@ export function matchLongestAlias(
 }
 
 /**
- * Resolve extracted payee: **aliases first**, then **soft-equal** (punctuation/spacing only).
+ * Resolve extracted payee: **rules first**, then **soft-equal** (punctuation/spacing only).
  */
 export function resolveCanonicalPayee(
   extracted: string,
   candidates: PayeeCandidate[],
-  aliases: PayeeAliasRule[] = [],
+  rules: PayeeNameRule[] = [],
 ): CanonicalPayeeResult | null {
   const ext = normalizePayeeKey(extracted)
   if (ext.length === 0) return null
 
-  const aliasHit = matchLongestAlias(extracted, aliases)
-  if (aliasHit) {
+  const ruleHit = matchLongestRule(extracted, rules)
+  if (ruleHit) {
     const extRaw = extracted.trim()
-    const canon = aliasHit.canonicalPayee.trim()
+    const canon = ruleHit.canonicalPayee.trim()
     if (canon === extRaw) return null
     return {
       canonicalPayee: canon,
       originalExtracted: extRaw,
       reason: "alias",
-      matchedAlias: aliasHit,
+      matchedRule: ruleHit,
     }
   }
 
@@ -224,11 +224,11 @@ export function buildPayeeDisplayRowsFromTransactions(
 }
 
 /**
- * True when some variant can serve as canonical and every other variant has a saved alias mapping to it.
+ * True when some variant can serve as canonical and every other variant has a saved rule mapping to it.
  */
-export function isClusterResolvedByAliases(
+export function isClusterResolvedByRules(
   cluster: PayeeNameCluster,
-  aliases: PayeeAliasRule[],
+  rules: PayeeNameRule[],
 ): boolean {
   const variants = cluster.variants
   if (variants.length < 2) return true
@@ -238,7 +238,7 @@ export function isClusterResolvedByAliases(
     let allOk = true
     for (const v of variants) {
       if (v.normalized === kNorm) continue
-      const mapped = aliases.some(
+      const mapped = rules.some(
         (a) =>
           a.sourceNormalized === v.normalized &&
           normalizePayeeKey(a.canonicalPayee) === kNorm,
@@ -265,17 +265,17 @@ export function filterClusterIgnoredVariants(
   return { softKey: cluster.softKey, variants: sorted }
 }
 
-/** Clusters that still need user action (not fully aliased, after per-name ignores). */
-export function getPayeeMappingReviewClusters(
+/** Clusters that still need user action (not fully resolved, after per-name ignores). */
+export function getPayeeRuleReviewClusters(
   clusters: PayeeNameCluster[],
-  aliases: PayeeAliasRule[],
+  rules: PayeeNameRule[],
   ignoredNormalized: ReadonlySet<string>,
 ): PayeeNameCluster[] {
   const out: PayeeNameCluster[] = []
   for (const c of clusters) {
     const filtered = filterClusterIgnoredVariants(c, ignoredNormalized)
     if (!filtered) continue
-    if (isClusterResolvedByAliases(filtered, aliases)) continue
+    if (isClusterResolvedByRules(filtered, rules)) continue
     out.push(filtered)
   }
   return out

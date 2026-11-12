@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import type { TransactionSource } from "@/lib/data"
+import { evaluateRules, mergeRuleMutations } from "@/lib/rule-engine-client"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -65,6 +66,8 @@ const sourceIcons: Record<TransactionSource, React.ElementType> = {
   deficit_cover: ArrowDownToLine,
   envelope_transfer_in: ArrowDownToLine,
   envelope_transfer_out: ArrowUpFromLine,
+  round_up: Sparkles,
+  surplus_sweep: Sparkles,
 }
 
 const sourceLabels: Record<TransactionSource, string> = {
@@ -88,10 +91,12 @@ const sourceLabels: Record<TransactionSource, string> = {
   deficit_cover: "Cover from Savings",
   envelope_transfer_in: "Transfer in",
   envelope_transfer_out: "Transfer out",
+  round_up: "Round-up",
+  surplus_sweep: "Surplus sweep",
 }
 
 export function ReviewInbox() {
-  const { pendingTransactions, confirmPending, dismissPending, state, activeEnvelopes, addTag, refreshData, openStatementImporter } = useApp()
+  const { pendingTransactions, confirmPending, dismissPending, state, activeEnvelopes, addTag, refreshData, openStatementImporter, accountRules } = useApp()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editEnvelopeId, setEditEnvelopeId] = useState<string>("")
   const [editPayee, setEditPayee] = useState("")
@@ -137,6 +142,18 @@ export function ReviewInbox() {
   const confirmableCount = pendingTransactions.filter(
     (pt) => pt.suggestedEnvelopeId,
   ).length
+
+  // Which pending transactions match an auto-confirm rule
+  const autoConfirmIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const pt of pendingTransactions) {
+      const ctx = { payee: pt.payee, amount: pt.amount, type: "expense" as const }
+      const mutations = evaluateRules("on_import", ctx, accountRules)
+      const delta = mergeRuleMutations(mutations)
+      if (delta.autoConfirm) ids.add(pt.id)
+    }
+    return ids
+  }, [pendingTransactions, accountRules])
 
   const editingPending = useMemo(
     () => pendingTransactions.find((pt) => pt.id === editingId) ?? null,
@@ -320,6 +337,12 @@ export function ReviewInbox() {
                   </span>
                 </div>
               </div>
+              {autoConfirmIds.has(pt.id) && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Sparkles className="h-3.5 w-3.5 text-[#F7931A]" />
+                  Subscription auto-confirm rule matches — will confirm without review next time.
+                </p>
+              )}
 
               {/* Quick tags */}
               <div className="flex flex-wrap items-center gap-2">

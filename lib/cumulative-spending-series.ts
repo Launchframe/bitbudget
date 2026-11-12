@@ -1,6 +1,6 @@
 import type { Transaction } from "@/lib/data"
 import {
-  filterUserFacingExpenses,
+  filterAnalyticsExpenses,
   todayUtcIso,
   txnIsoDate,
 } from "@/lib/transaction-visibility"
@@ -30,7 +30,7 @@ export function buildCumulativeSpendingSeries(params: {
   priceHistory?: readonly { date: string }[]
 }): CumulativeSpendingPoint[] {
   const todayIso = params.todayIso ?? todayUtcIso()
-  const expenses = filterUserFacingExpenses(params.transactions)
+  const expenses = filterAnalyticsExpenses(params.transactions)
     .filter((t) => txnIsoDate(t.date) >= params.startDate && txnIsoDate(t.date) <= todayIso)
     .sort((a, b) => a.date.localeCompare(b.date))
 

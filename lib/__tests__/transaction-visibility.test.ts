@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest"
 import type { Transaction } from "@/lib/data"
+import { PRIVATE_TAG_NAME } from "@/lib/constants"
 import {
+  filterAnalyticsExpenses,
   filterUserFacingExpenses,
+  isAnalyticsExpense,
   isUserFacingExpense,
   todayUtcIso,
   txnIsoDate,
@@ -49,6 +52,28 @@ describe("transaction-visibility", () => {
       txn({ id: "c", type: "credit" }),
     ]
     expect(filterUserFacingExpenses(rows).map((t) => t.id)).toEqual(["a"])
+  })
+
+  it("isAnalyticsExpense excludes private-tagged user-facing expenses", () => {
+    expect(isAnalyticsExpense(txn({ type: "expense" }))).toBe(true)
+    expect(
+      isAnalyticsExpense(txn({ type: "expense", tags: [PRIVATE_TAG_NAME] })),
+    ).toBe(false)
+    expect(
+      isAnalyticsExpense(
+        txn({ type: "expense", excludeFromMainHistory: true, tags: [PRIVATE_TAG_NAME] }),
+      ),
+    ).toBe(false)
+  })
+
+  it("filterAnalyticsExpenses keeps only analytics-eligible expenses", () => {
+    const rows = [
+      txn({ id: "a", type: "expense" }),
+      txn({ id: "b", type: "expense", tags: [PRIVATE_TAG_NAME] }),
+      txn({ id: "c", type: "expense", excludeFromMainHistory: true }),
+      txn({ id: "d", type: "credit" }),
+    ]
+    expect(filterAnalyticsExpenses(rows).map((t) => t.id)).toEqual(["a"])
   })
 
   it("todayUtcIso and txnIsoDate normalize calendar days", () => {

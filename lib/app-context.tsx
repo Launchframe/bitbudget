@@ -19,6 +19,7 @@ import {
   compareTransactionsDesc,
   generateId,
   getDefaultState,
+  getEnvelopeBalanceAllTime,
   transactionsAfterFullServerSync,
 } from "@/lib/data"
 import type { ReceiptScanStats } from "@/lib/receipt-scan-validate"
@@ -51,6 +52,11 @@ import {
 } from "@/lib/privacy-key-storage"
 import { clearAllDrafts } from "@/lib/draft-storage"
 import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
+import type { AccountRule } from "@/lib/account-rules"
+import {
+  calculateRoundUpCents,
+  hasRoundUpRule,
+} from "@/lib/rule-engine-client"
 import {
   type ApiTransactionRow,
   type CachedTransaction,
@@ -313,6 +319,8 @@ interface AppContextValue {
   confirmAllPending: () => Promise<void>
 
   recurringTransactions: RecurringTransaction[]
+  accountRules: AccountRule[]
+  reloadAccountRules: () => Promise<void>
   editRecurringTransaction: (
     id: string,
     updates: {
@@ -468,9 +476,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [onboardingCompletedAtIso, setOnboardingCompletedAtIso] = useState<string | null>(null)
   const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
   const [recurringTransactions, setRecurringTransactions] = useState<RecurringTransaction[]>([])
+  const [accountRules, setAccountRules] = useState<AccountRule[]>([])
   /** Latest envelopes for synchronous guards before optimistic updates (avoid mutable flags inside setState updaters). */
   const envelopesRef = useRef(state.envelopes)
   envelopesRef.current = state.envelopes
+  const transactionsRef = useRef(state.transactions)
+  transactionsRef.current = state.transactions
+  const accountRulesRef = useRef(accountRules)
+  accountRulesRef.current = accountRules
 
   const mounted = useRef(false)
   const isPopstate = useRef(false)
@@ -585,19 +598,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTransactionSyncError(null)
   }, [])
 
-const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
-  const res = await fetch("/api/user/premium-renewal-prompt", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ logKey }),
-  })
-  if (res.status === 401 || res.status === 403) {
-    signOut({ callbackUrl: "/auth" })
-    return
-  }
-  setPremiumRenewalPrompt((current) => (current?.logKey === logKey ? null : current))
-  setPremiumExpiredBanner((current) => (current?.logKey === logKey ? null : current))
-}, [])
+  const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
+    const res = await fetch("/api/user/premium-renewal-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ logKey }),
+    })
+    if (res.status === 401 || res.status === 403) {
+      signOut({ callbackUrl: "/auth" })
+      return
+    }
+    setPremiumRenewalPrompt((current) => (current?.logKey === logKey ? null : current))
+    setPremiumExpiredBanner((current) => (current?.logKey === logKey ? null : current))
+  }, [])
+
+  const reloadAccountRules = useCallback(async () => {
+    try {
+      const res = await fetch("/api/account-rules")
+      if (res.ok) {
+        const rows: AccountRule[] = await res.json()
+        setAccountRules(Array.isArray(rows) ? rows : [])
+      }
+    } catch {
+      // non-fatal; leave existing rules intact
+    }
+  }, [])
 
   const refreshData = useCallback(async () => {
     setTransactionSyncError(null)
@@ -611,6 +636,8 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         fetch("/api/tags"),
         fetch("/api/recurring"),
       ])
+
+      void reloadAccountRules()
 
       const authFailure = [envRes, settingsRes, tagsRes].some(
         (r) => r.status === 401 || r.status === 403,
@@ -927,7 +954,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       setTransactionSyncError(transactionSyncUserMessage(err))
       // Do not advance to "synced" on failure — UI should not imply history is complete.
     }
-  }, [])
+  }, [reloadAccountRules])
 
   const unlockWithKey = useCallback((key: Uint8Array) => {
     privacyKeyRef.current = key
@@ -1093,6 +1120,117 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
             clientTxn,
           ),
         }))
+
+        // --- Round-up savings rule (on_save) ---
+        if (txn.type === "expense" && hasRoundUpRule(accountRulesRef.current)) {
+          const savingsEnvelope = envelopesRef.current.find(
+            (e) => !e.archived && e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS,
+          )
+          if (savingsEnvelope) {
+            const amountCents = Math.round(txn.amount * 100)
+            const roundUpCents = calculateRoundUpCents(amountCents)
+            if (roundUpCents > 0) {
+              const roundUpAmount = roundUpCents / 100
+              void fetch("/api/transactions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  date: txn.date,
+                  payee: txn.payee,
+                  amount: roundUpAmount,
+                  type: "credit",
+                  envelopeId: savingsEnvelope.id,
+                  tags: [],
+                  notes: null,
+                  source: "round_up",
+                  excludeFromMainHistory: true,
+                }),
+              }).then(async (r) => {
+                if (r.ok) {
+                  const roundUpTxn = await r.json() as ApiTransactionRow
+                  const uid = currentUserIdRef.current
+                  const secretKey = privacyKeyRef.current
+                  const lockedSession = pendingLockedRef.current && !privacyKeyRef.current
+                  const [cached2] = await processApiTransactions([roundUpTxn], { lockedSession, secretKey })
+                  if (uid) void putMany(uid, [cached2])
+                  const clientRoundUp = cachedToClientTransaction(cached2)
+                  setState((prev) => ({
+                    ...prev,
+                    transactions: [clientRoundUp, ...prev.transactions],
+                  }))
+                }
+              }).catch(() => {})
+            }
+          }
+        }
+
+        // --- Immediate surplus sweep rule (on_save) ---
+        const surplusSweepRule = accountRulesRef.current.find(
+          (r) => r.enabled && r.type === "surplus_sweep",
+        )
+        if (surplusSweepRule && txn.envelopeId) {
+          const savingsEnvelope = envelopesRef.current.find(
+            (e) => !e.archived && e.systemRole === SYSTEM_ENVELOPE_ROLE_SAVINGS,
+          )
+          const envelope = envelopesRef.current.find((e) => e.id === txn.envelopeId)
+          if (savingsEnvelope && envelope && envelope.monthlyAllotment > 0) {
+            // Use the latest transactions snapshot (includes the newly added optimistic row)
+            const currentTxns = [...transactionsRef.current, { ...txn, id: optimisticId }]
+            const balance = getEnvelopeBalanceAllTime(currentTxns, txn.envelopeId)
+            const overage = balance - envelope.monthlyAllotment
+            if (overage > 0.01) {
+              void fetch("/api/transactions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  date: txn.date,
+                  payee: txn.payee,
+                  amount: overage,
+                  type: "expense",
+                  envelopeId: txn.envelopeId,
+                  tags: [],
+                  notes: null,
+                  source: "surplus_sweep",
+                  excludeFromMainHistory: true,
+                }),
+              }).then(async (sweepRes) => {
+                if (!sweepRes.ok) return
+                const sweepOut = await sweepRes.json() as ApiTransactionRow
+                // Credit the same amount to Savings
+                const sweepInRes = await fetch("/api/transactions", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    date: txn.date,
+                    payee: txn.payee,
+                    amount: overage,
+                    type: "credit",
+                    envelopeId: savingsEnvelope.id,
+                    tags: [],
+                    notes: null,
+                    source: "surplus_sweep",
+                    excludeFromMainHistory: true,
+                  }),
+                })
+                const uid = currentUserIdRef.current
+                const secretKey = privacyKeyRef.current
+                const lockedSession = pendingLockedRef.current && !privacyKeyRef.current
+                const toProcess: ApiTransactionRow[] = [sweepOut]
+                if (sweepInRes.ok) toProcess.push(await sweepInRes.json() as ApiTransactionRow)
+                const processed = await processApiTransactions(toProcess, { lockedSession, secretKey })
+                if (uid) void putMany(uid, processed)
+                setState((prev) => ({
+                  ...prev,
+                  transactions: [
+                    ...processed.map(cachedToClientTransaction),
+                    ...prev.transactions,
+                  ],
+                }))
+              }).catch(() => {})
+            }
+          }
+        }
+
         return true
       } else {
         setState(prev => ({
@@ -1615,6 +1753,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     setTransactionSyncError(null)
     setTxnLoadPhase("init")
     setRecurringTransactions([])
+    setAccountRules([])
     void (async () => {
       if (uid) await clearDb(uid).catch(() => {})
       signOut({ callbackUrl: "/auth" })
@@ -1860,6 +1999,8 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         dismissPending,
         confirmAllPending,
         recurringTransactions,
+        accountRules,
+        reloadAccountRules,
         editRecurringTransaction,
         deleteRecurringTransaction,
       }}

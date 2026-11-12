@@ -28,6 +28,8 @@ export type TransactionSource =
   | "deficit_cover"
   | "envelope_transfer_in"
   | "envelope_transfer_out"
+  | "round_up"
+  | "surplus_sweep"
 
 export interface Transaction {
   id: string

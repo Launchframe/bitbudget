@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Transaction } from "@/lib/data"
+import { PRIVATE_TAG_NAME } from "@/lib/constants"
 import {
   buildCumulativeCashFlowSeries,
   buildDailyCashFlowDeltas,
@@ -73,6 +74,12 @@ describe("cash-flow-series", () => {
       todayIso: "2024-03-31",
     })
     expect(series).toEqual([{ date: "2024-03-01", spent: -100, btcValue: 0 }])
+  })
+
+  it("isCashOutflowExpense ignores private-tagged expenses (analytics scope)", () => {
+    expect(isCashOutflowExpense(txn({ type: "expense", amount: 10, date: "2024-01-01", tags: [PRIVATE_TAG_NAME] }))).toBe(
+      false,
+    )
   })
 
   it("isCashOutflowExpense ignores hidden funding legs", () => {

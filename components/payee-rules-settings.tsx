@@ -5,14 +5,14 @@ import { useApp } from "@/lib/app-context"
 import {
   buildPayeeDisplayRowsFromTransactions,
   findSimilarPayeeClusters,
-  getPayeeMappingReviewClusters,
+  getPayeeRuleReviewClusters,
   normalizePayeeKey,
   type PayeeNameCluster,
 } from "@/lib/payee-canonical"
 import {
-  loadIgnoredPayeeMappingSuggestions,
-  addIgnoredPayeeMappingSuggestions,
-} from "@/lib/payee-mapping-dismissals"
+  loadDismissedPayeeRules,
+  addDismissedPayeeRules,
+} from "@/lib/payee-rule-dismissals"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Trash2, Link2, Loader2, X, ChevronDown } from "lucide-react"
@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils"
 
 type AliasRow = { id: string; sourceNormalized: string; canonicalPayee: string }
 
-export function PayeeMappingsSettings() {
+export function PayeeRulesSettings() {
   const { activeTransactions, currentUserId } = useApp()
   const [aliases, setAliases] = useState<AliasRow[]>([])
   const [ignored, setIgnored] = useState<Set<string>>(() => new Set())
@@ -45,13 +45,13 @@ export function PayeeMappingsSettings() {
 
   const clusters = useMemo(() => findSimilarPayeeClusters(payeeRows), [payeeRows])
   const pendingClusters = useMemo(
-    () => getPayeeMappingReviewClusters(clusters, aliases, ignored),
+    () => getPayeeRuleReviewClusters(clusters, aliases, ignored),
     [clusters, aliases, ignored],
   )
 
   const loadAliases = useCallback(() => {
     setLoading(true)
-    fetch("/api/payee-aliases")
+    fetch("/api/payee-rules")
       .then((r) => (r.ok ? r.json() : []))
       .then((rows: AliasRow[]) => setAliases(Array.isArray(rows) ? rows : []))
       .catch(() => setAliases([]))
@@ -62,15 +62,15 @@ export function PayeeMappingsSettings() {
     loadAliases()
   }, [loadAliases])
 
-  // Reload when the new-transaction dialog saves a mapping so the list stays current.
+  // Reload when the new-transaction dialog saves a rule so the list stays current.
   useEffect(() => {
     const handler = () => loadAliases()
-    window.addEventListener("payee-aliases-updated", handler)
-    return () => window.removeEventListener("payee-aliases-updated", handler)
+    window.addEventListener("payee-rules-updated", handler)
+    return () => window.removeEventListener("payee-rules-updated", handler)
   }, [loadAliases])
 
   useEffect(() => {
-    setIgnored(loadIgnoredPayeeMappingSuggestions(currentUserId))
+    setIgnored(loadDismissedPayeeRules(currentUserId))
   }, [currentUserId])
 
   useEffect(() => {
@@ -96,7 +96,7 @@ export function PayeeMappingsSettings() {
     }
     setFormBusy(true)
     try {
-      const res = await fetch("/api/payee-aliases", {
+      const res = await fetch("/api/payee-rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sourceLabel: src, canonicalPayee: canon }),
@@ -115,7 +115,7 @@ export function PayeeMappingsSettings() {
   }
 
   async function handleDelete(id: string) {
-    const res = await fetch(`/api/payee-aliases?id=${encodeURIComponent(id)}`, {
+    const res = await fetch(`/api/payee-rules?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
     })
     if (res.ok) loadAliases()
@@ -131,7 +131,7 @@ export function PayeeMappingsSettings() {
       let savedCount = 0
       for (const v of cluster.variants) {
         if (normalizePayeeKey(v.displayName) === normalizePayeeKey(canonicalDisplay)) continue
-        const res = await fetch("/api/payee-aliases", {
+        const res = await fetch("/api/payee-rules", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -160,7 +160,7 @@ export function PayeeMappingsSettings() {
   function handleDismissCluster(cluster: PayeeNameCluster) {
     if (!currentUserId) return
     const keys = cluster.variants.map((v) => v.normalized)
-    addIgnoredPayeeMappingSuggestions(currentUserId, keys)
+    addDismissedPayeeRules(currentUserId, keys)
     setIgnored((prev) => {
       const next = new Set(prev)
       for (const k of keys) next.add(k)
@@ -185,7 +185,7 @@ export function PayeeMappingsSettings() {
       )}
 
       <div>
-        <h3 className="text-lg font-semibold text-foreground">Payee name mappings</h3>
+        <h3 className="text-lg font-semibold text-foreground">Payee name rules</h3>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Imports (receipt scan, CSV, bank text) may spell the same merchant differently than your
           manual entries. Tap a spelling to choose which one to keep — the others will map to it
@@ -229,7 +229,7 @@ export function PayeeMappingsSettings() {
 
       {/* Saved mappings grid */}
       <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-6">
-        <h4 className="text-sm font-semibold text-foreground">Saved mappings</h4>
+        <h4 className="text-sm font-semibold text-foreground">Saved rules</h4>
         <p className="mt-1 text-sm text-muted-foreground">
           When an import matches the left text, BitBudget uses the right payee. Existing transactions
           are not rewritten—only new imports and scans.
@@ -240,7 +240,7 @@ export function PayeeMappingsSettings() {
             Loading…
           </div>
         ) : aliases.length === 0 ? (
-          <p className="mt-4 text-sm text-muted-foreground">No saved mappings yet.</p>
+          <p className="mt-4 text-sm text-muted-foreground">No saved rules yet.</p>
         ) : (
           <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {aliases.map((a) => (
@@ -261,7 +261,7 @@ export function PayeeMappingsSettings() {
                   type="button"
                   onClick={() => void handleDelete(a.id)}
                   className="shrink-0 rounded-md p-1.5 text-muted-foreground/40 transition-colors hover:bg-white/5 hover:text-red-400"
-                  title="Remove mapping"
+                  title="Remove rule"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -276,7 +276,7 @@ export function PayeeMappingsSettings() {
         onSubmit={(e) => void handleAddMapping(e)}
         className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-6"
       >
-        <h4 className="text-sm font-semibold text-foreground">Add mapping</h4>
+        <h4 className="text-sm font-semibold text-foreground">Add rule</h4>
         <p className="mt-1 text-sm text-muted-foreground">
           e.g. Receipts from <span className="text-foreground">WM SUPERCENTER</span> → show up in your budget
           as <span className="text-foreground">Walmart</span>
@@ -317,7 +317,7 @@ export function PayeeMappingsSettings() {
           disabled={formBusy}
           className="mt-4 rounded-lg bg-btc-orange px-4 py-2 text-sm font-semibold text-[#0D0D0D] hover:bg-btc-orange/90 disabled:opacity-50"
         >
-          {formBusy ? "Saving…" : "Save mapping"}
+          {formBusy ? "Saving…" : "Save rule"}
         </button>
       </form>
     </div>

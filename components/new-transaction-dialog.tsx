@@ -42,7 +42,7 @@ import {
   normalizePayeeKey,
   resolveCanonicalPayee,
   type CanonicalMatchReason,
-  type PayeeAliasRule,
+  type PayeeNameRule,
   type PayeeCandidate,
 } from "@/lib/payee-canonical"
 import { findCollidingTransaction } from "@/lib/transaction-dedup"
@@ -53,6 +53,8 @@ import {
 } from "@/lib/transaction-dates"
 import { pickTransactionSuccessMessage } from "@/lib/transaction-success-messages"
 import { TransactionSuccessView } from "@/components/transaction-success-view"
+import type { AccountRule } from "@/lib/account-rules"
+import { evaluateRules, mergeRuleMutations } from "@/lib/rule-engine-client"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -224,10 +226,13 @@ export function NewTransactionDialog() {
     canonical: string
     reason: CanonicalMatchReason
   } | null>(null)
-  const [payeeAliasRules, setPayeeAliasRules] = useState<PayeeAliasRule[]>([])
+  const [payeeNameRules, setPayeeNameRules] = useState<PayeeNameRule[]>([])
+  const [accountRules, setAccountRules] = useState<AccountRule[]>([])
   const [importSourcePayee, setImportSourcePayee] = useState<string | null>(null)
-  const [aliasSaveBusy, setAliasSaveBusy] = useState(false)
-  const [aliasSaveMessage, setAliasSaveMessage] = useState<string | null>(null)
+  const [ruleSaveBusy, setRuleSaveBusy] = useState(false)
+  const [ruleSaveMessage, setRuleSaveMessage] = useState<string | null>(null)
+  const [ruleExcludeFromHistory, setRuleExcludeFromHistory] = useState(false)
+  const ruleAppliedPrefillKeyRef = useRef<string | null>(null)
   const [receiptAttachmentPreview, setReceiptAttachmentPreview] = useState<string | null>(null)
   /** Short-lived object URL for PDF previews (see `pdfDataUrlToBlob`). */
   const [receiptPdfBlobUrl, setReceiptPdfBlobUrl] = useState<string | null>(null)
@@ -331,17 +336,21 @@ export function NewTransactionDialog() {
 
   useEffect(() => {
     if (!transactionDialogOpen) return
-    fetch("/api/payee-aliases")
+    fetch("/api/payee-rules")
       .then((r) => (r.ok ? r.json() : []))
       .then((rows: { sourceNormalized: string; canonicalPayee: string }[]) => {
-        setPayeeAliasRules(
+        setPayeeNameRules(
           rows.map((row) => ({
             sourceNormalized: row.sourceNormalized,
             canonicalPayee: row.canonicalPayee,
           })),
         )
       })
-      .catch(() => setPayeeAliasRules([]))
+      .catch(() => setPayeeNameRules([]))
+    fetch("/api/account-rules")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: AccountRule[]) => setAccountRules(Array.isArray(rows) ? rows : []))
+      .catch(() => setAccountRules([]))
   }, [transactionDialogOpen])
 
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -414,6 +423,43 @@ export function NewTransactionDialog() {
     if (transactionPrefill.tags) setSelectedTags(transactionPrefill.tags)
   }, [transactionDialogOpen, transactionPrefill])
 
+  // Apply on_import rules when a prefill arrives and account rules are loaded.
+  // Only runs once per distinct prefill key; respects any envelopeId already
+  // provided by the prefill (explicit user choice) and merges tags additively.
+  useEffect(() => {
+    if (!transactionDialogOpen || !transactionPrefill?.payee) return
+    if (accountRules.length === 0) return
+
+    const key = stableTransactionPrefillKey(transactionPrefill)
+    if (ruleAppliedPrefillKeyRef.current === key) return
+    ruleAppliedPrefillKeyRef.current = key
+
+    const ctx = {
+      payee: transactionPrefill.payee.trim(),
+      amount: transactionPrefill.amount ? parseFloat(transactionPrefill.amount) : undefined,
+      type: transactionPrefill.type,
+    }
+    const mutations = evaluateRules("on_import", ctx, accountRules)
+    if (mutations.length === 0) return
+
+    const delta = mergeRuleMutations(mutations)
+    if (delta.envelopeId && !transactionPrefill.envelopeId) {
+      setEnvelopeId(delta.envelopeId)
+    }
+    if (delta.excludeFromMainHistory) {
+      setRuleExcludeFromHistory(true)
+    }
+    if (delta.tags && delta.tags.length > 0) {
+      setSelectedTags((prev) => {
+        const merged = new Set([...prev, ...delta.tags!])
+        return [...merged]
+      })
+    }
+    if (delta.routeAsIncome && !transactionPrefill.type) {
+      setType("credit")
+    }
+  }, [transactionDialogOpen, transactionPrefill, accountRules])
+
   useEffect(() => {
     if (!transactionDialogOpen) {
       setReceiptAttachmentPreview(null)
@@ -452,7 +498,7 @@ export function NewTransactionDialog() {
       skipCanonicalForPrefillRef.current = false
       setPayeeMatchHint(null)
       setImportSourcePayee(null)
-      setAliasSaveMessage(null)
+      setRuleSaveMessage(null)
       return
     }
     const raw = transactionPrefill?.payee?.trim()
@@ -465,7 +511,7 @@ export function NewTransactionDialog() {
       }
       setPayeeMatchHint(null)
       setImportSourcePayee(null)
-      setAliasSaveMessage(null)
+      setRuleSaveMessage(null)
       return
     }
 
@@ -487,8 +533,8 @@ export function NewTransactionDialog() {
       prefillPayeeRawRef.current = raw
       skipCanonicalForPrefillRef.current = false
       setImportSourcePayee(raw)
-      setAliasSaveMessage(null)
-      const r = resolveCanonicalPayee(raw, payeeCanonicalCandidates, payeeAliasRules)
+      setRuleSaveMessage(null)
+      const r = resolveCanonicalPayee(raw, payeeCanonicalCandidates, payeeNameRules)
       if (r) {
         applyResolved(r.canonicalPayee, {
           original: r.originalExtracted,
@@ -502,7 +548,7 @@ export function NewTransactionDialog() {
     }
 
     if (!skipCanonicalForPrefillRef.current && prefillPayeeRawRef.current === raw) {
-      const r = resolveCanonicalPayee(raw, payeeCanonicalCandidates, payeeAliasRules)
+      const r = resolveCanonicalPayee(raw, payeeCanonicalCandidates, payeeNameRules)
       if (!r) return
 
       const stillMatchesSoftEqualResolution =
@@ -528,27 +574,27 @@ export function NewTransactionDialog() {
     transactionDialogOpen,
     transactionPrefill,
     payeeCanonicalCandidates,
-    payeeAliasRules,
+    payeeNameRules,
     payee,
     payeeMatchHint,
     payeeIndex,
     activeEnvelopes,
   ])
 
-  const payeeAliasAlreadyMatches = useMemo(() => {
+  const payeeRuleAlreadyMatches = useMemo(() => {
     if (!importSourcePayee || !payee.trim()) return false
     const sn = normalizePayeeKey(importSourcePayee)
     const cn = normalizePayeeKey(payee)
     if (sn === cn) return true
-    const rule = payeeAliasRules.find((a) => a.sourceNormalized === sn)
+    const rule = payeeNameRules.find((a) => a.sourceNormalized === sn)
     return !!rule && normalizePayeeKey(rule.canonicalPayee) === cn
-  }, [importSourcePayee, payee, payeeAliasRules])
+  }, [importSourcePayee, payee, payeeNameRules])
 
   const showSavePayeeMapping =
     !!importSourcePayee &&
     payee.trim().length >= 2 &&
     normalizePayeeKey(importSourcePayee) !== normalizePayeeKey(payee) &&
-    !payeeAliasAlreadyMatches
+    !payeeRuleAlreadyMatches
 
   const duplicateEnvelopeName = useMemo(() => {
     if (!duplicateExisting) return null
@@ -559,12 +605,12 @@ export function NewTransactionDialog() {
     )
   }, [duplicateExisting, activeEnvelopes, state.envelopes])
 
-  async function savePayeeMapping() {
+  async function savePayeeRule() {
     if (!importSourcePayee || !payee.trim()) return
-    setAliasSaveBusy(true)
-    setAliasSaveMessage(null)
+    setRuleSaveBusy(true)
+    setRuleSaveMessage(null)
     try {
-      const res = await fetch("/api/payee-aliases", {
+      const res = await fetch("/api/payee-rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -574,11 +620,11 @@ export function NewTransactionDialog() {
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        setAliasSaveMessage(typeof err.error === "string" ? err.error : "Could not save mapping")
+        setRuleSaveMessage(typeof err.error === "string" ? err.error : "Could not save rule")
         return
       }
       const row = (await res.json()) as { sourceNormalized: string; canonicalPayee: string }
-      setPayeeAliasRules((prev) => {
+      setPayeeNameRules((prev) => {
         const next = prev.filter((a) => a.sourceNormalized !== row.sourceNormalized)
         next.push({
           sourceNormalized: row.sourceNormalized,
@@ -586,9 +632,10 @@ export function NewTransactionDialog() {
         })
         return next
       })
-      setAliasSaveMessage("Saved for future imports.")
+      setRuleSaveMessage("Saved for future imports.")
+      window.dispatchEvent(new Event("payee-rules-updated"))
     } finally {
-      setAliasSaveBusy(false)
+      setRuleSaveBusy(false)
     }
   }
 
@@ -667,7 +714,9 @@ export function NewTransactionDialog() {
     setValidationErrors({})
     setPayeeMatchHint(null)
     setImportSourcePayee(null)
-    setAliasSaveMessage(null)
+    setRuleSaveMessage(null)
+    setRuleExcludeFromHistory(false)
+    ruleAppliedPrefillKeyRef.current = null
     setDuplicateExisting(null)
     setDraftLoaded(false)
     if (clearStoredDraft) clearDraft(DRAFT_KEY)
@@ -796,6 +845,7 @@ export function NewTransactionDialog() {
           envelopeId,
           tags: selectedTags,
           notes: notes.trim() || null,
+          excludeFromMainHistory: ruleExcludeFromHistory,
         })
         if (!ok) {
           alert("Failed to save transaction. Please try again.")
@@ -1003,7 +1053,7 @@ export function NewTransactionDialog() {
                   onChange={(e) => {
                     setPayee(e.target.value)
                     setPayeeMatchHint(null)
-                    setAliasSaveMessage(null)
+                    setRuleSaveMessage(null)
                     setActiveSuggestionIndex(-1)
                     if (validationErrors.payee) setValidationErrors(prev => { const next = { ...prev }; delete next.payee; return next })
                     setShowSuggestions(true)
@@ -1069,7 +1119,7 @@ export function NewTransactionDialog() {
                         <span className="font-medium text-foreground">{payeeMatchHint.original}</span> was
                         treated as the same merchant as{" "}
                         <span className="font-medium text-foreground">{payeeMatchHint.canonical}</span>{" "}
-                        (hyphens / spacing only). Add a mapping in Settings if this is wrong.
+                        (hyphens / spacing only). Add a rule in Settings if this is wrong.
                       </>
                     )}{" "}
                     <button
@@ -1085,6 +1135,19 @@ export function NewTransactionDialog() {
                     </button>
                   </p>
                 )}
+                {ruleExcludeFromHistory && (
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-yellow-500" />
+                    A skip rule will hide this transaction from your main history.{" "}
+                    <button
+                      type="button"
+                      className="underline hover:text-foreground"
+                      onClick={() => setRuleExcludeFromHistory(false)}
+                    >
+                      Undo
+                    </button>
+                  </p>
+                )}
                 {showSavePayeeMapping && (
                   <div className="flex flex-col gap-1.5 rounded-lg border border-[#333] bg-[#1A1A1A] px-3 py-2">
                     <p className="text-xs text-muted-foreground">
@@ -1096,14 +1159,14 @@ export function NewTransactionDialog() {
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        disabled={aliasSaveBusy}
-                        onClick={() => void savePayeeMapping()}
+                        disabled={ruleSaveBusy}
+                        onClick={() => void savePayeeRule()}
                         className="rounded-md bg-[#333] px-3 py-1.5 text-xs font-medium text-foreground hover:bg-[#444] disabled:opacity-50"
                       >
-                        {aliasSaveBusy ? "Saving…" : "Save payee mapping"}
+                        {ruleSaveBusy ? "Saving…" : "Save rule"}
                       </button>
-                      {aliasSaveMessage && (
-                        <span className="text-xs text-muted-foreground">{aliasSaveMessage}</span>
+                      {ruleSaveMessage && (
+                        <span className="text-xs text-muted-foreground">{ruleSaveMessage}</span>
                       )}
                     </div>
                   </div>

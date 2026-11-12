@@ -19,7 +19,7 @@ import {
   resolveSavingsTrackingStartFromTransactions,
   savingsBalanceSince,
 } from "@/lib/savings-display"
-import { isUserFacingExpense } from "@/lib/transaction-visibility"
+import { isAnalyticsExpense } from "@/lib/transaction-visibility"
 
 export function DashboardMetrics() {
   const {
@@ -41,7 +41,7 @@ export function DashboardMetrics() {
     fundedIncomeMonth > 0 ? fundedIncomeMonth : state.monthlyIncome
 
   const monthlySpend = activeTransactions
-    .filter((t) => isUserFacingExpense(t) && t.date.startsWith(currentMonth))
+    .filter((t) => isAnalyticsExpense(t) && t.date.startsWith(currentMonth))
     .reduce((sum, t) => sum + t.amount, 0)
 
   const remainingBalances = sumRemainingDiscretionary(

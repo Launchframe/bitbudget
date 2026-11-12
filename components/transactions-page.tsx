@@ -34,7 +34,7 @@ import {
 } from "@/lib/rebalance-transaction-display"
 import { RebalanceEnvelopesDialog } from "@/components/rebalance-envelopes-dialog"
 import { TX_SOURCE_IRREGULAR_INCOME } from "@/lib/constants"
-import { PayeeMappingReviewBanner } from "@/components/payee-mapping-review-banner"
+import { PayeeRulesReviewBanner } from "@/components/payee-rules-review-banner"
 import { UpcomingRecurringTransactions } from "@/components/upcoming-recurring-transactions"
 import {
   Select,
@@ -405,7 +405,7 @@ export function TransactionsPage({ scopedEnvelopeId }: { scopedEnvelopeId?: stri
         </div>
       )}
 
-      <PayeeMappingReviewBanner />
+      <PayeeRulesReviewBanner />
 
       <div className="flex flex-col gap-3">
         {/* Search + mobile overflow trigger */}

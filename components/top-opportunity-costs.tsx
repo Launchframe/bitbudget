@@ -17,7 +17,7 @@ import {
   subscribeDashboardChartRange,
   transactionInDashboardChartRange,
 } from "@/lib/dashboard-chart-range"
-import { isUserFacingExpense } from "@/lib/transaction-visibility"
+import { isAnalyticsExpense } from "@/lib/transaction-visibility"
 import { SAVINGS_EXPERIENCE_DISMISSED, SAVINGS_GOLD_ACCENT } from "@/lib/constants"
 
 import type { Transaction } from "@/lib/data"
@@ -66,7 +66,7 @@ export function TopOpportunityCosts() {
     savingsEnvelope != null
 
   const rankedExpenseOpportunity = useMemo(() => {
-    const expenses = rangeScopedTransactions.filter(isUserFacingExpense)
+    const expenses = rangeScopedTransactions.filter(isAnalyticsExpense)
     return expenses
       .map((t) => {
         const btcPriceAtTime = getPriceOnDate(t.date)
