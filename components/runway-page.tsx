@@ -7,6 +7,7 @@ import { useRunway, type RunwayLoan, type RunwayPendingSale } from "@/lib/use-ru
 import { RunwaySetupDialog } from "@/components/runway-setup-dialog"
 import { RunwayLoanDialog } from "@/components/runway-loan-dialog"
 import { RunwayRefillDialog } from "@/components/runway-refill-dialog"
+import { RunwayAddressWatch } from "@/components/runway-address-watch"
 import { refillStatus } from "@/lib/runway-refill"
 import {
   borrowingAllowed,
@@ -600,6 +601,7 @@ export function RunwayPage() {
           ) : (
             <TotalsEditor plan={plan} onSave={savePatch} onDone={() => setEditTotals(false)} />
           )}
+          <RunwayAddressWatch />
         </div>
       )}
 
