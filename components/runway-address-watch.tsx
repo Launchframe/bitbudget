@@ -15,6 +15,21 @@ import { patchWalletWatch, writeWalletWatches, type WalletWatch } from "@/lib/wa
 
 type AddressRole = "wallet" | "exchange"
 
+/** Add and the automatic reload can overlap. Only the newest request may update the list. */
+function bumpActivityGeneration(generations: Record<string, number>, id: string): number {
+  const next = (generations[id] ?? 0) + 1
+  generations[id] = next
+  return next
+}
+
+function isLatestActivityGeneration(
+  generations: Record<string, number>,
+  id: string,
+  generation: number,
+): boolean {
+  return generations[id] === generation
+}
+
 /**
  * Watch individual bitcoin addresses from the browser.
  * Change outputs are not discovered. No seed field.
@@ -32,6 +47,7 @@ export function RunwayAddressWatch() {
   const addressKey = addresses.map((watch) => `${watch.id}:${watch.descriptor}`).join("|")
   const addressesRef = useRef(addresses)
   const busyRef = useRef(false)
+  const activityGen = useRef<Record<string, number>>({})
   addressesRef.current = addresses
 
   useEffect(() => {
@@ -39,14 +55,15 @@ export function RunwayAddressWatch() {
     if (current.length === 0) return
     let cancelled = false
     for (const watch of current) {
+      const generation = bumpActivityGeneration(activityGen.current, watch.id)
       void fetchAddressChainMovements(watch.descriptor)
         .then((rows) => {
-          if (cancelled) return
+          if (cancelled || !isLatestActivityGeneration(activityGen.current, watch.id, generation)) return
           setActivity((prev) => ({ ...prev, [watch.id]: rows }))
           setActivityError((prev) => ({ ...prev, [watch.id]: false }))
         })
         .catch(() => {
-          if (cancelled) return
+          if (cancelled || !isLatestActivityGeneration(activityGen.current, watch.id, generation)) return
           setActivityError((prev) => ({ ...prev, [watch.id]: true }))
         })
     }
@@ -61,6 +78,19 @@ export function RunwayAddressWatch() {
       confirmedSats: sats,
       updatedAt: new Date().toISOString(),
     })
+  }
+
+  async function loadActivity(id: string, descriptor: string) {
+    const generation = bumpActivityGeneration(activityGen.current, id)
+    try {
+      const rows = await fetchAddressChainMovements(descriptor)
+      if (!isLatestActivityGeneration(activityGen.current, id, generation)) return
+      setActivity((prev) => ({ ...prev, [id]: rows }))
+      setActivityError((prev) => ({ ...prev, [id]: false }))
+    } catch {
+      if (!isLatestActivityGeneration(activityGen.current, id, generation)) return
+      setActivityError((prev) => ({ ...prev, [id]: true }))
+    }
   }
 
   async function onAdd() {
@@ -96,13 +126,7 @@ export function RunwayAddressWatch() {
         setError("Couldn't look up that address. Try again.")
         return
       }
-      try {
-        const rows = await fetchAddressChainMovements(next.descriptor)
-        setActivity((prev) => ({ ...prev, [next.id]: rows }))
-        setActivityError((prev) => ({ ...prev, [next.id]: false }))
-      } catch {
-        setActivityError((prev) => ({ ...prev, [next.id]: true }))
-      }
+      await loadActivity(next.id, next.descriptor)
     } finally {
       busyRef.current = false
       setBusyId(null)
@@ -121,13 +145,7 @@ export function RunwayAddressWatch() {
         setError("Couldn't look up that address. Try again.")
         return
       }
-      try {
-        const rows = await fetchAddressChainMovements(watch.descriptor)
-        setActivity((prev) => ({ ...prev, [watch.id]: rows }))
-        setActivityError((prev) => ({ ...prev, [watch.id]: false }))
-      } catch {
-        setActivityError((prev) => ({ ...prev, [watch.id]: true }))
-      }
+      await loadActivity(watch.id, watch.descriptor)
     } finally {
       busyRef.current = false
       setBusyId(null)
@@ -248,7 +266,7 @@ function AddressActivity({
   rows: AddressChainMovement[] | undefined
   failed: boolean
 }) {
-  if (failed && rows == null) {
+  if (failed && (rows == null || rows.length === 0)) {
     return (
       <p className="text-xs text-muted-foreground mt-2">
         Couldn&apos;t load activity for this address.
@@ -257,7 +275,7 @@ function AddressActivity({
   }
   if (rows == null) return null
   const latest = rows.slice(0, 6)
-  if (!failed && latest.length === 0) {
+  if (latest.length === 0) {
     return (
       <p className="text-xs text-muted-foreground mt-2">No confirmed activity on this address yet.</p>
     )
@@ -271,16 +289,17 @@ function AddressActivity({
           "Recent activity. These rows are not spending or income."
         )}
       </p>
-      {latest.length > 0 ? (
-        <ul className="flex flex-col gap-1">
-          {latest.map((row) => (
-            <li key={row.txid} className="text-xs text-foreground break-words">
-              {row.netSats > 0 ? "Received" : "Sent"} {formatBitcoin(row.netSats)}
-              {row.time != null ? ` · ${formatChainDay(row.time)}` : ""}
-            </li>
-          ))}
-        </ul>
+      {failed ? (
+        <p className="text-[11px] text-muted-foreground">These rows are not spending or income.</p>
       ) : null}
+      <ul className="flex flex-col gap-1">
+        {latest.map((row) => (
+          <li key={row.txid} className="text-xs text-foreground break-words">
+            {row.netSats > 0 ? "Received" : "Sent"} {formatBitcoin(row.netSats)}
+            {row.time != null ? ` · ${formatChainDay(row.time)}` : ""}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

@@ -245,6 +245,23 @@ describe("runway glance copy", () => {
         bitcoinSats: 50_000_000,
       }),
     ).toBe(false)
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinUsd: 100,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(false)
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinUsd: 100,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        bitcoinSats: 0,
+      }),
+    ).toBe(true)
   })
 
   it("does not talk about a future step-back date after the user already stepped back", () => {
