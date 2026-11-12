@@ -310,7 +310,10 @@ export function getDefaultState(): AppState {
       importAlerts: true,
     },
     savingsExperience: "engaged",
-    walkthroughCompleted: false,
+    // Optimistic true until /api/user/settings hydrates — avoids flashing the tour
+    // for users who already completed it (default false fired the 800ms show timer
+    // before settings loaded).
+    walkthroughCompleted: true,
     setupGuideSnoozedUntil: null,
     setupGuideDismissed: false,
     setupGuideShowOnDashboard: true,
