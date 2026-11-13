@@ -170,6 +170,19 @@ BitBudget **cannot** read other apps’ notifications from the web app. Users on
 
 **Not supported:** iOS notification forwarding (no equivalent user automation to a custom webhook without a native helper app), reading **toasts**, BitBudget listening without user-installed automation.
 
+### Shared shopping lists (backend)
+
+Encrypted small-group grocery lists, receipt splits, a pairwise tab, and opt-in private budget posting. Product UI is a follow-up; hooks and APIs are in place.
+
+- **Crypto:** Group content key is created on the owner’s unlocked client and wrapped to each member’s X25519 `User.publicKey`. Shared payloads use `lib/shopping-crypto.ts` (`sg1:` AES-GCM + AAD). Group metadata is `{ name, description? }` (description optional). Reject plaintext. Never log group keys, aliases, or receipt lines.
+- **Invites:** Token lives in the URL fragment (`/shopping-invite#<token>`). Server stores only the hash. Claim is an authenticated POST; no group data until an owner approves and wraps the key. Compare fingerprints out of band.
+- **Access:** Session + active membership. Never authorize from a body `userId`. Private preferences and postings are caller-owned and never returned to other members.
+- **Money:** Tabs are derived from append-only encrypted events (`lib/shopping-ledger.ts`). Private rows use shopping `TX_SOURCE_*` constants. Advances are cash movement, not personal spend; recoveries are not income. Generic transaction POST/PUT/import cannot create or mutate shopping-managed sources.
+- **Client:** `useShoppingState` (`lib/use-shopping-state.ts`) polls while unlocked, caches ciphertext only, and queues check-offs offline. `AppContext.withPrivacyKey` unwraps keys; logout clears the shopping cache and pending invite.
+- **Migration:** `prisma/migrations/20260909120000_shopping_share/` — apply with `pnpm exec prisma migrate deploy` (not `db push`).
+- **QA:** `pnpm qa:shopping:seed` creates two `@bitbudget.test` users (code `424242`, passphrase `4242`); full two-browser checklist in [docs/testing/shopping-qa.md](docs/testing/shopping-qa.md).
+- **Roadmap:** grocery is the first sealed small-group app. Future household bills, joint envelopes, preparer export, and recovery shards: [docs/e2ee-channels-roadmap.md](docs/e2ee-channels-roadmap.md).
+
 ## Tech Stack
 
 - **Framework:** Next.js (App Router), React, TypeScript
@@ -206,13 +219,9 @@ Skipping unit tests for non-trivial changes should be the exception and called o
 
 ## Cursor Cloud specific instructions
 
-Cloud agents use the saved environment **update script for dependency install only** — do **not** put `prisma migrate deploy` in the update script. Migrations need a live DB and block every agent boot when the database is unreachable.
+Cloud agents use the saved environment **install script for dependency install only** — do **not** put `prisma migrate deploy` in `install`. Migrations need a live DB and block every environment build when Postgres is not running (Prisma `P1001` on `localhost:5432`).
 
-**Update script (dashboard / `environment.json` `install`):**
-
-```bash
-pnpm install
-```
+**Canonical config in git:** [`.cursor/environment.json`](.cursor/environment.json) — `install` runs [`.cursor/scripts/cloud-install.sh`](.cursor/scripts/cloud-install.sh) (`pnpm install` + `apt` Postgres packages, **no migrate**); `start` runs [`.cursor/scripts/cloud-start-postgres.sh`](.cursor/scripts/cloud-start-postgres.sh) (start cluster, ensure `bitbudget_dev` / `bitbudget_e2e` exist). Point the Cursor environment’s **environment.json location** at this repo file, or mirror the same `install` / `start` in the dashboard so recurring builds do not diverge.
 
 `postinstall` runs `prisma generate`; that does not require a database connection.
 
@@ -721,7 +730,7 @@ Use `gh api graphql` (`addPullRequestReviewThreadReply`) for replies. Do not cal
 
 ### Environment setup
 
-- **PostgreSQL** is required but not Docker-based. Install via `apt-get install postgresql postgresql-client` and start with `sudo pg_ctlcluster 16 main start` (no systemd in Cloud VMs).
+- **PostgreSQL** is required but not Docker-based. The committed [`start` script](.cursor/scripts/cloud-start-postgres.sh) starts the cluster on agent boot; packages are installed during the environment **build** via [`cloud-install.sh`](.cursor/scripts/cloud-install.sh). Manual fallback: `apt-get install postgresql postgresql-client` and `sudo pg_ctlcluster 16 main start` (no systemd in Cloud VMs).
 - **Prisma CLI** reads `.env` (not `.env.local`). Create a symlink once so CLI commands pick up `.env.local`: `ln -sf .env.local .env` (skip if `.env` already exists and points at the right file).
 - **`.env.local`** must contain at minimum: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`. For E2E testing, also add `E2E_TEST="true"` and `E2E_EMAIL_CODE="424242"`.
 - After `pnpm install`, run `prisma migrate deploy` (not `prisma migrate dev`, which prompts interactively) to apply pending migrations non-interactively.
