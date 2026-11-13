@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, ScanLine, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin, Inbox, ShieldCheck, User, Plane } from "lucide-react"
+import { LayoutDashboard, BarChart3, List, Wallet, Search, Landmark, Plus, ScanLine, SquareArrowOutUpRight, Settings2, LogOut, Bitcoin, Inbox, ShieldCheck, User, Plane, ShoppingBasket } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
 import { VoiceDictationButton } from "@/components/voice-dictation-button"
@@ -13,6 +13,7 @@ const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "DASHBOARD", icon: LayoutDashboard },
   { id: "runway", label: "RUNWAY", icon: Plane },
   { id: "transactions", label: "TRANSACTIONS", icon: List },
+  { id: "shopping", label: "SHOPPING", icon: ShoppingBasket },
   { id: "review-inbox", label: "REVIEW", icon: Inbox },
   { id: "envelopes", label: "ENVELOPES", icon: Wallet },
   { id: "analytics", label: "ANALYTICS", icon: BarChart3 },
@@ -30,7 +31,7 @@ export function Sidebar() {
     <aside className="sticky top-24 h-[calc(100vh-8rem)] w-16 lg:w-64 bg-[#0D0D0D] rounded-2xl hidden md:flex flex-col py-8 px-3 lg:px-8 overflow-y-auto">
       <nav className="flex flex-col gap-8" data-walkthrough="app-nav">
         {navItems.filter(item => (item.id !== "btc-price" && item.id !== "runway") || state.opportunityCostEnabled).map((item) => {
-          const isActive = currentPage === item.id || (item.id === "envelopes" && (currentPage === "envelope-detail" || currentPage === "envelope-allocations"))
+          const isActive = currentPage === item.id || (item.id === "shopping" && currentPage === "shopping-group") || (item.id === "envelopes" && (currentPage === "envelope-detail" || currentPage === "envelope-allocations"))
           const isPlaceholder = item.id === "researcher" || item.id === "funds"
           const Icon = item.icon
           return (
