@@ -5,6 +5,10 @@ import {
 import type { Transaction } from "@/lib/data"
 import { isEnvelopeFundingLeg } from "@/lib/ledger-funding-display"
 import { isRunwayStackMove } from "@/lib/runway-posting"
+import {
+  isShoppingManagedSource,
+  isShoppingPersonalSpend,
+} from "@/lib/shopping-classification"
 
 /** Expense rows visible in history but not external/user spending (move funds, deficit cover). */
 function isInternalLedgerTransferExpense(
@@ -25,6 +29,7 @@ export function isUserFacingExpense(
   // Runway stack moves (bitcoin↔cash conversions, loan open/roll/payoff/
   // liquidation) rearrange the stack but are never user spending.
   if (isRunwayStackMove(txn)) return false
+  if (isShoppingManagedSource(txn.source)) return isShoppingPersonalSpend(txn)
   return true
 }
 

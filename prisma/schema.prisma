@@ -102,6 +102,11 @@ model User {
   runwayJournalEntries       RunwayJournalEntry[]
   btcLoans                   BtcLoan[]
   pendingBtcSales            PendingBtcSale[]
+  ownedShoppingGroups        ShoppingGroup[]             @relation("ShoppingGroupOwner")
+  shoppingMembers            ShoppingMember[]
+  shoppingInvitesCreated     ShoppingInvite[]            @relation("ShoppingInviteCreator")
+  shoppingBudgetPreferences  ShoppingBudgetPreference[]
+  shoppingPostings           ShoppingPosting[]
 }
 
 /// Bitcoin-backed USD loan tracked for the Runway feature. Collateral is
@@ -328,6 +333,7 @@ model Envelope {
   shortcuts             TransactionShortcut[]
   payeeMappings         PayeeEnvelopeMapping[]
   runwayJournalEntries  RunwayJournalEntry[]
+  shoppingBudgetPreferences ShoppingBudgetPreference[]
 
   @@unique([userId, name])
   @@index([userId])
@@ -356,6 +362,10 @@ model Transaction {
   excludeFromMainHistory Boolean @default(false)
   fundingBatchId         String?
   fundingBatch           EnvelopeFundingBatch? @relation(fields: [fundingBatchId], references: [id], onDelete: SetNull)
+
+  /// Private shopping posting that created this managed row. Survives transaction delete via the posting record.
+  shoppingPostingId String? @unique
+  shoppingPosting   ShoppingPosting? @relation(fields: [shoppingPostingId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -768,4 +778,210 @@ model PendingStatementBatch {
 
   @@index([userId])
   @@index([userId, createdAt])
+}
+
+// ─── Shared shopping lists (encrypted small-group) ───────────────────
+
+model ShoppingGroup {
+  id                 String   @id @default(cuid())
+  ownerId            String
+  encryptedMetadata  String
+  keyVersion         Int      @default(1)
+  membershipRevision Int      @default(1)
+  eventSequence      Int      @default(0)
+  lifecycle          String   @default("active") // active | rotation_required | archived
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  owner       User                         @relation("ShoppingGroupOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members     ShoppingMember[]
+  memberKeys  ShoppingMemberKey[]
+  invites     ShoppingInvite[]
+  lists       ShoppingList[]
+  requests    ShoppingRequest[]
+  receipts    ShoppingReceipt[]
+  events      ShoppingEvent[]
+  preferences ShoppingBudgetPreference[]
+  postings    ShoppingPosting[]
+
+  @@index([ownerId])
+  @@index([lifecycle])
+}
+
+model ShoppingMember {
+  id                   String   @id @default(cuid())
+  groupId              String
+  userId               String?
+  localId              String
+  role                 String   @default("member") // owner | member
+  status               String   @default("pending") // pending | active | removed | left
+  encryptedAlias       String
+  pinnedKeyFingerprint String
+  historyAccess        Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  group ShoppingGroup       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  keys  ShoppingMemberKey[]
+
+  @@unique([groupId, localId])
+  @@index([groupId, status])
+  @@index([userId])
+}
+
+model ShoppingMemberKey {
+  id         String   @id @default(cuid())
+  groupId    String
+  memberId   String
+  keyVersion Int
+  wrappedKey String
+  createdAt  DateTime @default(now())
+
+  group  ShoppingGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  member ShoppingMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, keyVersion])
+  @@index([groupId, keyVersion])
+}
+
+model ShoppingInvite {
+  id                     String   @id @default(cuid())
+  groupId                String
+  createdByUserId        String
+  tokenHash              String   @unique
+  status                 String   @default("pending") // pending | requested | approved | expired | revoked | rejected
+  expiresAt              DateTime
+  claimantUserId         String?
+  claimantPublicKey      String?
+  claimantKeyFingerprint String?
+  encryptedClaimantAlias String?
+  verificationCode       String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  group     ShoppingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy User          @relation("ShoppingInviteCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, status])
+  @@index([claimantUserId])
+  @@index([expiresAt])
+}
+
+model ShoppingList {
+  id                String   @id @default(cuid())
+  groupId           String
+  encryptedPayload  String
+  keyVersion        Int
+  revision          Int      @default(1)
+  tombstone         Boolean  @default(false)
+  createdByMemberId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  group    ShoppingGroup     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  requests ShoppingRequest[]
+  receipts ShoppingReceipt[]
+
+  @@index([groupId, tombstone])
+}
+
+model ShoppingRequest {
+  id                String   @id @default(cuid())
+  groupId           String
+  listId            String
+  requesterMemberId String
+  authorMemberId    String
+  encryptedPayload  String
+  keyVersion        Int
+  revision          Int      @default(1)
+  tombstone         Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  group ShoppingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  list  ShoppingList  @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, listId])
+  @@index([listId, tombstone])
+}
+
+model ShoppingReceipt {
+  id                    String   @id @default(cuid())
+  groupId               String
+  listId                String?
+  payerMemberId         String
+  encryptedPayload      String
+  keyVersion            Int
+  revision              Int      @default(1)
+  status                String   @default("draft") // draft | finalized
+  frozenRequestSnapshot String?
+  finalizedEventId      String?  @unique
+  createdByMemberId     String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  group ShoppingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  list  ShoppingList? @relation(fields: [listId], references: [id], onDelete: SetNull)
+
+  @@index([groupId, status])
+}
+
+model ShoppingEvent {
+  id                String   @id @default(cuid())
+  groupId           String
+  sequence          Int
+  type              String
+  actorMemberId     String
+  encryptedPayload  String
+  keyVersion        Int
+  affectedMemberIds String   @default("[]")
+  operationId       String
+  createdAt         DateTime @default(now())
+
+  group ShoppingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, sequence])
+  @@unique([groupId, operationId])
+  @@index([groupId, createdAt])
+}
+
+model ShoppingBudgetPreference {
+  id                String   @id @default(cuid())
+  groupId           String
+  userId            String
+  enabled           Boolean  @default(false)
+  enabledAtSequence Int?
+  catchUpApproved   Boolean  @default(false)
+  envelopeId        String?
+  preferenceVersion Int      @default(1)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  group    ShoppingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envelope Envelope?     @relation(fields: [envelopeId], references: [id], onDelete: SetNull)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+model ShoppingPosting {
+  id                 String   @id @default(cuid())
+  userId             String
+  groupId            String
+  eventId            String
+  projectionRevision Int
+  entryKey           String
+  status             String   @default("needs_attention") // posted | skipped | needs_attention | suppressed
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group        ShoppingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([userId, eventId, entryKey])
+  @@index([userId, status])
+  @@index([groupId, eventId])
 }

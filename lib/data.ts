@@ -33,6 +33,14 @@ export type TransactionSource =
   | "loan_roll"
   | "loan_payoff"
   | "loan_liquidation"
+  | "shopping_own_expense"
+  | "shopping_advance_out"
+  | "shopping_advance_recovery"
+  | "shopping_repayment_expense"
+  | "shopping_prepaid_out"
+  | "shopping_prepaid_in"
+  | "shopping_prepaid_apply"
+  | "shopping_correction"
 
 export interface Transaction {
   id: string
@@ -52,6 +60,8 @@ export interface Transaction {
   fundingBatchId?: string | null
   fundingBatchPeriodKey?: string | null
   fundingBatchKind?: string | null
+  /** Private shopping posting that created this row; unique while the transaction exists. */
+  shoppingPostingId?: string | null
   /** Server creation timestamp for ordering same-day transactions. */
   createdAt?: string
   /** Server row version for delta sync (ISO 8601). */

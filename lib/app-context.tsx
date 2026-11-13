@@ -50,6 +50,8 @@ import {
   setCachedPrivacyKeyHex,
 } from "@/lib/privacy-key-storage"
 import { clearAllDrafts } from "@/lib/draft-storage"
+import { clearShoppingCache } from "@/lib/shopping-cache"
+import { clearPendingShoppingInvite, loadPendingShoppingInvite } from "@/lib/shopping-invite-handoff"
 import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 import {
   type ApiTransactionRow,
@@ -81,43 +83,19 @@ import { filterTransactionsForActiveLedger } from "@/lib/envelope-ledger-visibil
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { transactionSyncUserMessage } from "@/lib/transaction-sync-user-message"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
+import {
+  hashToPage,
+  initialRouteFromLocation,
+  pageToHash,
+  type AppRoute,
+  type PageId,
+} from "@/lib/app-routes"
 
-export type PageId =
-  | "dashboard"
-  | "runway"
-  | "analytics"
-  | "envelopes"
-  | "envelope-allocations"
-  | "envelope-detail"
-  | "transactions"
-  | "btc-price"
-  | "researcher"
-  | "funds"
-  | "profile"
-  | "settings"
-  | "review-inbox"
+export type { PageId }
 
-function pageToHash(page: PageId, envelopeId?: string | null): string {
-  if (page === "envelope-detail" && envelopeId) return `#/envelope/${envelopeId}`
-  if (page === "envelope-allocations") return "#/envelopes/allocations"
-  return `#/${page}`
-}
-
-function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
-  const path = hash.replace(/^#\/?/, "")
-  if (!path || path === "/") return { page: "dashboard" }
-
-  const envelopeMatch = path.match(/^envelope\/(.+)$/)
-  if (envelopeMatch) return { page: "envelope-detail", envelopeId: envelopeMatch[1] }
-
-  if (path === "envelopes/allocations") return { page: "envelope-allocations" }
-
-  if (path.startsWith("settings/")) return { page: "settings" }
-
-  const validPages: PageId[] = ["dashboard", "runway", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox"]
-  if (validPages.includes(path as PageId)) return { page: path as PageId }
-
-  return { page: "dashboard" }
+function readInitialRoute(): AppRoute {
+  if (typeof window === "undefined") return { page: "dashboard" }
+  return initialRouteFromLocation(window.location.hash, loadPendingShoppingInvite() !== null)
 }
 
 /** Cold-start transaction hydration: init until IDB recent slice; recent → full → synced during refresh. */
@@ -268,6 +246,11 @@ interface AppContextValue {
   clearLocalTransactionCache: () => Promise<void>
   encryptForStorage: (plaintext: string) => Promise<string>
   /**
+   * Run a callback with the in-memory privacy key while unlocked.
+   * Returns null when the session is locked. Do not persist the key.
+   */
+  withPrivacyKey: <T>(fn: (key: Uint8Array) => T | Promise<T>) => Promise<T | null>
+  /**
    * Build a per-import HMAC dedupe-key computer from the cached privacy-key seed,
    * or null if the session is locked. Create one per import and reuse across chunks.
    */
@@ -417,15 +400,11 @@ function applyPrivacyKey(key: Uint8Array, publicKeyRef: React.MutableRefObject<U
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(getDefaultState)
-  const [currentPage, setCurrentPage] = useState<PageId>(() => {
-    if (typeof window === "undefined") return "dashboard"
-    const { page } = hashToPage(window.location.hash)
-    return page
-  })
-  const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null
-    return hashToPage(window.location.hash).envelopeId ?? null
-  })
+  const [initialRoute] = useState(readInitialRoute)
+  const [currentPage, setCurrentPage] = useState<PageId>(initialRoute.page)
+  const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(
+    initialRoute.envelopeId ?? null,
+  )
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
   const [transactionPrefill, setTransactionPrefill] = useState<TransactionPrefill | null>(null)
@@ -998,7 +977,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
   const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => {
     const targetPage = page === "envelopes" && opts?.openAllocations ? "envelope-allocations" : page
     setCurrentPage(targetPage)
-    if (targetPage === "envelope-detail" && envelopeId) {
+    if ((targetPage === "envelope-detail" || targetPage === "shopping-group") && envelopeId) {
       setSelectedEnvelopeId(envelopeId)
     } else {
       setSelectedEnvelopeId(null)
@@ -1034,7 +1013,9 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       // and the history entry for that navigation is never written.
       isPopstate.current = true
       setCurrentPage(page)
-      setSelectedEnvelopeId(page === "envelope-detail" && envelopeId ? envelopeId : null)
+      setSelectedEnvelopeId(
+        (page === "envelope-detail" || page === "shopping-group") && envelopeId ? envelopeId : null,
+      )
       // Clear any envelope filter when going back to a page that isn't transactions.
       if (page !== "transactions") setTransactionEnvelopeFilter(new Set())
       // Reset immediately — navigateTo is never invoked inside this handler so it
@@ -1055,7 +1036,9 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     window.addEventListener("hashchange", onHashChange)
 
     if (!window.location.hash) {
-      window.history.replaceState({ page: "dashboard" }, "", "#/dashboard")
+      const route = readInitialRoute()
+      const hash = pageToHash(route.page, route.envelopeId)
+      window.history.replaceState({ page: route.page }, "", hash)
     }
 
     return () => {
@@ -1574,6 +1557,12 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     return encryptFieldAsymmetric(plaintext, publicKeyRef.current)
   }, [])
 
+  const withPrivacyKey = useCallback(async <T,>(fn: (key: Uint8Array) => T | Promise<T>): Promise<T | null> => {
+    const key = privacyKeyRef.current
+    if (!key) return null
+    return fn(key)
+  }, [])
+
   const makeImportDedupeKeyComputer = useCallback((): DedupeKeyComputer | null => {
     const key = privacyKeyRef.current
     if (!key) return null
@@ -1603,6 +1592,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       sessionStorage.removeItem("bitbudget-survey-shown")
       sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
       clearAllDrafts()
+      clearPendingShoppingInvite()
     } catch {
       /* ignore */
     }
@@ -1627,7 +1617,10 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     setTxnLoadPhase("init")
     setRecurringTransactions([])
     void (async () => {
-      if (uid) await clearDb(uid).catch(() => {})
+      if (uid) {
+        await clearDb(uid).catch(() => {})
+        await clearShoppingCache(uid).catch(() => {})
+      }
       signOut({ callbackUrl: "/auth" })
     })()
   }, [])
@@ -1849,6 +1842,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         refreshData,
         clearLocalTransactionCache,
         encryptForStorage,
+        withPrivacyKey,
         makeImportDedupeKeyComputer,
         logout,
         isAdmin: userRole === "admin",
