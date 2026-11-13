@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { premiumForbiddenResponse, requirePremiumOrTrial } from "@/lib/subscription"
 import { matchEnvelope } from "@/lib/envelope-matcher"
-import { parseReceiptText } from "@/lib/receipt-parser"
+import { parseReceiptText, parseItemizedReceiptText } from "@/lib/receipt-parser"
 import {
   RECEIPT_EXTRACTION_PROMPT,
   RECEIPT_EXTRACTION_MODEL_ID,
@@ -12,6 +12,11 @@ import {
   normalizeScanExtraction,
   resolveReceiptFileKind,
 } from "@/lib/receipt-scan-validate"
+import {
+  ITEMIZED_RECEIPT_EXTRACTION_PROMPT,
+  ITEMIZED_RECEIPT_MAX_TOKENS,
+  parseItemizedModelOutput,
+} from "@/lib/shopping-receipt"
 import { isFoldStatementText, parseFoldPdfText } from "@/lib/fold-pdf-parser"
 
 /** Native canvas + pdf-parse; must not run on Edge. */
@@ -92,6 +97,46 @@ async function extractFromImage(
   }
 }
 
+async function extractItemizedFromImage(
+  base64: string,
+  mimeType: string,
+  apiKey: string,
+): Promise<unknown> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: RECEIPT_EXTRACTION_MODEL_ID,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: ITEMIZED_RECEIPT_EXTRACTION_PROMPT },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
+          ],
+        },
+      ],
+      max_tokens: ITEMIZED_RECEIPT_MAX_TOKENS,
+      temperature: 0,
+    }),
+  })
+  if (!res.ok) {
+    throw new Error("Could not read this receipt")
+  }
+  const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> }
+  const text = data.choices?.[0]?.message?.content?.trim() ?? ""
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error("Could not parse model response")
+  return JSON.parse(jsonMatch[0]) as unknown
+}
+
+function noStoreJson(data: unknown, status = 200): NextResponse {
+  return NextResponse.json(data, { status, headers: { "Cache-Control": "no-store, private" } })
+}
+
 /** Loads canvas shims then pdf-parse only when needed (image uploads skip this). */
 async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
   const { initReceiptPdfParseEnvironment } = await import("@/lib/pdfjs-server-globals")
@@ -124,6 +169,16 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
     const file = formData.get("file") as File | null
+    const itemizedMode = String(formData.get("mode") ?? "") === "itemized"
+    if (itemizedMode) {
+      const consent = String(formData.get("cloudConsent") ?? "")
+      if (consent !== "1" && consent !== "true") {
+        return noStoreJson(
+          { error: "Confirm that this receipt may be processed in the cloud before uploading." },
+          400,
+        )
+      }
+    }
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 })
     }
@@ -188,6 +243,9 @@ export async function POST(req: NextRequest) {
         )
       }
       if (process.env.E2E_TEST === "true") {
+        if (itemizedMode) {
+          return noStoreJson(itemizedE2eMock())
+        }
         return e2eMockReceiptResponse(session.user.id, {
           fileSizeBytes: buffer.length,
           inputType: "pdf",
@@ -195,6 +253,14 @@ export async function POST(req: NextRequest) {
       }
       if (!text) {
         return NextResponse.json({ error: "Could not extract text from PDF" }, { status: 422 })
+      }
+      if (itemizedMode) {
+        const raw = await parseItemizedReceiptText(text)
+        return noStoreJson({
+          type: "itemized_receipt",
+          ...parseItemizedModelOutput(raw),
+          model: formatModelDisplayName(RECEIPT_EXTRACTION_MODEL_ID),
+        })
       }
       const result = await parseReceiptText(text)
       return NextResponse.json(
@@ -213,6 +279,7 @@ export async function POST(req: NextRequest) {
       )
     }
     if (process.env.E2E_TEST === "true") {
+      if (itemizedMode) return noStoreJson(itemizedE2eMock())
       return e2eMockReceiptResponse(session.user.id, {
         fileSizeBytes: buffer.length,
         inputType: "photo",
@@ -229,6 +296,14 @@ export async function POST(req: NextRequest) {
       )
     }
     const base64 = buffer.toString("base64")
+    if (itemizedMode) {
+      const raw = await extractItemizedFromImage(base64, kind, OPENAI_API_KEY)
+      return noStoreJson({
+        type: "itemized_receipt",
+        ...parseItemizedModelOutput(raw),
+        model: formatModelDisplayName(RECEIPT_EXTRACTION_MODEL_ID),
+      })
+    }
     const result = await extractFromImage(base64, kind, OPENAI_API_KEY)
     return NextResponse.json(
       await buildReceiptResponse(session.user.id, result, { fileSizeBytes: buffer.length, inputType: "photo" }),
@@ -299,4 +374,26 @@ async function e2eMockReceiptResponse(
   opts: { fileSizeBytes: number; inputType: "pdf" | "photo" },
 ) {
   return NextResponse.json(await buildReceiptResponse(userId, E2E_MOCK_RECEIPT_EXTRACTION, opts))
+}
+
+function itemizedE2eMock() {
+  return {
+    type: "itemized_receipt" as const,
+    ...parseItemizedModelOutput({
+      merchant: "Receipt Scan Café ZZ99",
+      date: "2026-04-01",
+      currency: "USD",
+      subtotal: "40.00",
+      tax: "2.50",
+      discount: "0.00",
+      fees: "0.00",
+      total: "42.50",
+      truncated: false,
+      lines: [
+        { description: "Coffee", quantity: 1, unit: "each", amount: "4.50", confidence: 0.9 },
+        { description: "Groceries", quantity: 1, unit: "each", amount: "38.00", confidence: 0.9 },
+      ],
+    }),
+    model: formatModelDisplayName(RECEIPT_EXTRACTION_MODEL_ID),
+  }
 }
