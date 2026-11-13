@@ -32,8 +32,6 @@ export async function PUT(req: Request, ctx: { params: Promise<{ groupId: string
       enabled: parsed.body.enabled === true,
       envelopeId: typeof parsed.body.envelopeId === "string" ? parsed.body.envelopeId : null,
       catchUpApproved: parsed.body.catchUpApproved === true,
-      enabledAtSequence:
-        typeof parsed.body.enabledAtSequence === "number" ? parsed.body.enabledAtSequence : null,
     })
     return shoppingJson({
       enabled: pref.enabled,

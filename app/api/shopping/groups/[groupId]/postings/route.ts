@@ -1,7 +1,20 @@
 import { withShoppingUser } from "@/lib/shopping-api"
 import { readShoppingJson, requirePositiveInt, shoppingJson } from "@/lib/shopping-http"
-import { applyShoppingPostings, skipShoppingPosting, type ShoppingPostingEntryInput } from "@/lib/shopping-posting-server"
+import {
+  applyShoppingPostings,
+  listCallerPostings,
+  skipShoppingPosting,
+  type ShoppingPostingEntryInput,
+} from "@/lib/shopping-posting-server"
 import { SHOPPING_ENTRY_KINDS, type ShoppingEntryKind } from "@/lib/shopping-types"
+
+export async function GET(_req: Request, ctx: { params: Promise<{ groupId: string }> }) {
+  const { groupId } = await ctx.params
+  return withShoppingUser(async (userId) => {
+    const postings = await listCallerPostings({ userId, groupId })
+    return shoppingJson({ postings })
+  })
+}
 
 export async function POST(req: Request, ctx: { params: Promise<{ groupId: string }> }) {
   const { groupId } = await ctx.params

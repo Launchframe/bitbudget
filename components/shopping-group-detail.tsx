@@ -32,6 +32,7 @@ import {
 import { ShoppingSnapshotSupersededError } from "@/lib/shopping-snapshot-events"
 import { useShoppingState } from "@/lib/use-shopping-state"
 import { amountOwed, reduceShoppingTab } from "@/lib/shopping-ledger"
+import { ShoppingBudgetCard } from "@/components/shopping-budget-card"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -63,6 +64,10 @@ export function ShoppingGroupDetail() {
     createReceiptDraft,
     finalizeReceipt,
     recordPayment,
+    fetchPreference,
+    listPostings,
+    savePreference,
+    applyPostings,
   } = useShoppingState()
   const [view, setView] = useState<DecryptedGroupView | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -193,6 +198,14 @@ export function ShoppingGroupDetail() {
               </span>
             </div>
           </div>
+
+          <ShoppingBudgetCard
+            view={view}
+            fetchPreference={fetchPreference}
+            listPostings={listPostings}
+            savePreference={savePreference}
+            applyPostings={applyPostings}
+          />
 
           <div className="min-w-0 overflow-x-auto border-b border-border">
             <div className="flex min-w-max gap-6" role="tablist" aria-label="Group sections">

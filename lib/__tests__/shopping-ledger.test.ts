@@ -157,6 +157,40 @@ describe("shopping projections", () => {
     expect(aRows.find((r) => r.kind === "advance_recovery")?.cents).toBe(6000)
     expect(aRows.find((r) => r.kind === "prepaid_in")?.cents).toBe(1000)
   })
+
+  it("keeps a stable payback key and blocks the credit when that cover was skipped", () => {
+    const events = [
+      receiptEvent("e1", 1, [
+        { memberId: A, cents: 4000 },
+        { memberId: B, cents: 6000 },
+      ]),
+      payEvent("e2", 2, 2000),
+    ]
+    const rows = projectMemberBudget({
+      events,
+      context: { memberId: A, preference: pref, missingAdvanceEventIds: new Set(["e1"]) },
+    })
+    const recovery = rows.find((row) => row.kind === "advance_recovery")
+    expect(recovery?.entryKey).toBe("e2:advance_recovery")
+    expect(recovery?.needsAttention).toBe(true)
+  })
+
+  it("still offers a payback when a different person's cover was skipped", () => {
+    const events = [
+      receiptEvent("e1", 1, [
+        { memberId: A, cents: 4000 },
+        { memberId: B, cents: 6000 },
+      ]),
+      payEvent("e2", 2, 2000),
+    ]
+    const rows = projectMemberBudget({
+      events,
+      context: { memberId: A, preference: pref, missingAdvanceEventIds: new Set(["other-receipt"]) },
+    })
+    const recovery = rows.find((row) => row.kind === "advance_recovery")
+    expect(recovery?.entryKey).toBe("e2:advance_recovery")
+    expect(recovery?.needsAttention).toBeUndefined()
+  })
 })
 
 describe("shopping event validation", () => {
