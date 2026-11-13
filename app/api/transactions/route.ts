@@ -12,6 +12,8 @@ import {
   utcEndOfCalendarDay,
 } from "@/lib/transaction-query-dates"
 import { deleteTransactionForUser } from "@/lib/transaction-batch-delete-server"
+import { isShoppingManagedSource } from "@/lib/shopping-classification"
+import { suppressAllShoppingPostingsForUser } from "@/lib/shopping-posting-server"
 
 function parseTagsJson(raw: string): string[] {
   try {
@@ -37,6 +39,7 @@ function jsonTxnRow(t: {
   excludeFromMainHistory: boolean
   fundingBatchId: string | null
   fundingBatch?: { periodKey: string; kind: string } | null
+  shoppingPostingId?: string | null
   createdAt: Date
   updatedAt: Date
 }) {
@@ -56,6 +59,7 @@ function jsonTxnRow(t: {
     fundingBatchId: t.fundingBatchId,
     fundingBatchPeriodKey: t.fundingBatch?.periodKey ?? null,
     fundingBatchKind: t.fundingBatch?.kind ?? null,
+    shoppingPostingId: t.shoppingPostingId ?? null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
   }
@@ -122,7 +126,14 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { date, payee, amount, type, envelopeId, tags, notes } = body
+  const { date, payee, amount, type, envelopeId, tags, notes, source } = body
+
+  if (isShoppingManagedSource(source)) {
+    return NextResponse.json(
+      { error: "Shared shopping entries are added from your shopping list, not here." },
+      { status: 400 },
+    )
+  }
 
   if (!date || payee == null || amount == null || !type || !envelopeId) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
@@ -193,6 +204,15 @@ export async function PUT(req: NextRequest) {
   })
   if (!existing) {
     return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
+  }
+
+  if (existing.shoppingPostingId || isShoppingManagedSource(existing.source)) {
+    if (date !== undefined || amount !== undefined || type !== undefined || body.source !== undefined || payee !== undefined) {
+      return NextResponse.json(
+        { error: "Shared shopping entries can only be changed from your shopping list." },
+        { status: 400 },
+      )
+    }
   }
 
   if (envelopeId !== undefined) {
@@ -274,6 +294,7 @@ export async function DELETE(req: NextRequest) {
   const all = searchParams.get("all")
 
   if (all === "true") {
+    await suppressAllShoppingPostingsForUser(session.user.id)
     const { count } = await prisma.transaction.deleteMany({
       where: { userId: session.user.id },
     })
