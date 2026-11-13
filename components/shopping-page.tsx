@@ -74,13 +74,13 @@ export function ShoppingPage() {
     }
   }, [shopping.groups, withPrivacyKey])
 
-  async function onCreate(name: string, description: string) {
+  async function onCreate(name: string, description: string, alias: string) {
     const result = await withPrivacyKey(async (privacyKey) => {
       const prepared = await prepareCreateGroup({
         privacyKey,
         name,
         description: description.trim() || undefined,
-        alias: "You",
+        alias,
       })
       await shopping.createGroup(prepared.body)
       const list = await prepareDefaultList({
@@ -102,7 +102,7 @@ export function ShoppingPage() {
     setClaimBusy(true)
     setClaimError(null)
     try {
-      const encrypted = await shopping.encryptAliasToOwner(claimAlias.trim() || "You")
+      const encrypted = await shopping.encryptAliasToOwner(claimAlias.trim())
       if (!encrypted) {
         setClaimError("This invite is missing a key. Ask the owner to send a new link.")
         return
@@ -138,8 +138,8 @@ export function ShoppingPage() {
               Shared shopping, private budgets.
             </h1>
             <p className="max-w-xl text-sm leading-6 text-muted-foreground">
-              Keep requests, receipts, and a running tab with people you invite. Your envelopes and
-              transactions stay on your device.
+              Keep requests, receipts, and a running tab with people you invite. Group members never
+              see your envelopes or transactions.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
@@ -181,8 +181,8 @@ export function ShoppingPage() {
         <div className="flex flex-col gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4 sm:p-5">
           <p className="font-medium">You have a shopping invite</p>
           <p className="text-sm text-muted-foreground">
-            Choose the name others in this group will see. They will compare a short fingerprint with
-            you before approving.
+            Choose the name others in this group will see. The owner will check a short code with you
+            before adding you.
           </p>
           <label className="flex flex-col gap-2 text-sm font-medium">
             Your name in this group
@@ -195,7 +195,11 @@ export function ShoppingPage() {
           </label>
           {claimError && <p className="text-sm text-destructive">{claimError}</p>}
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button type="button" onClick={() => void onClaim()} disabled={claimBusy || !shopping.unlocked}>
+            <Button
+              type="button"
+              onClick={() => void onClaim()}
+              disabled={claimBusy || !shopping.unlocked || !claimAlias.trim()}
+            >
               Send join request
             </Button>
             <Button type="button" variant="ghost" onClick={() => shopping.clearPendingInvite()}>
@@ -398,36 +402,39 @@ function CreateGroupDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreate: (name: string, description: string) => Promise<void>
+  onCreate: (name: string, description: string, alias: string) => Promise<void>
   unlocked: boolean
 }) {
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
+  const [alias, setAlias] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const ready = Boolean(name.trim() && alias.trim())
 
   const submit = useCallback(async () => {
-    if (!name.trim() || busy || !unlocked) return
+    if (!ready || busy || !unlocked) return
     setBusy(true)
     setError(null)
     try {
-      await onCreate(name, description)
+      await onCreate(name, description, alias.trim())
       setName("")
       setDescription("")
+      setAlias("")
       onOpenChange(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create group")
     } finally {
       setBusy(false)
     }
-  }, [name, description, busy, unlocked, onCreate, onOpenChange])
+  }, [ready, name, description, alias, busy, unlocked, onCreate, onOpenChange])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-w-[min(96vw,32rem)] rounded-2xl border-border bg-card"
         onKeyDown={(e) =>
-          handleDialogEnterToPrimary(e, { disabled: busy || !name.trim(), onPrimary: () => void submit() })
+          handleDialogEnterToPrimary(e, { disabled: busy || !ready, onPrimary: () => void submit() })
         }
       >
         <DialogHeader className="pr-10 text-left">
@@ -448,6 +455,16 @@ function CreateGroupDialog({
               maxLength={80}
             />
           </label>
+          <label className="flex flex-col gap-2 text-sm font-medium">
+            Your name in this group
+            <Input
+              value={alias}
+              onChange={(e) => setAlias(e.target.value)}
+              placeholder="e.g. Sam"
+              autoComplete="nickname"
+              maxLength={80}
+            />
+          </label>
           <label className="flex flex-col gap-2 text-sm font-medium" data-no-enter-submit="">
             Description
             <Textarea
@@ -465,7 +482,7 @@ function CreateGroupDialog({
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
-          <Button type="button" onClick={() => void submit()} disabled={!name.trim() || busy || !unlocked}>
+          <Button type="button" onClick={() => void submit()} disabled={!ready || busy || !unlocked}>
             Create group <ArrowRight className="size-4" />
           </Button>
         </DialogFooter>

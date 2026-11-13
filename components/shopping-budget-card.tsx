@@ -143,16 +143,12 @@ export function ShoppingBudgetCard({
     setBusy(true)
     setError(null)
     try {
-      const event = view.events.find((item) => item.id === row.sourceEventId)
-      let merchant: string | undefined
-      const payload = event?.payload
-      if (payload?.type === "receipt_finalized") {
-        merchant = view.receipts.find((receipt) => receipt.id === payload.receiptId)
-          ?.merchant
-      }
-      const payee = await encryptForStorage(
-        shoppingEntryPayee({ eventType: event?.payload.type, merchant }),
-      )
+      const payload = view.events.find((item) => item.id === row.sourceEventId)?.payload
+      const receiptId = payload?.type === "receipt_finalized" ? payload.receiptId : undefined
+      const merchant = receiptId
+        ? view.receipts.find((receipt) => receipt.id === receiptId)?.merchant
+        : undefined
+      const payee = await encryptForStorage(shoppingEntryPayee({ eventType: payload?.type, merchant }))
       if (!budgetPayeeReady(payee)) {
         setError("Unlock BitBudget, then try adding this again.")
         return

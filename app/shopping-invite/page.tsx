@@ -15,8 +15,7 @@ export default function ShoppingInvitePage() {
     const captured = captureInviteFromLocation(window.location.hash, () => {
       window.history.replaceState(null, "", "/shopping-invite")
     })
-    void captured
-    router.replace("/")
+    router.replace(captured ? "/#/shopping" : "/")
   }, [router])
 
   return (

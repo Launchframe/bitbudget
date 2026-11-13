@@ -180,6 +180,7 @@ Encrypted small-group grocery lists, receipt splits, a pairwise tab, and opt-in 
 - **Money:** Tabs are derived from append-only encrypted events (`lib/shopping-ledger.ts`). Private rows use shopping `TX_SOURCE_*` constants. Advances are cash movement, not personal spend; recoveries are not income. Generic transaction POST/PUT/import cannot create or mutate shopping-managed sources.
 - **Client:** `useShoppingState` (`lib/use-shopping-state.ts`) polls while unlocked, caches ciphertext only, and queues check-offs offline. `AppContext.withPrivacyKey` unwraps keys; logout clears the shopping cache and pending invite.
 - **Migration:** `prisma/migrations/20260909120000_shopping_share/` — apply with `pnpm exec prisma migrate deploy` (not `db push`).
+- **QA:** `pnpm qa:shopping:seed` creates two `@bitbudget.test` users (code `424242`, passphrase `4242`); full two-browser checklist in [docs/testing/shopping-qa.md](docs/testing/shopping-qa.md).
 - **Roadmap:** grocery is the first sealed small-group app. Future household bills, joint envelopes, preparer export, and recovery shards: [docs/e2ee-channels-roadmap.md](docs/e2ee-channels-roadmap.md).
 
 ## Tech Stack
