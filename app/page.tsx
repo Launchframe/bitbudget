@@ -20,6 +20,8 @@ import { BtcPricePage } from "@/components/btc-price-page"
 import { ReviewInbox } from "@/components/review-inbox"
 import { ProfilePage } from "@/components/profile-page"
 import { SettingsPage } from "@/components/settings-page"
+import { ShoppingPage } from "@/components/shopping-page"
+import { ShoppingGroupDetail } from "@/components/shopping-group-detail"
 import { MobileNav } from "@/components/mobile-nav"
 import { PinUnlockDialog } from "@/components/pin-unlock-dialog"
 import { Spinner } from "@/components/ui/spinner"
@@ -180,6 +182,10 @@ function PageContent() {
       return <EnvelopeDetailPage />
     case "settings":
       return <SettingsPage />
+    case "shopping":
+      return <ShoppingPage />
+    case "shopping-group":
+      return <ShoppingGroupDetail />
     case "researcher":
     case "funds":
       return (
