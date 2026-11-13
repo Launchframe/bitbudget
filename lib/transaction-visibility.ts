@@ -4,6 +4,10 @@ import {
 } from "@/lib/constants"
 import type { Transaction } from "@/lib/data"
 import { isEnvelopeFundingLeg } from "@/lib/ledger-funding-display"
+import {
+  isShoppingManagedSource,
+  isShoppingPersonalSpend,
+} from "@/lib/shopping-classification"
 
 /** Expense rows visible in history but not external/user spending (move funds, deficit cover). */
 function isInternalLedgerTransferExpense(
@@ -21,6 +25,7 @@ export function isUserFacingExpense(
   if (txn.excludeFromMainHistory) return false
   if (isEnvelopeFundingLeg(txn)) return false
   if (isInternalLedgerTransferExpense(txn)) return false
+  if (isShoppingManagedSource(txn.source)) return isShoppingPersonalSpend(txn)
   return true
 }
 
