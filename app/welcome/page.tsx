@@ -79,7 +79,7 @@ export default function WelcomePage() {
           <FeatureCard
             icon={<Shield className="h-6 w-6 text-[#22C55E]" />}
             title="Encrypted payees & notes"
-            description="Transaction payees and notes are encrypted on your device before they reach our servers—we can't read those fields. Amounts, dates, envelope names, and income stay visible so funding, sweeps, and reports work on bitbudget.io."
+            description="Who you transact with is your business, so transaction payees and notes are encrypted on your device before they reach our servers. Amounts, dates, and categories stay visible so income and reports can be delivered to you."
           />
         </div>
       </section>
@@ -95,7 +95,7 @@ export default function WelcomePage() {
               step: "1",
               title: "Sign in securely",
               description:
-                "Use your email, Google, or GitHub account. Payees and notes are encrypted client-side; amounts, dates, and budget structure stay on the server so your ledger can sync and run.",
+                "Use your email, Google, or GitHub account. Payees and notes are encrypted on your device; amounts, dates, and categories stay visible so income and reports can be delivered to you.",
             },
             { step: "2", title: "Set up your budget", description: "Enter your income and create envelopes for your spending categories. Allocate every dollar before it's spent." },
             { step: "3", title: "Track transactions", description: "Record expenses as they happen or import your history from a CSV file. Stay on top of your spending in real time." },

@@ -73,7 +73,7 @@ export default function LandingPage() {
           <FeatureCard
             icon={<Shield className="h-6 w-6 text-[#22C55E]" />}
             title="Encrypted payees & notes"
-            description="Transaction payees and notes are encrypted on your device before they reach our servers—we can't read those fields. Amounts, dates, envelope names, and income stay visible so funding, sweeps, and reports work on bitbudget.io."
+            description="Who you transact with is your business, so transaction payees and notes are encrypted on your device before they reach our servers. Amounts, dates, and categories stay visible so income and reports can be delivered to you."
           />
         </div>
       </section>
