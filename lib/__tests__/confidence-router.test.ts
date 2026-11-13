@@ -137,6 +137,44 @@ describe("routeTransaction", () => {
     expect(call.data.suggestedEnvelopeId).toBeNull()
   })
 
+  it("routes to pending (not live) when suggested envelope is soft-deleted", async () => {
+    // Regression: before fix, soft-deleted envelopes (archived: false, deletedAt set) passed the
+    // ownership check because it only tested `archived: false`. High-confidence Plaid/bank-alert
+    // transactions were silently created on the deleted envelope — invisible to the user —
+    // then cascade-deleted when the envelope was purged after the 30-day grace period.
+    const { prisma } = await import("@/lib/db")
+    const { routeTransaction } = await import("@/lib/confidence-router")
+
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ publicKey: "pk" } as never)
+    // Simulate the fixed query (includes deletedAt: null) returning null for a soft-deleted envelope.
+    vi.mocked(prisma.envelope.findFirst).mockResolvedValue(null as never)
+    vi.mocked(prisma.pendingTransaction.create).mockResolvedValue({ id: "p-soft-del" } as never)
+
+    const out = await routeTransaction("u1", {
+      payee: "Whole Foods",
+      amount: 50,
+      date: new Date("2025-01-01"),
+      // 0.95 confidence from payee history — high enough to trigger the live path
+      confidence: 0.95,
+      source: "plaid",
+      suggestedEnvelopeId: "env-soft-deleted",
+    })
+
+    expect(out.route).toBe("pending")
+    expect(prisma.transaction.create).not.toHaveBeenCalled()
+    expect(prisma.pendingTransaction.create).toHaveBeenCalled()
+    // Verify the ownership check now includes deletedAt: null
+    expect(vi.mocked(prisma.envelope.findFirst)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ deletedAt: null }),
+      }),
+    )
+    // Soft-deleted envelope reference must be cleared so the review UI doesn't
+    // try to display a deleted envelope.
+    const call = vi.mocked(prisma.pendingTransaction.create).mock.calls[0][0]
+    expect(call.data.suggestedEnvelopeId).toBeNull()
+  })
+
   it("uses encrypted payee/notes when user has publicKey", async () => {
     const { prisma } = await import("@/lib/db")
     const { encryptFieldForUser } = await import("@/lib/server-encrypt")

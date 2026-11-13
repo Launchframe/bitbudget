@@ -44,7 +44,7 @@ export async function routeTransaction(
 
   if (route === "live" && parsed.suggestedEnvelopeId) {
     const envelope = await prisma.envelope.findFirst({
-      where: { id: parsed.suggestedEnvelopeId, userId, archived: false },
+      where: { id: parsed.suggestedEnvelopeId, userId, archived: false, deletedAt: null },
     })
     if (envelope) {
       const transaction = await prisma.transaction.create({
