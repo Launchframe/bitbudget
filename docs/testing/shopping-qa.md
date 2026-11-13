@@ -20,6 +20,18 @@ Use **local dev** or **staging** only. Do not run the seed script against produc
 
    Both accounts finish onboarding, have encryption set up, and have a **Groceries** envelope.
 
+   Optional Playwright walkthrough captures (dev server on port **3001**, after seed):
+
+   ```bash
+   ORIGIN=http://localhost:3001 pnpm qa:shopping:screenshots
+   ORIGIN=http://localhost:3001 pnpm qa:shopping:settle-screenshots   # full two-person flow
+   ORIGIN=http://localhost:3001 pnpm qa:shopping:settle-finish      # tab payment + envelope posts only
+   ```
+
+   When `OUT_DIR` is unset, screenshots go to `/opt/cursor/artifacts` on cloud agents; elsewhere they land in gitignored `test-results/shopping-qa-screenshots/`.
+
+   Dialog screenshots wait for full opacity (`scripts/lib/playwright-screenshot-helpers.mjs`); override with `DIALOG_SETTLE_MS`. The run fails instead of saving a fading modal.
+
 3. Start the dev server with the test sign-in code enabled (do not put these in `.env.local`):
 
    ```bash

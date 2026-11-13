@@ -83,6 +83,46 @@ describe("useShoppingState refresh", () => {
     })
   }
 
+  it("returns a stable empty groups reference before the first load settles", () => {
+    const { result, rerender } = renderHook(() => useShoppingState())
+    const first = result.current.groups
+    expect(first).toEqual([])
+    rerender()
+    expect(result.current.groups).toBe(first)
+  })
+
+  it("keeps a stable reference for a loaded groups list across rerenders", async () => {
+    const { result, rerender } = renderHook(() => useShoppingState())
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000)
+    })
+    const requests = groupListRequests()
+    expect(requests.length).toBeGreaterThan(0)
+    await resolveGroupList(requests[requests.length - 1]!, [groupSummary("g1")])
+    const loaded = result.current.groups
+    expect(loaded).toHaveLength(1)
+    expect(result.current.loading).toBe(false)
+    rerender()
+    expect(result.current.groups).toBe(loaded)
+  })
+
+  it("uses a loaded empty list reference distinct from the preload placeholder", async () => {
+    const { result, rerender } = renderHook(() => useShoppingState())
+    const preload = result.current.groups
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000)
+    })
+    const requests = groupListRequests()
+    expect(requests.length).toBeGreaterThan(0)
+    await resolveGroupList(requests[requests.length - 1]!, [])
+    const loaded = result.current.groups
+    expect(loaded).toEqual([])
+    expect(result.current.loading).toBe(false)
+    expect(loaded).not.toBe(preload)
+    rerender()
+    expect(result.current.groups).toBe(loaded)
+  })
+
   it("keeps the newer group list when an older poll finishes last", async () => {
     const { result } = renderHook(() => useShoppingState())
     expect(result.current.loading).toBe(true)
