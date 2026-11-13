@@ -170,6 +170,18 @@ BitBudget **cannot** read other apps’ notifications from the web app. Users on
 
 **Not supported:** iOS notification forwarding (no equivalent user automation to a custom webhook without a native helper app), reading **toasts**, BitBudget listening without user-installed automation.
 
+### Shared shopping lists (backend)
+
+Encrypted small-group grocery lists, receipt splits, a pairwise tab, and opt-in private budget posting. Product UI is a follow-up; hooks and APIs are in place.
+
+- **Crypto:** Group content key is created on the owner’s unlocked client and wrapped to each member’s X25519 `User.publicKey`. Shared payloads use `lib/shopping-crypto.ts` (`sg1:` AES-GCM + AAD). Reject plaintext. Never log group keys, aliases, or receipt lines.
+- **Invites:** Token lives in the URL fragment (`/shopping-invite#<token>`). Server stores only the hash. Claim is an authenticated POST; no group data until an owner approves and wraps the key. Compare fingerprints out of band.
+- **Access:** Session + active membership. Never authorize from a body `userId`. Private preferences and postings are caller-owned and never returned to other members.
+- **Money:** Tabs are derived from append-only encrypted events (`lib/shopping-ledger.ts`). Private rows use shopping `TX_SOURCE_*` constants. Advances are cash movement, not personal spend; recoveries are not income. Generic transaction POST/PUT/import cannot create or mutate shopping-managed sources.
+- **Client:** `useShoppingState` (`lib/use-shopping-state.ts`) polls while unlocked, caches ciphertext only, and queues check-offs offline. `AppContext.withPrivacyKey` unwraps keys; logout clears the shopping cache and pending invite.
+- **Migration:** `prisma/migrations/20260909120000_shopping_share/` — apply with `pnpm exec prisma migrate deploy` (not `db push`).
+- **Roadmap:** grocery is the first sealed small-group app. Future household bills, joint envelopes, preparer export, and recovery shards: [docs/e2ee-channels-roadmap.md](docs/e2ee-channels-roadmap.md).
+
 ## Tech Stack
 
 - **Framework:** Next.js (App Router), React, TypeScript

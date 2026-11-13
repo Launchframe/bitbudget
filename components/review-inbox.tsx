@@ -21,6 +21,7 @@ import {
   FileUp,
   FileText,
   ArrowRight,
+  ShoppingBag,
 } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import type { TransactionSource } from "@/lib/data"
@@ -65,6 +66,14 @@ const sourceIcons: Record<TransactionSource, React.ElementType> = {
   deficit_cover: ArrowDownToLine,
   envelope_transfer_in: ArrowDownToLine,
   envelope_transfer_out: ArrowUpFromLine,
+  shopping_own_expense: ShoppingBag,
+  shopping_advance_out: ShoppingBag,
+  shopping_advance_recovery: ShoppingBag,
+  shopping_repayment_expense: ShoppingBag,
+  shopping_prepaid_out: ShoppingBag,
+  shopping_prepaid_in: ShoppingBag,
+  shopping_prepaid_apply: ShoppingBag,
+  shopping_correction: ShoppingBag,
 }
 
 const sourceLabels: Record<TransactionSource, string> = {
@@ -88,6 +97,14 @@ const sourceLabels: Record<TransactionSource, string> = {
   deficit_cover: "Cover from Savings",
   envelope_transfer_in: "Transfer in",
   envelope_transfer_out: "Transfer out",
+  shopping_own_expense: "Shared shopping",
+  shopping_advance_out: "Shared shopping",
+  shopping_advance_recovery: "Shared shopping",
+  shopping_repayment_expense: "Shared shopping",
+  shopping_prepaid_out: "Shared shopping",
+  shopping_prepaid_in: "Shared shopping",
+  shopping_prepaid_apply: "Shared shopping",
+  shopping_correction: "Shared shopping",
 }
 
 export function ReviewInbox() {

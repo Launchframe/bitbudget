@@ -61,6 +61,23 @@ export const TX_SOURCE_DEFICIT_COVER = "deficit_cover"
 export const TX_SOURCE_ENVELOPE_TRANSFER_IN = "envelope_transfer_in"
 export const TX_SOURCE_ENVELOPE_TRANSFER_OUT = "envelope_transfer_out"
 
+/** Shared shopping — payer's own grocery share. */
+export const TX_SOURCE_SHOPPING_OWN_EXPENSE = "shopping_own_expense"
+/** Cash the payer advanced for someone else's groceries. Not personal spend. */
+export const TX_SOURCE_SHOPPING_ADVANCE_OUT = "shopping_advance_out"
+/** Cash returned when a co-shopper repays an advance. Not income. */
+export const TX_SOURCE_SHOPPING_ADVANCE_RECOVERY = "shopping_advance_recovery"
+/** Co-shopper's grocery spend recorded when they repay. */
+export const TX_SOURCE_SHOPPING_REPAYMENT_EXPENSE = "shopping_repayment_expense"
+/** Overpayment sent beyond outstanding debt (prepaid credit). */
+export const TX_SOURCE_SHOPPING_PREPAID_OUT = "shopping_prepaid_out"
+/** Overpayment received / unused prepaid refunded. Not income. */
+export const TX_SOURCE_SHOPPING_PREPAID_IN = "shopping_prepaid_in"
+/** Non-cash reclass: prior prepaid becomes grocery spend. */
+export const TX_SOURCE_SHOPPING_PREPAID_APPLY = "shopping_prepaid_apply"
+/** Offset row when a shared receipt or payment is corrected. */
+export const TX_SOURCE_SHOPPING_CORRECTION = "shopping_correction"
+
 export const ENVELOPE_FUNDING_BATCH_KIND_FUND = "fund"
 export const ENVELOPE_FUNDING_BATCH_KIND_SWEEP = "sweep"
 export const ENVELOPE_FUNDING_BATCH_KIND_REBALANCE = "rebalance"
