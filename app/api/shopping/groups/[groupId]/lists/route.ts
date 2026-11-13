@@ -11,7 +11,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ groupId: strin
     if (typeof encryptedPayload !== "string") return encryptedPayload
     const keyVersion = requirePositiveInt(parsed.body.keyVersion)
     if (keyVersion == null || keyVersion < 1) return shoppingJson({ error: "Invalid key version" }, 400)
-    const list = await createList({ groupId, userId, encryptedPayload, keyVersion })
+    const list = await createList({
+      groupId,
+      userId,
+      encryptedPayload,
+      keyVersion,
+      id: typeof parsed.body.id === "string" ? parsed.body.id : undefined,
+    })
     return shoppingJson({
       id: list.id,
       revision: list.revision,

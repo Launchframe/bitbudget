@@ -20,6 +20,7 @@ export async function POST(req: Request) {
     const wrappedKey = parsed.body.wrappedKey
     const pinnedKeyFingerprint = parsed.body.pinnedKeyFingerprint
     const localId = parsed.body.localId
+    const clientId = parsed.body.id
     if (typeof wrappedKey !== "string") {
       return shoppingJson({ error: "Missing wrapped group key" }, 400)
     }
@@ -36,6 +37,7 @@ export async function POST(req: Request) {
       wrappedKey,
       pinnedKeyFingerprint,
       localId,
+      id: typeof clientId === "string" ? clientId : undefined,
     })
     return shoppingJson({ id: result.group.id, memberId: result.member.id, localId: result.member.localId }, 201)
   })

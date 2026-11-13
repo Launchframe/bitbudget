@@ -97,10 +97,13 @@ export type PageId =
   | "profile"
   | "settings"
   | "review-inbox"
+  | "shopping"
+  | "shopping-group"
 
 function pageToHash(page: PageId, envelopeId?: string | null): string {
   if (page === "envelope-detail" && envelopeId) return `#/envelope/${envelopeId}`
   if (page === "envelope-allocations") return "#/envelopes/allocations"
+  if (page === "shopping-group" && envelopeId) return `#/shopping/group/${envelopeId}`
   return `#/${page}`
 }
 
@@ -111,11 +114,14 @@ function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
   const envelopeMatch = path.match(/^envelope\/(.+)$/)
   if (envelopeMatch) return { page: "envelope-detail", envelopeId: envelopeMatch[1] }
 
+  const shoppingGroupMatch = path.match(/^shopping\/group\/(.+)$/)
+  if (shoppingGroupMatch) return { page: "shopping-group", envelopeId: shoppingGroupMatch[1] }
+
   if (path === "envelopes/allocations") return { page: "envelope-allocations" }
 
   if (path.startsWith("settings/")) return { page: "settings" }
 
-  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox"]
+  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox", "shopping"]
   if (validPages.includes(path as PageId)) return { page: path as PageId }
 
   return { page: "dashboard" }
@@ -1000,7 +1006,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
   const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => {
     const targetPage = page === "envelopes" && opts?.openAllocations ? "envelope-allocations" : page
     setCurrentPage(targetPage)
-    if (targetPage === "envelope-detail" && envelopeId) {
+    if ((targetPage === "envelope-detail" || targetPage === "shopping-group") && envelopeId) {
       setSelectedEnvelopeId(envelopeId)
     } else {
       setSelectedEnvelopeId(null)
@@ -1030,7 +1036,9 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       // and the history entry for that navigation is never written.
       isPopstate.current = true
       setCurrentPage(page)
-      setSelectedEnvelopeId(page === "envelope-detail" && envelopeId ? envelopeId : null)
+      setSelectedEnvelopeId(
+        (page === "envelope-detail" || page === "shopping-group") && envelopeId ? envelopeId : null,
+      )
       // Clear any envelope filter when going back to a page that isn't transactions.
       if (page !== "transactions") setTransactionEnvelopeFilter(new Set())
       // Reset immediately — navigateTo is never invoked inside this handler so it

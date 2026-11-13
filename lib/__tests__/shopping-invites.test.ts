@@ -34,6 +34,14 @@ describe("shopping invites", () => {
     expect(parseInviteFragment("not valid")).toBeNull()
   })
 
+  it("appends the owner public key after the token when sharing", () => {
+    const token = "abcdefghijklmnopqrstuv"
+    const pk = "a".repeat(64)
+    const url = shoppingInviteUrl("https://app.bitbudget.example", token, pk)
+    expect(url).toBe(`https://app.bitbudget.example/shopping-invite#${token}.${pk}`)
+    expect(parseInviteFragment(`#${token}.${pk}`)).toBe(token)
+  })
+
   it("generates a short verification code", () => {
     const code = generateRequestVerificationCode()
     expect(isRequestVerificationCode(code)).toBe(true)
@@ -62,10 +70,34 @@ describe("invite handoff", () => {
       replaced = true
     })
     expect(captured?.token).toBe("tokentoken12345678")
+    expect(captured?.ownerPublicKey).toBeNull()
     expect(replaced).toBe(true)
     expect(loadPendingShoppingInvite()?.token).toBe("tokentoken12345678")
     clearPendingShoppingInvite()
     expect(loadPendingShoppingInvite()).toBeNull()
+  })
+
+  it("stores a lowercase owner public key from the fragment", () => {
+    const store: Record<string, string> = {}
+    globalThis.sessionStorage = {
+      getItem: (k: string) => store[k] ?? null,
+      setItem: (k: string, v: string) => {
+        store[k] = v
+      },
+      removeItem: (k: string) => {
+        delete store[k]
+      },
+      clear: () => {
+        for (const k of Object.keys(store)) delete store[k]
+      },
+      key: () => null,
+      length: 0,
+    } as Storage
+    const pk = "ab".repeat(32)
+    const captured = captureInviteFromLocation(`#tokentoken12345678.${pk}`)
+    expect(captured?.ownerPublicKey).toBe(pk)
+    expect(loadPendingShoppingInvite()?.ownerPublicKey).toBe(pk)
+    clearPendingShoppingInvite()
   })
 })
 

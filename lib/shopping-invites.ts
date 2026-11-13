@@ -48,17 +48,24 @@ export function isRequestVerificationCode(value: unknown): value is string {
 }
 
 /** Same-origin invite URL. Token belongs in the fragment so it is not logged as a path/query. */
-export function shoppingInviteUrl(origin: string, token: string): string {
+export function shoppingInviteUrl(
+  origin: string,
+  token: string,
+  ownerPublicKey?: string | null,
+): string {
   const base = origin.replace(/\/+$/, "")
-  return `${base}/shopping-invite#${encodeURIComponent(token)}`
+  const encoded = encodeURIComponent(token)
+  const pk = ownerPublicKey && /^[0-9a-f]{64}$/.test(ownerPublicKey) ? ownerPublicKey : null
+  return pk ? `${base}/shopping-invite#${encoded}.${pk}` : `${base}/shopping-invite#${encoded}`
 }
 
 export function parseInviteFragment(hash: string): string | null {
   const raw = hash.startsWith("#") ? hash.slice(1) : hash
   if (!raw) return null
-  let token = raw
+  const tokenPart = raw.split(".")[0] ?? ""
+  let token = tokenPart
   try {
-    token = decodeURIComponent(raw)
+    token = decodeURIComponent(tokenPart)
   } catch {
     return null
   }
