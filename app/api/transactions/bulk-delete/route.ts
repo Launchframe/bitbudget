@@ -6,6 +6,7 @@ import {
   canDeleteTransactionFromList,
   shouldCascadeDeleteTransactionBatch,
 } from "@/lib/transaction-batch-delete"
+import { isShoppingManagedSource } from "@/lib/shopping-classification"
 
 type BulkDeleteEligibilityRow = Pick<Transaction, "type" | "source" | "fundingBatchId">
 
@@ -75,7 +76,9 @@ export async function POST(req: NextRequest) {
       fundingBatchId: row.fundingBatchId,
     } as BulkDeleteEligibilityRow
     if (!canDeleteTransactionFromList(eligibility) || shouldCascadeDeleteTransactionBatch(eligibility)) {
-      // Funding leg, income header, or sweep row — must not be standalone-deleted.
+      rejectedIds.push(id)
+    }
+    if (isShoppingManagedSource(row.source)) {
       rejectedIds.push(id)
     }
   }

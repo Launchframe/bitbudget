@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, useState, useCallback, useRef, useEffect } from "react"
-import { LayoutDashboard, BarChart3, List, Wallet, Plus, Camera, Upload, Mic } from "lucide-react"
+import { LayoutDashboard, List, Wallet, Plus, Camera, Upload, Mic, ShoppingBasket } from "lucide-react"
 import { useApp, type PageId } from "@/lib/app-context"
 import { ScanReceiptDialog } from "@/components/scan-receipt-dialog"
 import { VoiceDictationButton } from "@/components/voice-dictation-button"
@@ -65,7 +65,7 @@ function loadInputMode(): InputMode {
 const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "Home", icon: LayoutDashboard },
   { id: "transactions", label: "Txns", icon: List },
-  { id: "analytics", label: "Stats", icon: BarChart3 },
+  { id: "shopping", label: "Shop", icon: ShoppingBasket },
   { id: "envelopes", label: "Budget", icon: Wallet },
 ]
 
@@ -212,7 +212,10 @@ export function MobileNav() {
       >
         <div className="flex items-center justify-around px-1 h-16">
           {navItems.map((item, i) => {
-            const isActive = currentPage === item.id || (item.id === "envelopes" && (currentPage === "envelope-detail" || currentPage === "envelope-allocations"))
+            const isActive =
+              currentPage === item.id ||
+              (item.id === "shopping" && currentPage === "shopping-group") ||
+              (item.id === "envelopes" && (currentPage === "envelope-detail" || currentPage === "envelope-allocations"))
             const Icon = item.icon
             const FabIcon = INPUT_MODE_ICONS[effectiveInputMode]
 
