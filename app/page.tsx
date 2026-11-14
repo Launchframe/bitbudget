@@ -10,6 +10,7 @@ import { Header } from "@/components/header"
 import { NewTransactionDialog } from "@/components/new-transaction-dialog"
 import { StatementImporterDialog } from "@/components/statement-importer-dialog"
 import { DashboardPage } from "@/components/dashboard-page"
+import { RunwayPage } from "@/components/runway-page"
 import { AnalyticsPage } from "@/components/analytics-page"
 import { EnvelopesPage } from "@/components/envelopes-page"
 import { EnvelopeAllocationsPage } from "@/components/envelope-allocations-page"
@@ -161,6 +162,8 @@ function PageContent() {
   switch (currentPage) {
     case "dashboard":
       return <DashboardPage />
+    case "runway":
+      return <RunwayPage />
     case "analytics":
       return <AnalyticsPage />
     case "transactions":

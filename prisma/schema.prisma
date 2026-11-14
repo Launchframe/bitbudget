@@ -98,11 +98,77 @@ model User {
   achievements               UserAchievement[]
   pendingStatementBatches    PendingStatementBatch[]
   premiumRenewalReminderLogs PremiumRenewalReminderLog[]
+  runwayPlan                 RunwayPlan?
+  runwayJournalEntries       RunwayJournalEntry[]
+  btcLoans                   BtcLoan[]
+  pendingBtcSales            PendingBtcSale[]
   ownedShoppingGroups        ShoppingGroup[]             @relation("ShoppingGroupOwner")
   shoppingMembers            ShoppingMember[]
   shoppingInvitesCreated     ShoppingInvite[]            @relation("ShoppingInviteCreator")
   shoppingBudgetPreferences  ShoppingBudgetPreference[]
   shoppingPostings           ShoppingPosting[]
+}
+
+/// Bitcoin-backed USD loan tracked for the Runway feature. Collateral is
+/// bitcoin the user sent to a lender (NOT a wallet balance). Balloon style:
+/// interest is part of the single amount due at maturity. See lib/loan-health.ts.
+model BtcLoan {
+  id                      String   @id @default(cuid())
+  userId                  String
+  /// Short user-facing name (plaintext OK — not payee-grade secret).
+  label                   String
+  /// USD borrowed (cash received at open).
+  principalUsd            Decimal  @db.Decimal(12, 2)
+  /// Annual interest rate as a fraction, e.g. 0.10 for 10% APR.
+  apr                     Decimal  @db.Decimal(6, 4)
+  /// Loan open date, YYYY-MM-DD.
+  openedOn                String
+  /// Balloon maturity date, YYYY-MM-DD.
+  maturityOn              String
+  /// Bitcoin sent to the lender as collateral, in integer sats.
+  collateralSats          BigInt
+  /// Lender's liquidation ("sell") price in USD for the collateral.
+  lenderSellPriceUsd      Decimal  @db.Decimal(12, 2)
+  /// accrued | full_bill — how the amount due is recognized over the term.
+  payoffStyle             String
+  /// Optional typed final bill overriding the computed maturity bill.
+  maturityBillOverrideUsd Decimal? @db.Decimal(12, 2)
+  /// open | paid | liquidated | rolled
+  status                  String   @default("open")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// A bitcoin sale the user is making to refill their Runway cash floor (B6).
+/// Not instant: coins leave a watched wallet (sent), then cash arrives
+/// (cash_on_the_way), then the deposit is linked to a budget transaction
+/// (linked) — or the user cancels. Until linked, a placeholder keeps the stack
+/// value from disappearing. See lib/runway-refill.ts for the state machine.
+model PendingBtcSale {
+  id                  String   @id @default(cuid())
+  userId              String
+  /// sent | cash_on_the_way | linked | cancelled
+  status              String   @default("sent")
+  /// Sats that left the wallet for this sale.
+  sats                BigInt
+  /// Spot price when the sale was sent (the "today's price" mark), USD/BTC.
+  markPriceUsd        Decimal  @db.Decimal(12, 2)
+  /// Known cash proceeds once the sale clears (null until known).
+  proceedsUsd         Decimal? @db.Decimal(12, 2)
+  /// Budget transaction the deposit was linked to, if any.
+  linkedTransactionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model PremiumRenewalReminderLog {
@@ -266,6 +332,7 @@ model Envelope {
   pendingTransactions   PendingTransaction[]
   shortcuts             TransactionShortcut[]
   payeeMappings         PayeeEnvelopeMapping[]
+  runwayJournalEntries  RunwayJournalEntry[]
   shoppingBudgetPreferences ShoppingBudgetPreference[]
 
   @@unique([userId, name])
@@ -369,6 +436,57 @@ model SavingsGoal {
 
   @@unique([userId, periodKey])
   @@index([userId, closedAt])
+}
+
+/// A user's Financial Runway plan (1:1 with User). Persists buildup/runway phase,
+/// planned spending lines, scenarios, questionnaire answers, manual overrides,
+/// growth assumptions, edited floor/borrow cap, and per-envelope priorities.
+model RunwayPlan {
+  id                        String    @id @default(cuid())
+  userId                    String    @unique
+  phase                     String    @default("buildup") // buildup | runway
+  quitDate                  String? // YYYY-MM-DD optional
+  horizonMonths             Int       @default(24)
+  runwayIncomeUsd           Decimal   @default(0) @db.Decimal(12, 2)
+  livingBaselineOverrideUsd Decimal?  @db.Decimal(12, 2) // null = derive from spend later
+  inflationRateYear         Decimal   @default(0.05) @db.Decimal(8, 4)
+  stressPercent             Decimal   @default(0.50) @db.Decimal(8, 4)
+  growthRateYear            Decimal?  @db.Decimal(8, 4) // null = flat
+  dipResponse               String    @default("cut") // wait | cut | sell
+  btcSharePreference        String    @default("half") // little | half | most
+  borrowStance              String    @default("deep_drop") // never | deep_drop | ok
+  editedCashFloorUsd        Decimal?  @db.Decimal(12, 2)
+  editedBorrowCapFraction   Decimal?  @db.Decimal(8, 4)
+  cashOverrideUsd           Decimal?  @db.Decimal(12, 2)
+  bitcoinOverrideSats       BigInt? // sats
+  plannedLines              Json      @default("[]") // {id,group,label,monthlyUsd,mode,replacesMonthlyUsd?}[]
+  scenarios                 Json      @default("[]") // {id,label,monthlyDeltaUsd,oneTimeUsd,enabled}[]
+  envelopePriorities        Json      @default("{}") // { [envelopeId]: essential | flexible }
+  checkupOpenedMonthKey     String? // YYYY-MM last checkup opened
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// A month-scoped, encrypted Financial Runway journal note. The server only ever
+/// stores and returns ciphertext in `encryptedBody` (encrypted client-side like
+/// transaction notes) — it is never logged or decrypted on the backend. An
+/// optional `envelopeId` scopes the note to a single envelope.
+model RunwayJournalEntry {
+  id            String   @id @default(cuid())
+  userId        String
+  monthKey      String // YYYY-MM
+  envelopeId    String? // optional envelope scope
+  encryptedBody String // ciphertext only — never logged or decrypted server-side
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envelope Envelope? @relation(fields: [envelopeId], references: [id], onDelete: SetNull)
+
+  @@index([userId, monthKey])
+  @@index([envelopeId])
 }
 
 model UserAchievement {
