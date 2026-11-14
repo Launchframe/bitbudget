@@ -11,6 +11,7 @@ import {
   maxUpdatedAtIso,
   mergeLastSyncIso,
   mergeTransactionBatch,
+  shouldHydrateIdbIntoState,
   type ApiTransactionRow,
 } from "../txn-cache"
 import {
@@ -170,5 +171,31 @@ describe("txn-cache", () => {
     const newerSecond = apiRowToCachedPlaintext(baseRow({ id: "n2", date: "2023-12-01", amount: 4 }))
     const merged = mergeTransactionBatch([head, tail], [olderFirst, newerSecond])
     expect(merged.map((x) => x.id)).toEqual(["h", "t", "n2", "n1"])
+  })
+})
+
+describe("shouldHydrateIdbIntoState", () => {
+  it("skips IndexedDB cleartext while the session has no privacy key", () => {
+    expect(
+      shouldHydrateIdbIntoState({
+        idbAvailable: true,
+        alreadyHydrated: false,
+        lockedWithoutKey: true,
+      }),
+    ).toBe(false)
+    expect(
+      shouldHydrateIdbIntoState({
+        idbAvailable: true,
+        alreadyHydrated: false,
+        lockedWithoutKey: false,
+      }),
+    ).toBe(true)
+    expect(
+      shouldHydrateIdbIntoState({
+        idbAvailable: true,
+        alreadyHydrated: true,
+        lockedWithoutKey: false,
+      }),
+    ).toBe(false)
   })
 })

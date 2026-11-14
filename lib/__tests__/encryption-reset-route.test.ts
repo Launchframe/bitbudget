@@ -74,4 +74,32 @@ describe("POST /api/user/encryption/reset", () => {
     expect(json.ok).toBe(true)
     expect(json.mode).toBe("encrypted_data")
   })
+
+  it("asks getToken for the secure cookie when the auth URL is https", async () => {
+    const prevAuth = process.env.AUTH_URL
+    const prevNext = process.env.NEXTAUTH_URL
+    process.env.AUTH_URL = "https://app.bitbudget.example"
+    delete process.env.NEXTAUTH_URL
+    try {
+      const res = await POST(
+        postRequest({ mode: "encrypted_data", confirm: ENCRYPTION_RESET_CONFIRM }),
+      )
+      expect(res.status).toBe(200)
+      expect(getToken).toHaveBeenCalledWith(
+        expect.objectContaining({ secureCookie: true, secret: process.env.AUTH_SECRET }),
+      )
+    } finally {
+      if (prevAuth === undefined) delete process.env.AUTH_URL
+      else process.env.AUTH_URL = prevAuth
+      if (prevNext === undefined) delete process.env.NEXTAUTH_URL
+      else process.env.NEXTAUTH_URL = prevNext
+    }
+  })
+
+  it("returns 403 when the session token belongs to a different user", async () => {
+    vi.mocked(getToken).mockResolvedValue({ id: "someone-else", iat: Math.floor(Date.now() / 1000) } as never)
+    const res = await POST(postRequest({ mode: "encrypted_data", confirm: ENCRYPTION_RESET_CONFIRM }))
+    expect(res.status).toBe(403)
+    expect(resetUserEncryption).not.toHaveBeenCalled()
+  })
 })

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   ENCRYPTION_RESET_CONFIRM,
+  authSessionCookieIsSecure,
   parseEncryptionResetMode,
 } from "../encryption-reset"
 import {
@@ -71,6 +72,26 @@ describe("encryptionResetRequiresReauth", () => {
   })
 })
 
+describe("authSessionCookieIsSecure", () => {
+  it("follows the auth URL protocol, preferring AUTH_URL", () => {
+    expect(
+      authSessionCookieIsSecure({
+        authUrl: "https://app.bitbudget.example",
+        nextAuthUrl: "http://localhost:3000",
+      }),
+    ).toBe(true)
+    expect(authSessionCookieIsSecure({ nextAuthUrl: "http://localhost:3000" })).toBe(false)
+    expect(
+      authSessionCookieIsSecure({
+        forwardedProto: "https,http",
+        requestProtocol: "http:",
+      }),
+    ).toBe(true)
+    expect(authSessionCookieIsSecure({ requestProtocol: "http:" })).toBe(false)
+    expect(authSessionCookieIsSecure({})).toBe(true)
+  })
+})
+
 describe("parseEncryptionResetMode", () => {
   it("accepts the two product modes only", () => {
     expect(parseEncryptionResetMode("encrypted_data")).toBe("encrypted_data")
@@ -90,7 +111,8 @@ describe("resetUserEncryption", () => {
     vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(tx as never))
 
     const result = await resetUserEncryption({ userId: "u1", mode: "encrypted_data" })
-    expect(suppressAllShoppingPostingsForUser).toHaveBeenCalledWith("u1")
+    expect(suppressAllShoppingPostingsForUser).toHaveBeenCalledTimes(1)
+    expect(suppressAllShoppingPostingsForUser).toHaveBeenCalledWith("u1", tx)
     expect(tx.envelopeFundingBatch.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
     expect(tx.shoppingMemberKey.deleteMany).toHaveBeenCalled()
     expect(tx.envelope.deleteMany).not.toHaveBeenCalled()

@@ -66,4 +66,30 @@ describe("shopping invite handoff storage", () => {
     clearPendingShoppingInvite()
     expect(loadPendingShoppingInvite()).toBeNull()
   })
+
+  it("does not extend the handoff lifetime when the invite is read again", () => {
+    const local = mockStorage()
+    Object.defineProperty(globalThis, "localStorage", { value: local, configurable: true })
+    Object.defineProperty(globalThis, "sessionStorage", { value: mockStorage(), configurable: true })
+    capturePendingShoppingInvite("tokentoken12345678", null, "0123456789abcdef")
+    const exp = local.getItem("bitbudget-pending-shopping-invite-expires")
+    expect(loadPendingShoppingInvite()?.token).toBe("tokentoken12345678")
+    expect(local.getItem("bitbudget-pending-shopping-invite-expires")).toBe(exp)
+  })
+
+  it("drops an expired or corrupt handoff", () => {
+    const local = mockStorage()
+    const session = mockStorage()
+    Object.defineProperty(globalThis, "localStorage", { value: local, configurable: true })
+    Object.defineProperty(globalThis, "sessionStorage", { value: session, configurable: true })
+    capturePendingShoppingInvite("tokentoken12345678", null, "0123456789abcdef")
+    local.setItem("bitbudget-pending-shopping-invite-expires", String(Date.now() - 5))
+    session.setItem("bitbudget-pending-shopping-invite-expires", String(Date.now() - 5))
+    expect(loadPendingShoppingInvite()).toBeNull()
+
+    capturePendingShoppingInvite("tokentoken12345678", null, "0123456789abcdef")
+    local.setItem("bitbudget-pending-shopping-invite-expires", "nope")
+    session.setItem("bitbudget-pending-shopping-invite-expires", "nope")
+    expect(loadPendingShoppingInvite()).toBeNull()
+  })
 })

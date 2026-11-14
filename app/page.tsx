@@ -115,15 +115,69 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function EncryptionBlockedScreen({
+  title,
+  body,
+  onRetry,
+  onLogout,
+}: {
+  title: string
+  body: string
+  onRetry: () => void
+  onLogout: () => void
+}) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6 text-center">
+      <div className="w-full max-w-md min-w-0">
+        <h1 className="text-xl font-bold text-foreground">{title}</h1>
+        <p className="mt-2 text-sm text-muted-foreground" role="alert">
+          {body}
+        </p>
+        <div className="mt-6 flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={onRetry}
+            className="w-full rounded-xl bg-[#F7931A] px-6 py-3 text-sm font-semibold text-[#0D0D0D] hover:bg-[#F7931A]/90"
+          >
+            Try again
+          </button>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="w-full rounded-xl border border-[#333] px-6 py-3 text-sm text-muted-foreground hover:text-foreground"
+          >
+            Sign out &amp; switch account
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function EncryptionGate({ children }: { children: React.ReactNode }) {
   const {
     encryption,
+    encryptionBootstrapFailed,
+    retryEncryptionInit,
     unlockWithKey,
     logout,
     clearLocalTransactionCache,
     applyServerEncryptionReset,
     refreshData,
   } = useApp()
+
+  if (encryptionBootstrapFailed) {
+    return (
+      <EncryptionBlockedScreen
+        title="Could not check encryption"
+        body="We could not check whether this account has encryption set up. Check your connection and try again."
+        onRetry={() => {
+          void retryEncryptionInit()
+        }}
+        onLogout={logout}
+      />
+    )
+  }
 
   // Server-authoritative: missing wrapped key after onboarding means setup (incl. post-reset refresh).
   if (encryption.needsPassphraseSetup) {
@@ -133,11 +187,12 @@ function EncryptionGate({ children }: { children: React.ReactNode }) {
         privacyKeySalt=""
         needsPassphraseSetup
         onUnlock={unlockWithKey}
-        onPassphraseSetupComplete={(key) => {
-          unlockWithKey(key)
+        onPassphraseSetupComplete={(key, fence) => {
+          unlockWithKey(key, fence)
           void refreshData()
         }}
         onLogout={logout}
+        clearLocalTransactionCache={clearLocalTransactionCache}
       />
     )
   }
@@ -155,6 +210,19 @@ function EncryptionGate({ children }: { children: React.ReactNode }) {
           // Hard reload so initEncryption reads the null wrapped key and blocks until setup.
           window.location.assign("/")
         }}
+      />
+    )
+  }
+
+  if (encryption.needsPinUnlock && encryption.encryptedPrivacyKey && !encryption.privacyKeySalt) {
+    return (
+      <EncryptionBlockedScreen
+        title="Unlock with your Nostr extension"
+        body="This account unlocks with your Nostr extension. Open the extension, allow BitBudget, then try again."
+        onRetry={() => {
+          void retryEncryptionInit()
+        }}
+        onLogout={logout}
       />
     )
   }

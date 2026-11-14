@@ -52,6 +52,12 @@ import {
 import { clearAllDrafts } from "@/lib/draft-storage"
 import { clearShoppingCache } from "@/lib/shopping-cache"
 import { loadPendingShoppingInvite } from "@/lib/shopping-invite-handoff"
+import { LOCAL_HISTORY_WIPE_FAILED } from "@/lib/encryption-reset"
+import {
+  ENCRYPTION_UNLOCK_FENCE_KEY,
+  bumpUnlockFence,
+  shouldApplyUnlock,
+} from "@/lib/encryption-unlock-fence"
 import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 import {
   type ApiTransactionRow,
@@ -77,6 +83,7 @@ import {
   removeMissing,
   setLastSyncIso,
   setMemo,
+  shouldHydrateIdbIntoState,
   startDateForRecentWindow,
 } from "@/lib/txn-cache"
 import { filterTransactionsForActiveLedger } from "@/lib/envelope-ledger-visibility"
@@ -203,7 +210,13 @@ interface AppContextValue {
   /** Last persisted transaction count from IndexedDB memo (instant Settings hint). */
   memoTransactionCount: number | null
   encryption: EncryptionState
-  unlockWithKey: (key: Uint8Array) => void
+  /** True when the encryption bootstrap request failed — the shell must not render unlocked. */
+  encryptionBootstrapFailed: boolean
+  retryEncryptionInit: () => void
+  /** New passphrase setup waits until local history from the old key is gone. */
+  passphraseSetupHold: boolean
+  markLocalHistoryCleared: () => void
+  unlockWithKey: (key: Uint8Array, fenceAtMount?: number) => void
 
   transactionEnvelopeFilter: Set<string>
   clearTransactionEnvelopeFilter: () => void
@@ -479,6 +492,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     encryptedPrivacyKey: null,
     privacyKeySalt: null,
   })
+  const [encryptionBootstrapFailed, setEncryptionBootstrapFailed] = useState(false)
+  const [passphraseSetupHold, setPassphraseSetupHold] = useState(false)
 
   const initEncryption = useCallback(async () => {
     try {
@@ -487,7 +502,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         signOut({ callbackUrl: "/auth" })
         return
       }
-      if (!res.ok) return
+      if (!res.ok) {
+        setEncryptionBootstrapFailed(true)
+        return
+      }
+      setEncryptionBootstrapFailed(false)
 
       const data = await res.json() as {
         userId: string
@@ -505,6 +524,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         pendingLockedRef.current = true
         privacyKeyRef.current = null
         publicKeyRef.current = null
+        try {
+          clearPrivacyKeyCache()
+        } catch {
+          /* ignore */
+        }
+        let wipeFailed = false
+        try {
+          await clearDb(data.userId)
+          try {
+            await clearShoppingCache(data.userId)
+          } catch {
+            /* shopping cache is best-effort */
+          }
+        } catch {
+          wipeFailed = true
+        }
+        if (wipeFailed) {
+          setPassphraseSetupHold(true)
+          setTransactionSyncError(LOCAL_HISTORY_WIPE_FAILED)
+        } else {
+          setPassphraseSetupHold(false)
+          setTransactionSyncError(null)
+        }
         setEncryption({
           ready: false,
           needsPinUnlock: false,
@@ -576,6 +618,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
     } catch {
       pendingLockedRef.current = true
+      setEncryptionBootstrapFailed(true)
       setEncryption({
         ready: false,
         needsPinUnlock: false,
@@ -803,7 +846,13 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       if (fullTxnSync) {
         async function hydrateRemainingIdb(): Promise<void> {
           if (fullIdbHydratedRef.current) return
-          if (!idbAvailable || lockedSession) {
+          if (
+            !shouldHydrateIdbIntoState({
+              idbAvailable,
+              alreadyHydrated: false,
+              lockedWithoutKey: lockedSession,
+            })
+          ) {
             fullIdbHydratedRef.current = true
             return
           }
@@ -866,7 +915,12 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         if (mergedSync) await setLastSyncIso(userId, mergedSync)
         if (!fullIdbHydratedRef.current) fullIdbHydratedRef.current = true
       } else {
-        const needIdbSnapshot = idbAvailable && !fullIdbHydratedRef.current
+        const needIdbSnapshot = shouldHydrateIdbIntoState({
+          idbAvailable,
+          alreadyHydrated: fullIdbHydratedRef.current,
+          lockedWithoutKey: lockedSession,
+        })
+        if (lockedSession) fullIdbHydratedRef.current = true
         const idbSnapshotPromise = needIdbSnapshot
           ? Promise.all([
               getRecentCached(userId, RECENT_TXN_WINDOW_DAYS),
@@ -938,23 +992,39 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     }
   }, [])
 
-  const unlockWithKey = useCallback((key: Uint8Array) => {
+  const unlockWithKey = useCallback((key: Uint8Array, fenceAtMount?: number) => {
+    if (fenceAtMount !== undefined && !shouldApplyUnlock(fenceAtMount)) return
     privacyKeyRef.current = key
+    if (fenceAtMount !== undefined && !shouldApplyUnlock(fenceAtMount)) {
+      privacyKeyRef.current = null
+      return
+    }
     applyPrivacyKey(key, publicKeyRef)
-    void syncUserPublicKey(key)
+    void syncUserPublicKey(key, fenceAtMount)
     pendingLockedRef.current = false
     if (currentUserIdRef.current) {
       try {
-        setCachedPrivacyKeyHex(currentUserIdRef.current, uint8ToHex(key))
+        if (fenceAtMount === undefined || shouldApplyUnlock(fenceAtMount)) {
+          setCachedPrivacyKeyHex(currentUserIdRef.current, uint8ToHex(key))
+        }
       } catch {
         /* private mode / quota */
       }
     }
+    if (fenceAtMount !== undefined && !shouldApplyUnlock(fenceAtMount)) {
+      privacyKeyRef.current = null
+      publicKeyRef.current = null
+      pendingLockedRef.current = true
+      return
+    }
+    setPassphraseSetupHold(false)
     setEncryption({ ready: true, needsPinUnlock: false, needsPassphraseSetup: false, encryptedPrivacyKey: null, privacyKeySalt: null })
     void (async () => {
+      if (fenceAtMount !== undefined && !shouldApplyUnlock(fenceAtMount)) return
       const uid = currentUserIdRef.current
       if (uid) {
         const decrypted = await decryptAndPersistUndecrypted(uid, key)
+        if (fenceAtMount !== undefined && !shouldApplyUnlock(fenceAtMount)) return
         const all = await getAllCached(uid)
         const forState = all.length > 0 ? all : decrypted
         if (forState.length > 0) {
@@ -967,6 +1037,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
           setTxnLoadPhase("full")
         }
       }
+      if (fenceAtMount !== undefined && !shouldApplyUnlock(fenceAtMount)) return
       await refreshData()
     })()
   }, [refreshData])
@@ -998,6 +1069,21 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       })()
     }
   }, [initEncryption, refreshData])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== ENCRYPTION_UNLOCK_FENCE_KEY || event.newValue == null) return
+      try {
+        clearPrivacyKeyCache()
+      } catch {
+        /* ignore */
+      }
+      window.location.assign("/")
+    }
+    window.addEventListener("storage", onStorage)
+    return () => window.removeEventListener("storage", onStorage)
+  }, [])
 
   const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => {
     const targetPage = page === "envelopes" && opts?.openAllocations ? "envelope-allocations" : page
@@ -1610,10 +1696,12 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
   }, [])
 
   const applyServerEncryptionReset = useCallback(() => {
+    bumpUnlockFence()
     pendingLockedRef.current = true
     privacyKeyRef.current = null
     publicKeyRef.current = null
     fullIdbHydratedRef.current = false
+    setPassphraseSetupHold(true)
     setState((prev) => ({ ...prev, transactions: [] }))
     setTxnLoadPhase("init")
     setEncryption({
@@ -1623,6 +1711,11 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       encryptedPrivacyKey: null,
       privacyKeySalt: null,
     })
+  }, [])
+
+  const markLocalHistoryCleared = useCallback(() => {
+    setPassphraseSetupHold(false)
+    setTransactionSyncError(null)
   }, [])
 
   const logout = useCallback(() => {
@@ -1847,6 +1940,10 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         currentUserId,
         memoTransactionCount,
         encryption,
+        encryptionBootstrapFailed,
+        retryEncryptionInit: initEncryption,
+        passphraseSetupHold,
+        markLocalHistoryCleared,
         unlockWithKey,
         transactionEnvelopeFilter,
         clearTransactionEnvelopeFilter: () => setTransactionEnvelopeFilter(new Set()),

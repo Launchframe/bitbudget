@@ -22,9 +22,33 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { publicKey } = await req.json()
+  let publicKey: unknown
+  try {
+    const body = (await req.json()) as { publicKey?: unknown }
+    publicKey = body.publicKey
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
   if (!publicKey || typeof publicKey !== "string") {
     return NextResponse.json({ error: "publicKey is required" }, { status: 400 })
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { encryptedPrivacyKey: true },
+  })
+  if (!existing) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 })
+  }
+  // A stale tab must not republish the old public key after reset nulled the wrap.
+  if (!existing.encryptedPrivacyKey) {
+    return NextResponse.json(
+      {
+        error: "Set up a passphrase before saving an encryption key.",
+        code: "ENCRYPTION_NOT_CONFIGURED",
+      },
+      { status: 409 },
+    )
   }
 
   await prisma.user.update({

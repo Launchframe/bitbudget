@@ -2,6 +2,7 @@
  * Caller-owned private shopping postings. Writes only session.user.id envelopes.
  */
 
+import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
 import { parseTransactionDateInput } from "@/lib/transaction-dates"
@@ -396,12 +397,15 @@ export async function suppressShoppingPostingForTransaction(
   return true
 }
 
-export async function suppressAllShoppingPostingsForUser(userId: string): Promise<void> {
-  await prisma.shoppingBudgetPreference.updateMany({
+export async function suppressAllShoppingPostingsForUser(
+  userId: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<void> {
+  await db.shoppingBudgetPreference.updateMany({
     where: { userId, enabled: true },
     data: { enabled: false, preferenceVersion: { increment: 1 } },
   })
-  await prisma.shoppingPosting.updateMany({
+  await db.shoppingPosting.updateMany({
     where: { userId, status: { in: ["posted", "needs_attention"] } },
     data: { status: "suppressed" },
   })

@@ -2,6 +2,7 @@
  * Pending shopping invite handoff across auth / Secure Your Data / unlock.
  * Prefer localStorage so logging out to fix a sign-in method does not drop the invite.
  * sessionStorage is written as a same-tab mirror for older tabs mid-flow.
+ * The handoff lifetime is fixed at capture time (about 7 days). Reading it does not extend that.
  */
 
 import { parseInviteFragmentParts } from "@/lib/shopping-invites"
@@ -62,9 +63,9 @@ function readFrom(store: Storage): PendingShoppingInvite | null {
     const token = store.getItem(STORAGE_KEY)
     if (!token) return null
     const expiresRaw = store.getItem(EXPIRES_KEY)
-    if (expiresRaw) {
+    if (expiresRaw != null && expiresRaw !== "") {
       const expiresAt = Number(expiresRaw)
-      if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
         clearStore(store)
         return null
       }
@@ -88,29 +89,39 @@ export function capturePendingShoppingInvite(
   writeAll(token, ownerPublicKey ?? null, joinCode ?? null, Date.now() + HANDOFF_TTL_MS)
 }
 
+function storedExpiry(store: Storage): number | null {
+  try {
+    const raw = store.getItem(EXPIRES_KEY)
+    if (raw == null || raw === "") return null
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : null
+  } catch {
+    return null
+  }
+}
+
+/** Mirror into the other bucket without sliding the original expiry. */
+function mirrorInvite(invite: PendingShoppingInvite, expiresAt: number | null): void {
+  writeAll(
+    invite.token,
+    invite.ownerPublicKey,
+    invite.joinCode,
+    expiresAt ?? Date.now() + HANDOFF_TTL_MS,
+  )
+}
+
 export function loadPendingShoppingInvite(): PendingShoppingInvite | null {
   if (typeof localStorage !== "undefined") {
     const fromLocal = readFrom(localStorage)
     if (fromLocal) {
-      // Refresh TTL + mirror into sessionStorage for mid-flow tabs.
-      writeAll(
-        fromLocal.token,
-        fromLocal.ownerPublicKey,
-        fromLocal.joinCode,
-        Date.now() + HANDOFF_TTL_MS,
-      )
+      mirrorInvite(fromLocal, storedExpiry(localStorage))
       return fromLocal
     }
   }
   if (typeof sessionStorage !== "undefined") {
     const fromSession = readFrom(sessionStorage)
     if (fromSession) {
-      writeAll(
-        fromSession.token,
-        fromSession.ownerPublicKey,
-        fromSession.joinCode,
-        Date.now() + HANDOFF_TTL_MS,
-      )
+      mirrorInvite(fromSession, storedExpiry(sessionStorage))
       return fromSession
     }
   }

@@ -39,6 +39,18 @@ export const SENSITIVE_FIELDS = { payee: true, notes: true } as const
 
 export type SensitiveFieldName = keyof typeof SENSITIVE_FIELDS
 
+/**
+ * Do not copy IndexedDB rows into React state while the session has no privacy key.
+ * The cache may hold cleartext from an earlier unlock, including history a reset just deleted on the server.
+ */
+export function shouldHydrateIdbIntoState(opts: {
+  idbAvailable: boolean
+  alreadyHydrated: boolean
+  lockedWithoutKey: boolean
+}): boolean {
+  return opts.idbAvailable && !opts.alreadyHydrated && !opts.lockedWithoutKey
+}
+
 export type CachedTransaction = Transaction & {
   isDecrypted: boolean
   serverPayee: string

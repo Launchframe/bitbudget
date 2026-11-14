@@ -32,9 +32,11 @@ export async function resetUserEncryption(params: {
 }): Promise<{ mode: EncryptionResetMode; transactionsDeleted: number; envelopesDeleted: number }> {
   const { userId, mode } = params
 
-  await suppressAllShoppingPostingsForUser(userId)
-
   const result = await prisma.$transaction(async (tx) => {
+    // Same transaction as the key wipe. A failure must not leave postings suppressed
+    // while the old passphrase and ciphertext are still in place.
+    await suppressAllShoppingPostingsForUser(userId, tx)
+
     // Rows with encrypted payee/notes (or ciphertext JSON) become unreadable after key wipe.
     const txnDelete = await tx.transaction.deleteMany({ where: { userId } })
     await tx.pendingTransaction.deleteMany({ where: { userId } })

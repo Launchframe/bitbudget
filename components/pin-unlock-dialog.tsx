@@ -17,16 +17,17 @@ import {
   uint8ToHex,
 } from "@/lib/crypto"
 import { clearPrivacyKeyCache } from "@/lib/privacy-key-storage"
-import { ENCRYPTION_RESET_CONFIRM, type EncryptionResetMode } from "@/lib/encryption-reset"
+import { ENCRYPTION_RESET_CONFIRM, LOCAL_HISTORY_WIPE_FAILED, type EncryptionResetMode } from "@/lib/encryption-reset"
+import { currentUnlockFence, shouldApplyUnlock } from "@/lib/encryption-unlock-fence"
 
 interface PinUnlockDialogProps {
   encryptedPrivacyKey: string
   privacyKeySalt: string
-  onUnlock: (privacyKey: Uint8Array) => void
+  onUnlock: (privacyKey: Uint8Array, fenceAtMount?: number) => void
   onLogout?: () => void
   /** After a destructive reset, show passphrase setup instead of unlock. */
   needsPassphraseSetup?: boolean
-  onPassphraseSetupComplete?: (privacyKey: Uint8Array) => void
+  onPassphraseSetupComplete?: (privacyKey: Uint8Array, fenceAtMount: number) => void
   onDestructiveResetComplete?: () => void
   clearLocalTransactionCache?: () => Promise<void>
   applyServerEncryptionReset?: () => void
@@ -51,6 +52,7 @@ export function PinUnlockDialog({
         opportunityCostEnabled={state.opportunityCostEnabled}
         onComplete={onPassphraseSetupComplete}
         onLogout={onLogout}
+        clearLocalTransactionCache={clearLocalTransactionCache}
       />
     )
   }
@@ -82,7 +84,7 @@ function UnlockPanel({
   opportunityCostEnabled: boolean
   encryptedPrivacyKey: string
   privacyKeySalt: string
-  onUnlock: (privacyKey: Uint8Array) => void
+  onUnlock: (privacyKey: Uint8Array, fenceAtMount?: number) => void
   onLogout?: () => void
   onDestructiveResetComplete?: () => void
   clearLocalTransactionCache?: () => Promise<void>
@@ -92,6 +94,8 @@ function UnlockPanel({
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [showReset, setShowReset] = useState(false)
+  // Captured at mount so a reset that lands during PBKDF2 cannot apply this decrypt.
+  const [fenceAtMount] = useState(() => currentUnlockFence())
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -104,7 +108,8 @@ function UnlockPanel({
       const derivedKey = await deriveKeyFromPin(pin, salt)
       const encryptedData = JSON.parse(encryptedPrivacyKey) as { iv: string; ciphertext: string }
       const privacyKey = await decryptPrivacyKey(encryptedData, derivedKey)
-      onUnlock(privacyKey)
+      if (!shouldApplyUnlock(fenceAtMount)) return
+      onUnlock(privacyKey, fenceAtMount)
     } catch {
       setError("Incorrect passphrase. Please try again.")
     } finally {
@@ -205,7 +210,7 @@ function DestructiveResetPanel({
   applyServerEncryptionReset?: () => void
   onComplete?: () => void
 }) {
-  const { reportTransactionSyncError, clearTransactionSyncError } = useApp()
+  const { reportTransactionSyncError, markLocalHistoryCleared } = useApp()
   const [mode, setMode] = useState<EncryptionResetMode>("encrypted_data")
   const [confirmText, setConfirmText] = useState("")
   const [busy, setBusy] = useState(false)
@@ -235,21 +240,17 @@ function DestructiveResetPanel({
         /* ignore */
       }
       applyServerEncryptionReset?.()
-      const localWipeMessage =
-        "Could not clear local history (another tab may be open). Close other BitBudget tabs and try again — do not continue until this succeeds."
       if (!clearLocalTransactionCache) {
-        reportTransactionSyncError(
-          "Could not clear local history. Close other BitBudget tabs and try again.",
-        )
+        reportTransactionSyncError(LOCAL_HISTORY_WIPE_FAILED)
         return
       }
       try {
         await clearLocalTransactionCache()
       } catch {
-        reportTransactionSyncError(localWipeMessage)
+        reportTransactionSyncError(LOCAL_HISTORY_WIPE_FAILED)
         return
       }
-      clearTransactionSyncError()
+      markLocalHistoryCleared()
       onComplete?.()
     } catch {
       setError("Could not reach the server. Check your connection.")
@@ -318,16 +319,19 @@ function PassphraseSetupPanel({
   opportunityCostEnabled,
   onComplete,
   onLogout,
+  clearLocalTransactionCache,
 }: {
   opportunityCostEnabled: boolean
-  onComplete?: (privacyKey: Uint8Array) => void
+  onComplete?: (privacyKey: Uint8Array, fenceAtMount: number) => void
   onLogout?: () => void
+  clearLocalTransactionCache?: () => Promise<void>
 }) {
-  const { transactionSyncError } = useApp()
+  const { transactionSyncError, passphraseSetupHold, reportTransactionSyncError, markLocalHistoryCleared } = useApp()
   const [pin, setPin] = useState("")
   const [pinConfirm, setPinConfirm] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [fenceAtMount] = useState(() => currentUnlockFence())
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -338,6 +342,10 @@ function PassphraseSetupPanel({
     }
     if (pin !== pinConfirm) {
       setError("Passphrases do not match.")
+      return
+    }
+    if (!shouldApplyUnlock(fenceAtMount)) {
+      window.location.assign("/")
       return
     }
     setBusy(true)
@@ -356,14 +364,18 @@ function PassphraseSetupPanel({
       })
       const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string }
       if (!res.ok) {
-        setError(
-          data.code === "ENCRYPTION_ALREADY_CONFIGURED"
-            ? "This account already has encryption again. Unlock with your passphrase."
-            : data.error || "Could not save your new passphrase.",
-        )
+        if (data.code === "ENCRYPTION_ALREADY_CONFIGURED") {
+          window.location.assign("/")
+          return
+        }
+        setError(data.error || "Could not save your new passphrase.")
         return
       }
-      onComplete?.(privacyKey)
+      if (!shouldApplyUnlock(fenceAtMount)) {
+        window.location.assign("/")
+        return
+      }
+      onComplete?.(privacyKey, fenceAtMount)
     } catch {
       setError("Could not set up encryption. Try again.")
     } finally {
@@ -386,10 +398,33 @@ function PassphraseSetupPanel({
               <strong className="font-medium text-foreground">If you lose it, encrypted details cannot be recovered.</strong>
             </p>
           </div>
+          {passphraseSetupHold && !transactionSyncError && (
+            <p className="mb-4 text-sm text-muted-foreground">Clearing saved history on this device…</p>
+          )}
           {transactionSyncError && (
-            <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{transactionSyncError}</span>
+            <div className="mb-4 flex flex-col gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="min-w-0">{transactionSyncError}</span>
+              </div>
+              {clearLocalTransactionCache && (
+                <button
+                  type="button"
+                  className="w-full rounded-lg border border-red-500/40 py-2 text-xs font-semibold text-red-200 hover:bg-red-500/10"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        await clearLocalTransactionCache()
+                        markLocalHistoryCleared()
+                      } catch {
+                        reportTransactionSyncError(LOCAL_HISTORY_WIPE_FAILED)
+                      }
+                    })()
+                  }}
+                >
+                  Try clearing local history again
+                </button>
+              )}
             </div>
           )}
           <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-4">
@@ -418,7 +453,7 @@ function PassphraseSetupPanel({
             {error && <p className="text-sm text-red-400">{error}</p>}
             <button
               type="submit"
-              disabled={busy || !pin || !pinConfirm || !!transactionSyncError}
+              disabled={busy || !pin || !pinConfirm || !!transactionSyncError || passphraseSetupHold}
               className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
             >
               {busy ? "Saving…" : "Save passphrase"}

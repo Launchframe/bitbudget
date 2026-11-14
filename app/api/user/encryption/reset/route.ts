@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getToken } from "next-auth/jwt"
 import { auth } from "@/lib/auth"
-import { ENCRYPTION_RESET_CONFIRM, parseEncryptionResetMode } from "@/lib/encryption-reset"
+import {
+  ENCRYPTION_RESET_CONFIRM,
+  authSessionCookieIsSecure,
+  parseEncryptionResetMode,
+} from "@/lib/encryption-reset"
 import {
   encryptionResetRequiresReauth,
   resetUserEncryption,
@@ -17,10 +21,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  const secureCookie = authSessionCookieIsSecure({
+    authUrl: process.env.AUTH_URL,
+    nextAuthUrl: process.env.NEXTAUTH_URL,
+    forwardedProto: req.headers.get("x-forwarded-proto"),
+    requestProtocol: req.nextUrl.protocol,
+  })
   const token = await getToken({
     req,
     secret: process.env.AUTH_SECRET,
+    secureCookie,
   })
+  if (typeof token?.id === "string" && token.id !== session.user.id) {
+    return NextResponse.json(
+      {
+        error:
+          "For security, sign out and sign back in, then reset within 15 minutes. This confirms it is really you.",
+        code: "REAUTH_REQUIRED",
+      },
+      { status: 403 },
+    )
+  }
   const nowSec = Math.floor(Date.now() / 1000)
   if (encryptionResetRequiresReauth(token?.iat, nowSec)) {
     return NextResponse.json(
