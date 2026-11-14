@@ -266,7 +266,12 @@ export function distributeImportDates(params: {
   }
 
   for (let i = 0; i < count; i++) {
-    const month = Math.min(12, Math.max(1, Math.round(((i + 1) / (count + 1)) * 12)))
+    // Math.ceil distributes count items across months 1–12: last item always
+    // lands on month 12.  The old Math.round(… / (count + 1)) formula placed
+    // the last point at 12/(count+1) × 12 < 12, so month 12 was unreachable
+    // for count=12 (rounds to 11) and some other counts, and caused mid-year
+    // duplicates (e.g. month 6 appeared twice for count=12).
+    const month = Math.min(12, Math.max(1, Math.ceil(((i + 1) / count) * 12)))
     dates.push(clampDay(parsed.year, month, params.payDay))
   }
   return dates
