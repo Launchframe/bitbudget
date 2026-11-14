@@ -2,6 +2,7 @@
   "name": "bitbudget",
   "version": "0.2.0",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "build": "prisma generate && prisma migrate deploy && next build",
     "dev": "next dev -p 3001",
