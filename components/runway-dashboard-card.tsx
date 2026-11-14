@@ -5,10 +5,10 @@ import { getCurrentMonthKey } from "@/lib/data"
 import { useRunway } from "@/lib/use-runway"
 import {
   checkupMonthName,
-  holdingsLookEmpty,
   isCheckupReady,
   isRunwayConfigured,
   runwayHeroDetail,
+  runwayHoldingsStatus,
   RUNWAY_JUST_SETUP_KEY,
 } from "@/lib/runway-ui"
 import { refillStatus } from "@/lib/runway-refill"
@@ -22,7 +22,7 @@ import { ArrowRight, CalendarCheck, Plane } from "lucide-react"
  */
 export function RunwayDashboardCard() {
   const { navigateTo } = useApp()
-  const { plan, loading, error, compute, holdingsReady } = useRunway()
+  const { plan, loading, error, compute, holdingsReady, watchCount } = useRunway()
 
   const monthKey = getCurrentMonthKey()
   const configured = isRunwayConfigured(plan)
@@ -37,9 +37,9 @@ export function RunwayDashboardCard() {
   }, [])
   const checkupReady = sessionReady && isCheckupReady(plan, monthKey) && !justSetup
 
-  // Keep the card height stable across its states to avoid dashboard layout
-  // jump. A reserved min-height on the text column keeps the loading skeleton,
-  // the gap line, and the checkup variant the same height.
+  // A reserved min-height on the text column keeps the loading skeleton from
+  // collapsing. The detail sentence wraps in full so a long cushion line is
+  // not cut off.
   const shell =
     "group w-full text-left flex items-center gap-4 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border transition-colors min-w-0"
   // A ready checkup gets an accent border so it reads as actionable at a glance
@@ -85,13 +85,17 @@ export function RunwayDashboardCard() {
     if (!comp) {
       detail = "Open your runway to see where you stand."
     } else {
+      const holdings = runwayHoldingsStatus({
+        cashUsd: comp.need.cashUsd,
+        bitcoinSats: comp.need.spendableSats,
+        cashOverrideUsd: plan?.cashOverrideUsd ?? null,
+        bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
+        watchCount,
+      })
       detail = runwayHeroDetail({
-        holdingsEmpty: holdingsLookEmpty({
-          cashUsd: comp.need.cashUsd,
-          bitcoinSats: comp.need.spendableSats,
-          cashOverrideUsd: plan?.cashOverrideUsd ?? null,
-          bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
-        }),
+        holdingsEmpty: holdings.holdingsEmpty,
+        cashUnset: holdings.cashUnset,
+        bitcoinUnset: holdings.bitcoinUnset,
         underFloor: Boolean(refill?.underFloor),
         shortfallUsd: refill?.shortfallUsd ?? 0,
         projectedCashGapUsd: comp.gap.flat.cashGapUsd,
@@ -131,7 +135,7 @@ export function RunwayDashboardCard() {
             </span>
           )}
         </div>
-        <span className="text-sm text-foreground line-clamp-2">{detail}</span>
+        <span className="text-sm text-foreground break-words">{detail}</span>
       </div>
       <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 group-hover:text-[#F7931A] transition-colors" aria-hidden />
     </button>

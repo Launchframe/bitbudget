@@ -176,7 +176,8 @@ export function RunwaySetupDialog({
   plan,
   livingPlaceholderUsd,
   suggestedStressPercent,
-  promptHoldings = false,
+  askCash = false,
+  askBitcoin = false,
   onSaved,
 }: {
   open: boolean
@@ -189,8 +190,10 @@ export function RunwaySetupDialog({
    * stress; an already-configured plan keeps its (possibly user-edited) stress.
    */
   suggestedStressPercent?: number
-  /** Show optional cash/bitcoin fields when the budget and wallet are still empty. */
-  promptHoldings?: boolean
+  /** Ask for cash on the last step when that side is still unanswered. */
+  askCash?: boolean
+  /** Ask for bitcoin on the last step when that side is still unanswered. */
+  askBitcoin?: boolean
   onSaved: (plan: RunwayPlanResponse) => void
 }) {
   const [step, setStep] = useState(0)
@@ -363,17 +366,14 @@ export function RunwaySetupDialog({
         : {}
     const cashNum = parseFloat(cashHoldings)
     const btcNum = parseFloat(btcHoldings)
-    const holdingsPatch =
-      promptHoldings
-        ? {
-            ...(cashHoldings.trim() !== "" && Number.isFinite(cashNum) && cashNum >= 0
-              ? { cashOverrideUsd: Math.round(cashNum * 100) / 100 }
-              : {}),
-            ...(btcHoldings.trim() !== "" && Number.isFinite(btcNum) && btcNum >= 0
-              ? { bitcoinOverrideSats: Math.round(btcNum * SATS_PER_BTC) }
-              : {}),
-          }
-        : {}
+    const holdingsPatch = {
+      ...(askCash && cashHoldings.trim() !== "" && Number.isFinite(cashNum) && cashNum >= 0
+        ? { cashOverrideUsd: Math.round(cashNum * 100) / 100 }
+        : {}),
+      ...(askBitcoin && btcHoldings.trim() !== "" && Number.isFinite(btcNum) && btcNum >= 0
+        ? { bitcoinOverrideSats: Math.round(btcNum * SATS_PER_BTC) }
+        : {}),
+    }
     const body = {
       ...(plan ?? {}),
       phase,
@@ -430,7 +430,8 @@ export function RunwaySetupDialog({
     btcSharePreference,
     borrowStance,
     suggestedStressPercent,
-    promptHoldings,
+    askCash,
+    askBitcoin,
     cashHoldings,
     btcHoldings,
     onSaved,
@@ -620,33 +621,41 @@ export function RunwaySetupDialog({
                 onChange={setLivingBaselineUsd}
                 placeholder={livingFallback || "0"}
               />
-              {promptHoldings && (
+              {(askCash || askBitcoin) && (
                 <div className="flex flex-col gap-3 rounded-xl border border-[#1F1F1F] bg-[#1A1A1A]/40 p-3">
                   <p className="text-xs text-muted-foreground">
-                    Optional — what you already have. Leave blank and you can add it on the next screen.
+                    {askCash && askBitcoin
+                      ? "Optional — what you already have. Leave blank and you can add it on the next screen."
+                      : askCash
+                        ? "Optional — cash you already have. Leave blank and you can add it on the next screen."
+                        : "Optional — bitcoin you already have. Leave blank and you can add it on the next screen."}
                   </p>
-                  <MoneyField
-                    id="runway-cash-holdings"
-                    label="Cash you have today"
-                    value={cashHoldings}
-                    onChange={setCashHoldings}
-                    placeholder="0"
-                  />
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="runway-btc-holdings">Bitcoin you have today</Label>
-                    <Input
-                      id="runway-btc-holdings"
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      step="0.00000001"
-                      value={btcHoldings}
+                  {askCash && (
+                    <MoneyField
+                      id="runway-cash-holdings"
+                      label="Cash you have today"
+                      value={cashHoldings}
+                      onChange={setCashHoldings}
                       placeholder="0"
-                      onChange={(e) => setBtcHoldings(e.target.value)}
-                      className="bg-[#1A1A1A] border-[#333]"
                     />
-                    <span className="text-xs text-muted-foreground">In bitcoin, not dollars.</span>
-                  </div>
+                  )}
+                  {askBitcoin && (
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="runway-btc-holdings">Bitcoin you have today</Label>
+                      <Input
+                        id="runway-btc-holdings"
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="0.00000001"
+                        value={btcHoldings}
+                        placeholder="0"
+                        onChange={(e) => setBtcHoldings(e.target.value)}
+                        className="bg-[#1A1A1A] border-[#333]"
+                      />
+                      <span className="text-xs text-muted-foreground">In bitcoin, not dollars.</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
