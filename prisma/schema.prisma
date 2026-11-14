@@ -98,6 +98,8 @@ model User {
   achievements               UserAchievement[]
   pendingStatementBatches    PendingStatementBatch[]
   premiumRenewalReminderLogs PremiumRenewalReminderLog[]
+  runwayPlan                 RunwayPlan?
+  runwayJournalEntries       RunwayJournalEntry[]
   ownedShoppingGroups        ShoppingGroup[]             @relation("ShoppingGroupOwner")
   shoppingMembers            ShoppingMember[]
   shoppingInvitesCreated     ShoppingInvite[]            @relation("ShoppingInviteCreator")
@@ -266,6 +268,7 @@ model Envelope {
   pendingTransactions   PendingTransaction[]
   shortcuts             TransactionShortcut[]
   payeeMappings         PayeeEnvelopeMapping[]
+  runwayJournalEntries  RunwayJournalEntry[]
   shoppingBudgetPreferences ShoppingBudgetPreference[]
 
   @@unique([userId, name])
@@ -369,6 +372,60 @@ model SavingsGoal {
 
   @@unique([userId, periodKey])
   @@index([userId, closedAt])
+}
+
+/// A user's Financial Runway plan (1:1 with User). Persists buildup/runway phase,
+/// planned spending lines, scenarios, questionnaire answers, manual overrides,
+/// growth assumptions, edited floor/borrow cap, and per-envelope priorities.
+model RunwayPlan {
+  id                        String    @id @default(cuid())
+  userId                    String    @unique
+  phase                     String    @default("buildup") // buildup | runway
+  quitDate                  String? // YYYY-MM-DD optional
+  horizonMonths             Int       @default(24)
+  runwayIncomeUsd           Decimal   @default(0) @db.Decimal(12, 2)
+  livingBaselineOverrideUsd Decimal?  @db.Decimal(12, 2) // null = derive from spend later
+  inflationRateYear         Decimal   @default(0.05) @db.Decimal(8, 4)
+  stressPercent             Decimal   @default(0.50) @db.Decimal(8, 4)
+  growthRateYear            Decimal?  @db.Decimal(8, 4) // null = flat
+  dipResponse               String    @default("cut") // wait | cut | sell
+  btcSharePreference        String    @default("half") // little | half | most
+  borrowStance              String    @default("deep_drop") // never | deep_drop | ok
+  editedCashFloorUsd        Decimal?  @db.Decimal(12, 2)
+  editedBorrowCapFraction   Decimal?  @db.Decimal(8, 4)
+  cashOverrideUsd           Decimal?  @db.Decimal(12, 2)
+  bitcoinOverrideSats       BigInt? // sats
+  plannedLines              Json      @default("[]") // {id,group,label,monthlyUsd,mode,replacesMonthlyUsd?}[]
+  scenarios                 Json      @default("[]") // {id,label,monthlyDeltaUsd,oneTimeUsd,enabled}[]
+  envelopePriorities        Json      @default("{}") // { [envelopeId]: essential | flexible }
+  checkupOpenedMonthKey     String? // YYYY-MM last checkup opened
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// A month-scoped Financial Runway journal note. `encryptedBody` is a sealed box
+/// to the user's public key (same wire format as transaction notes). The server
+/// never logs or decrypts it. A SQL CHECK rejects values that are not sealed-box
+/// base64. An optional `envelopeId` scopes the note to a single envelope.
+model RunwayJournalEntry {
+  id            String   @id @default(cuid())
+  userId        String
+  monthKey      String // YYYY-MM
+  envelopeId    String? // optional envelope scope
+  // Sealed-box ciphertext only (user public key). A SQL CHECK
+  // (`RunwayJournalEntry_encryptedBody_sealed`) rejects plaintext-shaped values.
+  // Never logged or decrypted server-side.
+  encryptedBody String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envelope Envelope? @relation(fields: [envelopeId], references: [id], onDelete: SetNull)
+
+  @@index([userId, monthKey])
+  @@index([envelopeId])
 }
 
 model UserAchievement {
