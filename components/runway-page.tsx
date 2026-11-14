@@ -15,12 +15,12 @@ import {
   checkupMonthName,
   formatLiquidationRoomPct,
   formatSharePct,
-  holdingsLookEmpty,
   holdingsAfterSaleLinked,
   isCheckupReady,
   isRunwayConfigured,
   mergeSavedPlan,
   runwayHeroDetail,
+  runwayHoldingStatus,
   runwayMonthsHeadline,
   runwayMoneyLabel,
   runwayPrimaryAction,
@@ -407,6 +407,7 @@ export function RunwayPage() {
             walletSats,
             cashOverrideUsd: plan?.cashOverrideUsd ?? null,
             bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
+            watchCount,
           })}
           onSaved={onPlanSaved}
         />
@@ -423,14 +424,15 @@ export function RunwayPage() {
   const bitcoinKnownUsd = need ? satsToUsd(bitcoinSats, btcPriceOrNull ?? 0) : 0
   const monthsUntil = comp?.monthsUntilQuit ?? 0
   const alreadySteppedBack = plan.phase === "runway"
-  const holdingsEmpty = holdingsLookEmpty({
+  const holdings = runwayHoldingStatus({
     cashUsd: need?.cashUsd ?? 0,
     bitcoinSats,
     cashOverrideUsd: plan.cashOverrideUsd,
     bitcoinOverrideSats: plan.bitcoinOverrideSats,
+    watchCount,
+    priceKnown,
   })
-  const cashUnset = plan.cashOverrideUsd == null && (need?.cashUsd ?? 0) <= 0.5
-  const bitcoinUnset = plan.bitcoinOverrideSats == null && bitcoinSats <= 0
+  const { cashUnset, bitcoinUnset } = holdings
 
   const refill = need
     ? refillStatus({
@@ -444,13 +446,19 @@ export function RunwayPage() {
     (s) => s.status === "sent" || s.status === "cash_on_the_way",
   )
   const primary = runwayPrimaryAction({
-    holdingsEmpty,
+    holdingsEmpty: holdings.holdingsEmpty,
+    cashUnset,
+    bitcoinUnset,
+    bitcoinUnpriced: holdings.bitcoinUnpriced,
     underFloor: Boolean(refill?.underFloor),
   })
   const heroDetail =
     need && gap
       ? runwayHeroDetail({
-          holdingsEmpty,
+          holdingsEmpty: holdings.holdingsEmpty,
+          cashUnset,
+          bitcoinUnset,
+          bitcoinUnpriced: holdings.bitcoinUnpriced,
           underFloor: Boolean(refill?.underFloor),
           shortfallUsd: refill?.shortfallUsd ?? 0,
           projectedCashGapUsd: gap.flat.cashGapUsd,
@@ -458,7 +466,10 @@ export function RunwayPage() {
           alreadySteppedBack,
         })
       : ""
-  const headline = runwayMonthsHeadline(need?.monthsLeft ?? null)
+  const headline = runwayMonthsHeadline(need?.monthsLeft ?? null, {
+    holdingsEmpty: holdings.holdingsEmpty,
+    bitcoinUnpriced: holdings.bitcoinUnpriced,
+  })
   const openLoans = loans.filter((l) => l.status === "open")
 
   const whatIfImpact =
@@ -649,9 +660,11 @@ export function RunwayPage() {
                 <p className="text-xs text-muted-foreground">
                   Cash cushion: {formatUsd(need.cashFloorUsedUsd)} — about {need.cashFloorMonths} month
                   {need.cashFloorMonths === 1 ? "" : "s"} of spending kept in cash.
-                  {refill?.underFloor
-                    ? ` Short ${formatUsd(refill.shortfallUsd)} today.`
-                    : " You're at or above that cushion today."}
+                  {cashUnset
+                    ? ""
+                    : refill?.underFloor
+                      ? ` Short ${formatUsd(refill.shortfallUsd)} today.`
+                      : " You're at or above that cushion today."}
                 </p>
                 <RunwayAddressWatch />
               </div>
@@ -768,6 +781,7 @@ export function RunwayPage() {
           walletSats,
           cashOverrideUsd: plan.cashOverrideUsd,
           bitcoinOverrideSats: plan.bitcoinOverrideSats,
+          watchCount,
         })}
         onSaved={onPlanSaved}
       />
