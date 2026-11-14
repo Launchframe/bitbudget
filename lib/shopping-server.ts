@@ -6,6 +6,7 @@
 import { prisma } from "@/lib/db"
 import { budgetOptInSequence } from "@/lib/shopping-budget-projection"
 import { isShoppingCiphertext } from "@/lib/shopping-crypto"
+import { isShoppingKeyFingerprint } from "@/lib/shopping-crypto"
 import { generateInviteToken, hashInviteToken } from "@/lib/shopping-invites"
 import {
   ShoppingRevisionConflictError,
@@ -120,7 +121,7 @@ export async function createGroup(params: {
   if (typeof params.wrappedKey !== "string" || params.wrappedKey.length < 40) {
     throw new ShoppingHttpError("Missing wrapped group key", 400)
   }
-  if (!/^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/.test(params.pinnedKeyFingerprint)) {
+  if (!isShoppingKeyFingerprint(params.pinnedKeyFingerprint)) {
     throw new ShoppingHttpError("Invalid key fingerprint", 400)
   }
   if (params.id && !isNonEmptyId(params.id)) {
@@ -201,8 +202,18 @@ export async function getGroupSnapshot(groupId: string, userId: string) {
     }),
     me.role === "owner"
       ? prisma.shoppingInvite.findMany({
-          where: { groupId, status: { in: ["pending", "requested"] } },
+          where: {
+            groupId,
+            OR: [
+              { status: { in: ["pending", "requested"] } },
+              {
+                status: { in: ["approved", "revoked", "rejected", "expired"] },
+                createdAt: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) },
+              },
+            ],
+          },
           orderBy: { createdAt: "desc" },
+          take: 50,
         })
       : Promise.resolve([]),
   ])

@@ -12,7 +12,7 @@ import {
 } from "lucide-react"
 import { generateKeyPairFromSeed, publicKeyToHex } from "@/lib/crypto"
 import { useApp } from "@/lib/app-context"
-import { publicKeyFingerprint } from "@/lib/shopping-crypto"
+import { formatShoppingFingerprintDisplay, publicKeyFingerprint } from "@/lib/shopping-crypto"
 import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
 import {
   aliasInitials,
@@ -179,8 +179,16 @@ export function ShoppingPage() {
           <p className="text-sm text-muted-foreground">
             Read these to the group owner on a call or in person. They should match before you are added.
           </p>
-          <p className="font-mono text-2xl tracking-[0.2em]">{claimReceipt.code}</p>
-          <p className="break-all font-mono text-sm">{claimReceipt.fingerprint}</p>
+          <div className="flex flex-col gap-1">
+            <p className="text-xs text-muted-foreground">Join code</p>
+            <p className="font-mono text-2xl tracking-[0.2em]">{claimReceipt.code}</p>
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="text-xs text-muted-foreground">Your compare code</p>
+            <p className="font-mono text-xl tracking-widest">
+              {formatShoppingFingerprintDisplay(claimReceipt.fingerprint)}
+            </p>
+          </div>
           <Button type="button" variant="ghost" className="w-fit" onClick={() => setClaimReceipt(null)}>
             Done
           </Button>

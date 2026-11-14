@@ -159,13 +159,33 @@ export function unwrapGroupContentKey(
   return hexToUint8(hex)
 }
 
+/** Legacy display form: `abcd-ef01-2345-6789` (16 hex). New form: 6 hex (`a1b2c3`). */
+const LEGACY_FINGERPRINT_RE = /^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/
+const SHORT_FINGERPRINT_RE = /^[0-9a-f]{6}$/
+
+/** True for stored or newly generated shopping key fingerprints. */
+export function isShoppingKeyFingerprint(value: unknown): value is string {
+  return typeof value === "string" && (SHORT_FINGERPRINT_RE.test(value) || LEGACY_FINGERPRINT_RE.test(value))
+}
+
+/**
+ * Short out-of-band compare code derived from a public key (6 hex).
+ * Enough for phone/in-person checks among people who already trust each other;
+ * pair with the 6-character join verification code when approving a request.
+ */
 export async function publicKeyFingerprint(publicKeyHex: string): Promise<string> {
   if (!HEX_KEY_RE.test(publicKeyHex)) {
     throw new Error("Invalid public key")
   }
   const digest = await crypto.subtle.digest("SHA-256", toBuffer(hexToUint8(publicKeyHex)))
-  const hex = uint8ToHex(new Uint8Array(digest)).slice(0, 16)
-  return `${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}`
+  return uint8ToHex(new Uint8Array(digest)).slice(0, 6)
+}
+
+/** Normalize legacy or short fingerprints for UI (always 6 lowercase hex). */
+export function formatShoppingFingerprintDisplay(fingerprint: string): string {
+  const hex = fingerprint.toLowerCase().replace(/[^0-9a-f]/g, "")
+  if (hex.length < 6) return fingerprint
+  return hex.slice(0, 6)
 }
 
 export function isShoppingCiphertext(value: unknown): value is string {

@@ -7,6 +7,8 @@ import {
   encryptShoppingPayload,
   generateGroupContentKey,
   isShoppingCiphertext,
+  formatShoppingFingerprintDisplay,
+  isShoppingKeyFingerprint,
   publicKeyFingerprint,
   unwrapGroupContentKey,
   wrapGroupContentKey,
@@ -59,10 +61,14 @@ describe("shopping-crypto", () => {
     expect(() => unwrapGroupContentKey(wrapped, other.secretKey)).toThrow()
   })
 
-  it("fingerprints public keys", async () => {
+  it("fingerprints public keys as six hex digits", async () => {
     const seed = crypto.getRandomValues(new Uint8Array(32))
     const pair = generateKeyPairFromSeed(seed)
     const fp = await publicKeyFingerprint(publicKeyToHex(pair.publicKey))
-    expect(fp).toMatch(/^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/)
+    expect(fp).toMatch(/^[0-9a-f]{6}$/)
+    expect(isShoppingKeyFingerprint(fp)).toBe(true)
+    expect(isShoppingKeyFingerprint("abcd-ef01-2345-6789")).toBe(true)
+    expect(formatShoppingFingerprintDisplay("abcd-ef01-2345-6789")).toBe("abcdef")
+    expect(formatShoppingFingerprintDisplay(fp)).toBe(fp)
   })
 })
