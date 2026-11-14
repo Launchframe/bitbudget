@@ -75,6 +75,8 @@ export interface PendingTransaction {
   source: TransactionSource
   payee: string
   amount: number
+  /** Money out, or money in. Missing values are expenses. */
+  type?: "expense" | "credit"
   date: string
   notes?: string | null
   suggestedEnvelopeId: string | null

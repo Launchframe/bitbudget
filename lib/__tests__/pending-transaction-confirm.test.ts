@@ -78,7 +78,22 @@ describe("confirmPendingTransactionAtomic", () => {
 
     const out = await confirmPendingTransactionAtomic("user_1", "pend_1", "env_1")
     expect(out?.id).toBe("txn_1")
+    expect(txTransactionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: "expense" }) }),
+    )
     expect(txTransactionCreate).toHaveBeenCalledOnce()
+  })
+
+  it("keeps a pending inflow as a credit", async () => {
+    txPendingFindFirst.mockResolvedValue({ ...pendingRow, type: "credit" })
+    txPendingDeleteMany.mockResolvedValue({ count: 1 })
+    txTransactionCreate.mockResolvedValue(makeCreatedTx({ type: "credit" }))
+
+    const out = await confirmPendingTransactionAtomic("user_1", "pend_1", "env_1")
+    expect(out?.type).toBe("credit")
+    expect(txTransactionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: "credit", amount: 42 }) }),
+    )
   })
 
   it("scopes the transaction to the correct userId and envelopeId", async () => {
