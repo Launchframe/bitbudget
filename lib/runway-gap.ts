@@ -126,7 +126,7 @@ function usdToSats(usd: number, priceUsd: number, round: SatRound): number | nul
   const usdB = BigInt(usdMicros)
   const priceB = BigInt(priceMicros)
   const perBtc = BigInt(SATS_PER_BTC)
-  const sats = round === "ceil" ? (usdB * perBtc + priceB - 1n) / priceB : (usdB * perBtc) / priceB
+  const sats = round === "ceil" ? (usdB * perBtc + priceB - BigInt(1)) / priceB : (usdB * perBtc) / priceB
   if (sats > BigInt(Number.MAX_SAFE_INTEGER)) return null
   return Number(sats)
 }
