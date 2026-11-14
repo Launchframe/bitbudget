@@ -15,17 +15,18 @@ import {
   checkupMonthName,
   formatLiquidationRoomPct,
   formatSharePct,
+  runwayHoldingsStatus,
   holdingsAfterSaleLinked,
   isCheckupReady,
   isRunwayConfigured,
   mergeSavedPlan,
   runwayHeroDetail,
-  runwayHoldingStatus,
   runwayMonthsHeadline,
   runwayMoneyLabel,
   runwayPrimaryAction,
   parseHoldingsOverrides,
   rollbackPlanPatch,
+  showBitcoinTotalField,
   RUNWAY_JUST_SETUP_KEY,
   satsToUsd,
   type RunwayPlanResponse,
@@ -258,6 +259,14 @@ export function RunwayPage() {
     return () => clearTimeout(t)
   }, [configured, checkupReady, justSetup, sessionReady, monthKey, setPlan])
 
+  const setupHoldings = runwayHoldingsStatus({
+    cashUsd: envelopeCashUsd,
+    bitcoinSats: walletSats,
+    cashOverrideUsd: plan?.cashOverrideUsd ?? null,
+    bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
+    watchCount,
+  })
+
   const scenarioMode = applyScenarios ? "enabled" : "none"
   const comp = useMemo(() => compute(scenarioMode), [compute, scenarioMode])
 
@@ -401,24 +410,8 @@ export function RunwayPage() {
           plan={plan}
           livingPlaceholderUsd={livingPlaceholder}
           suggestedStressPercent={suggestedStressPercent}
-          askCash={
-            runwayHoldingStatus({
-              cashUsd: envelopeCashUsd,
-              bitcoinSats: walletSats,
-              cashOverrideUsd: plan?.cashOverrideUsd ?? null,
-              bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
-              watchCount,
-            }).cashUnset
-          }
-          askBitcoin={
-            runwayHoldingStatus({
-              cashUsd: envelopeCashUsd,
-              bitcoinSats: walletSats,
-              cashOverrideUsd: plan?.cashOverrideUsd ?? null,
-              bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
-              watchCount,
-            }).bitcoinUnset
-          }
+          askCash={setupHoldings.cashUnset}
+          askBitcoin={setupHoldings.bitcoinUnset}
           onSaved={onPlanSaved}
         />
       </div>
@@ -434,15 +427,14 @@ export function RunwayPage() {
   const bitcoinKnownUsd = need ? satsToUsd(bitcoinSats, btcPriceOrNull ?? 0) : 0
   const monthsUntil = comp?.monthsUntilQuit ?? 0
   const alreadySteppedBack = plan.phase === "runway"
-  const holdings = runwayHoldingStatus({
+  const holdings = runwayHoldingsStatus({
     cashUsd: need?.cashUsd ?? 0,
     bitcoinSats,
     cashOverrideUsd: plan.cashOverrideUsd,
     bitcoinOverrideSats: plan.bitcoinOverrideSats,
     watchCount,
-    priceKnown,
   })
-  const { cashUnset, bitcoinUnset } = holdings
+  const { holdingsEmpty, cashUnset, bitcoinUnset } = holdings
 
   const refill = need
     ? refillStatus({
@@ -455,20 +447,22 @@ export function RunwayPage() {
   const openSales = pendingSales.filter(
     (s) => s.status === "sent" || s.status === "cash_on_the_way",
   )
+  const bitcoinUnpriced =
+    !holdingsEmpty && !cashUnset && !bitcoinUnset && !priceKnown && bitcoinSats > 0
   const primary = runwayPrimaryAction({
-    holdingsEmpty: holdings.holdingsEmpty,
+    holdingsEmpty,
     cashUnset,
     bitcoinUnset,
-    bitcoinUnpriced: holdings.bitcoinUnpriced,
+    bitcoinUnpriced,
     underFloor: Boolean(refill?.underFloor),
   })
   const heroDetail =
     need && gap
       ? runwayHeroDetail({
-          holdingsEmpty: holdings.holdingsEmpty,
+          holdingsEmpty,
           cashUnset,
           bitcoinUnset,
-          bitcoinUnpriced: holdings.bitcoinUnpriced,
+          bitcoinUnpriced,
           underFloor: Boolean(refill?.underFloor),
           shortfallUsd: refill?.shortfallUsd ?? 0,
           projectedCashGapUsd: gap.flat.cashGapUsd,
@@ -477,8 +471,8 @@ export function RunwayPage() {
         })
       : ""
   const headline = runwayMonthsHeadline(need?.monthsLeft ?? null, {
-    holdingsEmpty: holdings.holdingsEmpty,
-    bitcoinUnpriced: holdings.bitcoinUnpriced,
+    holdingsEmpty,
+    bitcoinUnpriced,
   })
   const openLoans = loans.filter((l) => l.status === "open")
 
@@ -624,7 +618,11 @@ export function RunwayPage() {
                   <Bitcoin className="h-3.5 w-3.5 shrink-0" aria-hidden /> Bitcoin
                 </span>
                 <span className="block text-base sm:text-lg font-semibold text-foreground tabular-nums mt-1 break-words">
-                  {bitcoinUnset ? "Add your bitcoin" : priceKnown ? formatUsd(bitcoinKnownUsd) : "—"}
+                  {bitcoinUnset
+                    ? "Add your bitcoin"
+                    : bitcoinSats <= 0 || priceKnown
+                      ? formatUsd(bitcoinSats <= 0 ? 0 : bitcoinKnownUsd)
+                      : "—"}
                 </span>
                 <span className="text-[11px] text-muted-foreground block mt-0.5">
                   {plan.bitcoinOverrideSats != null
@@ -642,7 +640,10 @@ export function RunwayPage() {
           ) : (
             <TotalsEditor
               plan={plan}
-              watchCount={watchCount}
+              askBitcoin={showBitcoinTotalField({
+                watchCount,
+                bitcoinOverrideSats: plan.bitcoinOverrideSats,
+              })}
               onSave={savePatch}
               onDone={() => setEditTotals(false)}
             />
@@ -673,17 +674,13 @@ export function RunwayPage() {
                 </p>
                 <MixBar label="Right now" share={need.actualBtcShare} color="#F7931A" />
                 <p className="text-xs text-muted-foreground">
-                  {holdings.holdingsEmpty
-                    ? "Add what you have above before this cushion means much."
-                    : `Cash cushion: ${formatUsd(need.cashFloorUsedUsd)} — about ${need.cashFloorMonths} month${
-                        need.cashFloorMonths === 1 ? "" : "s"
-                      } of spending kept in cash.${
-                        cashUnset
-                          ? ""
-                          : refill?.underFloor
-                            ? ` Short ${formatUsd(refill.shortfallUsd)} today.`
-                            : " You're at or above that cushion today."
-                      }`}
+                  Cash cushion: {formatUsd(need.cashFloorUsedUsd)} — about {need.cashFloorMonths} month
+                  {need.cashFloorMonths === 1 ? "" : "s"} of spending kept in cash.
+                  {cashUnset
+                    ? " Add your cash before this reads as a shortfall."
+                    : refill?.underFloor
+                      ? ` Short ${formatUsd(refill.shortfallUsd)} today.`
+                      : " You're at or above that cushion today."}
                 </p>
                 <RunwayAddressWatch />
               </div>
@@ -795,8 +792,8 @@ export function RunwayPage() {
         plan={plan}
         livingPlaceholderUsd={livingPlaceholder}
         suggestedStressPercent={suggestedStressPercent}
-        askCash={cashUnset}
-        askBitcoin={bitcoinUnset}
+        askCash={setupHoldings.cashUnset}
+        askBitcoin={setupHoldings.bitcoinUnset}
         onSaved={onPlanSaved}
       />
       <RunwayLoanDialog
@@ -1071,16 +1068,16 @@ function PendingSaleRow({
 
 function TotalsEditor({
   plan,
-  watchCount,
+  askBitcoin,
   onSave,
   onDone,
 }: {
   plan: RunwayPlanResponse
-  watchCount: number
+  /** False once a watched wallet supplies bitcoin and the user has not typed an override. */
+  askBitcoin: boolean
   onSave: (patch: Partial<RunwayPlanResponse>) => Promise<boolean>
   onDone: () => void
 }) {
-  const showBitcoin = watchCount <= 0 || plan.bitcoinOverrideSats != null
   const [cash, setCash] = useState(plan.cashOverrideUsd != null ? String(plan.cashOverrideUsd) : "")
   const [btc, setBtc] = useState(
     plan.bitcoinOverrideSats != null ? String(plan.bitcoinOverrideSats / SATS_PER_BTC) : "",
@@ -1089,16 +1086,15 @@ function TotalsEditor({
   const [formError, setFormError] = useState<string | null>(null)
 
   const save = () => {
-    const parsed = parseHoldingsOverrides(cash, btc)
+    const parsed = parseHoldingsOverrides(cash, askBitcoin ? btc : "")
     if (!parsed.ok) {
       setFormError(parsed.error)
       return
     }
     setFormError(null)
-    void onSave({
-      cashOverrideUsd: parsed.cashOverrideUsd,
-      bitcoinOverrideSats: parsed.bitcoinOverrideSats,
-    })
+    const patch: Partial<RunwayPlanResponse> = { cashOverrideUsd: parsed.cashOverrideUsd }
+    if (askBitcoin) patch.bitcoinOverrideSats = parsed.bitcoinOverrideSats
+    void onSave(patch)
     onDone()
   }
 
@@ -1107,7 +1103,7 @@ function TotalsEditor({
       <p className="text-xs text-muted-foreground">
         Type a total to override what we calculate — leave blank to use your budget and wallet.
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className={`grid grid-cols-1 gap-3 ${askBitcoin ? "sm:grid-cols-2" : ""}`}>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="totals-cash">Cash total (USD)</Label>
           <Input
@@ -1122,7 +1118,7 @@ function TotalsEditor({
             className="bg-[#1A1A1A] border-[#333]"
           />
         </div>
-        {showBitcoin && (
+        {askBitcoin && (
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="totals-btc">Bitcoin total (BTC)</Label>
             <Input

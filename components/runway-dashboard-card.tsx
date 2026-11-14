@@ -8,7 +8,7 @@ import {
   isCheckupReady,
   isRunwayConfigured,
   runwayHeroDetail,
-  runwayHoldingStatus,
+  runwayHoldingsStatus,
   RUNWAY_JUST_SETUP_KEY,
 } from "@/lib/runway-ui"
 import { refillStatus } from "@/lib/runway-refill"
@@ -37,9 +37,9 @@ export function RunwayDashboardCard() {
   }, [])
   const checkupReady = sessionReady && isCheckupReady(plan, monthKey) && !justSetup
 
-  // Keep the card height stable across its states to avoid dashboard layout
-  // jump. A reserved min-height on the text column keeps the loading skeleton,
-  // the gap line, and the checkup variant the same height.
+  // A reserved min-height on the text column keeps the loading skeleton from
+  // collapsing. The detail sentence wraps in full so a long cushion line is
+  // not cut off.
   const shell =
     "group w-full text-left flex items-center gap-4 p-4 md:p-5 bg-[#0D0D0D] rounded-2xl border transition-colors min-w-0"
   // A ready checkup gets an accent border so it reads as actionable at a glance
@@ -85,20 +85,25 @@ export function RunwayDashboardCard() {
     if (!comp) {
       detail = "Open your runway to see where you stand."
     } else {
-      const priceKnown = btcPriceOrNull != null && btcPriceOrNull > 0
-      const holdings = runwayHoldingStatus({
+      const holdings = runwayHoldingsStatus({
         cashUsd: comp.need.cashUsd,
         bitcoinSats: comp.need.spendableSats,
         cashOverrideUsd: plan?.cashOverrideUsd ?? null,
         bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
         watchCount,
-        priceKnown,
       })
+      const priceKnown = btcPriceOrNull != null && btcPriceOrNull > 0
+      const bitcoinUnpriced =
+        !holdings.holdingsEmpty &&
+        !holdings.cashUnset &&
+        !holdings.bitcoinUnset &&
+        !priceKnown &&
+        comp.need.spendableSats > 0
       detail = runwayHeroDetail({
         holdingsEmpty: holdings.holdingsEmpty,
         cashUnset: holdings.cashUnset,
         bitcoinUnset: holdings.bitcoinUnset,
-        bitcoinUnpriced: holdings.bitcoinUnpriced,
+        bitcoinUnpriced,
         underFloor: Boolean(refill?.underFloor),
         shortfallUsd: refill?.shortfallUsd ?? 0,
         projectedCashGapUsd: comp.gap.flat.cashGapUsd,

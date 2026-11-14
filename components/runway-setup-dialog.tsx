@@ -190,8 +190,9 @@ export function RunwaySetupDialog({
    * stress; an already-configured plan keeps its (possibly user-edited) stress.
    */
   suggestedStressPercent?: number
-  /** Last step asks only for the sides that still have no answer. */
+  /** Ask for cash on the last step when that side is still unanswered. */
   askCash?: boolean
+  /** Ask for bitcoin on the last step when that side is still unanswered. */
   askBitcoin?: boolean
   onSaved: (plan: RunwayPlanResponse) => void
 }) {
