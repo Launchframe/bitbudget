@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
 import { getBtcPriceForDate, usdToSats } from "@/lib/btc-price"
@@ -114,11 +115,20 @@ export async function POST(req: NextRequest) {
   const userEnvelopes = await prisma.envelope.findMany({
     where: { userId },
   })
+  // Only map non-soft-deleted envelopes by name; soft-deleted envelopes must not silently
+  // receive newly imported transactions (their transactions are excluded from all feeds).
   const envelopeByName: Record<string, string> = {}
+  const softDeletedNames = new Set<string>()
   for (const e of userEnvelopes) {
-    envelopeByName[e.name.toLowerCase()] = e.id
+    if (e.deletedAt) {
+      softDeletedNames.add(e.name.toLowerCase())
+    } else {
+      envelopeByName[e.name.toLowerCase()] = e.id
+    }
   }
-  const userEnvelopeIds = new Set(userEnvelopes.map(e => e.id))
+  // Also exclude soft-deleted envelopes from the ownership set used to validate
+  // direct envelopeId references — routing to a deleted envelope loses transactions.
+  const userEnvelopeIds = new Set(userEnvelopes.filter(e => !e.deletedAt).map(e => e.id))
 
   let envelopeCount = userEnvelopes.length
   const resolvedMapping: Record<string, string> = {}
@@ -136,6 +146,12 @@ export async function POST(req: NextRequest) {
       const existing = envelopeByName[csvName.toLowerCase()]
       if (existing) {
         resolvedMapping[csvName.toLowerCase()] = existing
+      } else if (softDeletedNames.has(csvName.toLowerCase())) {
+        // A soft-deleted envelope holds this name. Creating a new one would violate the
+        // unique constraint; routing to the deleted envelope silently hides the transactions.
+        // Mark SKIP so the user knows these rows were not imported (recoverable: restore
+        // the deleted envelope first, then re-import).
+        resolvedMapping[csvName.toLowerCase()] = SKIP
       } else {
         const newEnv = await prisma.envelope.create({
           data: {
@@ -233,19 +249,34 @@ export async function POST(req: NextRequest) {
     }
 
     if (!envelopeId) {
-      const newEnv = await prisma.envelope.create({
-        data: {
-          userId,
-          name: txn.envelopeName,
-          monthlyAllotment: 0,
-          color: ENVELOPE_COLORS[envelopeCount % ENVELOPE_COLORS.length],
-          icon: suggestIcon(txn.envelopeName),
-        },
-      })
-      envelopeId = newEnv.id
-      envelopeByName[lowerName] = envelopeId
-      envelopeCount++
-      newEnvelopes.push(txn.envelopeName)
+      if (softDeletedNames.has(lowerName)) {
+        // Name is held by a soft-deleted envelope; skip rather than crash or silently lose data.
+        skipped++
+        continue
+      }
+      try {
+        const newEnv = await prisma.envelope.create({
+          data: {
+            userId,
+            name: txn.envelopeName,
+            monthlyAllotment: 0,
+            color: ENVELOPE_COLORS[envelopeCount % ENVELOPE_COLORS.length],
+            icon: suggestIcon(txn.envelopeName),
+          },
+        })
+        envelopeId = newEnv.id
+        envelopeByName[lowerName] = envelopeId
+        envelopeCount++
+        newEnvelopes.push(txn.envelopeName)
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+          // Unique constraint: a deleted or archived envelope holds this name.
+          // Skip the transaction rather than routing it somewhere invisible.
+          skipped++
+          continue
+        }
+        throw e
+      }
     }
 
     const btcPrice = await priceForDate(txn.date)
