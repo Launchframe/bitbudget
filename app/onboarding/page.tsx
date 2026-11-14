@@ -1989,13 +1989,17 @@ export default function OnboardingPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-bold text-foreground">Secure Your Data</h2>
-                    <p className="text-sm text-muted-foreground">Create a passphrase to encrypt your private data</p>
+                    <p className="text-sm text-muted-foreground">
+                      Create a BitBudget passphrase to encrypt your private data
+                    </p>
                   </div>
                 </div>
 
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   Your transaction details (payees &amp; descriptions) are encrypted before leaving your device.
-                  This passphrase derives the encryption key. <strong>If you lose it, your data cannot be recovered.</strong>
+                  Choose a passphrase you will remember —{" "}
+                  <strong>not</strong> your Google or email password.{" "}
+                  <strong>If you lose it, your data cannot be recovered.</strong>
                 </p>
 
                 <div className="flex flex-col gap-4">
