@@ -17,6 +17,15 @@ export { ENCRYPTION_RESET_CONFIRM, parseEncryptionResetMode, type EncryptionRese
 /** Session must have been issued within this window (step-up via fresh sign-in). */
 export const ENCRYPTION_RESET_MAX_SESSION_AGE_SEC = 15 * 60
 
+/** True when JWT `iat` is missing or older than the reset step-up window. */
+export function encryptionResetRequiresReauth(
+  iat: number | null | undefined,
+  nowSec: number,
+): boolean {
+  if (typeof iat !== "number" || !Number.isFinite(iat)) return true
+  return nowSec - iat > ENCRYPTION_RESET_MAX_SESSION_AGE_SEC
+}
+
 export async function resetUserEncryption(params: {
   userId: string
   mode: EncryptionResetMode
@@ -46,6 +55,7 @@ export async function resetUserEncryption(params: {
       await tx.payeeDisplayAlias.deleteMany({ where: { userId } })
       await tx.recurringFundingRule.deleteMany({ where: { userId } })
       await tx.savingsGoal.deleteMany({ where: { userId } })
+      await tx.userAchievement.deleteMany({ where: { userId } })
       await tx.tag.deleteMany({ where: { userId } })
       // Envelopes cascade remaining payee mappings (same shape as Settings clear-all).
       const envDelete = await tx.envelope.deleteMany({ where: { userId } })

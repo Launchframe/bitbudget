@@ -197,6 +197,7 @@ interface AppContextValue {
   /** Set when `refreshData` fails mid-sync; cleared on the next successful refresh or dismiss. */
   transactionSyncError: string | null
   clearTransactionSyncError: () => void
+  reportTransactionSyncError: (message: string) => void
   /** User id for IndexedDB helpers (e.g. memoized top OC). */
   currentUserId: string | null
   /** Last persisted transaction count from IndexedDB memo (instant Settings hint). */
@@ -246,6 +247,8 @@ interface AppContextValue {
   deleteTag: (id: string) => void
   refreshData: () => Promise<void>
   clearLocalTransactionCache: () => Promise<void>
+  /** After destructive reset API success — block old passphrase unlock until new setup. */
+  applyServerEncryptionReset: () => void
   encryptForStorage: (plaintext: string) => Promise<string>
   /**
    * Run a callback with the in-memory privacy key while unlocked.
@@ -585,6 +588,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const clearTransactionSyncError = useCallback(() => {
     setTransactionSyncError(null)
+  }, [])
+
+  const reportTransactionSyncError = useCallback((message: string) => {
+    setTransactionSyncError(message)
   }, [])
 
 const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
@@ -1602,6 +1609,22 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     }
   }, [])
 
+  const applyServerEncryptionReset = useCallback(() => {
+    pendingLockedRef.current = true
+    privacyKeyRef.current = null
+    publicKeyRef.current = null
+    fullIdbHydratedRef.current = false
+    setState((prev) => ({ ...prev, transactions: [] }))
+    setTxnLoadPhase("init")
+    setEncryption({
+      ready: false,
+      needsPinUnlock: false,
+      needsPassphraseSetup: true,
+      encryptedPrivacyKey: null,
+      privacyKeySalt: null,
+    })
+  }, [])
+
   const logout = useCallback(() => {
     try {
       clearPrivacyKeyCache()
@@ -1820,6 +1843,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         historyReady,
         transactionSyncError,
         clearTransactionSyncError,
+        reportTransactionSyncError,
         currentUserId,
         memoTransactionCount,
         encryption,
@@ -1857,6 +1881,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         deleteTag,
         refreshData,
         clearLocalTransactionCache,
+        applyServerEncryptionReset,
         encryptForStorage,
         withPrivacyKey,
         makeImportDedupeKeyComputer,

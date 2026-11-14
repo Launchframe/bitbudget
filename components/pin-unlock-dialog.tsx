@@ -29,6 +29,7 @@ interface PinUnlockDialogProps {
   onPassphraseSetupComplete?: (privacyKey: Uint8Array) => void
   onDestructiveResetComplete?: () => void
   clearLocalTransactionCache?: () => Promise<void>
+  applyServerEncryptionReset?: () => void
 }
 
 export function PinUnlockDialog({
@@ -40,6 +41,7 @@ export function PinUnlockDialog({
   onPassphraseSetupComplete,
   onDestructiveResetComplete,
   clearLocalTransactionCache,
+  applyServerEncryptionReset,
 }: PinUnlockDialogProps) {
   const { state } = useApp()
 
@@ -62,6 +64,7 @@ export function PinUnlockDialog({
       onLogout={onLogout}
       onDestructiveResetComplete={onDestructiveResetComplete}
       clearLocalTransactionCache={clearLocalTransactionCache}
+      applyServerEncryptionReset={applyServerEncryptionReset}
     />
   )
 }
@@ -74,6 +77,7 @@ function UnlockPanel({
   onLogout,
   onDestructiveResetComplete,
   clearLocalTransactionCache,
+  applyServerEncryptionReset,
 }: {
   opportunityCostEnabled: boolean
   encryptedPrivacyKey: string
@@ -82,6 +86,7 @@ function UnlockPanel({
   onLogout?: () => void
   onDestructiveResetComplete?: () => void
   clearLocalTransactionCache?: () => Promise<void>
+  applyServerEncryptionReset?: () => void
 }) {
   const [pin, setPin] = useState("")
   const [error, setError] = useState("")
@@ -166,6 +171,7 @@ function UnlockPanel({
           {showReset && (
             <DestructiveResetPanel
               clearLocalTransactionCache={clearLocalTransactionCache}
+              applyServerEncryptionReset={applyServerEncryptionReset}
               onComplete={onDestructiveResetComplete}
             />
           )}
@@ -192,11 +198,14 @@ function UnlockPanel({
 
 function DestructiveResetPanel({
   clearLocalTransactionCache,
+  applyServerEncryptionReset,
   onComplete,
 }: {
   clearLocalTransactionCache?: () => Promise<void>
+  applyServerEncryptionReset?: () => void
   onComplete?: () => void
 }) {
+  const { reportTransactionSyncError, clearTransactionSyncError } = useApp()
   const [mode, setMode] = useState<EncryptionResetMode>("encrypted_data")
   const [confirmText, setConfirmText] = useState("")
   const [busy, setBusy] = useState(false)
@@ -225,18 +234,22 @@ function DestructiveResetPanel({
       } catch {
         /* ignore */
       }
+      applyServerEncryptionReset?.()
+      const localWipeMessage =
+        "Could not clear local history (another tab may be open). Close other BitBudget tabs and try again — do not continue until this succeeds."
       if (!clearLocalTransactionCache) {
-        setError("Could not clear local history. Close other BitBudget tabs and try again.")
+        reportTransactionSyncError(
+          "Could not clear local history. Close other BitBudget tabs and try again.",
+        )
         return
       }
       try {
         await clearLocalTransactionCache()
       } catch {
-        setError(
-          "Could not clear local history (another tab may be open). Close other BitBudget tabs and try again — do not continue until this succeeds.",
-        )
+        reportTransactionSyncError(localWipeMessage)
         return
       }
+      clearTransactionSyncError()
       onComplete?.()
     } catch {
       setError("Could not reach the server. Check your connection.")
@@ -310,6 +323,7 @@ function PassphraseSetupPanel({
   onComplete?: (privacyKey: Uint8Array) => void
   onLogout?: () => void
 }) {
+  const { transactionSyncError } = useApp()
   const [pin, setPin] = useState("")
   const [pinConfirm, setPinConfirm] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -372,6 +386,12 @@ function PassphraseSetupPanel({
               <strong className="font-medium text-foreground">If you lose it, encrypted details cannot be recovered.</strong>
             </p>
           </div>
+          {transactionSyncError && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{transactionSyncError}</span>
+            </div>
+          )}
           <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <Label className="text-muted-foreground text-xs uppercase tracking-wider">New passphrase</Label>
@@ -398,7 +418,7 @@ function PassphraseSetupPanel({
             {error && <p className="text-sm text-red-400">{error}</p>}
             <button
               type="submit"
-              disabled={busy || !pin || !pinConfirm}
+              disabled={busy || !pin || !pinConfirm || !!transactionSyncError}
               className="w-full py-3 bg-[#F7931A] text-[#0D0D0D] rounded-xl font-semibold text-sm hover:bg-[#F7931A]/90 transition-colors disabled:opacity-50"
             >
               {busy ? "Saving…" : "Save passphrase"}
