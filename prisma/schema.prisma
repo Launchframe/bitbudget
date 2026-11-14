@@ -496,6 +496,14 @@ model BtcPriceCache {
   fetchedAt DateTime @default(now())
 }
 
+/// Daily XBT (Bitcoin Blake2B / Neoxa BTCB2) USD closes — sourced from Neoxa candles.
+model XbtPriceCache {
+  id        String   @id @default(cuid())
+  date      String   @unique // YYYY-MM-DD (UTC)
+  priceUsd  Float
+  fetchedAt DateTime @default(now())
+}
+
 // ─── Low-friction capture models ────────────────────────────────────
 
 model PendingTransaction {
