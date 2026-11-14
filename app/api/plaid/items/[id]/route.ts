@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { plaidClient } from "@/lib/plaid"
+import { plaidClient, plaidSecret } from "@/lib/plaid"
 
 function plaidErrorCode(err: unknown): string | null {
   if (!err || typeof err !== "object" || !("response" in err)) return null
@@ -22,7 +22,7 @@ export async function DELETE(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
-  if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
+  if (!process.env.PLAID_CLIENT_ID || !plaidSecret) {
     return NextResponse.json(
       { error: "Plaid is not configured" },
       { status: 503 },

@@ -75,7 +75,7 @@ Recent merged work that **must** stay protected by e2e (many only have unit test
 
 ## Architecture notes for authors
 
-- **Routing:** After sign-in, navigation is hash-based (`#/transactions`, `#/settings/tags`). Use `page.goto(\`${origin}/#/…\`)` and wait for domain copy, not only URL.
+- **Routing:** After sign-in, navigation is hash-based (`#/transactions`, `#/settings/budgeting-rules`). Use `page.goto(\`${origin}/#/…\`)` and wait for domain copy, not only URL.
 - **Encryption:** Onboarding specs call `completeOnboardingSecurity` with passphrase `4242` from `e2e/fixtures/encryption-e2e-constants.ts`. Seeded app users use the same wrap; `primePrivacyKeyCache` avoids PIN dialog on dashboard load.
 - **Parallelism:** `fullyParallel: false`, `workers: 1` — design seeds to be idempotent per describe block.
 - **API from browser:** Use `page.evaluate` + `fetch(..., { credentials: 'include' })` for session cookies (see `referrals.program.spec.ts`); `page.request` may not carry the session jar reliably.

@@ -126,6 +126,8 @@ export function SettingsSavingsCard() {
 
   const [sweepDefaultPolicy, setSweepDefaultPolicy] = useState<SweepPolicy>(SWEEP_POLICY_RESET)
   const [sweepCapMultiplier, setSweepCapMultiplier] = useState(1.5)
+  /** While focused, allow clearing the input; commit / restore on blur. */
+  const [sweepCapDraft, setSweepCapDraft] = useState<string | null>(null)
   const [sweepSaving, setSweepSaving] = useState(false)
 
   const loadSavingsData = useCallback(async () => {
@@ -623,9 +625,24 @@ export function SettingsSavingsCard() {
                     type="number"
                     min={0.1}
                     step={0.1}
-                    value={sweepCapMultiplier}
-                    onChange={(e) => setSweepCapMultiplier(parseFloat(e.target.value) || 1.5)}
-                    onBlur={() => void saveSweepDefaults(SWEEP_POLICY_CAPPED, sweepCapMultiplier)}
+                    value={sweepCapDraft ?? String(sweepCapMultiplier)}
+                    onChange={(e) => {
+                      const raw = e.target.value
+                      setSweepCapDraft(raw)
+                      const n = parseFloat(raw)
+                      if (Number.isFinite(n) && n > 0) setSweepCapMultiplier(n)
+                    }}
+                    onBlur={() => {
+                      const raw = sweepCapDraft
+                      setSweepCapDraft(null)
+                      let next = sweepCapMultiplier
+                      if (raw != null) {
+                        const n = parseFloat(raw)
+                        next = Number.isFinite(n) && n > 0 ? n : 1.5
+                        setSweepCapMultiplier(next)
+                      }
+                      void saveSweepDefaults(SWEEP_POLICY_CAPPED, next)
+                    }}
                     className="bg-[#1A1A1A] border-[#333] h-8 w-24"
                     aria-label="Default sweep cap multiplier"
                   />

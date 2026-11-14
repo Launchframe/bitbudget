@@ -6,7 +6,7 @@ export const PLAID_SANDBOX_PASSWORD = "pass_good"
 
 export function isPlaidSandboxConfigured(): boolean {
   const clientId = process.env.PLAID_CLIENT_ID?.trim()
-  const secret = process.env.PLAID_SECRET?.trim()
+  const secret = process.env.PLAID_SECRET_SANDBOX?.trim()
   if (!clientId || !secret) return false
   const env = (process.env.PLAID_ENV ?? "sandbox").trim().toLowerCase()
   return env === "sandbox" || env === "development"

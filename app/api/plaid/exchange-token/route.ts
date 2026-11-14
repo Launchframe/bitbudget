@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
-import { plaidClient } from "@/lib/plaid"
+import { plaidClient, plaidSecret } from "@/lib/plaid"
 import { activateReferral } from "@/lib/referral"
 import { plaidApiErrorMessage } from "@/lib/plaid-link-feedback"
 import { premiumForbiddenResponse, requirePremiumOrTrialOrReferralBankLinkPending } from "@/lib/subscription"
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     )
   }
-  if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
+  if (!process.env.PLAID_CLIENT_ID || !plaidSecret) {
     return NextResponse.json(
       { error: "Plaid is not configured" },
       { status: 503 },
