@@ -1,16 +1,37 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getToken } from "next-auth/jwt"
 import { auth } from "@/lib/auth"
 import { ENCRYPTION_RESET_CONFIRM, parseEncryptionResetMode } from "@/lib/encryption-reset"
-import { resetUserEncryption } from "@/lib/encryption-reset-server"
+import {
+  ENCRYPTION_RESET_MAX_SESSION_AGE_SEC,
+  resetUserEncryption,
+} from "@/lib/encryption-reset-server"
 
 /**
  * Destructive recovery: clear the wrapped privacy key so the client can set a new passphrase.
- * Requires an authenticated session (Google / email / etc. already proved).
+ * Requires a fresh sign-in (session age) plus typed confirmation — not an unattended cookie alone.
  */
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const token = await getToken({
+    req,
+    secret: process.env.AUTH_SECRET,
+  })
+  const iat = typeof token?.iat === "number" ? token.iat : null
+  const nowSec = Math.floor(Date.now() / 1000)
+  if (iat == null || nowSec - iat > ENCRYPTION_RESET_MAX_SESSION_AGE_SEC) {
+    return NextResponse.json(
+      {
+        error:
+          "For security, sign out and sign back in, then reset within 15 minutes. This confirms it is really you.",
+        code: "REAUTH_REQUIRED",
+      },
+      { status: 403 },
+    )
   }
 
   let body: { mode?: unknown; confirm?: unknown }

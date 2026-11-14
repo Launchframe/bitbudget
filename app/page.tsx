@@ -117,9 +117,9 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
 
 function EncryptionGate({ children }: { children: React.ReactNode }) {
   const { encryption, unlockWithKey, logout, clearLocalTransactionCache, refreshData } = useApp()
-  const [needsPassphraseSetup, setNeedsPassphraseSetup] = useState(false)
 
-  if (needsPassphraseSetup) {
+  // Server-authoritative: missing wrapped key after onboarding means setup (incl. post-reset refresh).
+  if (encryption.needsPassphraseSetup) {
     return (
       <PinUnlockDialog
         encryptedPrivacyKey=""
@@ -127,7 +127,6 @@ function EncryptionGate({ children }: { children: React.ReactNode }) {
         needsPassphraseSetup
         onUnlock={unlockWithKey}
         onPassphraseSetupComplete={(key) => {
-          setNeedsPassphraseSetup(false)
           unlockWithKey(key)
           void refreshData()
         }}
@@ -144,8 +143,20 @@ function EncryptionGate({ children }: { children: React.ReactNode }) {
         onUnlock={unlockWithKey}
         onLogout={logout}
         clearLocalTransactionCache={clearLocalTransactionCache}
-        onDestructiveResetComplete={() => setNeedsPassphraseSetup(true)}
+        onDestructiveResetComplete={() => {
+          // Hard reload so initEncryption reads the null wrapped key and blocks until setup.
+          window.location.assign("/")
+        }}
       />
+    )
+  }
+
+  // Still booting encryption — do not render the app shell unlocked.
+  if (!encryption.ready) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-background">
+        <Spinner className="h-8 w-8 text-[#F7931A]" />
+      </div>
     )
   }
 

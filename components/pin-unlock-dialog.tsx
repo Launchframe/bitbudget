@@ -211,9 +211,13 @@ function DestructiveResetPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode, confirm: ENCRYPTION_RESET_CONFIRM }),
       })
-      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string }
       if (!res.ok) {
-        setError(data.error || "Could not reset. Try again.")
+        setError(
+          data.code === "REAUTH_REQUIRED"
+            ? data.error || "Sign out and sign back in, then try again within 15 minutes."
+            : data.error || "Could not reset. Try again.",
+        )
         return
       }
       try {
@@ -221,10 +225,17 @@ function DestructiveResetPanel({
       } catch {
         /* ignore */
       }
+      if (!clearLocalTransactionCache) {
+        setError("Could not clear local history. Close other BitBudget tabs and try again.")
+        return
+      }
       try {
-        await clearLocalTransactionCache?.()
+        await clearLocalTransactionCache()
       } catch {
-        /* ignore */
+        setError(
+          "Could not clear local history (another tab may be open). Close other BitBudget tabs and try again — do not continue until this succeeds.",
+        )
+        return
       }
       onComplete?.()
     } catch {
@@ -241,8 +252,13 @@ function DestructiveResetPanel({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-red-300">Forgot passphrase? (danger zone)</p>
           <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-            We cannot recover your old passphrase. Resetting deletes payees and notes on existing transactions
-            forever, then lets you choose a new BitBudget passphrase.
+            We cannot recover your old passphrase. Resetting permanently deletes your{" "}
+            <strong className="font-medium text-red-200/90">entire transaction history</strong> (amounts,
+            dates, payees, and notes). Shared shopping lists sealed to your old key become unreadable until
+            you rejoin them. Then you choose a new BitBudget passphrase.
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+            For security, sign out and sign back in first if you have been signed in for more than 15 minutes.
           </p>
         </div>
       </div>
@@ -250,8 +266,8 @@ function DestructiveResetPanel({
       <div className="flex items-center justify-between gap-3 text-sm">
         <span className="min-w-0 text-muted-foreground">
           {mode === "encrypted_data"
-            ? "Clear encrypted data only (keep envelopes)"
-            : "Clear all data (fresh start — envelopes gone too)"}
+            ? "Delete all transactions; keep envelope names and allotments"
+            : "Fresh start — delete transactions and envelopes"}
         </span>
         <Switch
           checked={mode === "all_data"}

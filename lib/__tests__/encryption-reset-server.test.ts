@@ -13,7 +13,12 @@ vi.mock("@/lib/db", () => ({
     transactionShortcut: { deleteMany: vi.fn() },
     recurringTransaction: { deleteMany: vi.fn() },
     pendingStatementBatch: { deleteMany: vi.fn() },
+    envelopeFundingBatch: { deleteMany: vi.fn() },
+    shoppingMemberKey: { deleteMany: vi.fn() },
     payeeDisplayAlias: { deleteMany: vi.fn() },
+    recurringFundingRule: { deleteMany: vi.fn() },
+    savingsGoal: { deleteMany: vi.fn() },
+    tag: { deleteMany: vi.fn() },
     envelope: { deleteMany: vi.fn() },
     user: { update: vi.fn() },
   },
@@ -39,7 +44,12 @@ function mockTx(overrides?: {
     transactionShortcut: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     recurringTransaction: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     pendingStatementBatch: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    envelopeFundingBatch: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    shoppingMemberKey: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     payeeDisplayAlias: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    recurringFundingRule: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    savingsGoal: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    tag: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     envelope: { deleteMany: vi.fn(async () => ({ count: overrides?.envelopeCount ?? 0 })) },
     user: { update: vi.fn(async () => ({})) },
   }
@@ -59,22 +69,24 @@ describe("resetUserEncryption", () => {
     vi.clearAllMocks()
   })
 
-  it("clears keys and encrypted rows for encrypted_data without deleting envelopes", async () => {
+  it("clears keys, funding batches, and shopping wraps without deleting envelopes", async () => {
     const tx = mockTx({ txnCount: 3 })
     vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(tx as never))
 
     const result = await resetUserEncryption({ userId: "u1", mode: "encrypted_data" })
     expect(suppressAllShoppingPostingsForUser).toHaveBeenCalledWith("u1")
-    expect(tx.transaction.deleteMany).toHaveBeenCalled()
-    expect(tx.transactionShortcut.deleteMany).toHaveBeenCalled()
-    expect(tx.recurringTransaction.deleteMany).toHaveBeenCalled()
-    expect(tx.pendingStatementBatch.deleteMany).toHaveBeenCalled()
+    expect(tx.envelopeFundingBatch.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
+    expect(tx.shoppingMemberKey.deleteMany).toHaveBeenCalled()
     expect(tx.envelope.deleteMany).not.toHaveBeenCalled()
-    expect(tx.payeeDisplayAlias.deleteMany).not.toHaveBeenCalled()
+    expect(tx.recurringFundingRule.deleteMany).not.toHaveBeenCalled()
+    expect(tx.user.update).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      data: { encryptedPrivacyKey: null, privacyKeySalt: null, publicKey: null },
+    })
     expect(result).toEqual({ mode: "encrypted_data", transactionsDeleted: 3, envelopesDeleted: 0 })
   })
 
-  it("also deletes envelopes and aliases for all_data", async () => {
+  it("also deletes envelopes, goals, tags, and funding rules for all_data", async () => {
     const tx = mockTx({ txnCount: 2, envelopeCount: 5 })
     vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(tx as never))
 
@@ -82,6 +94,9 @@ describe("resetUserEncryption", () => {
     expect(tx.pendingTransaction.updateMany).not.toHaveBeenCalled()
     expect(tx.envelope.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
     expect(tx.payeeDisplayAlias.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
+    expect(tx.recurringFundingRule.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
+    expect(tx.savingsGoal.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
+    expect(tx.tag.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
     expect(result).toEqual({ mode: "all_data", transactionsDeleted: 2, envelopesDeleted: 5 })
   })
 })

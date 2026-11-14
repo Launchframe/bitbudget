@@ -1,7 +1,7 @@
 /**
  * Destructive encryption recovery for signed-in users who lost their passphrase.
- * Session auth is the identity proof. Ciphertext tied to the old key is removed —
- * never silently rotated via POST /api/user/encryption.
+ * Ciphertext tied to the old key is removed — never silently rotated via
+ * POST /api/user/encryption.
  */
 
 import { prisma } from "@/lib/db"
@@ -13,6 +13,9 @@ import {
 import { suppressAllShoppingPostingsForUser } from "@/lib/shopping-posting-server"
 
 export { ENCRYPTION_RESET_CONFIRM, parseEncryptionResetMode, type EncryptionResetMode }
+
+/** Session must have been issued within this window (step-up via fresh sign-in). */
+export const ENCRYPTION_RESET_MAX_SESSION_AGE_SEC = 15 * 60
 
 export async function resetUserEncryption(params: {
   userId: string
@@ -29,12 +32,22 @@ export async function resetUserEncryption(params: {
     await tx.transactionShortcut.deleteMany({ where: { userId } })
     await tx.recurringTransaction.deleteMany({ where: { userId } })
     await tx.pendingStatementBatch.deleteMany({ where: { userId } })
+    // Funding/sweep idempotency — empty ledger must not skip the next payday/1st.
+    await tx.envelopeFundingBatch.deleteMany({ where: { userId } })
+
+    // Old privacy key seals shopping member wraps; drop wraps so lists stay inaccessible
+    // until the user rejoins with the new key (UI discloses this).
+    await tx.shoppingMemberKey.deleteMany({
+      where: { member: { userId } },
+    })
 
     let envelopesDeleted = 0
     if (mode === "all_data") {
-      // Pending / shortcuts already removed above. Envelopes cascade remaining
-      // transactions/recurring/payee mappings (same shape as Settings clear-all).
       await tx.payeeDisplayAlias.deleteMany({ where: { userId } })
+      await tx.recurringFundingRule.deleteMany({ where: { userId } })
+      await tx.savingsGoal.deleteMany({ where: { userId } })
+      await tx.tag.deleteMany({ where: { userId } })
+      // Envelopes cascade remaining payee mappings (same shape as Settings clear-all).
       const envDelete = await tx.envelope.deleteMany({ where: { userId } })
       envelopesDeleted = envDelete.count
     }
@@ -44,6 +57,8 @@ export async function resetUserEncryption(params: {
       data: {
         encryptedPrivacyKey: null,
         privacyKeySalt: null,
+        // Force clients to treat this as "must set a new key" even after refresh.
+        publicKey: null,
       },
     })
 
