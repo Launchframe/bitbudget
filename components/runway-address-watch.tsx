@@ -1,18 +1,34 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Loader2, RefreshCw, Trash2 } from "lucide-react"
-import { formatSats } from "@/lib/data"
 import { useApp } from "@/lib/app-context"
 import {
   addressWatchError,
   canonicalBitcoinAddress,
+  fetchAddressChainMovements,
   fetchAddressConfirmedSats,
+  type AddressChainMovement,
 } from "@/lib/esplora-address"
 import { useWalletWatches } from "@/lib/use-wallet-watch"
 import { patchWalletWatch, writeWalletWatches, type WalletWatch } from "@/lib/wallet-watch-store"
 
 type AddressRole = "wallet" | "exchange"
+
+/** Add and the automatic reload can overlap. Only the newest request may update the list. */
+function bumpActivityGeneration(generations: Record<string, number>, id: string): number {
+  const next = (generations[id] ?? 0) + 1
+  generations[id] = next
+  return next
+}
+
+function isLatestActivityGeneration(
+  generations: Record<string, number>,
+  id: string,
+  generation: number,
+): boolean {
+  return generations[id] === generation
+}
 
 /**
  * Watch individual bitcoin addresses from the browser.
@@ -26,7 +42,35 @@ export function RunwayAddressWatch() {
   const [role, setRole] = useState<AddressRole>("wallet")
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [activity, setActivity] = useState<Record<string, AddressChainMovement[]>>({})
+  const [activityError, setActivityError] = useState<Record<string, boolean>>({})
+  const addressKey = addresses.map((watch) => `${watch.id}:${watch.descriptor}`).join("|")
+  const addressesRef = useRef(addresses)
   const busyRef = useRef(false)
+  const activityGen = useRef<Record<string, number>>({})
+  addressesRef.current = addresses
+
+  useEffect(() => {
+    const current = addressesRef.current
+    if (current.length === 0) return
+    let cancelled = false
+    for (const watch of current) {
+      const generation = bumpActivityGeneration(activityGen.current, watch.id)
+      void fetchAddressChainMovements(watch.descriptor)
+        .then((rows) => {
+          if (cancelled || !isLatestActivityGeneration(activityGen.current, watch.id, generation)) return
+          setActivity((prev) => ({ ...prev, [watch.id]: rows }))
+          setActivityError((prev) => ({ ...prev, [watch.id]: false }))
+        })
+        .catch(() => {
+          if (cancelled || !isLatestActivityGeneration(activityGen.current, watch.id, generation)) return
+          setActivityError((prev) => ({ ...prev, [watch.id]: true }))
+        })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [addressKey])
 
   async function refreshOne(watch: WalletWatch) {
     const sats = await fetchAddressConfirmedSats(watch.descriptor)
@@ -34,6 +78,19 @@ export function RunwayAddressWatch() {
       confirmedSats: sats,
       updatedAt: new Date().toISOString(),
     })
+  }
+
+  async function loadActivity(id: string, descriptor: string) {
+    const generation = bumpActivityGeneration(activityGen.current, id)
+    try {
+      const rows = await fetchAddressChainMovements(descriptor)
+      if (!isLatestActivityGeneration(activityGen.current, id, generation)) return
+      setActivity((prev) => ({ ...prev, [id]: rows }))
+      setActivityError((prev) => ({ ...prev, [id]: false }))
+    } catch {
+      if (!isLatestActivityGeneration(activityGen.current, id, generation)) return
+      setActivityError((prev) => ({ ...prev, [id]: true }))
+    }
   }
 
   async function onAdd() {
@@ -63,9 +120,13 @@ export function RunwayAddressWatch() {
     busyRef.current = true
     setBusyId(next.id)
     try {
-      await refreshOne(next)
-    } catch {
-      setError("Couldn't look up that address. Try again.")
+      try {
+        await refreshOne(next)
+      } catch {
+        setError("Couldn't look up that address. Try again.")
+        return
+      }
+      await loadActivity(next.id, next.descriptor)
     } finally {
       busyRef.current = false
       setBusyId(null)
@@ -78,9 +139,13 @@ export function RunwayAddressWatch() {
     setBusyId(watch.id)
     setError(null)
     try {
-      await refreshOne(watch)
-    } catch {
-      setError("Couldn't look up that address. Try again.")
+      try {
+        await refreshOne(watch)
+      } catch {
+        setError("Couldn't look up that address. Try again.")
+        return
+      }
+      await loadActivity(watch.id, watch.descriptor)
     } finally {
       busyRef.current = false
       setBusyId(null)
@@ -116,9 +181,13 @@ export function RunwayAddressWatch() {
               <div className="min-w-0">
                 <p className="text-sm text-foreground">
                   {watch.role === "exchange" ? "Exchange" : "Wallet"}
-                  <span className="text-muted-foreground"> · {formatSats(watch.confirmedSats)}</span>
+                  <span className="text-muted-foreground"> · {formatBitcoin(watch.confirmedSats)}</span>
                 </p>
                 <p className="text-xs text-muted-foreground break-all">{watch.descriptor}</p>
+                <AddressActivity
+                  rows={activity[watch.id]}
+                  failed={activityError[watch.id] === true}
+                />
               </div>
               <div className="flex shrink-0 gap-2">
                 <button
@@ -188,6 +257,66 @@ export function RunwayAddressWatch() {
       </div>
     </div>
   )
+}
+
+function AddressActivity({
+  rows,
+  failed,
+}: {
+  rows: AddressChainMovement[] | undefined
+  failed: boolean
+}) {
+  if (failed && (rows == null || rows.length === 0)) {
+    return (
+      <p className="text-xs text-muted-foreground mt-2">
+        Couldn&apos;t load activity for this address.
+      </p>
+    )
+  }
+  if (rows == null) return null
+  const latest = rows.slice(0, 6)
+  if (latest.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground mt-2">No confirmed activity on this address yet.</p>
+    )
+  }
+  return (
+    <div className="mt-2 flex flex-col gap-1">
+      <p className="text-[11px] text-muted-foreground">
+        {failed ? (
+          <>Couldn&apos;t load the latest activity. Showing the last update.</>
+        ) : (
+          "Recent activity. These rows are not spending or income."
+        )}
+      </p>
+      {failed ? (
+        <p className="text-[11px] text-muted-foreground">These rows are not spending or income.</p>
+      ) : null}
+      <ul className="flex flex-col gap-1">
+        {latest.map((row) => (
+          <li key={row.txid} className="text-xs text-foreground break-words">
+            {row.netSats > 0 ? "Received" : "Sent"} {formatBitcoin(row.netSats)}
+            {row.time != null ? ` · ${formatChainDay(row.time)}` : ""}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function formatBitcoin(sats: number): string {
+  const btc = Math.abs(sats) / 100_000_000
+  const text = btc.toFixed(8).replace(/0+$/, "").replace(/\.$/, "")
+  return `${text} bitcoin`
+}
+
+function formatChainDay(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  })
 }
 
 function RoleButton({
