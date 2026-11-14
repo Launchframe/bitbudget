@@ -20,7 +20,7 @@ export { XBT_MARKET_GENESIS, NEOXA_XBT_PAIR } from "@/lib/xbt-price-neoxa"
 export async function fetchXbtPriceHistory(
   days: number = 365,
 ): Promise<{ prices: Record<string, number>; currentPrice: number }> {
-  const clampedDays = Math.max(1, Math.min(days, 3650))
+  const clampedDays = Math.max(1, Math.min(days, 365))
 
   const cached = await prisma.xbtPriceCache.findMany({
     orderBy: { date: "asc" },
@@ -119,8 +119,19 @@ async function cachePrices(dayPrices: Record<string, number>) {
   }
 }
 
+/** Prefer DB when today’s row is fresh; only then hit Neoxa (mirrors BTC). */
+const TICKER_CACHE_TTL_MS = 5 * 60 * 1000
+
 export async function getCurrentXbtPrice(): Promise<number> {
   const today = new Date().toISOString().split("T")[0]
+
+  const cached = await prisma.xbtPriceCache.findUnique({ where: { date: today } })
+  if (
+    cached &&
+    Date.now() - new Date(cached.fetchedAt).getTime() < TICKER_CACHE_TTL_MS
+  ) {
+    return cached.priceUsd
+  }
 
   const live = await fetchNeoxaTickerPrice()
   if (live) {
@@ -132,7 +143,6 @@ export async function getCurrentXbtPrice(): Promise<number> {
     return live
   }
 
-  const cached = await prisma.xbtPriceCache.findUnique({ where: { date: today } })
   if (cached) return cached.priceUsd
 
   const latest = await prisma.xbtPriceCache.findFirst({ orderBy: { date: "desc" } })
