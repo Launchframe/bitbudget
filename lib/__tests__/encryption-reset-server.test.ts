@@ -79,6 +79,7 @@ describe("resetUserEncryption", () => {
     vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(tx as never))
 
     const result = await resetUserEncryption({ userId: "u1", mode: "all_data" })
+    expect(tx.pendingTransaction.updateMany).not.toHaveBeenCalled()
     expect(tx.envelope.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
     expect(tx.payeeDisplayAlias.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
     expect(result).toEqual({ mode: "all_data", transactionsDeleted: 2, envelopesDeleted: 5 })

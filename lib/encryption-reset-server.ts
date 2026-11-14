@@ -32,12 +32,8 @@ export async function resetUserEncryption(params: {
 
     let envelopesDeleted = 0
     if (mode === "all_data") {
-      // Match Settings clear-all: null remaining suggestedEnvelopeId FKs, then wipe envelopes.
-      // Transactions / recurring / payee mappings cascade; shortcuts already removed above.
-      await tx.pendingTransaction.updateMany({
-        where: { userId },
-        data: { suggestedEnvelopeId: null },
-      })
+      // Pending / shortcuts already removed above. Envelopes cascade remaining
+      // transactions/recurring/payee mappings (same shape as Settings clear-all).
       await tx.payeeDisplayAlias.deleteMany({ where: { userId } })
       const envDelete = await tx.envelope.deleteMany({ where: { userId } })
       envelopesDeleted = envDelete.count
