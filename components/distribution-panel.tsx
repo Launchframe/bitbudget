@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import { getCurrentMonthKey, getEnvelopeBalance } from "@/lib/data"
+import { envelopeGenesisFloor, getCurrentMonthKey, getEnvelopeBalance, getEnvelopeBalanceAllTime } from "@/lib/data"
 import { findSavingsEnvelope, savingsBalance } from "@/lib/savings-ui-metrics"
 import {
   AllocationStackedBar,
@@ -97,10 +97,17 @@ export function DistributionPanel({
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null)
 
   const preview = useMemo(() => {
+    // Use all-time (remaining) balance so set_to_budget correctly computes gap = allotment − remaining.
+    // Month-scoped balance is negative for carry-forward envelopes after mid-month spending,
+    // which overstates the gap and causes the income to be over-drained into envelopes.
     const envelopes = discretionaryEnvelopes.map((e) => ({
       id: e.id,
       monthlyAllotment: e.monthlyAllotment,
-      currentMonthBalance: getEnvelopeBalance(activeTransactions, e.id, monthKey),
+      currentMonthBalance: getEnvelopeBalanceAllTime(
+        activeTransactions,
+        e.id,
+        e.createdAt ? envelopeGenesisFloor(e.createdAt) : undefined,
+      ),
     }))
     const customMap =
       behavior === "custom" ? new Map(Object.entries(customByEnvelopeId)) : undefined
@@ -124,7 +131,6 @@ export function DistributionPanel({
     savingsBal,
     discretionaryEnvelopes,
     activeTransactions,
-    monthKey,
     customByEnvelopeId,
   ])
 
@@ -132,7 +138,11 @@ export function DistributionPanel({
     const envelopes = discretionaryEnvelopes.map((e) => ({
       id: e.id,
       monthlyAllotment: e.monthlyAllotment,
-      currentMonthBalance: getEnvelopeBalance(activeTransactions, e.id, monthKey),
+      currentMonthBalance: getEnvelopeBalanceAllTime(
+        activeTransactions,
+        e.id,
+        e.createdAt ? envelopeGenesisFloor(e.createdAt) : undefined,
+      ),
     }))
     const gross = sourceFunding === "income" ? grossUsd : 0
     const customMap = new Map(
@@ -156,7 +166,6 @@ export function DistributionPanel({
   }, [
     discretionaryEnvelopes,
     activeTransactions,
-    monthKey,
     grossUsd,
     sourceFunding,
     savingsBal,
