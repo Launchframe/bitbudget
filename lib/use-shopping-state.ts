@@ -12,7 +12,7 @@ import {
   clearPendingShoppingInvite,
   loadPendingShoppingInvite,
 } from "@/lib/shopping-invite-handoff"
-import { generateRequestVerificationCode } from "@/lib/shopping-invites"
+import { isRequestVerificationCode } from "@/lib/shopping-invites"
 import { canQueueOffline, type ShoppingOutboxItem } from "@/lib/shopping-sync"
 import { encryptFieldAsymmetric, hexToPublicKey } from "@/lib/crypto"
 import {
@@ -71,9 +71,11 @@ export function useShoppingState() {
   const [settledUserId, setSettledUserId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [errorState, setErrorState] = useState<{ userId: string; message: string } | null>(null)
-  const [pendingInvite, setPendingInvite] = useState<{ token: string; ownerPublicKey: string | null } | null>(
-    loadPendingShoppingInvite,
-  )
+  const [pendingInvite, setPendingInvite] = useState<{
+    token: string
+    ownerPublicKey: string | null
+    joinCode: string | null
+  } | null>(loadPendingShoppingInvite)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const refreshGen = useRef(0)
   const groupsAbort = useRef<AbortController | null>(null)
@@ -193,7 +195,13 @@ export function useShoppingState() {
     async (encryptedClaimantAlias: string, verificationCode?: string) => {
       const pending = loadPendingShoppingInvite()
       if (!pending) return { ok: false as const, error: "Invite is missing" }
-      const code = verificationCode ?? generateRequestVerificationCode()
+      const code = verificationCode ?? pending.joinCode
+      if (!code || !isRequestVerificationCode(code)) {
+        return {
+          ok: false as const,
+          error: "This invite link is incomplete. Ask for a new link.",
+        }
+      }
       const res = await shoppingFetch("/api/shopping/invitations/claim", {
         method: "POST",
         body: JSON.stringify({
@@ -336,6 +344,7 @@ export function useShoppingState() {
       return postShopping(`/api/shopping/groups/${groupId}/invites`, {}) as Promise<{
         id: string
         token: string
+        verificationCode: string
         ownerPublicKey: string | null
         expiresAt: string
       }>

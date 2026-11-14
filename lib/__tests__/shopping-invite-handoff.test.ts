@@ -30,33 +30,39 @@ describe("shopping invite handoff storage", () => {
     clearPendingShoppingInvite()
   })
 
-  it("persists in localStorage so a later session can still load the invite", () => {
+  it("persists token, join code, and owner key in localStorage across sessions", () => {
     const local = mockStorage()
     const session = mockStorage()
     Object.defineProperty(globalThis, "localStorage", { value: local, configurable: true })
     Object.defineProperty(globalThis, "sessionStorage", { value: session, configurable: true })
 
-    capturePendingShoppingInvite("tokentoken12345678", "ab".repeat(32))
+    const pk = "ab".repeat(32)
+    const join = "0123456789abcdef"
+    capturePendingShoppingInvite("tokentoken12345678", pk, join)
     expect(local.getItem("bitbudget-pending-shopping-invite")).toBe("tokentoken12345678")
+    expect(local.getItem("bitbudget-pending-shopping-invite-join-code")).toBe(join)
     expect(session.getItem("bitbudget-pending-shopping-invite")).toBe("tokentoken12345678")
 
     // Simulate a fresh tab that only has localStorage (logout cleared nothing).
     Object.defineProperty(globalThis, "sessionStorage", { value: mockStorage(), configurable: true })
     const loaded = loadPendingShoppingInvite()
     expect(loaded?.token).toBe("tokentoken12345678")
-    expect(loaded?.ownerPublicKey).toBe("ab".repeat(32))
+    expect(loaded?.ownerPublicKey).toBe(pk)
+    expect(loaded?.joinCode).toBe(join)
   })
 
-  it("captures a fragment into storage and clears on explicit dismiss", () => {
+  it("captures a fragment with join code into storage and clears on explicit dismiss", () => {
     Object.defineProperty(globalThis, "localStorage", { value: mockStorage(), configurable: true })
     Object.defineProperty(globalThis, "sessionStorage", { value: mockStorage(), configurable: true })
     let replaced = false
-    const captured = captureInviteFromLocation("#tokentoken12345678.ab", () => {
+    const join = "fedcba9876543210"
+    const captured = captureInviteFromLocation(`#tokentoken12345678.${join}`, () => {
       replaced = true
     })
     expect(captured?.token).toBe("tokentoken12345678")
+    expect(captured?.joinCode).toBe(join)
     expect(replaced).toBe(true)
-    expect(loadPendingShoppingInvite()?.token).toBe("tokentoken12345678")
+    expect(loadPendingShoppingInvite()?.joinCode).toBe(join)
     clearPendingShoppingInvite()
     expect(loadPendingShoppingInvite()).toBeNull()
   })

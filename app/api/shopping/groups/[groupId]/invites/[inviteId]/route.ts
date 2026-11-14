@@ -1,4 +1,5 @@
 import { withShoppingUser } from "@/lib/shopping-api"
+import { isShoppingKeyFingerprint } from "@/lib/shopping-crypto"
 import { readShoppingJson, requireShoppingCiphertext, shoppingJson } from "@/lib/shopping-http"
 import { approveInvite, rejectInvite, revokeInvite } from "@/lib/shopping-server"
 import { isRequestVerificationCode } from "@/lib/shopping-invites"
@@ -26,7 +27,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ groupId: strin
     const wrappedKey = parsed.body.wrappedKey
     const localId = parsed.body.localId
     const memberKeyVersion = parsed.body.memberKeyVersion
-    if (typeof expectedFingerprint !== "string") {
+    if (typeof expectedFingerprint !== "string" || !isShoppingKeyFingerprint(expectedFingerprint)) {
       return shoppingJson({ error: "Compare the key fingerprint before approving" }, 400)
     }
     if (typeof wrappedKey !== "string") {

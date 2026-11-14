@@ -5,8 +5,12 @@
 
 import { prisma } from "@/lib/db"
 import { budgetOptInSequence } from "@/lib/shopping-budget-projection"
-import { isShoppingCiphertext } from "@/lib/shopping-crypto"
-import { generateInviteToken, hashInviteToken } from "@/lib/shopping-invites"
+import { isShoppingCiphertext, isShoppingKeyFingerprint } from "@/lib/shopping-crypto"
+import {
+  generateInviteJoinCode,
+  generateInviteToken,
+  hashInviteToken,
+} from "@/lib/shopping-invites"
 import {
   ShoppingRevisionConflictError,
   ShoppingStaleSequenceError,
@@ -15,6 +19,8 @@ import {
   shoppingEventWindowStart,
 } from "@/lib/shopping-sync"
 import {
+  SHOPPING_INVITE_HISTORY_CAP,
+  SHOPPING_INVITE_HISTORY_MS,
   SHOPPING_INVITE_TTL_MS,
   SHOPPING_MAX_ACTIVE_MEMBERS,
   SHOPPING_MAX_INVITES_PER_HOUR,
@@ -120,7 +126,7 @@ export async function createGroup(params: {
   if (typeof params.wrappedKey !== "string" || params.wrappedKey.length < 40) {
     throw new ShoppingHttpError("Missing wrapped group key", 400)
   }
-  if (!/^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/.test(params.pinnedKeyFingerprint)) {
+  if (!isShoppingKeyFingerprint(params.pinnedKeyFingerprint)) {
     throw new ShoppingHttpError("Invalid key fingerprint", 400)
   }
   if (params.id && !isNonEmptyId(params.id)) {
@@ -162,6 +168,43 @@ export async function createGroup(params: {
   })
 }
 
+/** Owner snapshot: always include actionable invites; cap recent terminal history. */
+export function mergeShoppingOwnerInvites<T extends { id: string; createdAt: Date }>(
+  actionable: T[],
+  history: T[],
+  historyCap = SHOPPING_INVITE_HISTORY_CAP,
+): T[] {
+  const byId = new Map<string, T>()
+  for (const row of actionable) byId.set(row.id, row)
+  const capped = [...history]
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, historyCap)
+  for (const row of capped) {
+    if (!byId.has(row.id)) byId.set(row.id, row)
+  }
+  return [...byId.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+}
+
+async function loadOwnerInvitesForSnapshot(groupId: string) {
+  const since = new Date(Date.now() - SHOPPING_INVITE_HISTORY_MS)
+  const [actionable, history] = await Promise.all([
+    prisma.shoppingInvite.findMany({
+      where: { groupId, status: { in: ["pending", "requested"] } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.shoppingInvite.findMany({
+      where: {
+        groupId,
+        status: { in: ["approved", "revoked", "rejected", "expired"] },
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: "desc" },
+      take: SHOPPING_INVITE_HISTORY_CAP,
+    }),
+  ])
+  return mergeShoppingOwnerInvites(actionable, history)
+}
+
 export async function getGroupSnapshot(groupId: string, userId: string) {
   const me = await requireActiveMember(groupId, userId)
   const eventWindowStart = shoppingEventWindowStart(me.group.eventSequence)
@@ -199,12 +242,7 @@ export async function getGroupSnapshot(groupId: string, userId: string) {
       where: { memberId: me.id },
       orderBy: { keyVersion: "desc" },
     }),
-    me.role === "owner"
-      ? prisma.shoppingInvite.findMany({
-          where: { groupId, status: { in: ["pending", "requested"] } },
-          orderBy: { createdAt: "desc" },
-        })
-      : Promise.resolve([]),
+    me.role === "owner" ? loadOwnerInvitesForSnapshot(groupId) : Promise.resolve([]),
   ])
 
   return {
@@ -368,12 +406,14 @@ export async function createInvite(params: { groupId: string; userId: string }) 
   }
   const token = generateInviteToken()
   const tokenHash = await hashInviteToken(token)
+  const verificationCode = generateInviteJoinCode()
   const invite = await prisma.shoppingInvite.create({
     data: {
       groupId: params.groupId,
       createdByUserId: params.userId,
       tokenHash,
       status: "pending",
+      verificationCode,
       expiresAt: new Date(Date.now() + SHOPPING_INVITE_TTL_MS),
     },
   })
@@ -381,7 +421,12 @@ export async function createInvite(params: { groupId: string; userId: string }) 
     where: { id: params.userId },
     select: { publicKey: true },
   })
-  return { invite, token, ownerPublicKey: ownerUser?.publicKey ?? null }
+  return {
+    invite,
+    token,
+    verificationCode,
+    ownerPublicKey: ownerUser?.publicKey ?? null,
+  }
 }
 
 export async function revokeInvite(params: { groupId: string; userId: string; inviteId: string }) {
@@ -433,11 +478,21 @@ export async function claimInvite(params: {
   if (invite.status === "requested" && invite.claimantUserId !== params.userId) {
     throw new ShoppingHttpError("This invite is waiting on another request", 409)
   }
+  // Join codes are minted with the invite and carried in the link. Claim must
+  // present the same secret — callers cannot invent a spoken code after the fact.
+  if (invite.verificationCode) {
+    if (params.verificationCode !== invite.verificationCode) {
+      throw new ShoppingHttpError("This invite link is incomplete or invalid", 400)
+    }
+  }
   const updated = await prisma.shoppingInvite.updateMany({
     where: {
       id: invite.id,
       status: { in: ["pending", "requested"] },
       expiresAt: { gt: new Date() },
+      ...(invite.verificationCode
+        ? { verificationCode: invite.verificationCode }
+        : {}),
     },
     data: {
       status: "requested",
@@ -445,7 +500,8 @@ export async function claimInvite(params: {
       claimantPublicKey: params.publicKey,
       claimantKeyFingerprint: params.keyFingerprint,
       encryptedClaimantAlias: params.encryptedClaimantAlias,
-      verificationCode: params.verificationCode,
+      // Preserve invite-minted code; only set when legacy invites had none.
+      verificationCode: invite.verificationCode ?? params.verificationCode,
     },
   })
   if (updated.count !== 1) {
