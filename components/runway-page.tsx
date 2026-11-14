@@ -27,6 +27,7 @@ import {
   parseHoldingsOverrides,
   rollbackPlanPatch,
   showBitcoinTotalField,
+  showCashTotalField,
   RUNWAY_JUST_SETUP_KEY,
   satsToUsd,
   type RunwayPlanResponse,
@@ -638,6 +639,11 @@ export function RunwayPage() {
           ) : (
             <TotalsEditor
               plan={plan}
+              askCash={showCashTotalField({
+                // When no override is set, need.cashUsd is envelope remaining.
+                envelopeCashUsd: need?.cashUsd ?? 0,
+                cashOverrideUsd: plan.cashOverrideUsd,
+              })}
               askBitcoin={showBitcoinTotalField({
                 watchCount,
                 bitcoinOverrideSats: plan.bitcoinOverrideSats,
@@ -1066,11 +1072,17 @@ function PendingSaleRow({
 
 function TotalsEditor({
   plan,
+  askCash,
   askBitcoin,
   onSave,
   onDone,
 }: {
   plan: RunwayPlanResponse
+  /**
+   * False when Savings/envelopes already supply cash and the user has not typed
+   * an override — typed cash is how the budget and runway drift apart.
+   */
+  askCash: boolean
   /** False once a watched wallet supplies bitcoin and the user has not typed an override. */
   askBitcoin: boolean
   onSave: (patch: Partial<RunwayPlanResponse>) => Promise<boolean>
@@ -1084,55 +1096,78 @@ function TotalsEditor({
   const [formError, setFormError] = useState<string | null>(null)
 
   const save = () => {
-    const parsed = parseHoldingsOverrides(cash, askBitcoin ? btc : "")
+    const parsed = parseHoldingsOverrides(askCash ? cash : "", askBitcoin ? btc : "")
     if (!parsed.ok) {
       setFormError(parsed.error)
       return
     }
     setFormError(null)
-    const patch: Partial<RunwayPlanResponse> = { cashOverrideUsd: parsed.cashOverrideUsd }
+    const patch: Partial<RunwayPlanResponse> = {}
+    // Only touch the cash override when the field is shown. Leaving it out of
+    // the patch keeps an existing override when we are not editing cash, and
+    // parseHoldingsOverrides("") would otherwise clear it to null.
+    if (askCash) patch.cashOverrideUsd = parsed.cashOverrideUsd
     if (askBitcoin) patch.bitcoinOverrideSats = parsed.bitcoinOverrideSats
+    if (Object.keys(patch).length === 0) {
+      onDone()
+      return
+    }
     void onSave(patch)
     onDone()
   }
 
+  const hint =
+    askCash && askBitcoin
+      ? "Type a total to override what we calculate — leave blank to use your budget and wallet."
+      : askCash
+        ? "Type a cash total to override your envelopes — leave blank to use your budget."
+        : askBitcoin
+          ? "Type a bitcoin total until a watched wallet supplies it — leave blank to clear an override."
+          : "Your cash comes from Savings and envelopes, and bitcoin from wallets you watch."
+
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs text-muted-foreground">
-        Type a total to override what we calculate — leave blank to use your budget and wallet.
-      </p>
-      <div className={`grid grid-cols-1 gap-3 ${askBitcoin ? "sm:grid-cols-2" : ""}`}>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="totals-cash">Cash total (USD)</Label>
-          <Input
-            id="totals-cash"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="0.01"
-            value={cash}
-            placeholder="Use my budget"
-            onChange={(e) => setCash(e.target.value)}
-            className="bg-[#1A1A1A] border-[#333]"
-          />
+      <p className="text-xs text-muted-foreground">{hint}</p>
+      {(askCash || askBitcoin) && (
+        <div
+          className={`grid grid-cols-1 gap-3 ${
+            askCash && askBitcoin ? "sm:grid-cols-2" : ""
+          }`}
+        >
+          {askCash && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="totals-cash">Cash total (USD)</Label>
+              <Input
+                id="totals-cash"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.01"
+                value={cash}
+                placeholder="Use my budget"
+                onChange={(e) => setCash(e.target.value)}
+                className="bg-[#1A1A1A] border-[#333]"
+              />
+            </div>
+          )}
+          {askBitcoin && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="totals-btc">Bitcoin total (BTC)</Label>
+              <Input
+                id="totals-btc"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.00000001"
+                value={btc}
+                placeholder="Use my wallet"
+                onChange={(e) => setBtc(e.target.value)}
+                className="bg-[#1A1A1A] border-[#333]"
+              />
+            </div>
+          )}
         </div>
-        {askBitcoin && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="totals-btc">Bitcoin total (BTC)</Label>
-            <Input
-              id="totals-btc"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              step="0.00000001"
-              value={btc}
-              placeholder="Use my wallet"
-              onChange={(e) => setBtc(e.target.value)}
-              className="bg-[#1A1A1A] border-[#333]"
-            />
-          </div>
-        )}
-      </div>
+      )}
       {formError && (
         <p className="text-xs text-amber-400/95" role="alert">
           {formError}

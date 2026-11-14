@@ -334,6 +334,19 @@ export function showBitcoinTotalField(input: {
 }
 
 /**
+ * Cash should keep coming from Savings and envelopes. A typed cash total is
+ * how the budget and the runway drift apart — so edit-totals only offers a
+ * cash field when envelopes are empty (need an answer) or the user already
+ * typed an override they may want to change or clear.
+ */
+export function showCashTotalField(input: {
+  envelopeCashUsd: number
+  cashOverrideUsd: number | null
+}): boolean {
+  return input.cashOverrideUsd != null || input.envelopeCashUsd <= 0.5
+}
+
+/**
  * Large first line. Months the money lasts, not the quit-date countdown.
  * An empty plan, or bitcoin that cannot be priced yet, must not show a
  * months figure that treats those sats as worth $0.

@@ -29,6 +29,7 @@ import {
   runwayPrimaryAction,
   shouldPromptHoldings,
   showBitcoinTotalField,
+  showCashTotalField,
   satsToUsd,
   type RunwayPlanResponse,
 } from "../runway-ui"
@@ -624,6 +625,13 @@ describe("runway glance copy", () => {
     expect(showBitcoinTotalField({ watchCount: 2, bitcoinOverrideSats: null })).toBe(false)
     expect(showBitcoinTotalField({ watchCount: 2, bitcoinOverrideSats: 0 })).toBe(true)
     expect(showBitcoinTotalField({ watchCount: 2, bitcoinOverrideSats: 50_000_000 })).toBe(true)
+    // Prefer envelope cash: hide the cash field when envelopes have money and
+    // no typed override. Show it when envelopes are empty or an override exists.
+    expect(showCashTotalField({ envelopeCashUsd: 2_000, cashOverrideUsd: null })).toBe(false)
+    expect(showCashTotalField({ envelopeCashUsd: 0, cashOverrideUsd: null })).toBe(true)
+    expect(showCashTotalField({ envelopeCashUsd: 0.4, cashOverrideUsd: null })).toBe(true)
+    expect(showCashTotalField({ envelopeCashUsd: 2_000, cashOverrideUsd: 1_500 })).toBe(true)
+    expect(showCashTotalField({ envelopeCashUsd: 0, cashOverrideUsd: 0 })).toBe(true)
     expect(
       shouldPromptHoldings({
         envelopeCashUsd: 0,
