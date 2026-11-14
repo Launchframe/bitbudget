@@ -65,7 +65,7 @@ Store minimal JSON under `e2e/fixtures/plaid/`:
 
 ### Optional sandbox job (not PR-blocking)
 
-- GitHub Environment `staging` with `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV=sandbox`
+- GitHub Environment `staging` with `PLAID_CLIENT_ID`, `PLAID_SECRET_SANDBOX`, `PLAID_ENV=sandbox`
 - Manual workflow: link one sandbox institution, run webhook replay from Plaid dashboard
 - Document in PR when changing `app/api/webhooks/plaid/route.ts`
 
