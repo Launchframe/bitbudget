@@ -43,7 +43,11 @@ async function readJsonError(res: Response, fallback: string) {
   return data.error ?? fallback
 }
 
-export function LinkedSignInMethods() {
+export function LinkedSignInMethods({
+  providerGridClassName = "flex flex-col gap-3",
+}: {
+  providerGridClassName?: string
+}) {
   const [methods, setMethods] = useState<SignInMethods>(EMPTY_METHODS)
   const [loading, setLoading] = useState(true)
   const [action, setAction] = useState<string | null>(null)
@@ -99,10 +103,15 @@ export function LinkedSignInMethods() {
     }
   }
 
+  function queuePrivacyLink(link: "email" | LinkProvider) {
+    // Defer past form-submit / focus handling so the portaled overlay cannot paint above content on first mount.
+    requestAnimationFrame(() => setPendingPrivacyLink(link))
+  }
+
   async function sendEmailCode(e: React.FormEvent) {
     e.preventDefault()
     if (isNostrOnly) {
-      setPendingPrivacyLink("email")
+      queuePrivacyLink("email")
       return
     }
     await executeSendEmailCode()
@@ -171,7 +180,7 @@ export function LinkedSignInMethods() {
 
   async function linkOAuth(provider: LinkProvider) {
     if (isNostrOnly) {
-      setPendingPrivacyLink(provider)
+      queuePrivacyLink(provider)
       return
     }
     await executeOAuthLink(provider)
@@ -310,7 +319,7 @@ export function LinkedSignInMethods() {
           Loading sign-in methods...
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className={providerGridClassName}>
           {methodRow({
             icon: <Mail className="h-4 w-4" />,
             title: "Email one-time code",
