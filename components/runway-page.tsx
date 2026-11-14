@@ -26,7 +26,6 @@ import {
   runwayPrimaryAction,
   parseHoldingsOverrides,
   rollbackPlanPatch,
-  shouldPromptHoldings,
   RUNWAY_JUST_SETUP_KEY,
   satsToUsd,
   type RunwayPlanResponse,
@@ -402,13 +401,24 @@ export function RunwayPage() {
           plan={plan}
           livingPlaceholderUsd={livingPlaceholder}
           suggestedStressPercent={suggestedStressPercent}
-          promptHoldings={shouldPromptHoldings({
-            envelopeCashUsd,
-            walletSats,
-            cashOverrideUsd: plan?.cashOverrideUsd ?? null,
-            bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
-            watchCount,
-          })}
+          askCash={
+            runwayHoldingStatus({
+              cashUsd: envelopeCashUsd,
+              bitcoinSats: walletSats,
+              cashOverrideUsd: plan?.cashOverrideUsd ?? null,
+              bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
+              watchCount,
+            }).cashUnset
+          }
+          askBitcoin={
+            runwayHoldingStatus({
+              cashUsd: envelopeCashUsd,
+              bitcoinSats: walletSats,
+              cashOverrideUsd: plan?.cashOverrideUsd ?? null,
+              bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
+              watchCount,
+            }).bitcoinUnset
+          }
           onSaved={onPlanSaved}
         />
       </div>
@@ -630,7 +640,12 @@ export function RunwayPage() {
               </button>
             </div>
           ) : (
-            <TotalsEditor plan={plan} onSave={savePatch} onDone={() => setEditTotals(false)} />
+            <TotalsEditor
+              plan={plan}
+              watchCount={watchCount}
+              onSave={savePatch}
+              onDone={() => setEditTotals(false)}
+            />
           )}
         </div>
       )}
@@ -658,13 +673,17 @@ export function RunwayPage() {
                 </p>
                 <MixBar label="Right now" share={need.actualBtcShare} color="#F7931A" />
                 <p className="text-xs text-muted-foreground">
-                  Cash cushion: {formatUsd(need.cashFloorUsedUsd)} — about {need.cashFloorMonths} month
-                  {need.cashFloorMonths === 1 ? "" : "s"} of spending kept in cash.
-                  {cashUnset
-                    ? ""
-                    : refill?.underFloor
-                      ? ` Short ${formatUsd(refill.shortfallUsd)} today.`
-                      : " You're at or above that cushion today."}
+                  {holdings.holdingsEmpty
+                    ? "Add what you have above before this cushion means much."
+                    : `Cash cushion: ${formatUsd(need.cashFloorUsedUsd)} — about ${need.cashFloorMonths} month${
+                        need.cashFloorMonths === 1 ? "" : "s"
+                      } of spending kept in cash.${
+                        cashUnset
+                          ? ""
+                          : refill?.underFloor
+                            ? ` Short ${formatUsd(refill.shortfallUsd)} today.`
+                            : " You're at or above that cushion today."
+                      }`}
                 </p>
                 <RunwayAddressWatch />
               </div>
@@ -776,13 +795,8 @@ export function RunwayPage() {
         plan={plan}
         livingPlaceholderUsd={livingPlaceholder}
         suggestedStressPercent={suggestedStressPercent}
-        promptHoldings={shouldPromptHoldings({
-          envelopeCashUsd,
-          walletSats,
-          cashOverrideUsd: plan.cashOverrideUsd,
-          bitcoinOverrideSats: plan.bitcoinOverrideSats,
-          watchCount,
-        })}
+        askCash={cashUnset}
+        askBitcoin={bitcoinUnset}
         onSaved={onPlanSaved}
       />
       <RunwayLoanDialog
@@ -1057,13 +1071,16 @@ function PendingSaleRow({
 
 function TotalsEditor({
   plan,
+  watchCount,
   onSave,
   onDone,
 }: {
   plan: RunwayPlanResponse
+  watchCount: number
   onSave: (patch: Partial<RunwayPlanResponse>) => Promise<boolean>
   onDone: () => void
 }) {
+  const showBitcoin = watchCount <= 0 || plan.bitcoinOverrideSats != null
   const [cash, setCash] = useState(plan.cashOverrideUsd != null ? String(plan.cashOverrideUsd) : "")
   const [btc, setBtc] = useState(
     plan.bitcoinOverrideSats != null ? String(plan.bitcoinOverrideSats / SATS_PER_BTC) : "",
@@ -1105,20 +1122,22 @@ function TotalsEditor({
             className="bg-[#1A1A1A] border-[#333]"
           />
         </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="totals-btc">Bitcoin total (BTC)</Label>
-          <Input
-            id="totals-btc"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="0.00000001"
-            value={btc}
-            placeholder="0"
-            onChange={(e) => setBtc(e.target.value)}
-            className="bg-[#1A1A1A] border-[#333]"
-          />
-        </div>
+        {showBitcoin && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="totals-btc">Bitcoin total (BTC)</Label>
+            <Input
+              id="totals-btc"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.00000001"
+              value={btc}
+              placeholder="Use my wallet"
+              onChange={(e) => setBtc(e.target.value)}
+              className="bg-[#1A1A1A] border-[#333]"
+            />
+          </div>
+        )}
       </div>
       {formError && (
         <p className="text-xs text-amber-400/95" role="alert">
