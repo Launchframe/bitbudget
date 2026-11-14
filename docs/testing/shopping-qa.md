@@ -58,7 +58,8 @@ The fixed sign-in code is not available on staging. Use two real accounts with e
 
 ### 2. Invite (owner)
 
-- [ ] **Members** → **Add member** → **Create invite link**. Copy the link and note **Your code** (the owner's fingerprint).
+- [ ] **Members** → **Add member** → **Create invite link**. Copy the link before closing (it cannot be shown again). The link includes a private join secret. Note **Your compare code** (`xxxx-xxxx-xxxx-xxxx`).
+- [ ] **Members** → **Invite history** lists open links, join requests, and recent outcomes; revoke unused links there.
 - [ ] The link looks like `/shopping-invite#<token>.<key>`. The part after `#` is never sent to the server.
 
 ### 3. Join (member)
@@ -66,7 +67,7 @@ The fixed sign-in code is not available on staging. Use two real accounts with e
 - [ ] In the second browser, open the invite link while signed out.
 - [ ] Sign in as the member and unlock. The app opens **Shopping** (not the dashboard) and shows **You have a shopping invite**.
 - [ ] **Send join request** stays disabled until you enter a name.
-- [ ] After sending, a short code and a fingerprint appear. Note both.
+- [ ] After sending, a **compare code** (`xxxx-xxxx-xxxx-xxxx`) appears for the phone/in-person check (join secret came from the link).
 - [ ] Also check: opening the invite link while already signed in goes straight to Shopping with the banner.
 
 ### 4. Approve (owner)

@@ -4,11 +4,18 @@ import {
   generateInviteToken,
   hashInviteToken,
   parseInviteFragment,
+  parseInviteFragmentParts,
   shoppingInviteUrl,
+  generateInviteJoinCode,
   generateRequestVerificationCode,
+  isInviteJoinCode,
   isRequestVerificationCode,
 } from "../shopping-invites"
-import { captureInviteFromLocation, loadPendingShoppingInvite, clearPendingShoppingInvite } from "../shopping-invite-handoff"
+import {
+  captureInviteFromLocation,
+  loadPendingShoppingInvite,
+  clearPendingShoppingInvite,
+} from "../shopping-invite-handoff"
 import {
   assertExpectedRevision,
   ShoppingRevisionConflictError,
@@ -16,6 +23,25 @@ import {
   shoppingEventSnapshotWhere,
   shoppingEventWindowStart,
 } from "../shopping-sync"
+
+function mockSessionStorage() {
+  const store: Record<string, string> = {}
+  globalThis.sessionStorage = {
+    getItem: (k: string) => store[k] ?? null,
+    setItem: (k: string, v: string) => {
+      store[k] = v
+    },
+    removeItem: (k: string) => {
+      delete store[k]
+    },
+    clear: () => {
+      for (const k of Object.keys(store)) delete store[k]
+    },
+    key: () => null,
+    length: 0,
+  } as Storage
+  return store
+}
 
 describe("shopping invites", () => {
   it("hashes tokens without storing the raw value", async () => {
@@ -26,76 +52,78 @@ describe("shopping invites", () => {
     expect(await hashInviteToken(token)).toBe(hash)
   })
 
-  it("puts the capability in the fragment", () => {
+  it("puts the capability and 64-bit join code in the fragment", () => {
     const token = "abcdefghijklmnopqrstuv"
-    const url = shoppingInviteUrl("https://app.bitbudget.example", token)
-    expect(url).toBe(`https://app.bitbudget.example/shopping-invite#${token}`)
-    expect(parseInviteFragment(`#${token}`)).toBe(token)
+    const join = "0123456789abcdef"
+    const url = shoppingInviteUrl("https://app.bitbudget.example", token, null, join)
+    expect(url).toBe(`https://app.bitbudget.example/shopping-invite#${token}.${join}`)
+    expect(parseInviteFragment(`#${token}.${join}`)).toBe(token)
+    expect(parseInviteFragmentParts(`#${token}.${join}`)).toEqual({
+      token,
+      joinCode: join,
+      ownerPublicKey: null,
+    })
     expect(parseInviteFragment("not valid")).toBeNull()
   })
 
-  it("appends the owner public key after the token when sharing", () => {
+  it("appends join code then owner public key when sharing", () => {
     const token = "abcdefghijklmnopqrstuv"
+    const join = "fedcba9876543210"
     const pk = "a".repeat(64)
-    const url = shoppingInviteUrl("https://app.bitbudget.example", token, pk)
-    expect(url).toBe(`https://app.bitbudget.example/shopping-invite#${token}.${pk}`)
-    expect(parseInviteFragment(`#${token}.${pk}`)).toBe(token)
+    const url = shoppingInviteUrl("https://app.bitbudget.example", token, pk, join)
+    expect(url).toBe(`https://app.bitbudget.example/shopping-invite#${token}.${join}.${pk}`)
+    expect(parseInviteFragmentParts(`#${token}.${join}.${pk}`)).toEqual({
+      token,
+      joinCode: join,
+      ownerPublicKey: pk,
+    })
   })
 
-  it("generates a short verification code", () => {
-    const code = generateRequestVerificationCode()
+  it("still parses legacy token.ownerPk fragments without a join code", () => {
+    const token = "abcdefghijklmnopqrstuv"
+    const pk = "b".repeat(64)
+    expect(parseInviteFragmentParts(`#${token}.${pk}`)).toEqual({
+      token,
+      joinCode: null,
+      ownerPublicKey: pk,
+    })
+  })
+
+  it("generates a 64-bit hex join code", () => {
+    const code = generateInviteJoinCode()
+    expect(code).toMatch(/^[0-9a-f]{16}$/)
+    expect(isInviteJoinCode(code)).toBe(true)
     expect(isRequestVerificationCode(code)).toBe(true)
+    expect(isRequestVerificationCode(generateRequestVerificationCode())).toBe(true)
+    expect(isRequestVerificationCode("ABCDEF")).toBe(true) // legacy spoken form
+    expect(isRequestVerificationCode("short")).toBe(false)
   })
 })
 
 describe("invite handoff", () => {
-  it("captures a fragment token into sessionStorage", () => {
-    const store: Record<string, string> = {}
-    globalThis.sessionStorage = {
-      getItem: (k: string) => store[k] ?? null,
-      setItem: (k: string, v: string) => {
-        store[k] = v
-      },
-      removeItem: (k: string) => {
-        delete store[k]
-      },
-      clear: () => {
-        for (const k of Object.keys(store)) delete store[k]
-      },
-      key: () => null,
-      length: 0,
-    } as Storage
+  it("captures token, join code, and clears on demand", () => {
+    mockSessionStorage()
     let replaced = false
-    const captured = captureInviteFromLocation("#tokentoken12345678.ab", () => {
+    const join = "0123456789abcdef"
+    const captured = captureInviteFromLocation(`#tokentoken12345678.${join}`, () => {
       replaced = true
     })
     expect(captured?.token).toBe("tokentoken12345678")
+    expect(captured?.joinCode).toBe(join)
     expect(captured?.ownerPublicKey).toBeNull()
     expect(replaced).toBe(true)
-    expect(loadPendingShoppingInvite()?.token).toBe("tokentoken12345678")
+    expect(loadPendingShoppingInvite()?.joinCode).toBe(join)
     clearPendingShoppingInvite()
     expect(loadPendingShoppingInvite()).toBeNull()
   })
 
   it("stores a lowercase owner public key from the fragment", () => {
-    const store: Record<string, string> = {}
-    globalThis.sessionStorage = {
-      getItem: (k: string) => store[k] ?? null,
-      setItem: (k: string, v: string) => {
-        store[k] = v
-      },
-      removeItem: (k: string) => {
-        delete store[k]
-      },
-      clear: () => {
-        for (const k of Object.keys(store)) delete store[k]
-      },
-      key: () => null,
-      length: 0,
-    } as Storage
+    mockSessionStorage()
     const pk = "ab".repeat(32)
-    const captured = captureInviteFromLocation(`#tokentoken12345678.${pk}`)
+    const join = "fedcba9876543210"
+    const captured = captureInviteFromLocation(`#tokentoken12345678.${join}.${pk}`)
     expect(captured?.ownerPublicKey).toBe(pk)
+    expect(captured?.joinCode).toBe(join)
     expect(loadPendingShoppingInvite()?.ownerPublicKey).toBe(pk)
     clearPendingShoppingInvite()
   })

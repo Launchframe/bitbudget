@@ -20,7 +20,7 @@ export async function POST(req: Request) {
       return shoppingJson({ error: "Name must be encrypted" }, 400)
     }
     if (!isRequestVerificationCode(verificationCode)) {
-      return shoppingJson({ error: "Enter the short verification code" }, 400)
+      return shoppingJson({ error: "Open the full invite link to join" }, 400)
     }
     const user = await prisma.user.findUnique({
       where: { id: userId },
