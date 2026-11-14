@@ -17,7 +17,7 @@ import {
   uint8ToHex,
 } from "@/lib/crypto"
 import { clearPrivacyKeyCache } from "@/lib/privacy-key-storage"
-import { ENCRYPTION_RESET_CONFIRM, type EncryptionResetMode } from "@/lib/encryption-reset-server"
+import { ENCRYPTION_RESET_CONFIRM, type EncryptionResetMode } from "@/lib/encryption-reset"
 
 interface PinUnlockDialogProps {
   encryptedPrivacyKey: string
@@ -239,10 +239,10 @@ function DestructiveResetPanel({
       <div className="flex items-start gap-2">
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-red-300">Reset encryption (danger zone)</p>
+          <p className="text-sm font-medium text-red-300">Forgot passphrase? (danger zone)</p>
           <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-            This cannot be undone. Payees and notes on existing transactions cannot be recovered without your old
-            passphrase. After reset you will choose a new BitBudget passphrase.
+            We cannot recover your old passphrase. Resetting deletes payees and notes on existing transactions
+            forever, then lets you choose a new BitBudget passphrase.
           </p>
         </div>
       </div>
@@ -250,13 +250,13 @@ function DestructiveResetPanel({
       <div className="flex items-center justify-between gap-3 text-sm">
         <span className="min-w-0 text-muted-foreground">
           {mode === "encrypted_data"
-            ? "Clear encrypted transactions only (keep envelopes)"
-            : "Clear all budgeting data (transactions and envelopes)"}
+            ? "Clear encrypted data only (keep envelopes)"
+            : "Clear all data (fresh start — envelopes gone too)"}
         </span>
         <Switch
           checked={mode === "all_data"}
           onCheckedChange={(on) => setMode(on ? "all_data" : "encrypted_data")}
-          aria-label="Clear all budgeting data"
+          aria-label="Clear all budgeting data for a fresh start"
         />
       </div>
 

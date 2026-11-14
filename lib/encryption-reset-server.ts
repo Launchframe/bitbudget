@@ -1,19 +1,18 @@
 /**
  * Destructive encryption recovery for signed-in users who lost their passphrase.
- * Session auth is the identity proof. Ciphertext tied to the old key is removed or
- * left undecryptable — never silently rotated via POST /api/user/encryption.
+ * Session auth is the identity proof. Ciphertext tied to the old key is removed —
+ * never silently rotated via POST /api/user/encryption.
  */
 
 import { prisma } from "@/lib/db"
+import {
+  type EncryptionResetMode,
+  ENCRYPTION_RESET_CONFIRM,
+  parseEncryptionResetMode,
+} from "@/lib/encryption-reset"
 import { suppressAllShoppingPostingsForUser } from "@/lib/shopping-posting-server"
 
-export const ENCRYPTION_RESET_CONFIRM = "RESET"
-export type EncryptionResetMode = "encrypted_data" | "all_data"
-
-export function parseEncryptionResetMode(value: unknown): EncryptionResetMode | null {
-  if (value === "encrypted_data" || value === "all_data") return value
-  return null
-}
+export { ENCRYPTION_RESET_CONFIRM, parseEncryptionResetMode, type EncryptionResetMode }
 
 export async function resetUserEncryption(params: {
   userId: string
@@ -24,16 +23,22 @@ export async function resetUserEncryption(params: {
   await suppressAllShoppingPostingsForUser(userId)
 
   const result = await prisma.$transaction(async (tx) => {
+    // Rows with encrypted payee/notes (or ciphertext JSON) become unreadable after key wipe.
     const txnDelete = await tx.transaction.deleteMany({ where: { userId } })
     await tx.pendingTransaction.deleteMany({ where: { userId } })
+    await tx.transactionShortcut.deleteMany({ where: { userId } })
+    await tx.recurringTransaction.deleteMany({ where: { userId } })
+    await tx.pendingStatementBatch.deleteMany({ where: { userId } })
 
     let envelopesDeleted = 0
     if (mode === "all_data") {
+      // Match Settings clear-all: null remaining suggestedEnvelopeId FKs, then wipe envelopes.
+      // Transactions / recurring / payee mappings cascade; shortcuts already removed above.
       await tx.pendingTransaction.updateMany({
         where: { userId },
         data: { suggestedEnvelopeId: null },
       })
-      await tx.transactionShortcut.deleteMany({ where: { userId } })
+      await tx.payeeDisplayAlias.deleteMany({ where: { userId } })
       const envDelete = await tx.envelope.deleteMany({ where: { userId } })
       envelopesDeleted = envDelete.count
     }

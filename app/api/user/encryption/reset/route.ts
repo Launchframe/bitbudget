@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
-import {
-  ENCRYPTION_RESET_CONFIRM,
-  parseEncryptionResetMode,
-  resetUserEncryption,
-} from "@/lib/encryption-reset-server"
+import { ENCRYPTION_RESET_CONFIRM, parseEncryptionResetMode } from "@/lib/encryption-reset"
+import { resetUserEncryption } from "@/lib/encryption-reset-server"
 
 /**
  * Destructive recovery: clear the wrapped privacy key so the client can set a new passphrase.
