@@ -25,8 +25,8 @@ import {
   paydayDomListInUtcMonth,
 } from "@/lib/envelope-funding-period"
 import {
+  envelopeBalancesAllTimeBatch,
   envelopeBalancesForMonthBatch,
-  monthKeyFromDate,
   savingsEnvelopeBalanceAllTime,
 } from "@/lib/envelope-balance-server"
 import type { DistributionBehavior } from "@/lib/rebalance-math"
@@ -277,18 +277,17 @@ export async function processMonthlyBudgetAllocations(
   const envelopes = envelopeRows.filter((e) => isBudgetEnvelope(e.systemRole))
   if (envelopes.length === 0) return 0
 
-  const monthKey = monthKeyFromDate(now)
-  const monthBalances = await envelopeBalancesForMonthBatch(
-    userId,
-    envelopes.map((e) => e.id),
-    monthKey,
-  )
+  // Use all-time balances (with genesis floor) so a RESET sweep that ran earlier
+  // this same cron tick does not inflate the gap. Month balances include the sweep
+  // expense (dated today), which would make the gap = allotment + sweep amount and
+  // over-drain Savings on any month where the sweep fires.
+  const allTimeBalances = await envelopeBalancesAllTimeBatch(userId, envelopes.map((e) => e.id))
 
   type TopUpRow = { id: string; topUp: number }
   const topUps: TopUpRow[] = []
   let sumTopUp = 0
   for (const e of envelopes) {
-    const balance = monthBalances.get(e.id) ?? 0
+    const balance = allTimeBalances.get(e.id) ?? 0
     const topUp = allocationTopUpAmount({
       monthlyAllotment: e.monthlyAllotment,
       currentMonthBalance: balance,
