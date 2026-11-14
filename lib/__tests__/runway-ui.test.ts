@@ -15,6 +15,7 @@ import {
   formatLiquidationRoomPct,
   formatSharePct,
   gapSummaryLine,
+  holdingsLookEmpty,
   isCheckupReady,
   isRunwayConfigured,
   knownBitcoinSats,
@@ -22,6 +23,13 @@ import {
   knownCashUsd,
   monthsUntilQuit,
   resolveLivingBaselineUsd,
+  runwayHeroDetail,
+  runwayHoldingsStatus,
+  runwayMonthsHeadline,
+  runwayPrimaryAction,
+  shouldPromptHoldings,
+  showBitcoinTotalField,
+  showCashTotalField,
   satsToUsd,
   type RunwayPlanResponse,
 } from "../runway-ui"
@@ -180,6 +188,459 @@ describe("gapSummaryLine", () => {
 
   it("handles an infinite bitcoin requirement", () => {
     expect(gapSummaryLine(0, Infinity)).toMatch(/more bitcoin/)
+  })
+})
+
+describe("runway glance copy", () => {
+  const buildup = { alreadySteppedBack: false }
+
+  it("does not call the cushion covered while cash is short today", () => {
+    const line = runwayHeroDetail({
+      holdingsEmpty: false,
+      underFloor: true,
+      shortfallUsd: 25200,
+      projectedCashGapUsd: 0,
+      projectedBitcoinGapUsd: 53800,
+      ...buildup,
+    })
+    expect(line).toMatch(/short today/i)
+    expect(line).not.toMatch(/covered/i)
+    expect(line).not.toMatch(/on track/i)
+  })
+
+  it("talks about the step-back date only once today's cushion is funded", () => {
+    const line = runwayHeroDetail({
+      holdingsEmpty: false,
+      underFloor: false,
+      shortfallUsd: 0,
+      projectedCashGapUsd: 0,
+      projectedBitcoinGapUsd: 53800,
+      ...buildup,
+    })
+    expect(line).toMatch(/by the time you step back/i)
+    expect(line).toMatch(/bitcoin/i)
+    expect(line).not.toMatch(/covered/i)
+  })
+
+  it("does not talk about a future step-back after the user already left work", () => {
+    const short = runwayHeroDetail({
+      holdingsEmpty: false,
+      underFloor: false,
+      shortfallUsd: 0,
+      projectedCashGapUsd: 1200,
+      projectedBitcoinGapUsd: 500,
+      alreadySteppedBack: true,
+    })
+    expect(short).toMatch(/for the months you planned/i)
+    expect(short).toMatch(/more cash/)
+    expect(short).toMatch(/more bitcoin/)
+    expect(short).not.toMatch(/step back/i)
+    expect(short).not.toMatch(/date you picked/i)
+
+    const onTrack = runwayHeroDetail({
+      holdingsEmpty: false,
+      underFloor: false,
+      shortfallUsd: 0,
+      projectedCashGapUsd: 0,
+      projectedBitcoinGapUsd: 0,
+      alreadySteppedBack: true,
+    })
+    expect(onTrack).toBe("You have enough set aside for the months you planned.")
+    expect(onTrack).not.toMatch(/date you picked/i)
+  })
+
+  it("asks for holdings before sizing a gap, and ignores a missing bitcoin price", () => {
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: true,
+        underFloor: true,
+        shortfallUsd: 1000,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: 0,
+        ...buildup,
+      }),
+    ).toMatch(/add the cash and bitcoin/i)
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        underFloor: false,
+        shortfallUsd: 0,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: 0,
+        ...buildup,
+      }),
+    ).toBe("You're on track for the date you picked.")
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        underFloor: false,
+        shortfallUsd: 0,
+        projectedCashGapUsd: 400,
+        projectedBitcoinGapUsd: Number.POSITIVE_INFINITY,
+        ...buildup,
+      }),
+    ).toBe("By the time you step back, you're still short $400 more cash and more bitcoin.")
+
+    expect(
+      runwayPrimaryAction({ holdingsEmpty: true, underFloor: true }),
+    ).toBe("add_holdings")
+    expect(
+      runwayPrimaryAction({ holdingsEmpty: false, underFloor: true }),
+    ).toBe("refill_cushion")
+    expect(
+      runwayPrimaryAction({ holdingsEmpty: false, underFloor: false }),
+    ).toBe("none")
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(true)
+    // Sats on hand with no dollar price must not look empty.
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinSats: 50_000_000,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(false)
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinSats: 0,
+        cashOverrideUsd: 0,
+        bitcoinOverrideSats: 0,
+      }),
+    ).toBe(false)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(true)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 100_000,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(true)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 2_000,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(true)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 2_000,
+        walletSats: 100_000,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toBe(false)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: 0,
+      }),
+    ).toBe(true)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 0,
+        cashOverrideUsd: 0,
+        bitcoinOverrideSats: 0,
+      }),
+    ).toBe(false)
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        watchCount: 1,
+      }),
+    ).toBe(false)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        watchCount: 1,
+      }),
+    ).toBe(true)
+  })
+
+  it("asks for the unanswered side instead of quoting a shortfall", () => {
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        cashUnset: true,
+        bitcoinUnset: false,
+        underFloor: true,
+        shortfallUsd: 25000,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: 0,
+        ...buildup,
+      }),
+    ).toBe("Add the cash you have today so the cushion is real.")
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        cashUnset: false,
+        bitcoinUnset: true,
+        underFloor: true,
+        shortfallUsd: 25000,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: 0,
+        ...buildup,
+      }),
+    ).toBe("Add the bitcoin you have today so this number includes it.")
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        cashUnset: false,
+        bitcoinUnset: false,
+        underFloor: true,
+        shortfallUsd: 25000,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: 0,
+        ...buildup,
+      }),
+    ).toBe("Your cash cushion is $25,000 short today.")
+    expect(
+      runwayMonthsHeadline(0, { bitcoinUnpriced: true }),
+    ).toBe("Waiting on a bitcoin price")
+    expect(
+      runwayPrimaryAction({
+        holdingsEmpty: false,
+        cashUnset: true,
+        underFloor: true,
+      }),
+    ).toBe("add_holdings")
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        cashUnset: false,
+        bitcoinUnset: false,
+        bitcoinUnpriced: true,
+        underFloor: true,
+        shortfallUsd: 25000,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: Number.POSITIVE_INFINITY,
+        ...buildup,
+      }),
+    ).toBe("Waiting on a bitcoin price")
+    expect(
+      runwayPrimaryAction({
+        holdingsEmpty: false,
+        bitcoinUnpriced: true,
+        underFloor: true,
+      }),
+    ).toBe("none")
+    expect(
+      runwayPrimaryAction({
+        holdingsEmpty: false,
+        cashUnset: true,
+        bitcoinUnpriced: true,
+        underFloor: true,
+      }),
+    ).toBe("add_holdings")
+    expect(
+      runwayPrimaryAction({
+        holdingsEmpty: false,
+        underFloor: true,
+      }),
+    ).toBe("refill_cushion")
+  })
+
+  it("headlines months left, or a prompt when the plan has no draw", () => {
+    expect(runwayMonthsHeadline(19.2)).toBe("About 19 months")
+    expect(runwayMonthsHeadline(0.2)).toBe("Under a month")
+    expect(runwayMonthsHeadline(0)).toBe("Under a month")
+    expect(runwayMonthsHeadline(0, { holdingsEmpty: true })).toBe("Add your numbers")
+    expect(runwayMonthsHeadline(0.2, { bitcoinUnpriced: true })).toBe("Waiting on a bitcoin price")
+    expect(runwayMonthsHeadline(null)).toBe("Add your numbers")
+    expect(runwayMonthsHeadline(Number.POSITIVE_INFINITY)).toBe("Add your numbers")
+    expect(runwayMonthsHeadline(0, { holdingsEmpty: true })).toBe("Add your numbers")
+    expect(runwayMonthsHeadline(0, { holdingsEmpty: true, bitcoinUnpriced: true })).toBe(
+      "Add your numbers",
+    )
+    expect(runwayMonthsHeadline(19.2, { bitcoinUnpriced: true })).toBe(
+      "Waiting on a bitcoin price",
+    )
+    expect(
+      runwayMonthsHeadline(19.2, { holdingsEmpty: false, bitcoinUnpriced: false }),
+    ).toBe("About 19 months")
+  })
+
+  it("does not quote a shortfall while one side is still unanswered", () => {
+    const cashOnly = runwayHeroDetail({
+      holdingsEmpty: false,
+      cashUnset: true,
+      bitcoinUnset: false,
+      underFloor: true,
+      shortfallUsd: 25200,
+      projectedCashGapUsd: 0,
+      projectedBitcoinGapUsd: 0,
+      ...buildup,
+    })
+    expect(cashOnly).toBe("Add the cash you have today so the cushion is real.")
+    expect(cashOnly).not.toMatch(/short today/i)
+
+    const bitcoinOnly = runwayHeroDetail({
+      holdingsEmpty: false,
+      cashUnset: false,
+      bitcoinUnset: true,
+      underFloor: true,
+      shortfallUsd: 25200,
+      projectedCashGapUsd: 0,
+      projectedBitcoinGapUsd: 53800,
+      ...buildup,
+    })
+    expect(bitcoinOnly).toBe("Add the bitcoin you have today so this number includes it.")
+    expect(bitcoinOnly).not.toMatch(/short today/i)
+
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        cashUnset: true,
+        bitcoinUnset: true,
+        underFloor: true,
+        shortfallUsd: 25200,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: 0,
+        ...buildup,
+      }),
+    ).toMatch(/add the cash and bitcoin/i)
+
+    expect(
+      runwayPrimaryAction({
+        holdingsEmpty: false,
+        cashUnset: true,
+        underFloor: true,
+      }),
+    ).toBe("add_holdings")
+    expect(
+      runwayPrimaryAction({
+        holdingsEmpty: false,
+        bitcoinUnset: true,
+        underFloor: true,
+      }),
+    ).toBe("add_holdings")
+    expect(
+      runwayPrimaryAction({
+        holdingsEmpty: false,
+        cashUnset: false,
+        bitcoinUnset: false,
+        underFloor: true,
+      }),
+    ).toBe("refill_cushion")
+  })
+
+  it("treats a watched wallet as a bitcoin answer even at zero sats", () => {
+    expect(
+      runwayHoldingsStatus({
+        cashUsd: 0,
+        bitcoinSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        watchCount: 1,
+      }),
+    ).toEqual({ cashUnset: true, bitcoinUnset: false, holdingsEmpty: false })
+    expect(
+      runwayHoldingsStatus({
+        cashUsd: 0,
+        bitcoinSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        watchCount: 0,
+      }),
+    ).toEqual({ cashUnset: true, bitcoinUnset: true, holdingsEmpty: true })
+    expect(
+      runwayHoldingsStatus({
+        cashUsd: 0.5,
+        bitcoinSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toMatchObject({ cashUnset: true })
+    expect(
+      runwayHoldingsStatus({
+        cashUsd: 0.51,
+        bitcoinSats: 1,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+      }),
+    ).toEqual({ cashUnset: false, bitcoinUnset: false, holdingsEmpty: false })
+    expect(
+      runwayHoldingsStatus({
+        cashUsd: 0,
+        bitcoinSats: 0,
+        cashOverrideUsd: 0,
+        bitcoinOverrideSats: null,
+      }),
+    ).toMatchObject({ cashUnset: false, bitcoinUnset: true, holdingsEmpty: false })
+
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        watchCount: 2,
+      }),
+    ).toBe(false)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        watchCount: 1,
+      }),
+    ).toBe(true)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 2_000,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        watchCount: 1,
+      }),
+    ).toBe(false)
+    expect(showBitcoinTotalField({ watchCount: 0, bitcoinOverrideSats: null })).toBe(true)
+    expect(showBitcoinTotalField({ watchCount: 2, bitcoinOverrideSats: null })).toBe(false)
+    expect(showBitcoinTotalField({ watchCount: 2, bitcoinOverrideSats: 0 })).toBe(true)
+    expect(showBitcoinTotalField({ watchCount: 2, bitcoinOverrideSats: 50_000_000 })).toBe(true)
+    // Prefer envelope cash: hide the cash field when envelopes have money and
+    // no typed override. Show it when envelopes are empty or an override exists.
+    expect(showCashTotalField({ envelopeCashUsd: 2_000, cashOverrideUsd: null })).toBe(false)
+    expect(showCashTotalField({ envelopeCashUsd: 0, cashOverrideUsd: null })).toBe(true)
+    expect(showCashTotalField({ envelopeCashUsd: 0.4, cashOverrideUsd: null })).toBe(true)
+    expect(showCashTotalField({ envelopeCashUsd: 2_000, cashOverrideUsd: 1_500 })).toBe(true)
+    expect(showCashTotalField({ envelopeCashUsd: 0, cashOverrideUsd: 0 })).toBe(true)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        watchCount: 0,
+      }),
+    ).toBe(true)
   })
 })
 

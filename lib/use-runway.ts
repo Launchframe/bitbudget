@@ -81,6 +81,10 @@ export interface UseRunwayResult {
   envelopeCashUsd: number
   savingsUsd: number
   discretionaryUsd: number
+  /** Confirmed sats from watched wallets, after open-sale overlap is removed. */
+  walletSats: number
+  /** How many wallets or addresses are on the watch list. */
+  watchCount: number
   btcPriceUsd: number
   /** Spot bitcoin price, or null when no live price is available. */
   btcPriceOrNull: number | null
