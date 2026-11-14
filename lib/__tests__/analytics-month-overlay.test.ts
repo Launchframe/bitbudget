@@ -169,6 +169,72 @@ describe("buildMonthOverlayChartData", () => {
     expect(may.points.find(p => p.day === 15)?.value).toBe(700)
   })
 
+  it("excludes envelope_sweep expenses from cash_flow spending totals", () => {
+    // Real spending: $200. Sweep: $300 (auto-reset on day 1). Only $200 should count.
+    const transactions = [
+      txn({ id: "real", date: "2026-05-03", type: "expense", amount: 200, envelopeId: discA }),
+      txn({
+        id: "sweep",
+        date: "2026-05-01",
+        type: "expense",
+        amount: 300,
+        envelopeId: discA,
+        source: "envelope_sweep",
+        excludeFromMainHistory: false,
+      }),
+    ]
+
+    const data = buildMonthOverlayChartData({
+      mode: "cash_flow",
+      transactions,
+      monthCount: 1,
+      paydayUser,
+      monthlyBudget: 1000,
+      savingsEnvelopeId: savingsId,
+      discretionaryEnvelopeIds: new Set([discA]),
+      now: new Date("2026-05-20T12:00:00.000Z"),
+    })
+
+    const may = data.series[0]!
+    // Day 1: sweep should NOT reduce budget; budget remains at $1000
+    expect(may.points.find(p => p.day === 1)?.value).toBe(1000)
+    // Day 3: real $200 expense reduces budget to $800
+    expect(may.points.find(p => p.day === 3)?.value).toBe(800)
+  })
+
+  it("excludes envelope_transfer_out expenses from cash_flow spending totals", () => {
+    // Real spending: $150. Rebalance transfer out: $400. Only $150 should count.
+    const transactions = [
+      txn({ id: "real", date: "2026-05-10", type: "expense", amount: 150, envelopeId: discA }),
+      txn({
+        id: "rebalance-out",
+        date: "2026-05-05",
+        type: "expense",
+        amount: 400,
+        envelopeId: discA,
+        source: "envelope_transfer_out",
+        excludeFromMainHistory: false,
+      }),
+    ]
+
+    const data = buildMonthOverlayChartData({
+      mode: "cash_flow",
+      transactions,
+      monthCount: 1,
+      paydayUser,
+      monthlyBudget: 1000,
+      savingsEnvelopeId: savingsId,
+      discretionaryEnvelopeIds: new Set([discA]),
+      now: new Date("2026-05-20T12:00:00.000Z"),
+    })
+
+    const may = data.series[0]!
+    // Day 5: rebalance out should NOT reduce budget; budget remains at $1000
+    expect(may.points.find(p => p.day === 5)?.value).toBe(1000)
+    // Day 10: real $150 expense reduces budget to $850
+    expect(may.points.find(p => p.day === 10)?.value).toBe(850)
+  })
+
   it("builds chart rows keyed by month", () => {
     const keys = monthKeysInLookback(2, new Date("2026-05-15T12:00:00.000Z"))
     expect(keys).toHaveLength(2)
