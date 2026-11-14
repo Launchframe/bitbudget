@@ -13,6 +13,40 @@ BitBudget is a **privacy-first, user-sovereign budgeting app**. Every change mus
 
 If a change would cause sensitive data to be logged, stored in plaintext, or readable by the server, **stop and redesign**.
 
+## Agentic review focus
+
+Apply **every** bullet on Real Steel / adversarial PR review. Privacy and money safety first; then fintech polish. Severity: **Critical** / **Suggestion** / **Nit**. Fix what you find in the same pass unless you cannot (schema, out of scope) — say why.
+
+### Privacy and custody (blockers)
+
+- Payee, notes, and other sensitive fields stay client-encrypted. No plaintext fallbacks, logs, alerts, or Sentry.
+- Privacy keys, PIN/passphrase, nsec, ingest tokens, and invite tokens never leave the client or get logged. `POST /api/user/encryption` must not overwrite an existing wrapped key.
+- Server queries stay scoped to `session.user.id`. Cron auth uses the timing-safe helper (`cronAuthFailureResponse`).
+
+### Money correctness
+
+- Ledger funding stays on. Remaining balances are all-time (genesis floor), not month-scoped.
+- Funding legs stay out of spend and cash-flow charts. Deleting an income header deletes the whole batch.
+- Savings is not a discretionary envelope. Smart defaults never overwrite a field the user already set.
+- Amounts, dates, and idempotency keys are explicit. No silent double-credit, dropped pending invite, or UTC-day drift on user-posted dates.
+
+### Security
+
+- Fail closed on authz, invites, webhooks, and recovery. Do not shorten compare or capability secrets for convenience.
+- Out-of-band checks bind the real key. Link-carried secrets are high-entropy and verified server-side, not re-invented by the client.
+
+### Fintech polish
+
+- Copy is plain language: outcomes, not ledger/crypto jargon. Destructive or privacy-weakening steps warn and can be cancelled.
+- Mobile-first: check 390px and 320px, `min-w-0`, no page-level horizontal scroll. Stable dialog headers/footers.
+- Accessibility state matches the control (`aria-*`, Switch not native checkbox).
+- Empty, error, and loading states are specific. Numbers and codes use tabular/mono treatment and wrap on small screens.
+
+### Tests
+
+- New or changed `lib/` behavior gets Vitest in the same change.
+- UI/API contract changes extend Playwright when that contract already has a spec. Do **not** require a local e2e run on each commit — see [`PRE_COMMIT_GATE.md`](PRE_COMMIT_GATE.md) (Gates vs PR stamp).
+
 ## Savings as core mechanic
 
 BitBudget treats **pay yourself first** as a non-negotiable budgeting principle, not an optional mode:
