@@ -2,8 +2,7 @@ import { Prisma } from "@prisma/client"
 import { isBudgetEnvelope, SYSTEM_ENVELOPE_ROLE_SAVINGS } from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import {
-  envelopeBalancesForMonthBatch,
-  monthKeyFromDate,
+  envelopeBalancesAllTimeBatch,
   savingsEnvelopeBalanceAllTime,
 } from "@/lib/envelope-balance-server"
 import { ensureSystemSavingsEnvelope } from "@/lib/envelope-funding"
@@ -30,7 +29,7 @@ export function recurringFundingBatchPeriodKey(ruleId: string, runDateUtc: Date)
   return `recurring-funding-${ruleId}-${day}`
 }
 
-async function loadEnvelopesForDistribution(userId: string, monthKey: string) {
+async function loadEnvelopesForDistribution(userId: string) {
   const rows = await prisma.envelope.findMany({
     where: {
       userId,
@@ -41,10 +40,13 @@ async function loadEnvelopesForDistribution(userId: string, monthKey: string) {
   })
 
   const budgetRows = rows.filter((e) => isBudgetEnvelope(e.systemRole))
-  const balances = await envelopeBalancesForMonthBatch(
+  // Use all-time balance (credits minus expenses over the envelope's lifetime, including
+  // prior-month carryover) so that set_to_budget correctly computes gap = allotment − remaining.
+  // Month-scoped balance is negative after the user spends in the current period, causing
+  // the gap to be overstated and Savings to be silently over-drained.
+  const balances = await envelopeBalancesAllTimeBatch(
     userId,
     budgetRows.map((e) => e.id),
-    monthKey,
   )
 
   return budgetRows.map((e) => ({
@@ -66,8 +68,7 @@ async function executeIncomeDistribution(
   })
   if (!user?.publicKey?.trim()) return 0
 
-  const monthKey = monthKeyFromDate(runDateUtc)
-  const envelopes = await loadEnvelopesForDistribution(userId, monthKey)
+  const envelopes = await loadEnvelopesForDistribution(userId)
   if (envelopes.length === 0) return 0
 
   const savings = await ensureSystemSavingsEnvelope(userId)

@@ -22,8 +22,7 @@ vi.mock("@/lib/envelope-funding", () => ({
 }))
 
 vi.mock("@/lib/envelope-balance-server", () => ({
-  envelopeBalancesForMonthBatch: vi.fn(async () => new Map([["env-a", 50]])),
-  monthKeyFromDate: vi.fn(() => "2026-06"),
+  envelopeBalancesAllTimeBatch: vi.fn(async () => new Map([["env-a", 50]])),
   savingsEnvelopeBalanceAllTime: vi.fn(async () => 500),
 }))
 
@@ -170,6 +169,66 @@ describe("processOneRecurringFundingRule", () => {
     expect(legs).toBe(0)
     expect(createRebalanceBatch).not.toHaveBeenCalled()
     expect(prisma.recurringFundingRule.update).toHaveBeenCalled()
+  })
+
+  it("uses all-time envelope balance (not month balance) for set_to_budget top-up", async () => {
+    // Scenario: envelope has $50 all-time balance (carryover minus spending).
+    // If month-scoped balance (-$20) were used, delta = 200 − (−20) = $220 (over-drain).
+    // With all-time balance ($50), the correct delta is 200 − 50 = $150.
+    const { envelopeBalancesAllTimeBatch } = await import("@/lib/envelope-balance-server")
+    vi.mocked(envelopeBalancesAllTimeBatch).mockResolvedValueOnce(new Map([["env-a", 50]]))
+
+    const asOf = new Date(Date.UTC(2026, 5, 15, 12, 0, 0))
+    await processOneRecurringFundingRule(
+      {
+        id: "rule-carryover",
+        userId: "u1",
+        kind: "income_distribution",
+        frequency: "monthly",
+        distributionConfig: {
+          distributionBehavior: "set_to_budget",
+          fundOverageFromSavings: false,
+          // grossUsd large enough to cover any delta
+          grossUsd: 500,
+        },
+        nextRunAt: asOf,
+      },
+      asOf,
+    )
+
+    // allotment=$200, allTimeBalance=$50 → top-up = 200 − 50 = $150 (not $220 from month balance)
+    expect(createRebalanceBatch).toHaveBeenCalledWith(
+      "u1",
+      [{ envelopeId: "env-a", deltaUsd: 150 }],
+      "independent",
+      expect.any(Object),
+    )
+  })
+
+  it("skips top-up when all-time balance already meets allotment (carry-forward carryover)", async () => {
+    // Envelope carries over more than its allotment: all-time balance = $250 > $200 allotment.
+    // set_to_budget should produce delta = 0, so no Savings drain occurs.
+    const { envelopeBalancesAllTimeBatch } = await import("@/lib/envelope-balance-server")
+    vi.mocked(envelopeBalancesAllTimeBatch).mockResolvedValueOnce(new Map([["env-a", 250]]))
+
+    const asOf = new Date(Date.UTC(2026, 5, 20, 12, 0, 0))
+    await processOneRecurringFundingRule(
+      {
+        id: "rule-rich",
+        userId: "u1",
+        kind: "income_distribution",
+        frequency: "monthly",
+        distributionConfig: {
+          distributionBehavior: "set_to_budget",
+          fundOverageFromSavings: false,
+          grossUsd: 500,
+        },
+        nextRunAt: asOf,
+      },
+      asOf,
+    )
+
+    expect(createRebalanceBatch).not.toHaveBeenCalled()
   })
 })
 
