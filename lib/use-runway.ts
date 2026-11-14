@@ -24,6 +24,8 @@ import {
   type PendingSaleStatus,
 } from "@/lib/runway-refill"
 import { suggestedStressPercent } from "@/lib/runway-stress"
+import { useWalletWatches } from "@/lib/use-wallet-watch"
+import { runwayWalletSats } from "@/lib/wallet-confirmed-sats"
 import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
 
 /** Serialized loan row from GET /api/runway/loans. */
@@ -118,7 +120,7 @@ export interface UseRunwayResult {
  * uses the same stack.
  */
 export function useRunway(): UseRunwayResult {
-  const { state, activeTransactions, discretionaryEnvelopes } = useApp()
+  const { state, activeTransactions, discretionaryEnvelopes, currentUserId } = useApp()
   const { currentPrice, priceHistory } = useBtcPrices()
 
   const [plan, setPlanState] = useState<RunwayPlanResponse | null>(null)
@@ -268,6 +270,7 @@ export function useRunway(): UseRunwayResult {
     return { ...holdings, reservedForSaleSats }
   }, [pendingSales])
 
+  const watches = useWalletWatches(currentUserId)
   const livingBaselineUsd = plan
     ? resolveLivingBaselineUsd(plan, insightMonthlyUsd)
     : 0
@@ -276,6 +279,10 @@ export function useRunway(): UseRunwayResult {
   // chip at a cash-floor shortfall. Use monthly income as the paycheck estimate.
   const nextPaycheckUsd =
     plan && plan.phase !== "runway" ? Math.max(0, state.monthlyIncome) : 0
+  const walletSats = useMemo(
+    () => runwayWalletSats(watches, reservedForSaleSats),
+    [watches, reservedForSaleSats],
+  )
 
   const compute = useCallback(
     (scenarioMode: ScenarioMode): RunwayComputation | null => {
@@ -284,7 +291,7 @@ export function useRunway(): UseRunwayResult {
         plan,
         livingBaselineUsd,
         envelopeCashUsd,
-        walletSats: 0,
+        walletSats,
         lenderHeldSats,
         amountDueUsd,
         btcPriceUsd,
@@ -301,6 +308,7 @@ export function useRunway(): UseRunwayResult {
       plan,
       livingBaselineUsd,
       envelopeCashUsd,
+      walletSats,
       lenderHeldSats,
       amountDueUsd,
       btcPriceUsd,
@@ -332,6 +340,8 @@ export function useRunway(): UseRunwayResult {
     envelopeCashUsd,
     savingsUsd,
     discretionaryUsd,
+    walletSats,
+    watchCount: watches.length,
     btcPriceUsd,
     btcPriceOrNull,
     loans,
