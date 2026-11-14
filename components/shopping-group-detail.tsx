@@ -1263,14 +1263,15 @@ function ApproveRequestDialog({
   onApprove: (compared: boolean) => void
 }) {
   const [compared, setCompared] = useState(false)
-  const shortFingerprint = formatShoppingFingerprintDisplay(fingerprint)
+  const displayFingerprint = formatShoppingFingerprintDisplay(fingerprint)
   return (
     <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
       <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl border-border bg-card">
         <DialogHeader className="pr-10 text-left">
           <DialogTitle>Let {alias} join?</DialogTitle>
           <DialogDescription>
-            Compare the short codes with them before you add them. Their name stays encrypted for the group.
+            Compare the join code and compare code with them before you add them. Their name stays
+            encrypted for the group.
           </DialogDescription>
         </DialogHeader>
         {verificationCode && (
@@ -1281,7 +1282,9 @@ function ApproveRequestDialog({
         )}
         <div className="flex flex-col gap-1">
           <p className="text-xs text-muted-foreground">Their compare code</p>
-          <p className="font-mono text-xl tracking-widest">{shortFingerprint}</p>
+          <p className="font-mono text-lg tracking-wide break-all sm:text-xl sm:tracking-widest">
+            {displayFingerprint}
+          </p>
         </div>
         <div className="flex items-center justify-between gap-3 text-sm">
           <span>I compared this with them</span>
@@ -1362,7 +1365,7 @@ function InviteDialog({
             </div>
             <p className="text-xs text-muted-foreground">
               Copy the link now — BitBudget cannot show it again after you close this (by design). When they
-              join, check their short codes with them by call or in person.
+              join, check their join code and compare code with them by call or in person.
               {expiresAt ? ` Expires ${new Date(expiresAt).toLocaleString()}.` : ""}
             </p>
             <Button type="button" variant="outline" onClick={() => void copy()}>
