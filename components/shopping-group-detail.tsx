@@ -1085,10 +1085,8 @@ function MembersTab({
               <div className="min-w-0">
                 <p className="text-sm font-medium">Someone asked to join</p>
                 <p className="text-xs text-muted-foreground">
-                  {invite.verificationCode
-                    ? `Code ${invite.verificationCode} · `
-                    : ""}
-                  Expires {new Date(invite.expiresAt).toLocaleString()}
+                  Compare their code before adding · Expires{" "}
+                  {new Date(invite.expiresAt).toLocaleString()}
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -1270,22 +1268,22 @@ function ApproveRequestDialog({
         <DialogHeader className="pr-10 text-left">
           <DialogTitle>Let {alias} join?</DialogTitle>
           <DialogDescription>
-            Compare the join code and compare code with them before you add them. Their name stays
+            Compare this code with them by call or in person before you add them. Their name stays
             encrypted for the group.
           </DialogDescription>
         </DialogHeader>
-        {verificationCode && (
-          <div className="flex flex-col gap-1">
-            <p className="text-xs text-muted-foreground">Join code</p>
-            <p className="font-mono text-2xl tracking-[0.2em]">{verificationCode}</p>
-          </div>
-        )}
         <div className="flex flex-col gap-1">
           <p className="text-xs text-muted-foreground">Their compare code</p>
           <p className="font-mono text-lg tracking-wide break-all sm:text-xl sm:tracking-widest">
             {displayFingerprint}
           </p>
         </div>
+        {verificationCode ? (
+          <p className="text-xs text-muted-foreground">
+            Their invite link already checked out
+            <span className="sr-only"> (join secret {verificationCode})</span>.
+          </p>
+        ) : null}
         <div className="flex items-center justify-between gap-3 text-sm">
           <span>I compared this with them</span>
           <Switch checked={compared} onCheckedChange={setCompared} aria-label="I compared this with them" />
@@ -1310,7 +1308,12 @@ function InviteDialog({
   onOpenHistory,
 }: {
   view: DecryptedGroupView
-  createInvite: (groupId: string) => Promise<{ token: string; ownerPublicKey: string | null; expiresAt: string }>
+  createInvite: (groupId: string) => Promise<{
+    token: string
+    verificationCode: string
+    ownerPublicKey: string | null
+    expiresAt: string
+  }>
   onClose: () => void
   onOpenHistory: () => void
 }) {
@@ -1326,7 +1329,14 @@ function InviteDialog({
     setError(null)
     try {
       const created = await createInvite(view.groupId)
-      setUrl(shoppingInviteUrl(window.location.origin, created.token, created.ownerPublicKey))
+      setUrl(
+        shoppingInviteUrl(
+          window.location.origin,
+          created.token,
+          created.ownerPublicKey,
+          created.verificationCode,
+        ),
+      )
       setExpiresAt(created.expiresAt)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create invite")
@@ -1364,8 +1374,8 @@ function InviteDialog({
               <p className="font-mono text-xl tracking-widest">{compareCode}</p>
             </div>
             <p className="text-xs text-muted-foreground">
-              Copy the link now — BitBudget cannot show it again after you close this (by design). When they
-              join, check their join code and compare code with them by call or in person.
+              Copy the link now — BitBudget cannot show it again after you close this (by design). When
+              they join, check their compare code with them by call or in person.
               {expiresAt ? ` Expires ${new Date(expiresAt).toLocaleString()}.` : ""}
             </p>
             <Button type="button" variant="outline" onClick={() => void copy()}>
@@ -1439,9 +1449,6 @@ function InviteHistoryDialog({
                       ? ` · Expires ${new Date(invite.expiresAt).toLocaleString()}`
                       : ""}
                   </p>
-                  {invite.verificationCode && (
-                    <p className="mt-1 font-mono text-sm tracking-widest">{invite.verificationCode}</p>
-                  )}
                   {invite.claimantKeyFingerprint && (
                     <p className="mt-1 text-xs text-muted-foreground">
                       Their compare code{" "}

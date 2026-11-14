@@ -6,7 +6,11 @@
 import { prisma } from "@/lib/db"
 import { budgetOptInSequence } from "@/lib/shopping-budget-projection"
 import { isShoppingCiphertext, isShoppingKeyFingerprint } from "@/lib/shopping-crypto"
-import { generateInviteToken, hashInviteToken } from "@/lib/shopping-invites"
+import {
+  generateInviteJoinCode,
+  generateInviteToken,
+  hashInviteToken,
+} from "@/lib/shopping-invites"
 import {
   ShoppingRevisionConflictError,
   ShoppingStaleSequenceError,
@@ -402,12 +406,14 @@ export async function createInvite(params: { groupId: string; userId: string }) 
   }
   const token = generateInviteToken()
   const tokenHash = await hashInviteToken(token)
+  const verificationCode = generateInviteJoinCode()
   const invite = await prisma.shoppingInvite.create({
     data: {
       groupId: params.groupId,
       createdByUserId: params.userId,
       tokenHash,
       status: "pending",
+      verificationCode,
       expiresAt: new Date(Date.now() + SHOPPING_INVITE_TTL_MS),
     },
   })
@@ -415,7 +421,12 @@ export async function createInvite(params: { groupId: string; userId: string }) 
     where: { id: params.userId },
     select: { publicKey: true },
   })
-  return { invite, token, ownerPublicKey: ownerUser?.publicKey ?? null }
+  return {
+    invite,
+    token,
+    verificationCode,
+    ownerPublicKey: ownerUser?.publicKey ?? null,
+  }
 }
 
 export async function revokeInvite(params: { groupId: string; userId: string; inviteId: string }) {
@@ -467,11 +478,21 @@ export async function claimInvite(params: {
   if (invite.status === "requested" && invite.claimantUserId !== params.userId) {
     throw new ShoppingHttpError("This invite is waiting on another request", 409)
   }
+  // Join codes are minted with the invite and carried in the link. Claim must
+  // present the same secret — callers cannot invent a spoken code after the fact.
+  if (invite.verificationCode) {
+    if (params.verificationCode !== invite.verificationCode) {
+      throw new ShoppingHttpError("This invite link is incomplete or invalid", 400)
+    }
+  }
   const updated = await prisma.shoppingInvite.updateMany({
     where: {
       id: invite.id,
       status: { in: ["pending", "requested"] },
       expiresAt: { gt: new Date() },
+      ...(invite.verificationCode
+        ? { verificationCode: invite.verificationCode }
+        : {}),
     },
     data: {
       status: "requested",
@@ -479,7 +500,8 @@ export async function claimInvite(params: {
       claimantPublicKey: params.publicKey,
       claimantKeyFingerprint: params.keyFingerprint,
       encryptedClaimantAlias: params.encryptedClaimantAlias,
-      verificationCode: params.verificationCode,
+      // Preserve invite-minted code; only set when legacy invites had none.
+      verificationCode: invite.verificationCode ?? params.verificationCode,
     },
   })
   if (updated.count !== 1) {
