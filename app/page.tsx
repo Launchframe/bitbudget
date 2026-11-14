@@ -116,7 +116,14 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
 }
 
 function EncryptionGate({ children }: { children: React.ReactNode }) {
-  const { encryption, unlockWithKey, logout, clearLocalTransactionCache, refreshData } = useApp()
+  const {
+    encryption,
+    unlockWithKey,
+    logout,
+    clearLocalTransactionCache,
+    applyServerEncryptionReset,
+    refreshData,
+  } = useApp()
 
   // Server-authoritative: missing wrapped key after onboarding means setup (incl. post-reset refresh).
   if (encryption.needsPassphraseSetup) {
@@ -143,6 +150,7 @@ function EncryptionGate({ children }: { children: React.ReactNode }) {
         onUnlock={unlockWithKey}
         onLogout={logout}
         clearLocalTransactionCache={clearLocalTransactionCache}
+        applyServerEncryptionReset={applyServerEncryptionReset}
         onDestructiveResetComplete={() => {
           // Hard reload so initEncryption reads the null wrapped key and blocks until setup.
           window.location.assign("/")

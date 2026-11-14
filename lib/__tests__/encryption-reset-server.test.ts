@@ -3,7 +3,11 @@ import {
   ENCRYPTION_RESET_CONFIRM,
   parseEncryptionResetMode,
 } from "../encryption-reset"
-import { resetUserEncryption } from "../encryption-reset-server"
+import {
+  ENCRYPTION_RESET_MAX_SESSION_AGE_SEC,
+  encryptionResetRequiresReauth,
+  resetUserEncryption,
+} from "../encryption-reset-server"
 
 vi.mock("@/lib/db", () => ({
   prisma: {
@@ -19,6 +23,7 @@ vi.mock("@/lib/db", () => ({
     recurringFundingRule: { deleteMany: vi.fn() },
     savingsGoal: { deleteMany: vi.fn() },
     tag: { deleteMany: vi.fn() },
+    userAchievement: { deleteMany: vi.fn() },
     envelope: { deleteMany: vi.fn() },
     user: { update: vi.fn() },
   },
@@ -50,10 +55,21 @@ function mockTx(overrides?: {
     recurringFundingRule: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     savingsGoal: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     tag: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    userAchievement: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     envelope: { deleteMany: vi.fn(async () => ({ count: overrides?.envelopeCount ?? 0 })) },
     user: { update: vi.fn(async () => ({})) },
   }
 }
+
+describe("encryptionResetRequiresReauth", () => {
+  it("requires reauth when iat is missing or stale", () => {
+    const now = 1_700_000_000
+    expect(encryptionResetRequiresReauth(null, now)).toBe(true)
+    expect(encryptionResetRequiresReauth(undefined, now)).toBe(true)
+    expect(encryptionResetRequiresReauth(now - ENCRYPTION_RESET_MAX_SESSION_AGE_SEC - 1, now)).toBe(true)
+    expect(encryptionResetRequiresReauth(now - 60, now)).toBe(false)
+  })
+})
 
 describe("parseEncryptionResetMode", () => {
   it("accepts the two product modes only", () => {
@@ -97,6 +113,7 @@ describe("resetUserEncryption", () => {
     expect(tx.recurringFundingRule.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
     expect(tx.savingsGoal.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
     expect(tx.tag.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
+    expect(tx.userAchievement.deleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } })
     expect(result).toEqual({ mode: "all_data", transactionsDeleted: 2, envelopesDeleted: 5 })
   })
 })

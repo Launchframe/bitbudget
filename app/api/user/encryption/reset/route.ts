@@ -3,7 +3,7 @@ import { getToken } from "next-auth/jwt"
 import { auth } from "@/lib/auth"
 import { ENCRYPTION_RESET_CONFIRM, parseEncryptionResetMode } from "@/lib/encryption-reset"
 import {
-  ENCRYPTION_RESET_MAX_SESSION_AGE_SEC,
+  encryptionResetRequiresReauth,
   resetUserEncryption,
 } from "@/lib/encryption-reset-server"
 
@@ -21,9 +21,8 @@ export async function POST(req: NextRequest) {
     req,
     secret: process.env.AUTH_SECRET,
   })
-  const iat = typeof token?.iat === "number" ? token.iat : null
   const nowSec = Math.floor(Date.now() / 1000)
-  if (iat == null || nowSec - iat > ENCRYPTION_RESET_MAX_SESSION_AGE_SEC) {
+  if (encryptionResetRequiresReauth(token?.iat, nowSec)) {
     return NextResponse.json(
       {
         error:
