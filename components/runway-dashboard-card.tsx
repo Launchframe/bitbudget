@@ -5,10 +5,10 @@ import { getCurrentMonthKey } from "@/lib/data"
 import { useRunway } from "@/lib/use-runway"
 import {
   checkupMonthName,
-  holdingsLookEmpty,
   isCheckupReady,
   isRunwayConfigured,
   runwayHeroDetail,
+  runwayHoldingStatus,
   RUNWAY_JUST_SETUP_KEY,
 } from "@/lib/runway-ui"
 import { refillStatus } from "@/lib/runway-refill"
@@ -22,7 +22,7 @@ import { ArrowRight, CalendarCheck, Plane } from "lucide-react"
  */
 export function RunwayDashboardCard() {
   const { navigateTo } = useApp()
-  const { plan, loading, error, compute, holdingsReady } = useRunway()
+  const { plan, loading, error, compute, holdingsReady, watchCount, btcPriceOrNull } = useRunway()
 
   const monthKey = getCurrentMonthKey()
   const configured = isRunwayConfigured(plan)
@@ -85,13 +85,20 @@ export function RunwayDashboardCard() {
     if (!comp) {
       detail = "Open your runway to see where you stand."
     } else {
+      const priceKnown = btcPriceOrNull != null && btcPriceOrNull > 0
+      const holdings = runwayHoldingStatus({
+        cashUsd: comp.need.cashUsd,
+        bitcoinSats: comp.need.spendableSats,
+        cashOverrideUsd: plan?.cashOverrideUsd ?? null,
+        bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
+        watchCount,
+        priceKnown,
+      })
       detail = runwayHeroDetail({
-        holdingsEmpty: holdingsLookEmpty({
-          cashUsd: comp.need.cashUsd,
-          bitcoinSats: comp.need.spendableSats,
-          cashOverrideUsd: plan?.cashOverrideUsd ?? null,
-          bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
-        }),
+        holdingsEmpty: holdings.holdingsEmpty,
+        cashUnset: holdings.cashUnset,
+        bitcoinUnset: holdings.bitcoinUnset,
+        bitcoinUnpriced: holdings.bitcoinUnpriced,
         underFloor: Boolean(refill?.underFloor),
         shortfallUsd: refill?.shortfallUsd ?? 0,
         projectedCashGapUsd: comp.gap.flat.cashGapUsd,
@@ -131,7 +138,7 @@ export function RunwayDashboardCard() {
             </span>
           )}
         </div>
-        <span className="text-sm text-foreground line-clamp-2">{detail}</span>
+        <span className="text-sm text-foreground break-words">{detail}</span>
       </div>
       <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 group-hover:text-[#F7931A] transition-colors" aria-hidden />
     </button>
