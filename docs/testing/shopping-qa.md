@@ -69,6 +69,7 @@ The fixed sign-in code is not available on staging. Use two real accounts with e
 - [ ] **Send join request** stays disabled until you enter a name.
 - [ ] After sending, a **compare code** (`xxxx-xxxx-xxxx-xxxx`) appears for the phone/in-person check (join secret came from the link).
 - [ ] Also check: opening the invite link while already signed in goes straight to Shopping with the banner.
+- [ ] Mid-join sign-out (e.g. Google → email) keeps the pending invite; after unlock, Shopping still shows the banner (or reopen the invite link once).
 
 ### 4. Approve (owner)
 
