@@ -56,7 +56,7 @@ function requiredSatsForUsd(usd: number, priceUsd: number): number {
     if (Math.abs(raw - nearest) <= 1e-6) return nearest
     return Math.ceil(raw)
   }
-  const sats = (BigInt(usdMicros) * BigInt(SATS_PER_BTC) + BigInt(priceMicros) - 1n) /
+  const sats = (BigInt(usdMicros) * BigInt(SATS_PER_BTC) + BigInt(priceMicros) - BigInt(1)) /
     BigInt(priceMicros)
   if (sats > BigInt(Number.MAX_SAFE_INTEGER)) return Infinity
   return Number(sats)
