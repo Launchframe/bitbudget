@@ -5,8 +5,7 @@
 
 import { prisma } from "@/lib/db"
 import { budgetOptInSequence } from "@/lib/shopping-budget-projection"
-import { isShoppingCiphertext } from "@/lib/shopping-crypto"
-import { isShoppingKeyFingerprint } from "@/lib/shopping-crypto"
+import { isShoppingCiphertext, isShoppingKeyFingerprint } from "@/lib/shopping-crypto"
 import { generateInviteToken, hashInviteToken } from "@/lib/shopping-invites"
 import {
   ShoppingRevisionConflictError,
@@ -16,6 +15,8 @@ import {
   shoppingEventWindowStart,
 } from "@/lib/shopping-sync"
 import {
+  SHOPPING_INVITE_HISTORY_CAP,
+  SHOPPING_INVITE_HISTORY_MS,
   SHOPPING_INVITE_TTL_MS,
   SHOPPING_MAX_ACTIVE_MEMBERS,
   SHOPPING_MAX_INVITES_PER_HOUR,
@@ -163,6 +164,43 @@ export async function createGroup(params: {
   })
 }
 
+/** Owner snapshot: always include actionable invites; cap recent terminal history. */
+export function mergeShoppingOwnerInvites<T extends { id: string; createdAt: Date }>(
+  actionable: T[],
+  history: T[],
+  historyCap = SHOPPING_INVITE_HISTORY_CAP,
+): T[] {
+  const byId = new Map<string, T>()
+  for (const row of actionable) byId.set(row.id, row)
+  const capped = [...history]
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, historyCap)
+  for (const row of capped) {
+    if (!byId.has(row.id)) byId.set(row.id, row)
+  }
+  return [...byId.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+}
+
+async function loadOwnerInvitesForSnapshot(groupId: string) {
+  const since = new Date(Date.now() - SHOPPING_INVITE_HISTORY_MS)
+  const [actionable, history] = await Promise.all([
+    prisma.shoppingInvite.findMany({
+      where: { groupId, status: { in: ["pending", "requested"] } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.shoppingInvite.findMany({
+      where: {
+        groupId,
+        status: { in: ["approved", "revoked", "rejected", "expired"] },
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: "desc" },
+      take: SHOPPING_INVITE_HISTORY_CAP,
+    }),
+  ])
+  return mergeShoppingOwnerInvites(actionable, history)
+}
+
 export async function getGroupSnapshot(groupId: string, userId: string) {
   const me = await requireActiveMember(groupId, userId)
   const eventWindowStart = shoppingEventWindowStart(me.group.eventSequence)
@@ -200,22 +238,7 @@ export async function getGroupSnapshot(groupId: string, userId: string) {
       where: { memberId: me.id },
       orderBy: { keyVersion: "desc" },
     }),
-    me.role === "owner"
-      ? prisma.shoppingInvite.findMany({
-          where: {
-            groupId,
-            OR: [
-              { status: { in: ["pending", "requested"] } },
-              {
-                status: { in: ["approved", "revoked", "rejected", "expired"] },
-                createdAt: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) },
-              },
-            ],
-          },
-          orderBy: { createdAt: "desc" },
-          take: 50,
-        })
-      : Promise.resolve([]),
+    me.role === "owner" ? loadOwnerInvitesForSnapshot(groupId) : Promise.resolve([]),
   ])
 
   return {
