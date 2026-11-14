@@ -485,11 +485,16 @@ export async function claimInvite(params: {
       throw new ShoppingHttpError("This invite link is incomplete or invalid", 400)
     }
   }
+  // First successful claimant wins. Concurrent racers cannot overwrite another
+  // user's pending request (status requested + different claimantUserId).
   const updated = await prisma.shoppingInvite.updateMany({
     where: {
       id: invite.id,
-      status: { in: ["pending", "requested"] },
       expiresAt: { gt: new Date() },
+      OR: [
+        { status: "pending" },
+        { status: "requested", claimantUserId: params.userId },
+      ],
       ...(invite.verificationCode
         ? { verificationCode: invite.verificationCode }
         : {}),
@@ -558,8 +563,27 @@ export async function approveInvite(params: {
     if (invite.claimantKeyFingerprint !== params.expectedFingerprint) {
       throw new ShoppingHttpError("The requester's key changed. Compare again before approving.", 409)
     }
+    const claimant = await tx.user.findUnique({
+      where: { id: invite.claimantUserId },
+      select: { publicKey: true },
+    })
+    if (
+      !claimant?.publicKey ||
+      claimant.publicKey !== invite.claimantPublicKey ||
+      !invite.claimantPublicKey
+    ) {
+      throw new ShoppingHttpError(
+        "The requester's key changed. Compare again before approving.",
+        409,
+      )
+    }
     const consumed = await tx.shoppingInvite.updateMany({
-      where: { id: invite.id, status: "requested" },
+      where: {
+        id: invite.id,
+        status: "requested",
+        claimantUserId: invite.claimantUserId,
+        claimantKeyFingerprint: params.expectedFingerprint,
+      },
       data: { status: "approved" },
     })
     if (consumed.count !== 1) {
