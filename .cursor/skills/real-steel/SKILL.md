@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Adversarial, sequential PR review: each model pass **reviews the branch**, **posts PR comments**, **implements valid fixes**, and **critiques prior passes**. Pit model intuition against model intuition.
 
-Read [AGENTS.md](../../../AGENTS.md) (privacy, tests, PR comment replies). Do **not** resolve review threads unless the maintainer asks.
+Read [AGENTS.md](../../../AGENTS.md) (especially **`## Agentic review focus`**), and [PRE_COMMIT_GATE.md](../../../PRE_COMMIT_GATE.md) for commit gates and the PR e2e stamp. Do **not** resolve review threads unless the maintainer asks.
 
 ## Worktree isolation
 
@@ -59,9 +59,9 @@ You coordinate; you do **not** skip passes or collapse them into one review.
 3. **Baseline** — note `origin/<base>...HEAD` diff after the merge, open/unresolved review threads (`gh api graphql`).
 4. **Run log (local only)** — append to `.cursor/real-steel/pr-<number>-<YYYYMMDD>.md` (create dir if needed): pass order, model, commits, comment URLs, findings, merge notes. **Do not commit run logs or review write-ups** — those belong on the PR via `gh`, not in the repo (see **Git and PR rules**).
 5. **For each pass in order** — launch a **Task** subagent (see below). **Wait for completion** before the next pass.
-6. **After each pass** — verify `pnpm lint` + scoped `pnpm test` (full suite before declaring done). Push if the pass committed (**regular push only** — never force-push).
-7. **Final summary** to the user: pass table, remaining risks, link to run log, CI status, merge/push status.
-8. **Apply `real-steel-ready` label** — once the full chain (including post-mortem) is complete and the post-mortem has been posted on the PR, apply the `real-steel-ready` label to the PR using `EditPullRequestLabels`. This signals to future agents that the PR has been through the full adversarial review gauntlet.
+6. **After each pass** — run every bash fence under **Gates** in [`PRE_COMMIT_GATE.md`](../../../PRE_COMMIT_GATE.md) (today: `pnpm lint`, then `pnpm test`). Do **not** run full e2e between passes. Push only if the gate passes (**regular push only** — never force-push).
+7. **Final summary** to the user: pass table, remaining risks, link to run log, CI status, merge/push status, and whether the PR **E2E stamp** (see `PRE_COMMIT_GATE.md`) is present for the tip SHA.
+8. **Apply `real-steel-ready` label** — once the full chain (including post-mortem) is complete, the post-mortem has been posted on the PR, pre-commit gates passed, **and** the PR has a passing **E2E stamp** for the tip SHA (CI preferred). This signals to future agents that the PR has been through the full adversarial review gauntlet.
 
 Pass subagents **sequentially**, never in parallel — each pass depends on the prior branch state.
 
@@ -105,11 +105,7 @@ If this model had no earlier pass in the chain, post-mortem is a normal final re
 
 ## Review focus (every pass)
 
-- Correctness, security, privacy (no plaintext secrets / decrypted data in logs)
-- AGENTS.md violations (ledger toggle, month-scoped "Remaining", encryption)
-- Missing tests for non-trivial `lib/` changes
-- Mobile layout (`min-w-0`, no horizontal page scroll)
-- Prior pass regressions or overfixes
+Apply **every** bullet under **`## Agentic review focus`** in root [`AGENTS.md`](../../../AGENTS.md). Also check prior-pass regressions or overfixes.
 
 Severity in comments: **Critical** / **Suggestion** / **Nit**.
 
@@ -166,7 +162,8 @@ Stop and report to the user if:
 - **Parallel passes** — later reviewers must see earlier commits
 - **Resolving PR threads** — maintainer grooms threads
 - **Mega-commit at end** — loses attribution per reviewer
-- **Skipping tests** — each pass that edits code runs lint + relevant tests
+- **Skipping the pre-commit gate** — each pass that edits code runs `PRE_COMMIT_GATE.md` Gates; do not invent alternate lint/test commands
+- **Requiring e2e on every commit** — e2e is a PR stamp, not a per-commit gate
 - **Soft-pedaling risks** — describing a known bug as "low-risk," "worth fixing later," or "fine for now" without immediately fixing it. If you found it, fix it this pass or explain why you cannot. Deferral without justification is a review miss, not a deliberate call.
 - **Rebasing or force-pushing** — rewriting history then `push --force` / `--force-with-lease` destroys remote feature-branch commits that local did not have
 - **Skipping `real-steel-ready` label** — forgetting to apply the label after a complete chain leaves the PR indistinguishable from one that has never been reviewed

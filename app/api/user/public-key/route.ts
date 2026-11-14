@@ -1,5 +1,9 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
+import {
+  isPublicKeyHex,
+  verifyPublicKeyPossession,
+} from "@/lib/public-key-possession"
 import { NextResponse } from "next/server"
 
 export async function GET() {
@@ -22,9 +26,37 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const { publicKey } = await req.json()
-  if (!publicKey || typeof publicKey !== "string") {
-    return NextResponse.json({ error: "publicKey is required" }, { status: 400 })
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
+  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {}
+  const publicKey = record.publicKey
+  const challengeToken = record.challengeToken
+  const challenge = record.challenge
+
+  if (!isPublicKeyHex(publicKey)) {
+    return NextResponse.json({ error: "publicKey must be a 64-char hex string" }, { status: 400 })
+  }
+  if (typeof challengeToken !== "string" || typeof challenge !== "string") {
+    return NextResponse.json(
+      { error: "Proof of key possession is required", code: "PROOF_REQUIRED" },
+      { status: 400 },
+    )
+  }
+  if (
+    !verifyPublicKeyPossession({
+      publicKeyHex: publicKey,
+      challengeToken,
+      challenge,
+    })
+  ) {
+    return NextResponse.json(
+      { error: "Could not verify possession of this key", code: "PROOF_INVALID" },
+      { status: 403 },
+    )
   }
 
   await prisma.user.update({
