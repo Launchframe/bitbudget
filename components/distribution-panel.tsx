@@ -51,12 +51,15 @@ function distributionErrorMessage(
   }
 }
 
+/** First option is the default — always valid for positive income when envelopes have allotments. */
 const BEHAVIOR_OPTIONS: { value: DistributionBehavior; label: string }[] = [
+  { value: "split_income_proportional", label: "Split by budget size" },
   { value: "set_to_budget", label: "Set to budget amount" },
   { value: "add_budget", label: "Add full budget amount" },
-  { value: "split_income_proportional", label: "Split by budget size" },
   { value: "custom", label: "Choose amounts" },
 ]
+
+const DEFAULT_DISTRIBUTION_BEHAVIOR = BEHAVIOR_OPTIONS[0]!.value
 
 export interface DistributionPanelConfig {
   distributionBehavior: DistributionBehavior
@@ -85,7 +88,7 @@ export function DistributionPanel({
   const savingsEnv = findSavingsEnvelope(activeEnvelopes)
   const savingsBal = savingsBalance(activeTransactions, savingsEnv)
 
-  const [behavior, setBehavior] = useState<DistributionBehavior>("set_to_budget")
+  const [behavior, setBehavior] = useState<DistributionBehavior>(DEFAULT_DISTRIBUTION_BEHAVIOR)
   const [fundOverage, setFundOverage] = useState(false)
   const [customByEnvelopeId, setCustomByEnvelopeId] = useState<Record<string, number>>({})
   const [manuallySetEnvelopes, setManuallySetEnvelopes] = useState<Set<string>>(() => new Set())
@@ -394,7 +397,7 @@ export function DistributionPanel({
           </div>
           {savingsBal <= 0 ? (
             <p className="text-xs text-muted-foreground">
-              Add money to Savings first to cover fills larger than this income amount.
+              Put some money into Savings first to cover future overages.
             </p>
           ) : null}
         </div>

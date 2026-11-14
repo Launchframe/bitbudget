@@ -18,7 +18,6 @@ import {
   savingsBalance,
   sumEnvelopeSweepCreditsYear,
   type SavingsGoalRow,
-  goalProgressRingColor,
 } from "@/lib/savings-ui-metrics"
 import {
   formatSavingsSinceLabel,
@@ -37,6 +36,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Input } from "@/components/ui/input"
+import { GoalProgressRing } from "@/components/goal-progress-ring"
 import {
   ArrowRight,
   Flame,
@@ -49,41 +49,6 @@ import {
 interface UserAchievement {
   code: string
   earnedAt: string
-}
-
-function GoalProgressRing({ progress }: { progress: number }) {
-  const pct = Math.min(1, Math.max(0, progress))
-  const radius = 36
-  const circumference = 2 * Math.PI * radius
-  const offset = circumference * (1 - pct)
-  const ringColor = goalProgressRingColor(pct)
-
-  return (
-    <div className="relative w-20 h-20 shrink-0" aria-label={`Goal progress ${Math.round(pct * 100)}%`}>
-      <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
-        <circle cx="40" cy="40" r={radius} fill="none" stroke="#1F1F1F" strokeWidth="6" />
-        <circle
-          cx="40"
-          cy="40"
-          r={radius}
-          fill="none"
-          stroke={ringColor}
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          className="transition-[stroke] duration-300"
-        />
-      </svg>
-      <span
-        className={`absolute inset-0 flex items-center justify-center text-xs font-semibold ${
-          pct <= 0 ? "text-muted-foreground" : "text-foreground"
-        }`}
-      >
-        {Math.round(pct * 100)}%
-      </span>
-    </div>
-  )
 }
 
 function Sparkline({ values }: { values: number[] }) {

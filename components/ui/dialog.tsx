@@ -51,19 +51,23 @@ function DialogContent({
   children,
   showCloseButton = true,
   invisible = false,
+  forceMount,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
   /** When true, overlay and content are visually hidden (e.g. for trigger-only flows like file picker). */
   invisible?: boolean
+  /** Keep overlay/content mounted (avoids first-open portal mount glitches). */
+  forceMount?: boolean
 }) {
   return (
-    <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay className={cn(invisible && "opacity-0")} />
+    <DialogPortal data-slot="dialog-portal" forceMount={forceMount}>
+      <DialogOverlay forceMount={forceMount} className={cn(invisible && "opacity-0")} />
       <DialogPrimitive.Content
+        forceMount={forceMount}
         data-slot="dialog-content"
         className={cn(
-          'bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg',
+          'bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[51] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg',
           /* Let clicks reach the overlay so the dialog can close if the user cancels a trigger (e.g. file picker). */
           invisible && "invisible pointer-events-none",
           className,

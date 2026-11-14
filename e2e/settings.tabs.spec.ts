@@ -75,4 +75,33 @@ test.describe("Settings mobile layout @mobile", () => {
     const clientWidth = await page.evaluate(() => document.documentElement.clientWidth)
     expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 2)
   })
+
+  test("mobile subnav dropdown switches tabs", async ({ page, baseURL }) => {
+    const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
+    await signInAppUser(page, origin, E2E_APP_USER_EMAIL)
+    await page.goto(`${origin}/#/settings/general`)
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 30_000 })
+    await page.getByRole("button", { name: "Settings section menu" }).click()
+    await page.getByRole("menuitem", { name: "Communications" }).click()
+    await expect(page.getByRole("heading", { name: "Communication Preferences" })).toBeVisible({
+      timeout: 15_000,
+    })
+  })
+
+  test("card layout stack toggle persists", async ({ page, baseURL }) => {
+    const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
+    await signInAppUser(page, origin, E2E_APP_USER_EMAIL)
+    await page.goto(`${origin}/#/settings/general`)
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 30_000 })
+    await page.getByRole("button", { name: "Stack", exact: true }).click()
+    await expect(page.getByRole("button", { name: "Stack", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+    await page.reload()
+    await expect(page.getByRole("button", { name: "Stack", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+  })
 })

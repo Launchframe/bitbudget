@@ -169,6 +169,27 @@ test.describe("Income overhaul — UI", () => {
     expect(fundingLegs).toBe(0)
   })
 
+  test("extra income envelope fill defaults to Split by budget size", async ({ page, baseURL }) => {
+    const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
+    await resetIncomeOverhaulUserData(E2E_INCOME_OVERHAUL_EMAIL)
+    await signInIncomeOverhaulUser(page, origin, E2E_INCOME_OVERHAUL_EMAIL)
+    await openEnvelopesPage(page, origin)
+
+    await openIrregularIncomeDialog(page)
+    await fillIrregularIncomeDetails(page, { amount: "500", payee: "E2E Side Gig" })
+    await page.getByRole("button", { name: "Next" }).click()
+
+    await page.getByRole("radio", { name: /Fill envelopes now/i }).check()
+    await expect(page.getByRole("button", { name: "Split by budget size" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+    await expect(page.getByRole("button", { name: "Set to budget amount" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    )
+  })
+
   test("extra income distribution fills envelopes from income pool", async ({ page, baseURL }) => {
     const origin = baseURL?.replace(/\/$/, "") ?? "http://127.0.0.1:3100"
     await resetIncomeOverhaulUserData(E2E_INCOME_OVERHAUL_EMAIL)
