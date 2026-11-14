@@ -93,7 +93,7 @@ Not every `Transaction` row belongs in every feed. Ledger funding creates **batc
 5. If delete semantics apply, extend **`shouldCascadeDeleteFundingBatch`** / server delete and the confirm dialog copy.
 6. Run dashboard + Transactions manually after changes — funding legs are the most common source of chart spikes and orphan rows.
 
-**`csv_import` source:** CSV imports create plain user-facing rows (`source: "csv_import"`, `excludeFromMainHistory: false`, no `fundingBatchId`). They count in main history, envelope lists, spend analytics, and cash flow like any manual expense/credit.
+**`csv_import` source:** CSV imports create plain user-facing rows (`source: "csv_import"`, `excludeFromMainHistory: false`, no `fundingBatchId`). They count in main history, envelope lists, spend analytics, and cash flow like any manual expense/credit. Statement files (`lib/statement-csv.ts`) accept Fold, Chase checking (`Posting Date` / `Amount` / `Type`, including ACH and check rows), and Coinbase history. Coinbase files may put the header below a short title block. Coinbase buys, sells, and coin transfers are counted as `ignoredTrades` and are not imported as spending or income.
 
 ### CSV import: chunking + privacy-preserving idempotency
 
