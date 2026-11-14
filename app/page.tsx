@@ -116,7 +116,25 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
 }
 
 function EncryptionGate({ children }: { children: React.ReactNode }) {
-  const { encryption, unlockWithKey, logout } = useApp()
+  const { encryption, unlockWithKey, logout, clearLocalTransactionCache, refreshData } = useApp()
+  const [needsPassphraseSetup, setNeedsPassphraseSetup] = useState(false)
+
+  if (needsPassphraseSetup) {
+    return (
+      <PinUnlockDialog
+        encryptedPrivacyKey=""
+        privacyKeySalt=""
+        needsPassphraseSetup
+        onUnlock={unlockWithKey}
+        onPassphraseSetupComplete={(key) => {
+          setNeedsPassphraseSetup(false)
+          unlockWithKey(key)
+          void refreshData()
+        }}
+        onLogout={logout}
+      />
+    )
+  }
 
   if (encryption.needsPinUnlock && encryption.encryptedPrivacyKey && encryption.privacyKeySalt) {
     return (
@@ -125,6 +143,8 @@ function EncryptionGate({ children }: { children: React.ReactNode }) {
         privacyKeySalt={encryption.privacyKeySalt}
         onUnlock={unlockWithKey}
         onLogout={logout}
+        clearLocalTransactionCache={clearLocalTransactionCache}
+        onDestructiveResetComplete={() => setNeedsPassphraseSetup(true)}
       />
     )
   }
