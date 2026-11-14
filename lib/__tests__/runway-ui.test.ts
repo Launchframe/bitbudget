@@ -362,11 +362,115 @@ describe("runway glance copy", () => {
         bitcoinOverrideSats: 0,
       }),
     ).toBe(false)
+    expect(
+      holdingsLookEmpty({
+        cashUsd: 0,
+        bitcoinSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        watchCount: 1,
+      }),
+    ).toBe(false)
+    expect(
+      shouldPromptHoldings({
+        envelopeCashUsd: 0,
+        walletSats: 0,
+        cashOverrideUsd: null,
+        bitcoinOverrideSats: null,
+        watchCount: 1,
+      }),
+    ).toBe(true)
+  })
+
+  it("asks for the unanswered side instead of quoting a shortfall", () => {
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        cashUnset: true,
+        bitcoinUnset: false,
+        underFloor: true,
+        shortfallUsd: 25000,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: 0,
+        ...buildup,
+      }),
+    ).toBe("Add the cash you have today so the cushion is real.")
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        cashUnset: false,
+        bitcoinUnset: true,
+        underFloor: true,
+        shortfallUsd: 25000,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: 0,
+        ...buildup,
+      }),
+    ).toBe("Add the bitcoin you have today so this number includes it.")
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        cashUnset: false,
+        bitcoinUnset: false,
+        underFloor: true,
+        shortfallUsd: 25000,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: 0,
+        ...buildup,
+      }),
+    ).toBe("Your cash cushion is $25,000 short today.")
+    expect(
+      runwayMonthsHeadline(0, { bitcoinUnpriced: true }),
+    ).toBe("Waiting on a bitcoin price")
+    expect(
+      runwayPrimaryAction({
+        holdingsEmpty: false,
+        cashUnset: true,
+        underFloor: true,
+      }),
+    ).toBe("add_holdings")
+    expect(
+      runwayHeroDetail({
+        holdingsEmpty: false,
+        cashUnset: false,
+        bitcoinUnset: false,
+        bitcoinUnpriced: true,
+        underFloor: true,
+        shortfallUsd: 25000,
+        projectedCashGapUsd: 0,
+        projectedBitcoinGapUsd: Number.POSITIVE_INFINITY,
+        ...buildup,
+      }),
+    ).toBe("Waiting on a bitcoin price")
+    expect(
+      runwayPrimaryAction({
+        holdingsEmpty: false,
+        bitcoinUnpriced: true,
+        underFloor: true,
+      }),
+    ).toBe("none")
+    expect(
+      runwayPrimaryAction({
+        holdingsEmpty: false,
+        cashUnset: true,
+        bitcoinUnpriced: true,
+        underFloor: true,
+      }),
+    ).toBe("add_holdings")
+    expect(
+      runwayPrimaryAction({
+        holdingsEmpty: false,
+        underFloor: true,
+      }),
+    ).toBe("refill_cushion")
   })
 
   it("headlines months left, or a prompt when the plan has no draw", () => {
     expect(runwayMonthsHeadline(19.2)).toBe("About 19 months")
     expect(runwayMonthsHeadline(0.2)).toBe("Under a month")
+    expect(runwayMonthsHeadline(0)).toBe("Under a month")
+    expect(runwayMonthsHeadline(0, { holdingsEmpty: true })).toBe("Add your numbers")
+    expect(runwayMonthsHeadline(0.2, { bitcoinUnpriced: true })).toBe("Waiting on a bitcoin price")
     expect(runwayMonthsHeadline(null)).toBe("Add your numbers")
     expect(runwayMonthsHeadline(Number.POSITIVE_INFINITY)).toBe("Add your numbers")
     expect(runwayMonthsHeadline(0, { holdingsEmpty: true })).toBe("Add your numbers")
