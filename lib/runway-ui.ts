@@ -279,8 +279,11 @@ export function runwayPrimaryAction(input: {
   underFloor: boolean
   cashUnset?: boolean
   bitcoinUnset?: boolean
+  /** Sats are on hand but there is no spot price, so a refill would be guesswork. */
+  bitcoinUnpriced?: boolean
 }): RunwayPrimaryAction {
   if (input.holdingsEmpty || input.cashUnset || input.bitcoinUnset) return "add_holdings"
+  if (input.bitcoinUnpriced) return "none"
   if (input.underFloor) return "refill_cushion"
   return "none"
 }
@@ -365,6 +368,8 @@ export function runwayHeroDetail(input: {
   cashUnset?: boolean
   /** Bitcoin was never entered and no wallet is watched. */
   bitcoinUnset?: boolean
+  /** Sats are known, but a missing spot price would value them at $0. */
+  bitcoinUnpriced?: boolean
 }): string {
   if (input.holdingsEmpty || (input.cashUnset && input.bitcoinUnset)) {
     return "Add the cash and bitcoin you have today so this number means something."
@@ -374,6 +379,9 @@ export function runwayHeroDetail(input: {
   }
   if (input.bitcoinUnset) {
     return "Add the bitcoin you have today so this number includes it."
+  }
+  if (input.bitcoinUnpriced) {
+    return "Waiting on a bitcoin price"
   }
   if (input.underFloor) {
     return `Your cash cushion is ${formatUsd(input.shortfallUsd)} short today.`

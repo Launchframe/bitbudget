@@ -22,7 +22,7 @@ import { ArrowRight, CalendarCheck, Plane } from "lucide-react"
  */
 export function RunwayDashboardCard() {
   const { navigateTo } = useApp()
-  const { plan, loading, error, compute, holdingsReady, watchCount } = useRunway()
+  const { plan, loading, error, compute, holdingsReady, watchCount, btcPriceOrNull } = useRunway()
 
   const monthKey = getCurrentMonthKey()
   const configured = isRunwayConfigured(plan)
@@ -92,10 +92,18 @@ export function RunwayDashboardCard() {
         bitcoinOverrideSats: plan?.bitcoinOverrideSats ?? null,
         watchCount,
       })
+      const priceKnown = btcPriceOrNull != null && btcPriceOrNull > 0
+      const bitcoinUnpriced =
+        !holdings.holdingsEmpty &&
+        !holdings.cashUnset &&
+        !holdings.bitcoinUnset &&
+        !priceKnown &&
+        comp.need.spendableSats > 0
       detail = runwayHeroDetail({
         holdingsEmpty: holdings.holdingsEmpty,
         cashUnset: holdings.cashUnset,
         bitcoinUnset: holdings.bitcoinUnset,
+        bitcoinUnpriced,
         underFloor: Boolean(refill?.underFloor),
         shortfallUsd: refill?.shortfallUsd ?? 0,
         projectedCashGapUsd: comp.gap.flat.cashGapUsd,

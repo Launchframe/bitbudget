@@ -447,10 +447,13 @@ export function RunwayPage() {
   const openSales = pendingSales.filter(
     (s) => s.status === "sent" || s.status === "cash_on_the_way",
   )
+  const bitcoinUnpriced =
+    !holdingsEmpty && !cashUnset && !bitcoinUnset && !priceKnown && bitcoinSats > 0
   const primary = runwayPrimaryAction({
     holdingsEmpty,
     cashUnset,
     bitcoinUnset,
+    bitcoinUnpriced,
     underFloor: Boolean(refill?.underFloor),
   })
   const heroDetail =
@@ -459,6 +462,7 @@ export function RunwayPage() {
           holdingsEmpty,
           cashUnset,
           bitcoinUnset,
+          bitcoinUnpriced,
           underFloor: Boolean(refill?.underFloor),
           shortfallUsd: refill?.shortfallUsd ?? 0,
           projectedCashGapUsd: gap.flat.cashGapUsd,
@@ -468,7 +472,7 @@ export function RunwayPage() {
       : ""
   const headline = runwayMonthsHeadline(need?.monthsLeft ?? null, {
     holdingsEmpty,
-    bitcoinUnpriced: !holdingsEmpty && !priceKnown && bitcoinSats > 0,
+    bitcoinUnpriced,
   })
   const openLoans = loans.filter((l) => l.status === "open")
 
