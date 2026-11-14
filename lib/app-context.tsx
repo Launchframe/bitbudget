@@ -51,7 +51,7 @@ import {
 } from "@/lib/privacy-key-storage"
 import { clearAllDrafts } from "@/lib/draft-storage"
 import { clearShoppingCache } from "@/lib/shopping-cache"
-import { clearPendingShoppingInvite, loadPendingShoppingInvite } from "@/lib/shopping-invite-handoff"
+import { loadPendingShoppingInvite } from "@/lib/shopping-invite-handoff"
 import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 import {
   type ApiTransactionRow,
@@ -1582,7 +1582,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       sessionStorage.removeItem("bitbudget-survey-shown")
       sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
       clearAllDrafts()
-      clearPendingShoppingInvite()
+      // Pending shopping invite survives logout (localStorage handoff) so Google ↔ email switches mid-join keep working.
     } catch {
       /* ignore */
     }

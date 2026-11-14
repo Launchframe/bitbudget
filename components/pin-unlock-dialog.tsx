@@ -56,8 +56,9 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
             </div>
             <h2 className="text-xl font-bold text-foreground">Unlock Your Data</h2>
             <p className="text-sm text-muted-foreground text-center">
-              Enter your passphrase to decrypt your transaction data. For your security, you may be asked to enter it
-              again later on this device.
+              Enter the <strong className="font-medium text-foreground">BitBudget passphrase</strong> you chose when
+              you secured your data — not your Google, Apple, or email password. You may be asked again later on this
+              device.
             </p>
           </div>
 
@@ -70,12 +71,12 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label className="text-muted-foreground text-xs uppercase tracking-wider">Passphrase</Label>
+              <Label className="text-muted-foreground text-xs uppercase tracking-wider">BitBudget passphrase</Label>
               <Input
                 type="password"
                 value={pin}
                 onChange={e => setPin(e.target.value)}
-                placeholder="Enter your passphrase"
+                placeholder="BitBudget passphrase (not Google password)"
                 className="bg-[#1A1A1A] border-[#333] text-foreground placeholder:text-[#555]"
                 autoFocus
               />
@@ -101,7 +102,9 @@ export function PinUnlockDialog({ encryptedPrivacyKey, privacyKeySalt, onUnlock,
         )}
 
         <p className="text-xs text-muted-foreground text-center max-w-sm">
-          Your data is encrypted end-to-end. This passphrase never leaves your device.
+          Your data is encrypted end-to-end. This passphrase never leaves your device. If you signed in with Google and
+          never finished setup, sign out and complete <span className="text-foreground">Secure Your Data</span> first —
+          or reopen your shopping invite link after unlocking.
         </p>
       </div>
     </div>
