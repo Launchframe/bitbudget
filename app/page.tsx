@@ -178,7 +178,10 @@ function EncryptionGate({ children }: { children: React.ReactNode }) {
 function BtcPriceShell({ children }: { children: React.ReactNode }) {
   const { state } = useApp()
   return (
-    <BtcPriceProvider enabled={state.opportunityCostEnabled}>
+    <BtcPriceProvider
+      enabled={state.opportunityCostEnabled}
+      referenceAsset={state.referenceAsset}
+    >
       {children}
     </BtcPriceProvider>
   )

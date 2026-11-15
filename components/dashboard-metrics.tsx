@@ -29,7 +29,8 @@ export function DashboardMetrics() {
     accountCreatedAtIso,
     onboardingCompletedAtIso,
   } = useApp()
-  const { currentPrice, satsPerDollar } = useBtcPrices()
+  const { currentPrice, satsPerDollar, referenceAsset } = useBtcPrices()
+  const priceTicker = referenceAsset === "xbt" ? "XBT" : "BTC"
   const ocEnabled = state.opportunityCostEnabled
   const savingsEngaged = state.savingsExperience !== SAVINGS_EXPERIENCE_DISMISSED
 
@@ -112,7 +113,7 @@ export function DashboardMetrics() {
 
   const btcMetrics = [
     {
-      label: "BTC Price",
+      label: `${priceTicker} Price`,
       value: currentPrice ? formatUsd(currentPrice) : "—",
       icon: Bitcoin,
       color: "#F7931A",

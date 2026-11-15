@@ -32,7 +32,9 @@ interface EnrichedTransaction extends Transaction {
 
 export function TopOpportunityCosts() {
   const { activeTransactions, state } = useApp()
-  const { calculateOpportunityCost, getPriceOnDate, currentPrice } = useBtcPrices()
+  const { calculateOpportunityCost, getPriceOnDate, currentPrice, referenceAsset } = useBtcPrices()
+  const priceTicker = referenceAsset === "xbt" ? "XBT" : "BTC"
+  const coinUnit = state.btcDisplayUnit === "btc" ? priceTicker : "Sats"
   const [selectedTxn, setSelectedTxn] = useState<EnrichedTransaction | null>(null)
 
   const chartMode = useSyncExternalStore(
@@ -127,9 +129,9 @@ export function TopOpportunityCosts() {
               <th className="pb-3 text-left font-medium">Payee</th>
               <th className="pb-3 text-left font-medium hidden sm:table-cell">Date</th>
               <th className="pb-3 text-right font-medium">{savingsMode ? "Saved" : "Spent"}</th>
-              <th className="pb-3 text-right font-medium hidden md:table-cell">BTC Price</th>
-              <th className="pb-3 text-right font-medium hidden lg:table-cell">{state.btcDisplayUnit === "btc" ? "BTC" : "Sats"} Equiv.</th>
-              <th className="pb-3 text-right font-medium pr-2">BTC Value Today</th>
+              <th className="pb-3 text-right font-medium hidden md:table-cell">{priceTicker} Price</th>
+              <th className="pb-3 text-right font-medium hidden lg:table-cell">{coinUnit} Equiv.</th>
+              <th className="pb-3 text-right font-medium pr-2">{priceTicker} Value Today</th>
               {!savingsMode && (
                 <th className="hidden sm:table-cell pb-3 text-right font-medium pr-2 rounded-r-xl">Opp. Cost</th>
               )}
