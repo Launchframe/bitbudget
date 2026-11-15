@@ -1,7 +1,9 @@
 "use client"
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react"
-import { transactionCalendarDay } from "@/lib/transaction-dates"
+import type { ReferenceAsset } from "@/lib/reference-asset"
+import { DEFAULT_REFERENCE_ASSET } from "@/lib/reference-asset"
+import { priceOnDateFromHistory } from "@/lib/reference-price-lookup"
 
 interface BtcPricePoint {
   date: string
@@ -16,6 +18,10 @@ interface BtcPriceContextValue {
   satsPerDollar: number
   loading: boolean
   backfillStatus: "idle" | "in_progress" | "complete" | "error"
+  /** Active Bitcoin ticker for charts / compact labels. */
+  referenceAsset: ReferenceAsset
+  /** Axis / badge pair, e.g. BTC/USD or XBT/USD. */
+  pricePairLabel: string
 }
 
 const BtcPriceContext = createContext<BtcPriceContextValue | null>(null)
@@ -26,8 +32,14 @@ const NOOP_PRICES: BtcPriceContextValue = {
   satsPerDollar: 0,
   loading: false,
   backfillStatus: "idle",
+  referenceAsset: DEFAULT_REFERENCE_ASSET,
+  pricePairLabel: "BTC/USD",
   getPriceOnDate: () => 0,
   calculateOpportunityCost: () => 0,
+}
+
+function pricePairLabelFor(asset: ReferenceAsset): string {
+  return asset === "xbt" ? "XBT/USD" : "BTC/USD"
 }
 
 /**
@@ -69,10 +81,13 @@ function buildSortedHistory(prices: Record<string, number>): BtcPricePoint[] {
 export function BtcPriceProvider({
   children,
   enabled,
+  referenceAsset = DEFAULT_REFERENCE_ASSET,
 }: {
   children: React.ReactNode
-  /** When false, no BTC API calls; subtree stays mounted when toggling OC in Settings. */
+  /** When false, no price API calls; subtree stays mounted when toggling OC in Settings. */
   enabled: boolean
+  /** Which Bitcoin ticker series to load (btc → CoinGecko cache, xbt → Neoxa cache). */
+  referenceAsset?: ReferenceAsset
 }) {
   const [currentPrice, setCurrentPrice] = useState<number | null>(null)
   const [priceMap, setPriceMap] = useState<Record<string, number>>({})
@@ -83,11 +98,13 @@ export function BtcPriceProvider({
   const backfillStarted = useRef(false)
   const enabledRef = useRef(enabled)
   enabledRef.current = enabled
+  const assetRef = useRef(referenceAsset)
+  assetRef.current = referenceAsset
 
   useEffect(() => {
     if (!enabled) {
-      // When disabled, stop loading and clear BTC-related state so we don't
-      // expose stale opportunity-cost data or skip future fetches.
+      // When disabled, stop loading and clear series so we don't expose stale
+      // opportunity-cost data or skip future fetches.
       setLoading(false)
       setCurrentPrice(null)
       setPriceMap({})
@@ -97,31 +114,44 @@ export function BtcPriceProvider({
       backfillStarted.current = false
       return
     }
-    if (fetched.current) {
-      setLoading(false)
-      return
-    }
-    fetched.current = true
+
+    // Reset when the ticker changes so we don't mix BTC and XBT closes.
+    fetched.current = false
+    backfillStarted.current = false
+    setCurrentPrice(null)
+    setPriceMap({})
+    setPriceHistory([])
+    setBackfillStatus("idle")
     setLoading(true)
+    fetched.current = true
+
+    const asset = referenceAsset
+    const historyUrl =
+      asset === "xbt" ? "/api/xbt-price?days=365" : "/api/btc-price?days=365"
 
     async function load() {
       try {
-        const res = await fetch("/api/btc-price?days=365")
-        if (!enabledRef.current) return
+        const res = await fetch(historyUrl)
+        if (!enabledRef.current || assetRef.current !== asset) return
         if (!res.ok) throw new Error(`API returned ${res.status}`)
 
         const data = await res.json()
-        if (!enabledRef.current) return
+        if (!enabledRef.current || assetRef.current !== asset) return
         const prices: Record<string, number> = data.prices ?? {}
-        const current: number = data.currentPrice
+        const current: number | null =
+          typeof data.currentPrice === "number"
+            ? data.currentPrice
+            : typeof data.price === "number"
+              ? data.price
+              : null
 
         if (current) setCurrentPrice(current)
-        if (!enabledRef.current) return
+        if (!enabledRef.current || assetRef.current !== asset) return
 
         if (Object.keys(prices).length > 0) {
           setPriceMap(prices)
           setPriceHistory(buildSortedHistory(prices))
-          if (!enabledRef.current) return
+          if (!enabledRef.current || assetRef.current !== asset) return
           if (!current) {
             const sorted = buildSortedHistory(prices)
             if (sorted.length > 0) setCurrentPrice(sorted[sorted.length - 1].price)
@@ -130,16 +160,16 @@ export function BtcPriceProvider({
       } catch (err) {
         console.error("[BtcPriceProvider] Failed to load price data:", err)
       } finally {
-        if (enabledRef.current) setLoading(false)
+        if (enabledRef.current && assetRef.current === asset) setLoading(false)
       }
     }
 
     load()
-  }, [enabled])
+  }, [enabled, referenceAsset])
 
-  // Background backfill: progressively fetch older data from CoinCap
+  // Background backfill: BTC only (CoinCap). XBT history comes from Neoxa on the GET.
   useEffect(() => {
-    if (!enabled || loading || backfillStarted.current) return
+    if (!enabled || referenceAsset !== "btc" || loading || backfillStarted.current) return
     backfillStarted.current = true
 
     async function runBackfill() {
@@ -149,7 +179,7 @@ export function BtcPriceProvider({
 
       let backfillDone = false
       while (!backfillDone) {
-        if (!enabledRef.current) {
+        if (!enabledRef.current || assetRef.current !== "btc") {
           setBackfillStatus("idle")
           break
         }
@@ -194,27 +224,20 @@ export function BtcPriceProvider({
     }
 
     runBackfill()
-  }, [enabled, loading])
+  }, [enabled, loading, referenceAsset])
+
+  const allowBeforeFirst = referenceAsset === "btc"
 
   const getPriceOnDate = useCallback(
-    (date: string): number => {
-      const d = transactionCalendarDay(date)
-      if (priceMap[d]) return priceMap[d]
-
-      let closest = priceHistory[0]?.price ?? currentPrice ?? 0
-      for (const point of priceHistory) {
-        if (point.date <= d) closest = point.price
-        else break
-      }
-      return closest
-    },
-    [priceMap, priceHistory, currentPrice],
+    (date: string): number =>
+      priceOnDateFromHistory(date, priceMap, priceHistory, currentPrice, { allowBeforeFirst }),
+    [priceMap, priceHistory, currentPrice, allowBeforeFirst],
   )
 
   /**
    * @param amount - the amount spent
    * @param date - the date of the transaction
-   * @returns the $ amount increase in position USD value if the equivalent BTC was still held today
+   * @returns the $ amount increase in position USD value if the equivalent Bitcoin was still held today
    */
   const calculateOpportunityCost = useCallback(
     (amount: number, date: string): number => {
@@ -227,6 +250,7 @@ export function BtcPriceProvider({
   )
 
   const satsPerDollar = currentPrice ? Math.round(100_000_000 / currentPrice) : 0
+  const pricePairLabel = pricePairLabelFor(referenceAsset)
 
   return (
     <BtcPriceContext.Provider
@@ -238,6 +262,8 @@ export function BtcPriceProvider({
         satsPerDollar,
         loading,
         backfillStatus,
+        referenceAsset,
+        pricePairLabel,
       }}
     >
       {children}

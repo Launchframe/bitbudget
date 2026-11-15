@@ -9,7 +9,7 @@ import { VoiceDictationButton } from "@/components/voice-dictation-button"
 import { PremiumLockedLabel } from "@/components/premium-locked-label"
 import { PREMIUM_UI_COPY } from "@/lib/premium-ui-copy"
 
-const navItems: { id: PageId; label: string; icon: React.ElementType }[] = [
+const baseNavItems: { id: PageId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "DASHBOARD", icon: LayoutDashboard },
   { id: "transactions", label: "TRANSACTIONS", icon: List },
   { id: "shopping", label: "SHOPPING", icon: ShoppingBasket },
@@ -25,6 +25,10 @@ export function Sidebar() {
   const { currentPage, navigateTo, openNewTransaction, logout, state, pendingCount, isAdmin, hasPremiumFeatures } =
     useApp()
   const [scanOpen, setScanOpen] = useState(false)
+  const priceTicker = state.referenceAsset === "xbt" ? "XBT" : "BTC"
+  const navItems = baseNavItems.map((item) =>
+    item.id === "btc-price" ? { ...item, label: priceTicker } : item,
+  )
 
   return (
     <aside className="sticky top-24 h-[calc(100vh-8rem)] w-16 lg:w-64 bg-[#0D0D0D] rounded-2xl hidden md:flex flex-col py-8 px-3 lg:px-8 overflow-y-auto">

@@ -37,7 +37,7 @@ export function BtcPriceChart() {
   const [startDate, setStartDate] = useState(() => getStartDateForRange("12m"))
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0])
 
-  const { priceHistory, backfillStatus } = useBtcPrices()
+  const { priceHistory, backfillStatus, pricePairLabel } = useBtcPrices()
 
   const selectRange = useCallback((key: RangeKey) => {
     setActiveRange(key)
@@ -77,14 +77,16 @@ export function BtcPriceChart() {
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold text-foreground">BTC Price</h2>
+            <h2 className="text-xl font-semibold text-foreground">Bitcoin Price</h2>
             <span className="text-sm text-muted-foreground px-2 py-0.5 bg-[#1A1A1A] rounded-full">
-              {showSats ? "Sats/$" : "BTC/USD"}
+              {showSats ? "Sats/$" : pricePairLabel}
             </span>
           </div>
 
           <div className="flex items-center gap-2">
-            <Label htmlFor="sats-toggle" className="text-xs text-muted-foreground cursor-pointer">BTC/USD</Label>
+            <Label htmlFor="sats-toggle" className="text-xs text-muted-foreground cursor-pointer">
+              {pricePairLabel}
+            </Label>
             <Switch
               id="sats-toggle"
               checked={showSats}

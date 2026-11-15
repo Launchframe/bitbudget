@@ -653,7 +653,17 @@ export function TransactionsPage({ scopedEnvelopeId }: { scopedEnvelopeId?: stri
                 <th className="py-3 px-4 text-left font-medium hidden md:table-cell">Envelope</th>
                 <th className="py-3 px-4 text-left font-medium hidden sm:table-cell">Type</th>
                 <th className="py-3 px-4 text-right font-medium">Amount (USD)</th>
-                {state.opportunityCostEnabled && <th className="py-3 px-4 text-right font-medium hidden md:table-cell">Amount ({state.btcDisplayUnit === "sats" ? "sats" : "BTC"})</th>}
+                {state.opportunityCostEnabled && (
+                  <th className="py-3 px-4 text-right font-medium hidden md:table-cell">
+                    Amount (
+                    {state.btcDisplayUnit === "sats"
+                      ? "sats"
+                      : state.referenceAsset === "xbt"
+                        ? "XBT"
+                        : "BTC"}
+                    )
+                  </th>
+                )}
                 {state.opportunityCostEnabled && <th className="py-3 px-4 text-right font-medium hidden sm:table-cell">Opportunity Cost</th>}
                 <th className="py-3 px-4 text-right font-medium w-12"></th>
               </tr>
