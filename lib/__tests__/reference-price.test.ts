@@ -39,6 +39,14 @@ describe("referencePriceUsdForAsset", () => {
     expect(getBtcPriceForDate).not.toHaveBeenCalled()
   })
 
+  it("normalizes storage instants to calendar days before lookup", async () => {
+    vi.mocked(getXbtPriceForDate).mockResolvedValue(9)
+    await expect(
+      referencePriceUsdForAsset("xbt", "2026-10-01T12:00:00.000Z"),
+    ).resolves.toBe(9)
+    expect(getXbtPriceForDate).toHaveBeenCalledWith("2026-10-01")
+  })
+
   it("spot without date uses current helpers", async () => {
     vi.mocked(getCurrentBtcPrice).mockResolvedValue(99_000)
     vi.mocked(getCurrentXbtPrice).mockResolvedValue(11)

@@ -3,23 +3,27 @@ import {
   parseReferenceAsset,
   type ReferenceAsset,
 } from "@/lib/reference-asset"
+import { transactionCalendarDay } from "@/lib/transaction-dates"
 import { getCurrentXbtPrice, getXbtPriceForDate } from "@/lib/xbt-price"
 
 /**
  * USD mark for the active Bitcoin ticker on a calendar day (YYYY-MM-DD).
  * XBT never falls back to BTC; pre-listing / missing days return null.
+ * When `date` is a storage instant, it is normalized via `transactionCalendarDay`.
  */
 export async function referencePriceUsdForAsset(
   asset: ReferenceAsset,
   date?: string,
 ): Promise<number | null> {
+  const day = date !== undefined ? transactionCalendarDay(date) : undefined
+
   if (asset === "xbt") {
-    if (date) return getXbtPriceForDate(date)
+    if (day) return getXbtPriceForDate(day)
     const price = await getCurrentXbtPrice()
     return price > 0 ? price : null
   }
 
-  if (date) return getBtcPriceForDate(date)
+  if (day) return getBtcPriceForDate(day)
   const price = await getCurrentBtcPrice()
   return price > 0 ? price : null
 }

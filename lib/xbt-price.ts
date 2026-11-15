@@ -151,10 +151,12 @@ export async function getCurrentXbtPrice(): Promise<number> {
 
 /**
  * Look up the cached XBT price for a specific date (YYYY-MM-DD).
- * Falls back to the nearest earlier cached price, then to getCurrentXbtPrice.
+ * Falls back to the nearest earlier cached close.
  *
- * Pre-listing dates (before Neoxa published any candle) return null after the
- * nearest-earlier miss — callers in XBT flavor must not substitute BTC here.
+ * Aligns with client `priceOnDateFromHistory({ allowBeforeFirst: false })`:
+ * dates before the first cached candle return null (never invent a mark from
+ * today's spot, and never substitute BTC). Spot is allowed only for **today
+ * UTC** when the cache still has no row for that day (cold start).
  */
 export async function getXbtPriceForDate(date: string): Promise<number | null> {
   const exact = await prisma.xbtPriceCache.findUnique({ where: { date } })
@@ -166,13 +168,13 @@ export async function getXbtPriceForDate(date: string): Promise<number | null> {
   })
   if (nearest) return nearest.priceUsd
 
-  // Only fall through to "current" when the requested day is on/after market
-  // genesis; older expenses stay without an XBT mark (follow XBT settings —
-  // do not borrow BTC/USD).
-  if (date < XBT_MARKET_GENESIS) return null
+  const todayUtc = new Date().toISOString().slice(0, 10)
+  if (date === todayUtc) {
+    const current = await getCurrentXbtPrice()
+    return current > 0 ? current : null
+  }
 
-  const current = await getCurrentXbtPrice()
-  return current > 0 ? current : null
+  return null
 }
 
 /** Opportunity-cost math is identical for XBT and BTC; amount / priceAt * current. */
