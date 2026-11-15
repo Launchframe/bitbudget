@@ -63,8 +63,11 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
         const data = await res.json()
         if (!data.onboardingComplete) {
           try {
-            if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("onboardingSource") !== "btc") {
-              sessionStorage.setItem("onboardingSource", "vanilla")
+            if (typeof sessionStorage !== "undefined") {
+              const src = sessionStorage.getItem("onboardingSource")
+              if (src !== "btc" && src !== "xbt") {
+                sessionStorage.setItem("onboardingSource", "vanilla")
+              }
             }
           } catch {
             /* ignore */

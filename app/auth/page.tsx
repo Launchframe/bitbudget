@@ -116,10 +116,11 @@ export default function AuthPage() {
 
   useEffect(() => {
     try {
-      const btc = sessionStorage.getItem("onboardingSource") === "btc"
+      const src = sessionStorage.getItem("onboardingSource")
+      const oc = src === "btc" || src === "xbt"
       setEntryBranding({
-        favicon: btc ? "/icon.svg" : "/icon-vanilla.svg",
-        logo: btc ? "btc" : "vanilla",
+        favicon: oc ? "/icon.svg" : "/icon-vanilla.svg",
+        logo: oc ? "btc" : "vanilla",
       })
     } catch {
       setEntryBranding({ favicon: "/icon-vanilla.svg", logo: "vanilla" })

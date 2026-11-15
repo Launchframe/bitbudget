@@ -26,6 +26,7 @@ import {
 } from "@/lib/premium-renewal-server"
 import { validateDecimal12_2, validateDecimal4_2Positive } from "@/lib/decimal-validation"
 import { booleanSettingsFieldError, setupGuideSnoozedUntilError } from "@/lib/user-settings-validation"
+import { isReferenceAsset } from "@/lib/reference-asset"
 
 /** JSON body for PUT: only these keys are read; extra keys are ignored. */
 type UserSettingsPutBody = Partial<{
@@ -35,6 +36,7 @@ type UserSettingsPutBody = Partial<{
   walkthroughCompleted: boolean
   btcDisplayUnit: string
   opportunityCostEnabled: boolean
+  referenceAsset: string
   receiptInboxToken: string | null
   name: string | null
   communicationPreferences: Partial<CommunicationPreferences>
@@ -84,6 +86,7 @@ const ALLOWED_SETTINGS_PUT_FIELDS = [
   "walkthroughCompleted",
   "btcDisplayUnit",
   "opportunityCostEnabled",
+  "referenceAsset",
   "receiptInboxToken",
   "name",
   "nostrDmEnabled",
@@ -119,6 +122,7 @@ const userSettingsSelect = {
   setupGuideShowOnDashboard: true,
   btcDisplayUnit: true,
   opportunityCostEnabled: true,
+  referenceAsset: true,
   nostrPubkey: true,
   encryptedPrivacyKey: true,
   privacyKeySalt: true,
@@ -396,6 +400,12 @@ export async function PUT(req: NextRequest) {
     }
   }
 
+  if (body.referenceAsset !== undefined) {
+    if (!isReferenceAsset(body.referenceAsset)) {
+      return NextResponse.json({ error: "referenceAsset must be btc or xbt" }, { status: 400 })
+    }
+  }
+
   if (body.sweepDefaultCapMultiplier !== undefined && body.sweepDefaultCapMultiplier !== null) {
     if (
       typeof body.sweepDefaultCapMultiplier !== "number" ||
@@ -550,6 +560,7 @@ export async function PUT(req: NextRequest) {
       setupGuideShowOnDashboard: true,
       btcDisplayUnit: true,
       opportunityCostEnabled: true,
+      referenceAsset: true,
       receiptInboxToken: true,
       name: true,
       nostrDmEnabled: true,

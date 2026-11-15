@@ -91,6 +91,7 @@ export function SettingsPage() {
     setMonthlyIncome,
     setBtcDisplayUnit,
     setOpportunityCostEnabled,
+    setReferenceAsset,
     setCommunicationPreference,
     addTag,
     deleteTag,
@@ -564,9 +565,41 @@ export function SettingsPage() {
             </div>
             <p className="text-xs text-muted-foreground mt-3">
               {state.opportunityCostEnabled
-                ? "Showing BTC opportunity cost charts, values, and metrics."
-                : "Hidden. Enable to see BTC values and opportunity cost insights."}
+                ? "Showing Bitcoin opportunity cost charts, values, and metrics."
+                : "Hidden. Enable to see Bitcoin values and opportunity cost insights."}
             </p>
+
+            {state.opportunityCostEnabled && (
+              <div className="mt-5 pt-5 border-t border-[#1F1F1F]">
+                <p className="text-sm text-muted-foreground mb-3">
+                  Ticker for Bitcoin prices and charts
+                </p>
+                <div className="flex rounded-lg bg-[#1A1A1A] p-1 w-fit">
+                  <button
+                    type="button"
+                    onClick={() => setReferenceAsset("btc")}
+                    className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                      state.referenceAsset === "btc"
+                        ? "bg-[#F7931A] text-[#0D0D0D]"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    BTC
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReferenceAsset("xbt")}
+                    className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                      state.referenceAsset === "xbt"
+                        ? "bg-[#F7931A] text-[#0D0D0D]"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    XBT
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {state.opportunityCostEnabled && (
