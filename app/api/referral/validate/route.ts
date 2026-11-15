@@ -16,7 +16,11 @@ export async function GET(req: NextRequest) {
 
   const referrer = await prisma.user.findUnique({
     where: { id: v.codeRow.ownerId },
-    select: { subscriptionTier: true, opportunityCostEnabled: true },
+    select: {
+      subscriptionTier: true,
+      opportunityCostEnabled: true,
+      referenceAsset: true,
+    },
   })
   const refereeTrialMonths = referrer
     ? refereeTrialMonthsForReferrerSubscription(referrer.subscriptionTier)
@@ -30,5 +34,6 @@ export async function GET(req: NextRequest) {
     refereeTrialMonths,
     /** Referees inherit this at redeem; onboarding uses it for UI and the final settings PUT. */
     referrerOpportunityCostEnabled: referrer?.opportunityCostEnabled ?? false,
+    referrerReferenceAsset: referrer?.referenceAsset === "xbt" ? "xbt" : "btc",
   })
 }

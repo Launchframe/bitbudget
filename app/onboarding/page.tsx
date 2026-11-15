@@ -391,11 +391,12 @@ export default function OnboardingPage() {
     newEnvelopes: string[]
   } | null>(null)
 
-  // Opportunity cost: /landing → btc; with a pending referral, inherit referrer (validate + redeem).
-  const [onboardingSource] = useState<"btc" | "vanilla">(() => {
+  // Opportunity cost: /landing → btc, /landing/xbt → xbt; referral inherits referrer OC + ticker.
+  const [onboardingSource] = useState<"btc" | "xbt" | "vanilla">(() => {
     try {
       const src = sessionStorage.getItem("onboardingSource")
-      return src === "btc" ? "btc" : "vanilla"
+      if (src === "btc" || src === "xbt") return src
+      return "vanilla"
     } catch { return "vanilla" }
   })
 
@@ -424,6 +425,7 @@ export default function OnboardingPage() {
     shareMethod: string
     refereeTrialMonths?: 1 | 3
     referrerOpportunityCostEnabled?: boolean
+    referrerReferenceAsset?: "btc" | "xbt"
   } | null>(null)
 
   const opportunityCostEnabled =
@@ -431,7 +433,15 @@ export default function OnboardingPage() {
       ? typeof pendingReferral.referrerOpportunityCostEnabled === "boolean"
         ? pendingReferral.referrerOpportunityCostEnabled
         : false
-      : onboardingSource === "btc"
+      : onboardingSource === "btc" || onboardingSource === "xbt"
+  const referenceAsset: "btc" | "xbt" =
+    pendingReferral?.code != null
+      ? pendingReferral.referrerReferenceAsset === "xbt"
+        ? "xbt"
+        : "btc"
+      : onboardingSource === "xbt"
+        ? "xbt"
+        : "btc"
   const [refCodeInput, setRefCodeInput] = useState("")
   const [refValidating, setRefValidating] = useState(false)
   const [refError, setRefError] = useState<string | null>(null)
@@ -490,11 +500,13 @@ export default function OnboardingPage() {
         if (saved.pendingReferral?.code) {
           const rm = saved.pendingReferral.refereeTrialMonths
           const roe = saved.pendingReferral.referrerOpportunityCostEnabled
+          const rra = saved.pendingReferral.referrerReferenceAsset
           setPendingReferral({
             code: saved.pendingReferral.code,
             shareMethod: typeof saved.pendingReferral.shareMethod === "string" ? saved.pendingReferral.shareMethod : "direct",
             ...(rm === 1 || rm === 3 ? { refereeTrialMonths: rm } : {}),
             ...(typeof roe === "boolean" ? { referrerOpportunityCostEnabled: roe } : {}),
+            ...(rra === "btc" || rra === "xbt" ? { referrerReferenceAsset: rra } : {}),
           })
         }
         if (saved.income) setIncome(normalizeUsdDraftInput(String(saved.income)))
@@ -646,16 +658,19 @@ export default function OnboardingPage() {
         valid?: boolean
         refereeTrialMonths?: 1 | 3
         referrerOpportunityCostEnabled?: boolean
+        referrerReferenceAsset?: "btc" | "xbt"
       }
       if (j.valid) {
         const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
         const referrerOpportunityCostEnabled =
           typeof j.referrerOpportunityCostEnabled === "boolean" ? j.referrerOpportunityCostEnabled : false
+        const referrerReferenceAsset = j.referrerReferenceAsset === "xbt" ? "xbt" : "btc"
         setPendingReferral({
           code: parsed.code,
           shareMethod: parsed.shareMethod,
           refereeTrialMonths,
           referrerOpportunityCostEnabled,
+          referrerReferenceAsset,
         })
       }
     } catch {
@@ -676,7 +691,10 @@ export default function OnboardingPage() {
     if (!hydrated || !pendingReferral?.code) return
     const hasTrial = pendingReferral.refereeTrialMonths === 1 || pendingReferral.refereeTrialMonths === 3
     const hasOc = typeof pendingReferral.referrerOpportunityCostEnabled === "boolean"
-    if (hasTrial && hasOc) return
+    const hasAsset =
+      pendingReferral.referrerReferenceAsset === "btc" ||
+      pendingReferral.referrerReferenceAsset === "xbt"
+    if (hasTrial && hasOc && hasAsset) return
     let cancelled = false
     void (async () => {
       try {
@@ -686,14 +704,21 @@ export default function OnboardingPage() {
           valid?: boolean
           refereeTrialMonths?: 1 | 3
           referrerOpportunityCostEnabled?: boolean
+          referrerReferenceAsset?: "btc" | "xbt"
         }
         if (!j.valid || cancelled) return
         const refereeTrialMonths = j.refereeTrialMonths === 3 ? 3 : 1
         const referrerOpportunityCostEnabled =
           typeof j.referrerOpportunityCostEnabled === "boolean" ? j.referrerOpportunityCostEnabled : false
+        const referrerReferenceAsset = j.referrerReferenceAsset === "xbt" ? "xbt" : "btc"
         setPendingReferral(prev =>
           prev && prev.code === pendingReferral.code
-            ? { ...prev, refereeTrialMonths, referrerOpportunityCostEnabled }
+            ? {
+                ...prev,
+                refereeTrialMonths,
+                referrerOpportunityCostEnabled,
+                referrerReferenceAsset,
+              }
             : prev,
         )
       } catch {
@@ -703,7 +728,13 @@ export default function OnboardingPage() {
     return () => {
       cancelled = true
     }
-  }, [hydrated, pendingReferral?.code, pendingReferral?.refereeTrialMonths, pendingReferral?.referrerOpportunityCostEnabled])
+  }, [
+    hydrated,
+    pendingReferral?.code,
+    pendingReferral?.refereeTrialMonths,
+    pendingReferral?.referrerOpportunityCostEnabled,
+    pendingReferral?.referrerReferenceAsset,
+  ])
 
   /** Extra step count for referees (avoid `document`/cookie in render — prevents SSR/client mismatch). */
   const referralBankQueued = !!pendingReferral?.code || step === "referral-bank"
@@ -1363,7 +1394,11 @@ export default function OnboardingPage() {
       const res = await fetch("/api/user/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ onboardingComplete: true, opportunityCostEnabled }),
+        body: JSON.stringify({
+          onboardingComplete: true,
+          opportunityCostEnabled,
+          referenceAsset,
+        }),
       })
       if (res.status === 401 || res.status === 403) {
         await signOut({ callbackUrl: "/auth" })
@@ -1853,6 +1888,7 @@ export default function OnboardingPage() {
                               valid?: boolean
                               refereeTrialMonths?: 1 | 3
                               referrerOpportunityCostEnabled?: boolean
+                              referrerReferenceAsset?: "btc" | "xbt"
                             }
                             if (!j.valid) {
                               setRefError("It looks like that code is invalid, expired, or has already been used.")
@@ -1864,11 +1900,14 @@ export default function OnboardingPage() {
                               typeof j.referrerOpportunityCostEnabled === "boolean"
                                 ? j.referrerOpportunityCostEnabled
                                 : false
+                            const referrerReferenceAsset =
+                              j.referrerReferenceAsset === "xbt" ? "xbt" : "btc"
                             setPendingReferral({
                               code,
                               shareMethod: "direct",
                               refereeTrialMonths,
                               referrerOpportunityCostEnabled,
+                              referrerReferenceAsset,
                             })
                             try {
                               document.cookie = `bitbudget_ref=${encodeURIComponent(`${code}:direct`)}; path=/; max-age=${86400 * 30}`
@@ -3308,7 +3347,8 @@ export default function OnboardingPage() {
                   <span className="text-foreground font-medium">
                     ${(Math.max(savingsGoalAmount, savings) * 12).toLocaleString()}
                   </span>
-                  {onboardingSource === "btc" && " — every dollar saved is a vote for your future."}
+                  {(onboardingSource === "btc" || onboardingSource === "xbt") &&
+                    " — every dollar saved is a vote for your future."}
                 </p>
                 <p className="text-sm text-muted-foreground italic">Your future self thanks you.</p>
               </div>

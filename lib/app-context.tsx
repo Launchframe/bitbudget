@@ -12,6 +12,7 @@ import type {
   RecurringTransaction,
   CommunicationPreferenceKey,
 } from "@/lib/data"
+import type { ReferenceAsset } from "@/lib/reference-asset"
 import type { ParsedTransaction } from "@/lib/csv"
 import type { FoldStatementMeta } from "@/lib/fold-pdf-parser"
 import {
@@ -234,6 +235,7 @@ interface AppContextValue {
   setMonthlyIncome: (income: number) => void
   setBtcDisplayUnit: (unit: BtcDisplayUnit) => void
   setOpportunityCostEnabled: (enabled: boolean) => void
+  setReferenceAsset: (asset: ReferenceAsset) => void
   setCommunicationPreference: (key: CommunicationPreferenceKey, enabled: boolean) => Promise<void>
   setSavingsExperience: (experience: "engaged" | "dismissed") => Promise<void>
   completeWalkthrough: () => Promise<void>
@@ -745,6 +747,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         monthlyIncome: settings.monthlyIncome || 0,
         btcDisplayUnit: settings.btcDisplayUnit || "sats",
         opportunityCostEnabled: settings.opportunityCostEnabled ?? false,
+        referenceAsset: settings.referenceAsset === "xbt" ? "xbt" : "btc",
         communicationPreferences: normalizeCommunicationPreferences(
           settings.emailPreferences ?? settings.communicationPreferences ?? {},
         ),
@@ -1423,6 +1426,19 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     }
   }, [refreshData])
 
+  const setReferenceAsset = useCallback(async (asset: ReferenceAsset) => {
+    setState(prev => ({ ...prev, referenceAsset: asset }))
+    try {
+      await fetch("/api/user/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referenceAsset: asset }),
+      })
+    } catch {
+      refreshData()
+    }
+  }, [refreshData])
+
   const setCommunicationPreference = useCallback(async (
     key: CommunicationPreferenceKey,
     enabled: boolean,
@@ -1872,6 +1888,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         setMonthlyIncome,
         setBtcDisplayUnit,
         setOpportunityCostEnabled,
+        setReferenceAsset,
         setCommunicationPreference,
         setSavingsExperience,
         completeWalkthrough,

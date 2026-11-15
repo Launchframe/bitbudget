@@ -300,15 +300,18 @@ export async function redeemReferralCode(args: {
 
       const referrer = await tx.user.findUnique({
         where: { id: validation.codeRow.ownerId },
-        select: { opportunityCostEnabled: true },
+        select: { opportunityCostEnabled: true, referenceAsset: true },
       })
       const inheritOpportunityCost = referrer?.opportunityCostEnabled ?? false
+      const inheritReferenceAsset =
+        referrer?.referenceAsset === "xbt" ? "xbt" : "btc"
 
       await tx.user.update({
         where: { id: args.refereeId },
         data: {
           referredByCodeId: codeId,
           opportunityCostEnabled: inheritOpportunityCost,
+          referenceAsset: inheritReferenceAsset,
         },
       })
     })

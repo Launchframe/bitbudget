@@ -43,6 +43,9 @@ model User {
   setupGuideShowOnDashboard Boolean   @default(true)
   btcDisplayUnit            String    @default("sats") // "sats" | "btc"
   opportunityCostEnabled    Boolean   @default(false)
+  /// When opportunityCostEnabled: which Bitcoin ticker series to use ("btc" | "xbt").
+  referenceAsset            String    @default("btc")
+
   role                      String?   @default("user")
   publicKey                 String?
   receiptInboxToken         String?   @unique

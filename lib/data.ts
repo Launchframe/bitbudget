@@ -1,4 +1,5 @@
 import type { CommunicationPreferences } from "./communication-preferences"
+import type { ReferenceAsset } from "@/lib/reference-asset"
 import { transactionCalendarDay } from "@/lib/transaction-dates"
 
 export type { CommunicationPreferenceKey, CommunicationPreferences } from "./communication-preferences"
@@ -131,6 +132,8 @@ export interface AppState {
   monthlyIncome: number
   btcDisplayUnit: BtcDisplayUnit
   opportunityCostEnabled: boolean
+  /** Bitcoin ticker for OC/charts when opportunityCostEnabled ("btc" | "xbt"). */
+  referenceAsset: ReferenceAsset
   communicationPreferences: CommunicationPreferences
   savingsExperience: string
   walkthroughCompleted: boolean
@@ -310,6 +313,7 @@ export function getDefaultState(): AppState {
     monthlyIncome: 0,
     btcDisplayUnit: "sats",
     opportunityCostEnabled: false,
+    referenceAsset: "btc",
     communicationPreferences: {
       featureUpdates: true,
       feedbackRequests: true,
