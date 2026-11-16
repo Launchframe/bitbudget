@@ -410,4 +410,184 @@ describe("buildRunwayCheckup — runway", () => {
     expect(ids).not.toContain("bitcoin-share")
     expect(ids).not.toContain("scenarios")
   })
+
+  it("keeps scenario mood only when months left are a real non-negative number", () => {
+    const checkup = buildRunwayCheckup(baseRunway())
+    const ml = section(checkup, "months-left")
+    expect(fact(ml, "months-left-spot").tone).toBe("neutral")
+    expect(fact(ml, "months-left-stress").tone).toBe("warn")
+    expect(fact(ml, "months-left-growth").tone).toBe("good")
+
+    const broke = buildRunwayCheckup(
+      baseRunway({ monthsLeft: { spot: 4, stress: 1, growth: -2 } }),
+    )
+    expect(fact(section(broke, "months-left"), "months-left-growth").tone).toBe("bad")
+    expect(fact(section(broke, "months-left"), "months-left-growth").value).toBe(-2)
+
+    const missing = buildRunwayCheckup(
+      baseRunway({ monthsLeft: { spot: Number.NaN, stress: 1, growth: Number.POSITIVE_INFINITY } }),
+    )
+    const missingMonths = section(missing, "months-left")
+    expect(fact(missingMonths, "months-left-spot").value).toBeNull()
+    expect(fact(missingMonths, "months-left-spot").tone).toBe("warn")
+    expect(fact(missingMonths, "months-left-growth").value).toBeNull()
+    expect(fact(missingMonths, "months-left-growth").tone).toBe("warn")
+  })
+
+  it("does not call a missing or negative income figure good", () => {
+    const negative = buildRunwayCheckup(
+      baseRunway({ incomeArrived: { amountUsd: -40, monthsOfStackKept: 1 } }),
+    )
+    const income = section(negative, "income-arrived")
+    expect(fact(income, "income-arrived-amount").tone).toBe("warn")
+    expect(fact(income, "income-arrived-amount").value).toBe(-40)
+    expect(fact(income, "income-arrived-months").detail).toBeUndefined()
+
+    const missing = buildRunwayCheckup(
+      baseRunway({
+        incomeArrived: { amountUsd: Number.NaN, monthsOfStackKept: Number.NaN },
+      }),
+    )
+    const blank = section(missing, "income-arrived")
+    expect(fact(blank, "income-arrived-amount").value).toBeNull()
+    expect(fact(blank, "income-arrived-amount").tone).toBe("warn")
+    expect(fact(blank, "income-arrived-months").tone).toBe("warn")
+    expect(fact(blank, "income-arrived-months").detail).toBeUndefined()
+  })
+
+  it("does not treat a non-finite plan-vs-actual as right on plan", () => {
+    const checkup = buildRunwayCheckup(
+      baseRunway({
+        plannedActuals: [
+          {
+            id: "food",
+            label: "Food",
+            plannedMonthlyUsd: Number.NaN,
+            actualMonthlyUsd: 10,
+          },
+        ],
+      }),
+    )
+    const row = fact(section(checkup, "planned-vs-actual"), "planned-actual-food")
+    expect(row.value).toBeNull()
+    expect(row.tone).toBe("warn")
+    expect(row.detail).not.toBe("Right on plan")
+  })
+
+  it("treats a sub-cent plan difference as on plan", () => {
+    const checkup = buildRunwayCheckup(
+      baseRunway({
+        plannedActuals: [
+          {
+            id: "rent",
+            label: "Rent",
+            plannedMonthlyUsd: 1500,
+            actualMonthlyUsd: 1500.004,
+          },
+        ],
+      }),
+    )
+    const row = fact(section(checkup, "planned-vs-actual"), "planned-actual-rent")
+    expect(row.value).toBe(0)
+    expect(row.tone).toBe("good")
+    expect(row.detail).toBe("Right on plan")
+  })
+})
+
+describe("buildRunwayCheckup — unusable inputs", () => {
+  it("does not mark a non-finite projection as on track", () => {
+    const checkup = buildRunwayCheckup(
+      baseBuildup({
+        projected: {
+          cashUsd: { spot: Number.POSITIVE_INFINITY, stress: Number.NaN, growth: 15000 },
+          bitcoinSats: { spot: Number.NaN, stress: 4_000_000, growth: 7_000_000 },
+        },
+      }),
+    )
+    const targets = section(checkup, "targets")
+    expect(fact(targets, "projected-cash-spot").value).toBeNull()
+    expect(fact(targets, "projected-cash-spot").tone).toBe("warn")
+    expect(fact(targets, "projected-cash-stress").tone).toBe("warn")
+    expect(fact(targets, "projected-bitcoin-spot").value).toBeNull()
+    expect(fact(targets, "projected-bitcoin-spot").tone).toBe("warn")
+    expect(fact(targets, "projected-cash-growth").tone).toBe("good")
+  })
+
+  it("does not treat a missing bitcoin share as zero and on target", () => {
+    const checkup = buildRunwayCheckup(
+      baseBuildup({ bitcoinShare: Number.NaN, targetBitcoinShare: Number.NaN }),
+    )
+    const share = section(checkup, "bitcoin-share")
+    expect(fact(share, "bitcoin-share-held").value).toBeNull()
+    expect(fact(share, "bitcoin-share-held").tone).toBe("warn")
+    expect(fact(share, "bitcoin-share-target").value).toBeNull()
+    expect(fact(share, "bitcoin-share-target").tone).toBe("warn")
+  })
+
+  it("does not hide an unreadable planned line behind the all-clear", () => {
+    const checkup = buildRunwayCheckup(
+      baseBuildup({
+        plannedLines: [
+          { id: "rent", label: "Rent", monthlyUsd: Number.NaN, mode: "add" },
+        ],
+      }),
+    )
+    const draw = section(checkup, "draw")
+    expect(draw.facts.some((f) => f.id === "draw-none")).toBe(false)
+    expect(fact(draw, "draw-line-rent").tone).toBe("warn")
+    expect(fact(draw, "draw-line-rent").value).toBeNull()
+  })
+
+  it("does not flag a hot envelope whose overspend rounds to zero cents", () => {
+    const checkup = buildRunwayCheckup(
+      baseBuildup({
+        hotEnvelopes: [
+          { envelopeId: "e1", name: "Dining", allottedUsd: 300, spentUsd: 300.001 },
+        ],
+      }),
+    )
+    const hot = section(checkup, "hot-envelopes")
+    expect(hot.facts.some((f) => f.id === "hot-e1")).toBe(false)
+    expect(hot.facts.some((f) => f.id === "hot-prompt")).toBe(false)
+    expect(hot.facts.some((f) => f.id === "hot-none")).toBe(true)
+  })
+
+  it("does not claim a non-finite savings goal was missed or met", () => {
+    const checkup = buildRunwayCheckup(
+      baseBuildup({
+        savingsGoal: { targetUsd: 1000, actualUsd: Number.POSITIVE_INFINITY },
+      }),
+    )
+    const goal = section(checkup, "savings-goal")
+    expect(fact(goal, "savings-goal-outcome").tone).toBe("warn")
+    expect(fact(goal, "savings-goal-outcome").label).toBe("We couldn't read this goal")
+    expect(fact(goal, "savings-goal-outcome").value).toBeNull()
+  })
+
+  it("judges a savings goal from the rounded dollars", () => {
+    const met = buildRunwayCheckup(
+      baseBuildup({ savingsGoal: { targetUsd: 1000, actualUsd: 999.996 } }),
+    )
+    expect(fact(section(met, "savings-goal"), "savings-goal-outcome").tone).toBe("good")
+
+    const missed = buildRunwayCheckup(
+      baseBuildup({ savingsGoal: { targetUsd: 1000, actualUsd: 999.994 } }),
+    )
+    expect(fact(section(missed, "savings-goal"), "savings-goal-outcome").tone).toBe("bad")
+  })
+
+  it("does not total a scenario when the horizon is not a real number", () => {
+    const checkup = buildRunwayCheckup(
+      baseBuildup({
+        horizonMonths: Number.NaN,
+        scenarios: [
+          { id: "baby", label: "Baby", monthlyDeltaUsd: 100, oneTimeUsd: 500, enabled: true },
+        ],
+      }),
+    )
+    const row = fact(section(checkup, "scenarios"), "scenario-baby")
+    expect(row.value).toBeNull()
+    expect(row.tone).toBe("warn")
+    expect(row.detail).toBe("We couldn't total this")
+  })
 })
