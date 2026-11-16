@@ -52,7 +52,7 @@ import {
 import { clearAllDrafts } from "@/lib/draft-storage"
 import { clearAllWalletWatches } from "@/lib/wallet-watch-store"
 import { clearShoppingCache } from "@/lib/shopping-cache"
-import { clearPendingShoppingInvite, loadPendingShoppingInvite } from "@/lib/shopping-invite-handoff"
+import { loadPendingShoppingInvite } from "@/lib/shopping-invite-handoff"
 import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 import {
   type ApiTransactionRow,
@@ -118,6 +118,11 @@ function maxUpdatedAtFromApiRows(rows: ApiTransactionRow[]): string | null {
 interface EncryptionState {
   ready: boolean
   needsPinUnlock: boolean
+  /**
+   * True when the account has no wrapped privacy key (post-reset or never configured).
+   * Must block the app until a new passphrase is saved — do not treat as unlocked.
+   */
+  needsPassphraseSetup: boolean
   encryptedPrivacyKey: string | null
   privacyKeySalt: string | null
 }
@@ -193,6 +198,7 @@ interface AppContextValue {
   /** Set when `refreshData` fails mid-sync; cleared on the next successful refresh or dismiss. */
   transactionSyncError: string | null
   clearTransactionSyncError: () => void
+  reportTransactionSyncError: (message: string) => void
   /** User id for IndexedDB helpers (e.g. memoized top OC). */
   currentUserId: string | null
   /** Last persisted transaction count from IndexedDB memo (instant Settings hint). */
@@ -245,6 +251,8 @@ interface AppContextValue {
   deleteTag: (id: string) => void
   refreshData: () => Promise<void>
   clearLocalTransactionCache: () => Promise<void>
+  /** After destructive reset API success — block old passphrase unlock until new setup. */
+  applyServerEncryptionReset: () => void
   encryptForStorage: (plaintext: string) => Promise<string>
   /**
    * Run a callback with the in-memory privacy key while unlocked.
@@ -472,6 +480,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [encryption, setEncryption] = useState<EncryptionState>({
     ready: false,
     needsPinUnlock: false,
+    needsPassphraseSetup: false,
     encryptedPrivacyKey: null,
     privacyKeySalt: null,
   })
@@ -497,8 +506,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCurrentUserId(data.userId)
 
       if (!data.encryptedPrivacyKey) {
-        pendingLockedRef.current = false
-        setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+        // Post-reset or never configured: never treat as unlocked (would allow plaintext writes).
+        pendingLockedRef.current = true
+        privacyKeyRef.current = null
+        publicKeyRef.current = null
+        setEncryption({
+          ready: false,
+          needsPinUnlock: false,
+          needsPassphraseSetup: true,
+          encryptedPrivacyKey: null,
+          privacyKeySalt: null,
+        })
         return
       }
 
@@ -509,7 +527,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         applyPrivacyKey(pk, publicKeyRef)
         void syncUserPublicKey(pk)
         pendingLockedRef.current = false
-        setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+        setEncryption({ ready: true, needsPinUnlock: false, needsPassphraseSetup: false, encryptedPrivacyKey: null, privacyKeySalt: null })
         return
       }
 
@@ -529,7 +547,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             void syncUserPublicKey(pk)
             setCachedPrivacyKeyHex(data.userId, hexKey)
             pendingLockedRef.current = false
-            setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+            setEncryption({ ready: true, needsPinUnlock: false, needsPassphraseSetup: false, encryptedPrivacyKey: null, privacyKeySalt: null })
             return
           } catch { /* fall through */ }
         }
@@ -547,7 +565,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             void syncUserPublicKey(pk)
             setCachedPrivacyKeyHex(data.userId, hexKey)
             pendingLockedRef.current = false
-            setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+            setEncryption({ ready: true, needsPinUnlock: false, needsPassphraseSetup: false, encryptedPrivacyKey: null, privacyKeySalt: null })
             return
           } catch { /* fall through to PIN unlock */ }
         }
@@ -557,17 +575,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setEncryption({
         ready: false,
         needsPinUnlock: true,
+        needsPassphraseSetup: false,
         encryptedPrivacyKey: data.encryptedPrivacyKey,
         privacyKeySalt: data.privacyKeySalt,
       })
     } catch {
-      pendingLockedRef.current = false
-      setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+      pendingLockedRef.current = true
+      setEncryption({
+        ready: false,
+        needsPinUnlock: false,
+        needsPassphraseSetup: false,
+        encryptedPrivacyKey: null,
+        privacyKeySalt: null,
+      })
     }
   }, [])
 
   const clearTransactionSyncError = useCallback(() => {
     setTransactionSyncError(null)
+  }, [])
+
+  const reportTransactionSyncError = useCallback((message: string) => {
+    setTransactionSyncError(message)
   }, [])
 
 const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
@@ -926,7 +955,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         /* private mode / quota */
       }
     }
-    setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+    setEncryption({ ready: true, needsPinUnlock: false, needsPassphraseSetup: false, encryptedPrivacyKey: null, privacyKeySalt: null })
     void (async () => {
       const uid = currentUserIdRef.current
       if (uid) {
@@ -1576,13 +1605,35 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
 
   const clearLocalTransactionCache = useCallback(async () => {
     const uid = currentUserIdRef.current
-    if (!uid) return
-    fullIdbHydratedRef.current = false
-    try {
-      await clearDb(uid)
-    } catch {
-      /* Best-effort: IndexedDB delete may be blocked or fail in private mode */
+    if (!uid) {
+      throw new Error("Not signed in")
     }
+    fullIdbHydratedRef.current = false
+    // Drop in-memory history immediately so a blocked IndexedDB wipe cannot leave stale rows.
+    setState((prev) => ({ ...prev, transactions: [] }))
+    setTxnLoadPhase("init")
+    await clearDb(uid)
+    try {
+      await clearShoppingCache(uid)
+    } catch {
+      /* shopping cache is best-effort; transaction wipe must succeed */
+    }
+  }, [])
+
+  const applyServerEncryptionReset = useCallback(() => {
+    pendingLockedRef.current = true
+    privacyKeyRef.current = null
+    publicKeyRef.current = null
+    fullIdbHydratedRef.current = false
+    setState((prev) => ({ ...prev, transactions: [] }))
+    setTxnLoadPhase("init")
+    setEncryption({
+      ready: false,
+      needsPinUnlock: false,
+      needsPassphraseSetup: true,
+      encryptedPrivacyKey: null,
+      privacyKeySalt: null,
+    })
   }, [])
 
   const logout = useCallback(() => {
@@ -1593,8 +1644,8 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       sessionStorage.removeItem("bitbudget-survey-shown")
       sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
       clearAllDrafts()
-      clearAllWalletWatches()
-      clearPendingShoppingInvite()
+clearAllWalletWatches()
+      // Pending shopping invite survives logout (localStorage handoff) so Google ↔ email switches mid-join keep working.
     } catch {
       /* ignore */
     }
@@ -1804,6 +1855,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         historyReady,
         transactionSyncError,
         clearTransactionSyncError,
+        reportTransactionSyncError,
         currentUserId,
         memoTransactionCount,
         encryption,
@@ -1843,6 +1895,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         deleteTag,
         refreshData,
         clearLocalTransactionCache,
+        applyServerEncryptionReset,
         encryptForStorage,
         withPrivacyKey,
         makeImportDedupeKeyComputer,

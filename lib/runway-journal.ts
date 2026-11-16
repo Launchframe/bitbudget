@@ -1,18 +1,18 @@
-import { looksLikeAsymmetricCiphertext } from "@/lib/crypto"
-
 /**
  * Financial Runway journal validators.
  *
  * A5 is a standalone slice: it must NOT import from the (separately proposed)
  * runway-need, runway-gap, or expense-insight modules. The validators here only
  * check shape — they never touch user identity (the caller supplies userId from
- * the session) and never log anything, especially not ciphertext.
+ * the session) and never log or decrypt a note.
  *
- * The journal body is *ciphertext*: the client encrypts the note like a
- * transaction note before it is sent, and the server stores and returns only
- * that opaque string. A normal sentence is rejected. The server does not
- * decrypt the note and does not prove the box opens.
+ * The journal body must already be a sealed box to the user's public key — the
+ * same wire format as transaction notes (`encryptFieldAsymmetric`). The server
+ * has no private key, so it cannot decrypt. It rejects anything that does not
+ * match that wire format so a plaintext note cannot be stored.
  */
+
+import { looksLikeAsymmetricCiphertext } from "@/lib/crypto"
 
 // ---------------------------------------------------------------------------
 // Result type (mirrors lib/runway-plan.ts for consistency)
@@ -58,9 +58,9 @@ export function validateMonthKey(value: unknown): ValidationResult<string> {
 }
 
 /**
- * Validates the encrypted journal body. It must look like a sealed box
- * (the same wire format as transaction notes). A sentence is rejected.
- * The stored string is not trimmed or rewritten.
+ * Validates the journal body. Empty notes are rejected. Anything that is not a
+ * sealed box (public-key ciphertext) is rejected without echoing the text.
+ * The stored value is the original string — it is not trimmed or rewritten.
  */
 export function validateEncryptedBody(value: unknown): ValidationResult<string> {
   if (typeof value !== "string") {
@@ -75,7 +75,8 @@ export function validateEncryptedBody(value: unknown): ValidationResult<string> 
   if (!looksLikeAsymmetricCiphertext(value)) {
     return {
       ok: false,
-      error: "Your note has to be protected before it can be saved. Unlock the app and try again.",
+      error:
+        "Your note has to be protected before it can be saved. Unlock the app and try again.",
     }
   }
   return { ok: true, value }
