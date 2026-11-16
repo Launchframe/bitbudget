@@ -159,13 +159,50 @@ export function unwrapGroupContentKey(
   return hexToUint8(hex)
 }
 
+/**
+ * Canonical OOB compare form: 64-bit SHA-256 prefix as `abcd-ef01-2345-6789`.
+ * Short 6-hex values may still exist from a brief preview rollout; accept them for
+ * storage/validation but never generate or truncate down to that strength.
+ */
+const CANONICAL_FINGERPRINT_RE = /^[0-9a-f]{4}(-[0-9a-f]{4}){3}$/
+const SHORT_FINGERPRINT_RE = /^[0-9a-f]{6}$/
+
+function formatCanonicalFingerprint(hex16: string): string {
+  return `${hex16.slice(0, 4)}-${hex16.slice(4, 8)}-${hex16.slice(8, 12)}-${hex16.slice(12, 16)}`
+}
+
+/** True for stored or newly generated shopping key fingerprints. */
+export function isShoppingKeyFingerprint(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    (CANONICAL_FINGERPRINT_RE.test(value) || SHORT_FINGERPRINT_RE.test(value))
+  )
+}
+
+/**
+ * Out-of-band compare fingerprint: first 64 bits of SHA-256(pubkey), dashed.
+ * Pair with the independent join verification code when approving a request.
+ * Do not shorten further — truncated digests enable practical key-substitution
+ * after owner-session theft (see shopping invite security notes).
+ */
 export async function publicKeyFingerprint(publicKeyHex: string): Promise<string> {
   if (!HEX_KEY_RE.test(publicKeyHex)) {
     throw new Error("Invalid public key")
   }
   const digest = await crypto.subtle.digest("SHA-256", toBuffer(hexToUint8(publicKeyHex)))
   const hex = uint8ToHex(new Uint8Array(digest)).slice(0, 16)
-  return `${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}`
+  return formatCanonicalFingerprint(hex)
+}
+
+/**
+ * Display fingerprint at full stored strength. Never truncate a 64-bit value to
+ * 6 hex for UI — owners must compare the same strength the server pins.
+ */
+export function formatShoppingFingerprintDisplay(fingerprint: string): string {
+  const hex = fingerprint.toLowerCase().replace(/[^0-9a-f]/g, "")
+  if (hex.length >= 16) return formatCanonicalFingerprint(hex.slice(0, 16))
+  if (SHORT_FINGERPRINT_RE.test(hex)) return hex
+  return fingerprint
 }
 
 export function isShoppingCiphertext(value: unknown): value is string {

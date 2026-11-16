@@ -14,11 +14,24 @@ import { validateMonthKey } from "@/lib/runway-journal"
  * A3 schema this branch is based on. If A3's full plan model lands separately,
  * this field remains the single source of truth for "checkup opened" — no new
  * duplicate column is introduced here.
+ *
+ * The response is private and uncached, same as the plan session API.
  */
+export const dynamic = "force-dynamic"
+
+const PRIVATE_NO_STORE = { "Cache-Control": "private, no-store" }
+
+function checkupResponse(body: unknown, init?: { status?: number }) {
+  return NextResponse.json(body, {
+    status: init?.status ?? 200,
+    headers: PRIVATE_NO_STORE,
+  })
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Please sign in." }, { status: 401 })
+    return checkupResponse({ error: "Please sign in." }, { status: 401 })
   }
   const userId = session.user.id
 
@@ -26,14 +39,14 @@ export async function POST(req: NextRequest) {
   try {
     raw = await req.json()
   } catch {
-    return NextResponse.json(
+    return checkupResponse(
       { error: "We couldn't read that request." },
       { status: 400 },
     )
   }
 
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return NextResponse.json(
+    return checkupResponse(
       { error: "Expected a month to mark as opened." },
       { status: 400 },
     )
@@ -41,7 +54,7 @@ export async function POST(req: NextRequest) {
 
   const monthKey = validateMonthKey((raw as { monthKey?: unknown }).monthKey)
   if (!monthKey.ok) {
-    return NextResponse.json({ error: monthKey.error }, { status: 400 })
+    return checkupResponse({ error: monthKey.error }, { status: 400 })
   }
 
   // Get-or-create the plan, then set the opened month. upsert keyed on the
@@ -53,7 +66,7 @@ export async function POST(req: NextRequest) {
       update: { checkupOpenedMonthKey: monthKey.value },
       select: { checkupOpenedMonthKey: true },
     })
-    return NextResponse.json({
+    return checkupResponse({
       checkupOpenedMonthKey: saved.checkupOpenedMonthKey,
     })
   } catch (err) {
@@ -68,7 +81,7 @@ export async function POST(req: NextRequest) {
         data: { checkupOpenedMonthKey: monthKey.value },
         select: { checkupOpenedMonthKey: true },
       })
-      return NextResponse.json({
+      return checkupResponse({
         checkupOpenedMonthKey: saved.checkupOpenedMonthKey,
       })
     }
