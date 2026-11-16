@@ -77,6 +77,7 @@ export interface ShoppingSnapshotInvite {
   id: string
   status: string
   expiresAt: string
+  createdAt: string
   verificationCode: string | null
   encryptedClaimantAlias: string | null
   claimantKeyFingerprint: string | null

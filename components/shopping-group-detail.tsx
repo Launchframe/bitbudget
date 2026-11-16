@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { useApp } from "@/lib/app-context"
 import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
+import { formatShoppingFingerprintDisplay } from "@/lib/shopping-crypto"
 import { shoppingInviteUrl } from "@/lib/shopping-invites"
 import { centsToUsdLabel, dollarsToCents, newShoppingObjectId } from "@/lib/shopping-payloads"
 import { decryptClaimantAlias, prepareApproveMember, prepareDefaultList, prepareEventPayload, prepareReceiptDraft, prepareRequest } from "@/lib/shopping-prepare"
@@ -64,7 +65,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 
 type DetailTab = "Requests" | "Receipts" | "Tab" | "Members"
-type DetailDialog = "request" | "receipt" | "payment" | "invite" | null
+type DetailDialog = "request" | "receipt" | "payment" | "invite" | "invite-history" | null
 
 export function ShoppingGroupDetail() {
   const { selectedEnvelopeId, navigateTo, withPrivacyKey } = useApp()
@@ -276,9 +277,9 @@ export function ShoppingGroupDetail() {
             <MembersTab
               view={view}
               onInvite={() => setDialog("invite")}
+              onInviteHistory={() => setDialog("invite-history")}
               onReview={(invite) => void openReview(invite)}
               onReject={(inviteId) => void decideInvite(inviteId, "reject")}
-              onRevoke={(inviteId) => void revokeInvite(inviteId)}
             />
           )}
         </>
@@ -345,6 +346,21 @@ export function ShoppingGroupDetail() {
           view={view}
           createInvite={createInvite}
           onClose={() => setDialog(null)}
+          onOpenHistory={() => setDialog("invite-history")}
+        />
+      )}
+      {view && dialog === "invite-history" && (
+        <InviteHistoryDialog
+          view={view}
+          busy={busy}
+          onClose={() => setDialog(null)}
+          onInvite={() => setDialog("invite")}
+          onReview={(invite) => {
+            setDialog(null)
+            void openReview(invite)
+          }}
+          onReject={(inviteId) => void decideInvite(inviteId, "reject")}
+          onRevoke={(inviteId) => void revokeInvite(inviteId)}
         />
       )}
     </section>
@@ -988,19 +1004,42 @@ function TabPanel({
   )
 }
 
+function inviteStatusLabel(status: string): string {
+  switch (status) {
+    case "pending":
+      return "Link open"
+    case "requested":
+      return "Waiting for you"
+    case "approved":
+      return "Joined"
+    case "revoked":
+      return "Revoked"
+    case "rejected":
+      return "Declined"
+    case "expired":
+      return "Expired"
+    default:
+      return status
+  }
+}
+
 function MembersTab({
   view,
   onInvite,
+  onInviteHistory,
   onReview,
   onReject,
-  onRevoke,
 }: {
   view: DecryptedGroupView
   onInvite: () => void
+  onInviteHistory: () => void
   onReview: (invite: ShoppingSnapshotInvite) => void
   onReject: (inviteId: string) => void
-  onRevoke: (inviteId: string) => void
 }) {
+  const joinRequests = view.invites.filter((invite) => invite.status === "requested")
+  const openLinks = view.invites.filter((invite) => invite.status === "pending").length
+  const historyCount = view.invites.length
+
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1027,47 +1066,55 @@ function MembersTab({
                 {member.id === view.me.id ? " (you)" : ""}
               </p>
               <p className="text-xs text-muted-foreground">
-                {member.role === "owner" ? "Owner" : "Member"} · {member.fingerprint}
+                {member.role === "owner" ? "Owner" : "Member"} ·{" "}
+                {formatShoppingFingerprintDisplay(member.fingerprint)}
               </p>
             </div>
             <span className="rounded-full bg-chart-2/15 px-2 py-1 text-[10px] text-chart-2">{member.status}</span>
           </div>
         ))}
       </div>
-      {view.me.role === "owner" && view.invites.length > 0 && (
+      {view.me.role === "owner" && joinRequests.length > 0 && (
         <div className="flex flex-col gap-3">
           <h2 className="text-xl font-semibold">Join requests</h2>
-          {view.invites.map((invite) => (
+          {joinRequests.map((invite) => (
             <div
               key={invite.id}
               className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
-                <p className="text-sm font-medium">
-                  {invite.status === "requested" ? "Someone asked to join" : "Invite link is open"}
-                </p>
+                <p className="text-sm font-medium">Someone asked to join</p>
                 <p className="text-xs text-muted-foreground">
-                  Expires {new Date(invite.expiresAt).toLocaleString()}
+                  Compare their code before adding · Expires{" "}
+                  {new Date(invite.expiresAt).toLocaleString()}
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
-                {invite.status === "requested" ? (
-                  <>
-                    <Button type="button" onClick={() => onReview(invite)}>
-                      Review
-                    </Button>
-                    <Button type="button" variant="ghost" onClick={() => onReject(invite.id)}>
-                      Decline
-                    </Button>
-                  </>
-                ) : (
-                  <Button type="button" variant="ghost" onClick={() => onRevoke(invite.id)}>
-                    Revoke link
-                  </Button>
-                )}
+                <Button type="button" onClick={() => onReview(invite)}>
+                  Review
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => onReject(invite.id)}>
+                  Decline
+                </Button>
               </div>
             </div>
           ))}
+        </div>
+      )}
+      {view.me.role === "owner" && (
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground">
+            {openLinks > 0
+              ? `${openLinks} open invite ${openLinks === 1 ? "link" : "links"} · `
+              : ""}
+            Your compare code:{" "}
+            <span className="font-mono text-foreground">
+              {formatShoppingFingerprintDisplay(view.me.fingerprint)}
+            </span>
+          </p>
+          <Button type="button" variant="ghost" className="h-auto px-0 text-xs" onClick={onInviteHistory}>
+            Invite history{historyCount > 0 ? ` (${historyCount})` : ""}
+          </Button>
         </div>
       )}
     </div>
@@ -1214,19 +1261,29 @@ function ApproveRequestDialog({
   onApprove: (compared: boolean) => void
 }) {
   const [compared, setCompared] = useState(false)
+  const displayFingerprint = formatShoppingFingerprintDisplay(fingerprint)
   return (
     <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
       <DialogContent className="max-w-[min(96vw,32rem)] rounded-2xl border-border bg-card">
         <DialogHeader className="pr-10 text-left">
           <DialogTitle>Let {alias} join?</DialogTitle>
           <DialogDescription>
-            Compare this code and fingerprint with them before you add them. Their name stays encrypted for the group.
+            Compare this code with them by call or in person before you add them. Their name stays
+            encrypted for the group.
           </DialogDescription>
         </DialogHeader>
-        {verificationCode && (
-          <p className="font-mono text-2xl tracking-[0.2em]">{verificationCode}</p>
-        )}
-        <p className="break-all font-mono text-sm">{fingerprint}</p>
+        <div className="flex flex-col gap-1">
+          <p className="text-xs text-muted-foreground">Their compare code</p>
+          <p className="font-mono text-lg tracking-wide break-all sm:text-xl sm:tracking-widest">
+            {displayFingerprint}
+          </p>
+        </div>
+        {verificationCode ? (
+          <p className="text-xs text-muted-foreground">
+            Their invite link already checked out
+            <span className="sr-only"> (join secret {verificationCode})</span>.
+          </p>
+        ) : null}
         <div className="flex items-center justify-between gap-3 text-sm">
           <span>I compared this with them</span>
           <Switch checked={compared} onCheckedChange={setCompared} aria-label="I compared this with them" />
@@ -1248,23 +1305,38 @@ function InviteDialog({
   view,
   createInvite,
   onClose,
+  onOpenHistory,
 }: {
   view: DecryptedGroupView
-  createInvite: (groupId: string) => Promise<{ token: string; ownerPublicKey: string | null; expiresAt: string }>
+  createInvite: (groupId: string) => Promise<{
+    token: string
+    verificationCode: string
+    ownerPublicKey: string | null
+    expiresAt: string
+  }>
   onClose: () => void
+  onOpenHistory: () => void
 }) {
   const [url, setUrl] = useState<string | null>(null)
   const [expiresAt, setExpiresAt] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  const compareCode = formatShoppingFingerprintDisplay(view.me.fingerprint)
 
   async function create() {
     setBusy(true)
     setError(null)
     try {
       const created = await createInvite(view.groupId)
-      setUrl(shoppingInviteUrl(window.location.origin, created.token, created.ownerPublicKey))
+      setUrl(
+        shoppingInviteUrl(
+          window.location.origin,
+          created.token,
+          created.ownerPublicKey,
+          created.verificationCode,
+        ),
+      )
       setExpiresAt(created.expiresAt)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create invite")
@@ -1297,10 +1369,14 @@ function InviteDialog({
         ) : (
           <div className="flex flex-col gap-3">
             <p className="break-all rounded-xl border border-border bg-background p-3 font-mono text-xs">{url}</p>
+            <div className="rounded-xl border border-border/70 bg-secondary/40 px-3 py-3">
+              <p className="text-xs text-muted-foreground">Your compare code</p>
+              <p className="font-mono text-xl tracking-widest">{compareCode}</p>
+            </div>
             <p className="text-xs text-muted-foreground">
-              Send this link privately. When they join, check their code with them by call or in person
-              before adding them. Your code: {view.me.fingerprint}
-              {expiresAt ? ` · Expires ${new Date(expiresAt).toLocaleString()}` : ""}
+              Copy the link now — BitBudget cannot show it again after you close this (by design). When
+              they join, check their compare code with them by call or in person.
+              {expiresAt ? ` Expires ${new Date(expiresAt).toLocaleString()}.` : ""}
             </p>
             <Button type="button" variant="outline" onClick={() => void copy()}>
               <Copy className="size-4" />
@@ -1309,7 +1385,110 @@ function InviteDialog({
           </div>
         )}
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <DialogFooter>
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+          <Button type="button" variant="ghost" className="sm:mr-auto" onClick={onOpenHistory}>
+            Invite history
+          </Button>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function InviteHistoryDialog({
+  view,
+  busy,
+  onClose,
+  onInvite,
+  onReview,
+  onReject,
+  onRevoke,
+}: {
+  view: DecryptedGroupView
+  busy: boolean
+  onClose: () => void
+  onInvite: () => void
+  onReview: (invite: ShoppingSnapshotInvite) => void
+  onReject: (inviteId: string) => void
+  onRevoke: (inviteId: string) => void
+}) {
+  const compareCode = formatShoppingFingerprintDisplay(view.me.fingerprint)
+  const invites = view.invites
+
+  return (
+    <Dialog open onOpenChange={(next) => { if (!next) onClose() }}>
+      <DialogContent className="max-h-[min(90vh,40rem)] max-w-[min(96vw,32rem)] overflow-y-auto rounded-2xl border-border bg-card">
+        <DialogHeader className="pr-10 text-left">
+          <DialogTitle>Invite history</DialogTitle>
+          <DialogDescription>
+            Open links, waiting requests, and recent outcomes. Invite links cannot be recovered after you close
+            the create dialog — revoke unused ones here.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="rounded-xl border border-border/70 bg-secondary/40 px-3 py-3">
+          <p className="text-xs text-muted-foreground">Your compare code</p>
+          <p className="font-mono text-xl tracking-widest">{compareCode}</p>
+        </div>
+        {invites.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No invites yet for this group.</p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {invites.map((invite) => (
+              <li
+                key={invite.id}
+                className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background p-4"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{inviteStatusLabel(invite.status)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Created {new Date(invite.createdAt).toLocaleString()}
+                    {invite.status === "pending" || invite.status === "requested"
+                      ? ` · Expires ${new Date(invite.expiresAt).toLocaleString()}`
+                      : ""}
+                  </p>
+                  {invite.claimantKeyFingerprint && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Their compare code{" "}
+                      <span className="font-mono text-foreground">
+                        {formatShoppingFingerprintDisplay(invite.claimantKeyFingerprint)}
+                      </span>
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  {invite.status === "requested" && (
+                    <>
+                      <Button type="button" disabled={busy} onClick={() => onReview(invite)}>
+                        Review
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => onReject(invite.id)}
+                      >
+                        Decline
+                      </Button>
+                    </>
+                  )}
+                  {invite.status === "pending" && (
+                    <Button type="button" variant="ghost" disabled={busy} onClick={() => onRevoke(invite.id)}>
+                      Revoke link
+                    </Button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+          <Button type="button" className="sm:mr-auto" onClick={onInvite}>
+            <UserPlus className="size-4" />
+            New invite
+          </Button>
           <Button type="button" variant="ghost" onClick={onClose}>
             Close
           </Button>

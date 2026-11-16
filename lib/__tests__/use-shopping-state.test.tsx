@@ -7,7 +7,7 @@ import { useShoppingState } from "@/lib/use-shopping-state"
 vi.mock("@/lib/app-context", () => ({
   useApp: () => ({
     currentUserId: "user-1",
-    encryption: { ready: true, needsPinUnlock: false },
+    encryption: { ready: true, needsPinUnlock: false, needsPassphraseSetup: false },
   }),
 }))
 
