@@ -12,7 +12,7 @@ import {
 } from "lucide-react"
 import { generateKeyPairFromSeed, publicKeyToHex } from "@/lib/crypto"
 import { useApp } from "@/lib/app-context"
-import { publicKeyFingerprint } from "@/lib/shopping-crypto"
+import { formatShoppingFingerprintDisplay, publicKeyFingerprint } from "@/lib/shopping-crypto"
 import { handleDialogEnterToPrimary } from "@/lib/dialog-enter-submit"
 import {
   aliasInitials,
@@ -177,10 +177,16 @@ export function ShoppingPage() {
         <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card p-4 sm:p-5">
           <p className="font-medium">Request sent</p>
           <p className="text-sm text-muted-foreground">
-            Read these to the group owner on a call or in person. They should match before you are added.
+            Read your compare code to the group owner on a call or in person. It should match before
+            you are added.
           </p>
-          <p className="font-mono text-2xl tracking-[0.2em]">{claimReceipt.code}</p>
-          <p className="break-all font-mono text-sm">{claimReceipt.fingerprint}</p>
+          <div className="flex flex-col gap-1">
+            <p className="text-xs text-muted-foreground">Your compare code</p>
+            <p className="font-mono text-xl tracking-widest break-all">
+              {formatShoppingFingerprintDisplay(claimReceipt.fingerprint)}
+            </p>
+          </div>
+          <p className="sr-only">Join secret confirmed from invite link: {claimReceipt.code}</p>
           <Button type="button" variant="ghost" className="w-fit" onClick={() => setClaimReceipt(null)}>
             Done
           </Button>
@@ -190,8 +196,8 @@ export function ShoppingPage() {
         <div className="flex flex-col gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4 sm:p-5">
           <p className="font-medium">You have a shopping invite</p>
           <p className="text-sm text-muted-foreground">
-            Choose the name others in this group will see. The owner will check a short code with you
-            before adding you.
+            Choose the name others in this group will see. The owner will check your compare code with
+            you before adding you.
           </p>
           <label className="flex flex-col gap-2 text-sm font-medium">
             Your name in this group
