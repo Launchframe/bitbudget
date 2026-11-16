@@ -5,10 +5,14 @@ import { createInvite } from "@/lib/shopping-server"
 export async function POST(_req: Request, ctx: { params: Promise<{ groupId: string }> }) {
   const { groupId } = await ctx.params
   return withShoppingUser(async (userId) => {
-    const { invite, token, ownerPublicKey } = await createInvite({ groupId, userId })
+    const { invite, token, verificationCode, ownerPublicKey } = await createInvite({
+      groupId,
+      userId,
+    })
     return shoppingJson({
       id: invite.id,
       token,
+      verificationCode,
       ownerPublicKey,
       expiresAt: invite.expiresAt.toISOString(),
     }, 201)
