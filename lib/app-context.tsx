@@ -208,6 +208,9 @@ interface AppContextValue {
   transactionEnvelopeFilter: Set<string>
   clearTransactionEnvelopeFilter: () => void
   navigateTo: (page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => void
+  /** Transient "what-if" expense (USD) previewed on the Runway page; cleared on dismiss. */
+  runwayWhatIfUsd: number | null
+  setRunwayWhatIf: (amountUsd: number | null) => void
   setTransactionDialogOpen: (open: boolean) => void
   openNewTransaction: (prefill?: TransactionPrefill) => void
   statementImporterOpen: boolean
@@ -413,6 +416,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
   const [transactionPrefill, setTransactionPrefill] = useState<TransactionPrefill | null>(null)
+  const [runwayWhatIfUsd, setRunwayWhatIfUsd] = useState<number | null>(null)
 
   useEffect(() => {
     if (transactionDialogOpen) return
@@ -1021,6 +1025,12 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       }
     }
     isPopstate.current = false
+  }, [])
+
+  const setRunwayWhatIf = useCallback((amountUsd: number | null) => {
+    setRunwayWhatIfUsd(
+      typeof amountUsd === "number" && Number.isFinite(amountUsd) && amountUsd > 0 ? amountUsd : null,
+    )
   }, [])
 
   useEffect(() => {
@@ -1851,6 +1861,8 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         transactionEnvelopeFilter,
         clearTransactionEnvelopeFilter: () => setTransactionEnvelopeFilter(new Set()),
         navigateTo,
+        runwayWhatIfUsd,
+        setRunwayWhatIf,
         setTransactionDialogOpen,
         openNewTransaction,
         statementImporterOpen,

@@ -1,5 +1,6 @@
 export type PageId =
   | "dashboard"
+  | "runway"
   | "analytics"
   | "envelopes"
   | "envelope-allocations"
@@ -40,7 +41,7 @@ export function hashToPage(hash: string): AppRoute {
 
   if (path.startsWith("settings/")) return { page: "settings" }
 
-  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox", "shopping"]
+  const validPages: PageId[] = ["dashboard", "runway", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox", "shopping"]
   if (validPages.includes(path as PageId)) return { page: path as PageId }
 
   return { page: "dashboard" }

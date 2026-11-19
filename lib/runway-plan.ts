@@ -699,3 +699,16 @@ export function parseRunwayPlanBody(
 
   return { ok: true, value: result }
 }
+
+/**
+ * Fields a plan PUT may replace. The monthly checkup mark is written only by
+ * POST /api/runway/checkup/opened — echoing it from the client lets a stale
+ * totals or setup save clear the dashboard prompt.
+ */
+export function planValuesForClientWrite(
+  values: RunwayPlanValues,
+): Omit<RunwayPlanValues, "checkupOpenedMonthKey"> {
+  const { checkupOpenedMonthKey: _checkupOpenedMonthKey, ...writable } = values
+  void _checkupOpenedMonthKey
+  return writable
+}

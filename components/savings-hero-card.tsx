@@ -17,9 +17,11 @@ import {
   formatPeriodKeyLabel,
   savingsBalance,
   sumEnvelopeSweepCreditsYear,
+  sumMonthlyIncomeCredits,
   type SavingsGoalRow,
   goalProgressRingColor,
 } from "@/lib/savings-ui-metrics"
+import { computeGoalImpact } from "@/lib/runway-expense-impact"
 import {
   formatSavingsSinceLabel,
   resolveSavingsTrackingStartFromTransactions,
@@ -188,6 +190,21 @@ export function SavingsHeroCard() {
   const savedThisMonth = Math.max(0, balance - startBal)
   const liveProgress = target > 0 ? savedThisMonth / target : 0
 
+  // Calm, standing read-out: is this month's goal out of reach even with nothing
+  // else spent, or just behind straight-line pace with a paycheck still to come?
+  const goalImpact = useMemo(() => {
+    const now = new Date()
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    const monthProgress = daysInMonth > 0 ? now.getDate() / daysInMonth : 0
+    const incomeReceived = sumMonthlyIncomeCredits(activeTransactions, monthKey)
+    return computeGoalImpact({
+      goalUsd: target,
+      keptSoFarUsd: savedThisMonth,
+      incomeStillExpectedUsd: Math.max(0, state.monthlyIncome - incomeReceived),
+      monthProgress,
+    })
+  }, [activeTransactions, monthKey, target, savedThisMonth, state.monthlyIncome])
+
   const streak = computeGoalStreak(closedGoals)
   const bestMonth = bestMonthFromGoals(closedGoals)
   const bestStreak = useMemo(() => {
@@ -319,6 +336,18 @@ export function SavingsHeroCard() {
             </div>
           </div>
         </div>
+
+        {goalImpact.status === "out_of_reach" && (
+          <p className="text-xs text-amber-400/90">
+            This month&apos;s goal is out of reach by {formatUsd(goalImpact.outOfReachByUsd)}, even with
+            nothing else spent.
+          </p>
+        )}
+        {goalImpact.status === "behind_pace" && (
+          <p className="text-xs text-muted-foreground">
+            A little behind this month&apos;s pace — a later paycheck can still catch you up.
+          </p>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           {streak > 0 && (

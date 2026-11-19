@@ -5,6 +5,7 @@ import { DashboardMetrics } from "@/components/dashboard-metrics"
 import { OpportunityCostChart } from "@/components/opportunity-cost-chart"
 import { TopOpportunityCosts } from "@/components/top-opportunity-costs"
 import { RecentTransactions } from "@/components/recent-transactions"
+import { RunwayDashboardCard } from "@/components/runway-dashboard-card"
 import { SetupProgressCard } from "@/components/setup-progress-card"
 import { YearEndRecapModal } from "@/components/year-end-recap-modal"
 import { GoalHitCelebration } from "@/components/goal-hit-celebration"
@@ -20,6 +21,7 @@ export function DashboardPage() {
       <div data-walkthrough="dashboard-metrics">
         <DashboardMetrics />
       </div>
+      {state.opportunityCostEnabled && <RunwayDashboardCard />}
       <div data-walkthrough="dashboard-chart">
         <OpportunityCostChart />
         {state.opportunityCostEnabled ? <TopOpportunityCosts /> : <RecentTransactions />}

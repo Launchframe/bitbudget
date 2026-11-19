@@ -53,6 +53,7 @@ import {
 } from "@/lib/transaction-dates"
 import { pickTransactionSuccessMessage } from "@/lib/transaction-success-messages"
 import { TransactionSuccessView } from "@/components/transaction-success-view"
+import { ExpenseImpactBand } from "@/components/expense-impact-band"
 
 type Cadence = "weekly" | "biweekly" | "monthly" | "quarterly" | "annual"
 
@@ -1132,6 +1133,12 @@ export function NewTransactionDialog() {
                 </div>
                 {validationErrors.amount && (
                   <p className="text-xs text-red-400 mt-1">{validationErrors.amount}</p>
+                )}
+                {type === "expense" && state.opportunityCostEnabled && (
+                  <ExpenseImpactBand
+                    amountUsd={Number.parseFloat(amount)}
+                    envelopeId={envelopeId}
+                  />
                 )}
               </div>
 
