@@ -81,6 +81,7 @@ describe("parseWalletWatches", () => {
         descriptor: "abandon abandon abandon abandon abandon abandon",
       }),
       wallet({ id: "prv", descriptor: "xprv9s21ZrQH143K" }),
+      wallet({ id: "tprv", descriptor: "tprv8ZgxMB5j3X9oL22ZqN2P2eWnQyVKuCbddvJ6Rv3F" }),
       wallet({ id: "wif", descriptor: "5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ" }),
       wallet({ id: "hex", descriptor: "0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d" }),
     ])

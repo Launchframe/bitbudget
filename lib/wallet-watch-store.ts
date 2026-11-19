@@ -204,7 +204,14 @@ function isSafeDescriptor(value: string): boolean {
   if (trimmed.length < 8 || trimmed.length > 200) return false
   if (/\s/.test(trimmed)) return false
   const lower = trimmed.toLowerCase()
-  if (lower.startsWith("xprv") || lower.startsWith("yprv") || lower.startsWith("zprv")) return false
+  if (
+    lower.startsWith("xprv") ||
+    lower.startsWith("yprv") ||
+    lower.startsWith("zprv") ||
+    lower.startsWith("tprv")
+  ) {
+    return false
+  }
   if (/^[5kl]/i.test(trimmed) && trimmed.length >= 51 && trimmed.length <= 52) return false
   if (/^[0-9a-f]{64}$/i.test(trimmed)) return false
   return true
