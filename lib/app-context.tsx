@@ -50,6 +50,7 @@ import {
   setCachedPrivacyKeyHex,
 } from "@/lib/privacy-key-storage"
 import { clearAllDrafts } from "@/lib/draft-storage"
+import { clearAllWalletWatches } from "@/lib/wallet-watch-store"
 import { clearShoppingCache } from "@/lib/shopping-cache"
 import { loadPendingShoppingInvite } from "@/lib/shopping-invite-handoff"
 import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
@@ -1644,6 +1645,12 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
       clearAllDrafts()
       // Pending shopping invite survives logout (localStorage handoff) so Google ↔ email switches mid-join keep working.
+    } catch {
+      /* ignore */
+    }
+    try {
+      // Own try: a sessionStorage failure above must not leave watched addresses behind.
+      clearAllWalletWatches()
     } catch {
       /* ignore */
     }
