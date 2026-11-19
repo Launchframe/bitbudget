@@ -178,6 +178,7 @@ export function RunwayPage() {
     insightMonthlyUsd: livingPlaceholder,
     envelopeCashUsd,
     walletSats,
+    watchCount,
     btcPriceOrNull,
     loans,
     loansEval,
