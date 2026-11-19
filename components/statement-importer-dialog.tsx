@@ -475,6 +475,7 @@ export function StatementImporterDialog({
     setShowAutoImportCta(false)
     setIsDragging(false)
     setParseError(null)
+    setStatementNotice(null)
     setImportError(null)
     setLoading(false)
     setClearOpen(false)
@@ -744,12 +745,10 @@ export function StatementImporterDialog({
     if (parsed.length === 1) {
       const first = parsed[0]!
       if (first.result.transactions.length === 0) {
-        setParseError(
-          ignoredTradesMessage(first.result.ignoredTrades ?? 0) ??
-            "No transactions found in this file.",
-        )
+        noteEmptyStatement(first.result.ignoredTrades ?? 0, "No transactions found in this file.")
         return
       }
+      setParseError(null)
       setStatementNotice(ignoredTradesMessage(first.result.ignoredTrades ?? 0))
       await transitionToPreview(
         first.result.transactions,
@@ -772,16 +771,27 @@ export function StatementImporterDialog({
     void processFiles(Array.from(fileList))
   }
 
+  function noteEmptyStatement(ignored: number, fallback: string) {
+    const notice = ignoredTradesMessage(ignored)
+    if (notice) {
+      setStatementNotice(notice)
+      setParseError(null)
+      return
+    }
+    setStatementNotice(null)
+    setParseError(fallback)
+  }
+
   async function applyFileChoice() {
-    const notice = ignoredTradesMessage(
-      files.reduce((sum, file) => sum + (file.result.ignoredTrades ?? 0), 0),
-    )
+    const ignoredTotal = files.reduce((sum, file) => sum + (file.result.ignoredTrades ?? 0), 0)
+    const notice = ignoredTradesMessage(ignoredTotal)
     if (fileMode === "merge") {
       const merged: ParsedTransaction[] = files.flatMap(f => f.result.transactions)
       if (merged.length === 0) {
-        setParseError(notice ?? "No transactions found in these files.")
+        noteEmptyStatement(ignoredTotal, "No transactions found in these files.")
         return
       }
+      setParseError(null)
       setStatementNotice(notice)
       const instName = files.every(f => f.result.institutionName === files[0]!.result.institutionName)
         ? files[0]!.result.institutionName
@@ -791,21 +801,19 @@ export function StatementImporterDialog({
         : null
       await transitionToPreview(merged, instName, format)
     } else {
-      // Individual mode — start with first file
-      setCurrentFileIndex(0)
-      const first = files[0]!
-      if (first.result.transactions.length === 0) {
-        setParseError(
-          ignoredTradesMessage(first.result.ignoredTrades ?? 0) ??
-            "No transactions found in this file.",
-        )
+      const start = files.findIndex(file => file.result.transactions.length > 0)
+      if (start < 0) {
+        noteEmptyStatement(ignoredTotal, "No transactions found in these files.")
         return
       }
-      setStatementNotice(ignoredTradesMessage(first.result.ignoredTrades ?? 0))
+      setCurrentFileIndex(start)
+      const chosen = files[start]!
+      setParseError(null)
+      setStatementNotice(ignoredTradesMessage(chosen.result.ignoredTrades ?? 0))
       await transitionToPreview(
-        first.result.transactions,
-        first.result.institutionName,
-        first.result.format,
+        chosen.result.transactions,
+        chosen.result.institutionName,
+        chosen.result.format,
       )
     }
   }
@@ -1622,7 +1630,7 @@ export function StatementImporterDialog({
                 <Upload className="h-8 w-8 text-muted-foreground" />
                 <div>
                   <p className="text-sm font-medium text-foreground">Drop your statement here or click to browse</p>
-                  <p className="text-xs text-muted-foreground mt-1">Supported: Fold statement (.csv or .pdf)</p>
+                  <p className="text-xs text-muted-foreground mt-1">CSV: Fold, Chase checking, or Coinbase. PDF: Fold.</p>
                 </div>
               </button>
               <input
@@ -1634,6 +1642,9 @@ export function StatementImporterDialog({
                 onChange={(e) => { handleFiles(e.target.files); e.target.value = "" }}
                 aria-hidden="true"
               />
+              {statementNotice && (
+                <p className="text-sm text-muted-foreground">{statementNotice}</p>
+              )}
               {parseError && (
                 <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2.5 text-sm text-red-400">
                   <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -1686,11 +1697,23 @@ export function StatementImporterDialog({
                   </div>
                 </button>
               </div>
-              <div className="text-xs text-muted-foreground space-y-0.5 bg-[#1A1A1A] rounded-lg px-3 py-2">
+              <div className="text-xs text-muted-foreground space-y-0.5 bg-[#1A1A1A] rounded-lg px-3 py-2 min-w-0">
                 {files.map((f, idx) => (
-                  <p key={idx}>{f.fileName} · {f.result.transactions.length} transactions</p>
+                  <p key={idx} className="min-w-0 break-all">
+                    {f.fileName} · {f.result.transactions.length} transactions
+                    {(f.result.ignoredTrades ?? 0) > 0 ? ` · ${f.result.ignoredTrades} left out` : ""}
+                  </p>
                 ))}
               </div>
+              {statementNotice ? (
+                <p className="text-sm text-muted-foreground">{statementNotice}</p>
+              ) : null}
+              {parseError ? (
+                <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2.5 text-sm text-red-400">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>{parseError}</span>
+                </div>
+              ) : null}
             </div>
           )}
 
