@@ -83,7 +83,7 @@ describe("GET /api/runway/plan", () => {
     vi.mocked(prisma.runwayPlan.findUnique).mockResolvedValue(
       row({
         runwayIncomeUsd: new Prisma.Decimal("1500.01"),
-        bitcoinOverrideSats: 50_000_000n,
+        bitcoinOverrideSats: BigInt(50_000_000),
         phase: "runway",
       }) as never,
     )
@@ -173,7 +173,7 @@ describe("PUT /api/runway/plan", () => {
       row({
         phase: "runway",
         runwayIncomeUsd: new Prisma.Decimal("1500.01"),
-        bitcoinOverrideSats: 50_000_000n,
+        bitcoinOverrideSats: BigInt(50_000_000),
       }) as never,
     )
     const res = await put({
@@ -191,7 +191,7 @@ describe("PUT /api/runway/plan", () => {
     expect(call.create.userId).toBe(userId)
     expect(call.update).not.toHaveProperty("userId")
     expect(call.create.phase).toBe("runway")
-    expect(call.create.bitcoinOverrideSats).toBe(50_000_000n)
+    expect(call.create.bitcoinOverrideSats).toBe(BigInt(50_000_000))
     expect((call.create.runwayIncomeUsd as Prisma.Decimal).toFixed(2)).toBe(
       "1500.01",
     )

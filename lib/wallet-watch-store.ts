@@ -122,6 +122,10 @@ export function patchWalletWatch(
   patch: Pick<WalletWatch, "confirmedSats" | "updatedAt">,
 ): void {
   if (!userId) return
+  // A bad refresh must not delete the watch. writeWalletWatches drops any row
+  // parseWatch rejects, including a fractional or negative balance.
+  if (!Number.isInteger(patch.confirmedSats) || patch.confirmedSats < 0) return
+  if (patch.updatedAt != null && typeof patch.updatedAt !== "string") return
   const current = getWalletWatchSnapshot(userId)
   if (!current.some((watch) => watch.id === id)) return
   writeWalletWatches(
@@ -198,14 +202,25 @@ function parseWatch(row: unknown): WalletWatch | null {
   }
 }
 
-/** Reject seeds and private keys. Addresses and public descriptors only. */
+/**
+ * Reject seeds and private keys. Addresses and public descriptors only.
+ * Extended private keys are matched at a token boundary so `wpkh(xprv…)` is
+ * rejected and a bech32 address that merely contains those letters is kept.
+ */
 function isSafeDescriptor(value: string): boolean {
   const trimmed = value.trim()
   if (trimmed.length < 8 || trimmed.length > 200) return false
   if (/\s/.test(trimmed)) return false
   const lower = trimmed.toLowerCase()
-  if (lower.startsWith("xprv") || lower.startsWith("yprv") || lower.startsWith("zprv")) return false
-  if (/^[5kl]/i.test(trimmed) && trimmed.length >= 51 && trimmed.length <= 52) return false
-  if (/^[0-9a-f]{64}$/i.test(trimmed)) return false
+  if (/(?:^|[^a-z0-9])(xprv|yprv|zprv|tprv|uprv|vprv)/.test(lower)) return false
+  // WIF: mainnet 5 / K / L, testnet 9 (uncompressed) and c (compressed).
+  if (/^[5kl9]/.test(lower) && trimmed.length >= 51 && trimmed.length <= 52) return false
+  if (lower.startsWith("c") && trimmed.length === 52) return false
+  // Mini private key (S + 21/25/29 base58 chars) and BIP38 encrypted key (6P, 58 chars).
+  if (lower.startsWith("s") && (trimmed.length === 22 || trimmed.length === 26 || trimmed.length === 30)) {
+    return false
+  }
+  if (lower.startsWith("6p") && trimmed.length === 58) return false
+  if (/^(0x)?[0-9a-f]{64}$/.test(lower)) return false
   return true
 }

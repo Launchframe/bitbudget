@@ -4,6 +4,7 @@ import {
   chainActivityCountsAsSpending,
   runwayWalletSats,
   sumConfirmedSats,
+  walletWatchInformsHoldings,
 } from "@/lib/wallet-confirmed-sats"
 import {
   clearAllWalletWatches,
@@ -56,6 +57,25 @@ describe("runwayWalletSats", () => {
     const watches = [{ confirmedSats: 10_000_000, role: "exchange" }]
     expect(runwayWalletSats(watches, 2_000_000)).toBe(8_000_000)
   })
+
+  it("keeps a refreshed exchange balance once the sale is cash, not bitcoin on the way", () => {
+    const watches = [{ confirmedSats: 8_000_000, role: "exchange" }]
+    expect(runwayWalletSats(watches, 0)).toBe(8_000_000)
+    expect(runwayWalletSats(watches, Number.NaN)).toBe(8_000_000)
+  })
+})
+
+describe("walletWatchInformsHoldings", () => {
+  it("ignores an unsynced empty watch and accepts a reading or a balance", () => {
+    expect(walletWatchInformsHoldings([{ confirmedSats: 0, updatedAt: null }])).toBe(false)
+    expect(walletWatchInformsHoldings([{ confirmedSats: 0, updatedAt: "" }])).toBe(false)
+    expect(
+      walletWatchInformsHoldings([
+        { confirmedSats: 0, updatedAt: "2026-11-18T00:00:00.000Z" },
+      ]),
+    ).toBe(true)
+    expect(walletWatchInformsHoldings([{ confirmedSats: 1, updatedAt: null }])).toBe(true)
+  })
 })
 
 describe("chain activity", () => {
@@ -81,12 +101,44 @@ describe("parseWalletWatches", () => {
         descriptor: "abandon abandon abandon abandon abandon abandon",
       }),
       wallet({ id: "prv", descriptor: "xprv9s21ZrQH143K" }),
+      wallet({ id: "tprv", descriptor: "tprv8ZgxMB5j3X9oL22ZqN2P2eWnQyVKuCbddvJ6Rv3F" }),
+      wallet({ id: "uprv", descriptor: "uprv8ZgxMBpe2G3k3Q" }),
+      wallet({ id: "vprv", descriptor: "vprv8ZgxMBpe2G3k3Q" }),
+      wallet({ id: "desc", descriptor: "wpkh(xprv9s21ZrQH143K3QT)" }),
+      wallet({ id: "origin", descriptor: "[deadbeef]tprv8ZgxMBpe2G" }),
       wallet({ id: "wif", descriptor: "5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ" }),
+      wallet({ id: "twif", descriptor: `9${"a".repeat(50)}` }),
+      wallet({ id: "cwif", descriptor: `c${"a".repeat(51)}` }),
       wallet({ id: "hex", descriptor: "0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d" }),
+      wallet({
+        id: "hex0x",
+        descriptor: "0x0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d",
+      }),
+      wallet({ id: "mini", descriptor: `S${"a".repeat(29)}` }),
+      wallet({ id: "bip38", descriptor: `6P${"a".repeat(56)}` }),
     ])
     const parsed = parseWalletWatches(raw)
     expect(parsed).toHaveLength(1)
     expect(parsed[0]?.descriptor.startsWith("bc1q")).toBe(true)
+  })
+
+  it("keeps public descriptors", () => {
+    const raw = serializeWalletWatches([
+      wallet({ id: "xpub", kind: "xpub", descriptor: "xpub661MyMwAqRbcFtXgS" }),
+      wallet({ id: "tpub", kind: "xpub", descriptor: "tpubD6NzVbkrYhZx" }),
+      wallet({ id: "upub", kind: "xpub", descriptor: "upub5EJj3qAbCd" }),
+      wallet({ id: "nested", kind: "xpub", descriptor: "wpkh(xpub661MyMwAqRbcFtXgS)" }),
+      wallet({ id: "s-short", descriptor: `s${"a".repeat(19)}` }),
+      wallet({ id: "s-long", descriptor: `s${"a".repeat(40)}` }),
+    ])
+    expect(parseWalletWatches(raw).map((row) => row.id)).toEqual([
+      "xpub",
+      "tpub",
+      "upub",
+      "nested",
+      "s-short",
+      "s-long",
+    ])
   })
 
   it("returns an empty list for junk", () => {
@@ -134,6 +186,22 @@ describe("wallet watch storage", () => {
     writeWalletWatches("user_a", [])
     patchWalletWatch("user_a", "gone", { confirmedSats: 50_000, updatedAt: "2026-11-12T00:00:00.000Z" })
     expect(getWalletWatchSnapshot("user_a")).toEqual([])
+    vi.unstubAllGlobals()
+  })
+
+  it("ignores a fractional balance update instead of deleting the watch", () => {
+    installMemoryStorage()
+    writeWalletWatches("user_a", [wallet({ id: "keep", confirmedSats: 10 })])
+    patchWalletWatch("user_a", "keep", {
+      confirmedSats: 1.5,
+      updatedAt: "2026-11-18T00:00:00.000Z",
+    })
+    expect(getWalletWatchSnapshot("user_a").map((row) => row.confirmedSats)).toEqual([10])
+    patchWalletWatch("user_a", "keep", {
+      confirmedSats: 40,
+      updatedAt: "2026-11-18T00:00:00.000Z",
+    })
+    expect(getWalletWatchSnapshot("user_a").map((row) => row.confirmedSats)).toEqual([40])
     vi.unstubAllGlobals()
   })
 })
