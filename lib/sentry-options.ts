@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/nextjs"
-import { scrubSentryEvent } from "@/lib/sentry-scrub"
+import { scrubSentryEvent, scrubSentrySpan } from "@/lib/sentry-scrub"
 
 function sentryEnvironment(): string {
   if (process.env.VERCEL_ENV) return process.env.VERCEL_ENV
@@ -21,6 +21,9 @@ export function baseSentryOptions(): Parameters<typeof Sentry.init>[0] {
     tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 0,
     beforeSend: (event, hint) =>
       scrubSentryEvent(event as Parameters<typeof scrubSentryEvent>[0], hint) as typeof event | null,
+    beforeSendTransaction: (event, hint) =>
+      scrubSentryEvent(event as Parameters<typeof scrubSentryEvent>[0], hint) as typeof event | null,
+    beforeSendSpan: (span) => scrubSentrySpan(span),
     ignoreErrors: [
       // Browser extensions / network noise
       "ResizeObserver loop limit exceeded",
