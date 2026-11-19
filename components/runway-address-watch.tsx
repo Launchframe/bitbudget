@@ -10,7 +10,12 @@ import {
   fetchAddressConfirmedSats,
 } from "@/lib/esplora-address"
 import { useWalletWatches } from "@/lib/use-wallet-watch"
-import { patchWalletWatch, writeWalletWatches, type WalletWatch } from "@/lib/wallet-watch-store"
+import {
+  getWalletWatchSnapshot,
+  patchWalletWatch,
+  writeWalletWatches,
+  type WalletWatch,
+} from "@/lib/wallet-watch-store"
 
 type AddressRole = "wallet" | "exchange"
 
@@ -44,7 +49,8 @@ export function RunwayAddressWatch() {
       return
     }
     const descriptor = canonicalBitcoinAddress(address)
-    if (addresses.some((watch) => canonicalBitcoinAddress(watch.descriptor) === descriptor)) {
+    const stored = getWalletWatchSnapshot(currentUserId).filter((watch) => watch.kind === "address")
+    if (stored.some((watch) => canonicalBitcoinAddress(watch.descriptor) === descriptor)) {
       setError("That address is already on the list.")
       return
     }
@@ -57,7 +63,7 @@ export function RunwayAddressWatch() {
       confirmedSats: 0,
       updatedAt: null,
     }
-    writeWalletWatches(currentUserId, [...watches, next])
+    writeWalletWatches(currentUserId, [...getWalletWatchSnapshot(currentUserId), next])
     setAddress("")
     setError(null)
     busyRef.current = true
@@ -90,7 +96,7 @@ export function RunwayAddressWatch() {
   function onRemove(id: string) {
     writeWalletWatches(
       currentUserId,
-      watches.filter((watch) => watch.id !== id),
+      getWalletWatchSnapshot(currentUserId).filter((watch) => watch.id !== id),
     )
   }
 
