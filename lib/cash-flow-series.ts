@@ -7,6 +7,11 @@ import {
   TX_SOURCE_RETRO_PAYCHECK,
 } from "@/lib/constants"
 import { isUserFacingExpense, todayUtcIso, txnIsoDate } from "@/lib/transaction-visibility"
+import {
+  isShoppingCashInflow,
+  isShoppingCashOutflow,
+  isShoppingManagedSource,
+} from "@/lib/shopping-classification"
 
 const SATS_PER_BTC = 100_000_000
 
@@ -46,11 +51,13 @@ function usdToSats(usd: number, btcPrice: number): number {
 
 export function isCashInflowCredit(txn: Pick<Transaction, "type" | "source" | "excludeFromMainHistory">): boolean {
   if (txn.type !== "credit" || txn.excludeFromMainHistory) return false
+  if (isShoppingCashInflow(txn)) return true
   const src = txn.source ?? "manual"
   return CASH_INFLOW_SOURCES.has(src)
 }
 
 export function isCashOutflowExpense(txn: Pick<Transaction, "type" | "excludeFromMainHistory" | "source">): boolean {
+  if (isShoppingManagedSource(txn.source)) return isShoppingCashOutflow(txn)
   return isUserFacingExpense(txn)
 }
 

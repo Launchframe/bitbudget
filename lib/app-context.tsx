@@ -50,6 +50,8 @@ import {
   setCachedPrivacyKeyHex,
 } from "@/lib/privacy-key-storage"
 import { clearAllDrafts } from "@/lib/draft-storage"
+import { clearShoppingCache } from "@/lib/shopping-cache"
+import { loadPendingShoppingInvite } from "@/lib/shopping-invite-handoff"
 import { DASHBOARD_CHART_RANGE_OVERRIDE_KEY } from "@/lib/dashboard-chart-mode"
 import {
   type ApiTransactionRow,
@@ -81,42 +83,19 @@ import { filterTransactionsForActiveLedger } from "@/lib/envelope-ledger-visibil
 import { syncUserPublicKey } from "@/lib/sync-user-public-key"
 import { transactionSyncUserMessage } from "@/lib/transaction-sync-user-message"
 import { clearPendingNsec, clearNsecOnboardingIntent, getPendingNsec } from "@/lib/nostr-local-signer"
+import {
+  hashToPage,
+  initialRouteFromLocation,
+  pageToHash,
+  type AppRoute,
+  type PageId,
+} from "@/lib/app-routes"
 
-export type PageId =
-  | "dashboard"
-  | "analytics"
-  | "envelopes"
-  | "envelope-allocations"
-  | "envelope-detail"
-  | "transactions"
-  | "btc-price"
-  | "researcher"
-  | "funds"
-  | "profile"
-  | "settings"
-  | "review-inbox"
+export type { PageId }
 
-function pageToHash(page: PageId, envelopeId?: string | null): string {
-  if (page === "envelope-detail" && envelopeId) return `#/envelope/${envelopeId}`
-  if (page === "envelope-allocations") return "#/envelopes/allocations"
-  return `#/${page}`
-}
-
-function hashToPage(hash: string): { page: PageId; envelopeId?: string } {
-  const path = hash.replace(/^#\/?/, "")
-  if (!path || path === "/") return { page: "dashboard" }
-
-  const envelopeMatch = path.match(/^envelope\/(.+)$/)
-  if (envelopeMatch) return { page: "envelope-detail", envelopeId: envelopeMatch[1] }
-
-  if (path === "envelopes/allocations") return { page: "envelope-allocations" }
-
-  if (path.startsWith("settings/")) return { page: "settings" }
-
-  const validPages: PageId[] = ["dashboard", "analytics", "envelopes", "transactions", "btc-price", "researcher", "funds", "profile", "settings", "review-inbox"]
-  if (validPages.includes(path as PageId)) return { page: path as PageId }
-
-  return { page: "dashboard" }
+function readInitialRoute(): AppRoute {
+  if (typeof window === "undefined") return { page: "dashboard" }
+  return initialRouteFromLocation(window.location.hash, loadPendingShoppingInvite() !== null)
 }
 
 /** Cold-start transaction hydration: init until IDB recent slice; recent → full → synced during refresh. */
@@ -138,6 +117,11 @@ function maxUpdatedAtFromApiRows(rows: ApiTransactionRow[]): string | null {
 interface EncryptionState {
   ready: boolean
   needsPinUnlock: boolean
+  /**
+   * True when the account has no wrapped privacy key (post-reset or never configured).
+   * Must block the app until a new passphrase is saved — do not treat as unlocked.
+   */
+  needsPassphraseSetup: boolean
   encryptedPrivacyKey: string | null
   privacyKeySalt: string | null
 }
@@ -213,6 +197,7 @@ interface AppContextValue {
   /** Set when `refreshData` fails mid-sync; cleared on the next successful refresh or dismiss. */
   transactionSyncError: string | null
   clearTransactionSyncError: () => void
+  reportTransactionSyncError: (message: string) => void
   /** User id for IndexedDB helpers (e.g. memoized top OC). */
   currentUserId: string | null
   /** Last persisted transaction count from IndexedDB memo (instant Settings hint). */
@@ -262,7 +247,14 @@ interface AppContextValue {
   deleteTag: (id: string) => void
   refreshData: () => Promise<void>
   clearLocalTransactionCache: () => Promise<void>
+  /** After destructive reset API success — block old passphrase unlock until new setup. */
+  applyServerEncryptionReset: () => void
   encryptForStorage: (plaintext: string) => Promise<string>
+  /**
+   * Run a callback with the in-memory privacy key while unlocked.
+   * Returns null when the session is locked. Do not persist the key.
+   */
+  withPrivacyKey: <T>(fn: (key: Uint8Array) => T | Promise<T>) => Promise<T | null>
   /**
    * Build a per-import HMAC dedupe-key computer from the cached privacy-key seed,
    * or null if the session is locked. Create one per import and reuse across chunks.
@@ -413,15 +405,11 @@ function applyPrivacyKey(key: Uint8Array, publicKeyRef: React.MutableRefObject<U
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(getDefaultState)
-  const [currentPage, setCurrentPage] = useState<PageId>(() => {
-    if (typeof window === "undefined") return "dashboard"
-    const { page } = hashToPage(window.location.hash)
-    return page
-  })
-  const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null
-    return hashToPage(window.location.hash).envelopeId ?? null
-  })
+  const [initialRoute] = useState(readInitialRoute)
+  const [currentPage, setCurrentPage] = useState<PageId>(initialRoute.page)
+  const [selectedEnvelopeId, setSelectedEnvelopeId] = useState<string | null>(
+    initialRoute.envelopeId ?? null,
+  )
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null)
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false)
   const [transactionPrefill, setTransactionPrefill] = useState<TransactionPrefill | null>(null)
@@ -487,6 +475,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [encryption, setEncryption] = useState<EncryptionState>({
     ready: false,
     needsPinUnlock: false,
+    needsPassphraseSetup: false,
     encryptedPrivacyKey: null,
     privacyKeySalt: null,
   })
@@ -512,8 +501,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setCurrentUserId(data.userId)
 
       if (!data.encryptedPrivacyKey) {
-        pendingLockedRef.current = false
-        setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+        // Post-reset or never configured: never treat as unlocked (would allow plaintext writes).
+        pendingLockedRef.current = true
+        privacyKeyRef.current = null
+        publicKeyRef.current = null
+        setEncryption({
+          ready: false,
+          needsPinUnlock: false,
+          needsPassphraseSetup: true,
+          encryptedPrivacyKey: null,
+          privacyKeySalt: null,
+        })
         return
       }
 
@@ -524,7 +522,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         applyPrivacyKey(pk, publicKeyRef)
         void syncUserPublicKey(pk)
         pendingLockedRef.current = false
-        setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+        setEncryption({ ready: true, needsPinUnlock: false, needsPassphraseSetup: false, encryptedPrivacyKey: null, privacyKeySalt: null })
         return
       }
 
@@ -544,7 +542,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             void syncUserPublicKey(pk)
             setCachedPrivacyKeyHex(data.userId, hexKey)
             pendingLockedRef.current = false
-            setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+            setEncryption({ ready: true, needsPinUnlock: false, needsPassphraseSetup: false, encryptedPrivacyKey: null, privacyKeySalt: null })
             return
           } catch { /* fall through */ }
         }
@@ -562,7 +560,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             void syncUserPublicKey(pk)
             setCachedPrivacyKeyHex(data.userId, hexKey)
             pendingLockedRef.current = false
-            setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+            setEncryption({ ready: true, needsPinUnlock: false, needsPassphraseSetup: false, encryptedPrivacyKey: null, privacyKeySalt: null })
             return
           } catch { /* fall through to PIN unlock */ }
         }
@@ -572,17 +570,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setEncryption({
         ready: false,
         needsPinUnlock: true,
+        needsPassphraseSetup: false,
         encryptedPrivacyKey: data.encryptedPrivacyKey,
         privacyKeySalt: data.privacyKeySalt,
       })
     } catch {
-      pendingLockedRef.current = false
-      setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+      pendingLockedRef.current = true
+      setEncryption({
+        ready: false,
+        needsPinUnlock: false,
+        needsPassphraseSetup: false,
+        encryptedPrivacyKey: null,
+        privacyKeySalt: null,
+      })
     }
   }, [])
 
   const clearTransactionSyncError = useCallback(() => {
     setTransactionSyncError(null)
+  }, [])
+
+  const reportTransactionSyncError = useCallback((message: string) => {
+    setTransactionSyncError(message)
   }, [])
 
 const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
@@ -941,7 +950,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         /* private mode / quota */
       }
     }
-    setEncryption({ ready: true, needsPinUnlock: false, encryptedPrivacyKey: null, privacyKeySalt: null })
+    setEncryption({ ready: true, needsPinUnlock: false, needsPassphraseSetup: false, encryptedPrivacyKey: null, privacyKeySalt: null })
     void (async () => {
       const uid = currentUserIdRef.current
       if (uid) {
@@ -993,7 +1002,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
   const navigateTo = useCallback((page: PageId, envelopeId?: string, opts?: { highlightTxnId?: string; envelopeFilter?: string; openAllocations?: boolean }) => {
     const targetPage = page === "envelopes" && opts?.openAllocations ? "envelope-allocations" : page
     setCurrentPage(targetPage)
-    if (targetPage === "envelope-detail" && envelopeId) {
+    if ((targetPage === "envelope-detail" || targetPage === "shopping-group") && envelopeId) {
       setSelectedEnvelopeId(envelopeId)
     } else {
       setSelectedEnvelopeId(null)
@@ -1023,7 +1032,9 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       // and the history entry for that navigation is never written.
       isPopstate.current = true
       setCurrentPage(page)
-      setSelectedEnvelopeId(page === "envelope-detail" && envelopeId ? envelopeId : null)
+      setSelectedEnvelopeId(
+        (page === "envelope-detail" || page === "shopping-group") && envelopeId ? envelopeId : null,
+      )
       // Clear any envelope filter when going back to a page that isn't transactions.
       if (page !== "transactions") setTransactionEnvelopeFilter(new Set())
       // Reset immediately — navigateTo is never invoked inside this handler so it
@@ -1044,7 +1055,9 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     window.addEventListener("hashchange", onHashChange)
 
     if (!window.location.hash) {
-      window.history.replaceState({ page: "dashboard" }, "", "#/dashboard")
+      const route = readInitialRoute()
+      const hash = pageToHash(route.page, route.envelopeId)
+      window.history.replaceState({ page: route.page }, "", hash)
     }
 
     return () => {
@@ -1563,6 +1576,12 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     return encryptFieldAsymmetric(plaintext, publicKeyRef.current)
   }, [])
 
+  const withPrivacyKey = useCallback(async <T,>(fn: (key: Uint8Array) => T | Promise<T>): Promise<T | null> => {
+    const key = privacyKeyRef.current
+    if (!key) return null
+    return fn(key)
+  }, [])
+
   const makeImportDedupeKeyComputer = useCallback((): DedupeKeyComputer | null => {
     const key = privacyKeyRef.current
     if (!key) return null
@@ -1575,13 +1594,35 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
 
   const clearLocalTransactionCache = useCallback(async () => {
     const uid = currentUserIdRef.current
-    if (!uid) return
-    fullIdbHydratedRef.current = false
-    try {
-      await clearDb(uid)
-    } catch {
-      /* Best-effort: IndexedDB delete may be blocked or fail in private mode */
+    if (!uid) {
+      throw new Error("Not signed in")
     }
+    fullIdbHydratedRef.current = false
+    // Drop in-memory history immediately so a blocked IndexedDB wipe cannot leave stale rows.
+    setState((prev) => ({ ...prev, transactions: [] }))
+    setTxnLoadPhase("init")
+    await clearDb(uid)
+    try {
+      await clearShoppingCache(uid)
+    } catch {
+      /* shopping cache is best-effort; transaction wipe must succeed */
+    }
+  }, [])
+
+  const applyServerEncryptionReset = useCallback(() => {
+    pendingLockedRef.current = true
+    privacyKeyRef.current = null
+    publicKeyRef.current = null
+    fullIdbHydratedRef.current = false
+    setState((prev) => ({ ...prev, transactions: [] }))
+    setTxnLoadPhase("init")
+    setEncryption({
+      ready: false,
+      needsPinUnlock: false,
+      needsPassphraseSetup: true,
+      encryptedPrivacyKey: null,
+      privacyKeySalt: null,
+    })
   }, [])
 
   const logout = useCallback(() => {
@@ -1592,6 +1633,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       sessionStorage.removeItem("bitbudget-survey-shown")
       sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
       clearAllDrafts()
+      // Pending shopping invite survives logout (localStorage handoff) so Google ↔ email switches mid-join keep working.
     } catch {
       /* ignore */
     }
@@ -1616,7 +1658,10 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
     setTxnLoadPhase("init")
     setRecurringTransactions([])
     void (async () => {
-      if (uid) await clearDb(uid).catch(() => {})
+      if (uid) {
+        await clearDb(uid).catch(() => {})
+        await clearShoppingCache(uid).catch(() => {})
+      }
       signOut({ callbackUrl: "/auth" })
     })()
   }, [])
@@ -1798,6 +1843,7 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         historyReady,
         transactionSyncError,
         clearTransactionSyncError,
+        reportTransactionSyncError,
         currentUserId,
         memoTransactionCount,
         encryption,
@@ -1835,7 +1881,9 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
         deleteTag,
         refreshData,
         clearLocalTransactionCache,
+        applyServerEncryptionReset,
         encryptForStorage,
+        withPrivacyKey,
         makeImportDedupeKeyComputer,
         logout,
         isAdmin: userRole === "admin",

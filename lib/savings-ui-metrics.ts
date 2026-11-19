@@ -5,6 +5,7 @@ import {
 import type { Envelope, Transaction } from "@/lib/data"
 import { envelopeGenesisFloor, getEnvelopeBalanceAllTime, getMonthKey } from "@/lib/data"
 import { currentGoalStreakFromClosed } from "@/lib/savings-goal-streak"
+import { isUserFacingExpense } from "@/lib/transaction-visibility"
 
 export const SAVINGS_INFLOW_SOURCES = new Set([
   "paycheck",
@@ -107,7 +108,7 @@ export function avgMonthlySpendLastNMonths(
 
   const byMonth = new Map<string, number>()
   for (const t of transactions) {
-    if (t.type !== "expense" || t.excludeFromMainHistory) continue
+    if (!isUserFacingExpense(t)) continue
     if (!discretionaryEnvelopeIds.has(t.envelopeId)) continue
     const mk = getMonthKey(t.date)
     if (!monthKeys.has(mk)) continue

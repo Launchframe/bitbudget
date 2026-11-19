@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next"
-import { JetBrains_Mono, Space_Grotesk } from "next/font/google"
+import localFont from "next/font/local"
 import { Analytics } from "@vercel/analytics/next"
 import { SessionProvider } from "@/components/session-provider"
 import { ReturningUserCookie } from "@/components/returning-user-cookie"
@@ -8,10 +8,17 @@ import { PlatformProvider } from "@/lib/platform-context"
 import { ServiceWorkerRegister } from "@/components/service-worker-register"
 import "./globals.css"
 
-const spaceGrotesk = Space_Grotesk({ subsets: ["latin"] })
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+// Checked-in files. next/font/google downloads CSS at build time, and Google
+// sometimes returns extensionless /l/font URLs that Turbopack cannot resolve.
+const spaceGrotesk = localFont({
+  src: "./fonts/space-grotesk-latin.woff2",
+  weight: "300 700",
+  display: "swap",
+})
+const jetbrainsMono = localFont({
+  src: "./fonts/jetbrains-mono-latin.woff2",
+  weight: "400 700",
+  display: "swap",
   variable: "--font-jetbrains-mono",
 })
 

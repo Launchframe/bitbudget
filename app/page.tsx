@@ -19,6 +19,8 @@ import { BtcPricePage } from "@/components/btc-price-page"
 import { ReviewInbox } from "@/components/review-inbox"
 import { ProfilePage } from "@/components/profile-page"
 import { SettingsPage } from "@/components/settings-page"
+import { ShoppingPage } from "@/components/shopping-page"
+import { ShoppingGroupDetail } from "@/components/shopping-group-detail"
 import { MobileNav } from "@/components/mobile-nav"
 import { PinUnlockDialog } from "@/components/pin-unlock-dialog"
 import { Spinner } from "@/components/ui/spinner"
@@ -114,7 +116,31 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
 }
 
 function EncryptionGate({ children }: { children: React.ReactNode }) {
-  const { encryption, unlockWithKey, logout } = useApp()
+  const {
+    encryption,
+    unlockWithKey,
+    logout,
+    clearLocalTransactionCache,
+    applyServerEncryptionReset,
+    refreshData,
+  } = useApp()
+
+  // Server-authoritative: missing wrapped key after onboarding means setup (incl. post-reset refresh).
+  if (encryption.needsPassphraseSetup) {
+    return (
+      <PinUnlockDialog
+        encryptedPrivacyKey=""
+        privacyKeySalt=""
+        needsPassphraseSetup
+        onUnlock={unlockWithKey}
+        onPassphraseSetupComplete={(key) => {
+          unlockWithKey(key)
+          void refreshData()
+        }}
+        onLogout={logout}
+      />
+    )
+  }
 
   if (encryption.needsPinUnlock && encryption.encryptedPrivacyKey && encryption.privacyKeySalt) {
     return (
@@ -123,7 +149,22 @@ function EncryptionGate({ children }: { children: React.ReactNode }) {
         privacyKeySalt={encryption.privacyKeySalt}
         onUnlock={unlockWithKey}
         onLogout={logout}
+        clearLocalTransactionCache={clearLocalTransactionCache}
+        applyServerEncryptionReset={applyServerEncryptionReset}
+        onDestructiveResetComplete={() => {
+          // Hard reload so initEncryption reads the null wrapped key and blocks until setup.
+          window.location.assign("/")
+        }}
       />
+    )
+  }
+
+  // Still booting encryption — do not render the app shell unlocked.
+  if (!encryption.ready) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-background">
+        <Spinner className="h-8 w-8 text-[#F7931A]" />
+      </div>
     )
   }
 
@@ -177,6 +218,10 @@ function PageContent() {
       return <EnvelopeDetailPage />
     case "settings":
       return <SettingsPage />
+    case "shopping":
+      return <ShoppingPage />
+    case "shopping-group":
+      return <ShoppingGroupDetail />
     case "researcher":
     case "funds":
       return (

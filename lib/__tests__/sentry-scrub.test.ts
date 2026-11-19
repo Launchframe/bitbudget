@@ -27,6 +27,15 @@ describe("scrubAlertText", () => {
     expect(scrubbed).not.toContain("plain-secret")
   })
 
+  it("redacts shopping invite tokens and aliases", () => {
+    const scrubbed = scrubAlertText(
+      'inviteToken=abc_secret_token alias="Sam" merchant="Whole Foods"',
+    )
+    expect(scrubbed).not.toContain("abc_secret_token")
+    expect(scrubbed).not.toContain("Sam")
+    expect(scrubbed).not.toContain("Whole Foods")
+  })
+
   it("redacts standalone bearer tokens", () => {
     const scrubbed = scrubAlertText("request failed with Bearer abc.def-123")
     expect(scrubbed).toContain("Bearer [redacted]")

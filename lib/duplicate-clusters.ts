@@ -14,6 +14,7 @@ import {
   canDeleteTransactionFromList,
   shouldCascadeDeleteTransactionBatch,
 } from "@/lib/transaction-batch-delete"
+import { isShoppingManagedSource } from "@/lib/shopping-classification"
 
 export interface DuplicateCluster {
   key: string
@@ -27,6 +28,7 @@ export function isCleanupEligible(txn: Transaction): boolean {
   if (txn.payee === ENCRYPTED_DISPLAY) return false
   if (!canDeleteTransactionFromList(txn)) return false
   if (shouldCascadeDeleteTransactionBatch(txn)) return false
+  if (isShoppingManagedSource(txn.source) || txn.shoppingPostingId) return false
   return true
 }
 

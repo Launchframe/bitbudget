@@ -1,11 +1,11 @@
-const SENSITIVE_KEY = /email|password|token|secret|encrypted|privacy|nsec|npub|authorization|cookie|payee|notes|encryptedprivacykey|privacykeysalt|crons_secret|cron_secret/i
+const SENSITIVE_KEY = /email|password|token|secret|encrypted|privacy|nsec|npub|authorization|cookie|payee|notes|encryptedprivacykey|privacykeysalt|crons_secret|cron_secret|invite|alias|receipt|shopping/i
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi
 const NSEC_RE = /\bnsec1[a-z0-9]+\b/gi
 const NPUB_RE = /\bnpub1[a-z0-9]+\b/gi
 const HEX64_RE = /\b[0-9a-f]{64}\b/gi
 const BEARER_RE = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi
 const SENSITIVE_TEXT_PAIR_RE =
-  /(["']?)(email|password|passphrase|pin|token|secret|encryptedPrivacyKey|privacyKeySalt|authorization|cookie|nsec|npub|payee|notes|accessToken|refreshToken)\1(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,}&\]]+)/gi
+  /(["']?)(email|password|passphrase|pin|token|secret|encryptedPrivacyKey|privacyKeySalt|authorization|cookie|nsec|npub|payee|notes|accessToken|refreshToken|inviteToken|verificationCode|alias|merchant)\1(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,}&\]]+)/gi
 
 function redactString(value: string): string {
   return value

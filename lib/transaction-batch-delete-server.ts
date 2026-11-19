@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db"
 import type { Transaction } from "@/lib/data"
 import { shouldCascadeDeleteTransactionBatch } from "@/lib/transaction-batch-delete"
+import { suppressShoppingPostingForTransaction } from "@/lib/shopping-posting-server"
 
 /** Delete one transaction; income headers cascade to their full funding batch. */
 export async function deleteTransactionForUser(
@@ -9,9 +10,14 @@ export async function deleteTransactionForUser(
 ): Promise<string[] | null> {
   const txn = await prisma.transaction.findFirst({
     where: { id, userId },
-    select: { id: true, type: true, source: true, fundingBatchId: true },
+    select: { id: true, type: true, source: true, fundingBatchId: true, shoppingPostingId: true },
   })
   if (!txn) return null
+
+  if (txn.shoppingPostingId) {
+    const suppressed = await suppressShoppingPostingForTransaction(userId, id)
+    return suppressed ? [id] : null
+  }
 
   let idsToDelete = [txn.id]
   if (
