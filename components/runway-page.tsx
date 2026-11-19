@@ -186,7 +186,7 @@ export function RunwayPage() {
     reloadSales,
     nextPaycheckUsd,
     btcPriceUsd,
-    watchCount,
+    bitcoinFromWatches,
     suggestedStressPercent,
     holdingsReady,
     compute,
@@ -630,7 +630,7 @@ export function RunwayPage() {
                     ? watchCount > 0
                       ? "You typed this. Watched wallets are not included."
                       : "You typed this"
-                    : watchCount > 0
+                    : bitcoinFromWatches
                       ? "From wallets you watch"
                       : bitcoinUnset
                         ? "Tap to enter"
