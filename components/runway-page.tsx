@@ -186,7 +186,7 @@ export function RunwayPage() {
     reloadSales,
     nextPaycheckUsd,
     btcPriceUsd,
-    watchCount,
+    bitcoinFromWatches,
     suggestedStressPercent,
     holdingsReady,
     compute,
@@ -628,7 +628,7 @@ export function RunwayPage() {
                 <span className="text-[11px] text-muted-foreground block mt-0.5">
                   {plan.bitcoinOverrideSats != null
                     ? "You typed this"
-                    : watchCount > 0
+                    : bitcoinFromWatches
                       ? "From wallets you watch"
                       : bitcoinUnset
                         ? "Tap to enter"

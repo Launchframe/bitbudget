@@ -39,7 +39,7 @@ describe("POST /api/user/encryption/reset", () => {
   }
 
   it("returns 401 when unsigned in", async () => {
-    vi.mocked(auth).mockResolvedValue(null)
+    vi.mocked(auth).mockResolvedValue(null as never)
     const res = await POST(postRequest({ mode: "encrypted_data", confirm: ENCRYPTION_RESET_CONFIRM }))
     expect(res.status).toBe(401)
   })
