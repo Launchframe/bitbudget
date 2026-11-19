@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest"
-import { scrubAlertText, scrubSentryEvent } from "../sentry-scrub"
+import { scrubAlertText, scrubSentryEvent, scrubSentrySpan } from "../sentry-scrub"
 
 describe("scrubAlertText", () => {
   it("redacts emails", () => {
@@ -41,6 +41,18 @@ describe("scrubAlertText", () => {
     expect(scrubbed).toContain("Bearer [redacted]")
     expect(scrubbed).not.toContain("abc.def-123")
   })
+
+  it("redacts bitcoin addresses", () => {
+    const bech32 = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+    const base58 = "1BoatSLRHtKNngkdXEeobR76b53LETtpyT"
+    const scrubbed = scrubAlertText(
+      `lookup https://mempool.space/api/address/${bech32} and ${base58}`,
+    )
+    expect(scrubbed).toContain("[redacted-address]")
+    expect(scrubbed).not.toContain(bech32)
+    expect(scrubbed).not.toContain(base58)
+    expect(scrubbed).toContain("mempool.space")
+  })
 })
 
 describe("scrubSentryEvent", () => {
@@ -78,5 +90,36 @@ describe("scrubSentryEvent", () => {
     expect(event?.exception?.values?.[0].value).toContain("[redacted-email]")
     expect(event?.exception?.values?.[0].value).not.toContain("admin@example.com")
     expect(event?.exception?.values?.[1].value).toBe("Cannot read property of null")
+  })
+
+  it("redacts a bitcoin address from fetch breadcrumbs and spans", () => {
+    const address = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
+    const url = `https://mempool.space/api/address/${address}`
+    const event = scrubSentryEvent({
+      breadcrumbs: [{ message: "fetch", data: { url, method: "GET" } }],
+      spans: [{ description: `GET ${url}`, data: { "http.url": url } }],
+      request: { url },
+    })
+    const serialized = JSON.stringify(event)
+    expect(serialized).not.toContain(address)
+    expect(serialized).toContain("[redacted-address]")
+    expect(event?.breadcrumbs?.[0]?.data?.method).toBe("GET")
+  })
+})
+
+describe("scrubSentrySpan", () => {
+  it("redacts the fetch URL and leaves the span in place", () => {
+    const address = "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4"
+    const span = scrubSentrySpan({
+      description: `GET https://mempool.space/api/address/${address}`,
+      data: {
+        "http.url": `https://mempool.space/api/address/${address}`,
+        "server.address": "mempool.space",
+      },
+    })
+    expect(span.description?.toLowerCase()).not.toContain(address.toLowerCase())
+    expect(span.description).toContain("[redacted-address]")
+    expect(span.data?.["http.url"]).toBe("https://mempool.space/api/address/[redacted-address]")
+    expect(span.data?.["server.address"]).toBe("mempool.space")
   })
 })
