@@ -11,6 +11,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { formatUsd } from "@/lib/data"
 import {
   paycheckShortfallCoverage,
@@ -19,7 +24,7 @@ import {
   type RefillOptionKind,
 } from "@/lib/runway-refill"
 import type { StackInput } from "@/lib/loan-health"
-import { ArrowRight, Bitcoin, Landmark, RefreshCw, Wallet } from "lucide-react"
+import { ArrowRight, Bitcoin, ChevronDown, Landmark, RefreshCw, Wallet } from "lucide-react"
 
 const SATS_PER_BTC = 100_000_000
 
@@ -50,6 +55,77 @@ function satsToBtcLabel(sats: number): string {
   return btc.toLocaleString("en-US", { maximumFractionDigits: 8 })
 }
 
+function RefillOptionCard({
+  opt,
+  isActive,
+  amountNum,
+  onSelect,
+}: {
+  opt: RefillOption
+  isActive: boolean
+  amountNum: number
+  onSelect: () => void
+}) {
+  const meta = KIND_META[opt.kind]
+  const stackMoves = Math.abs(opt.stackAfterUsd - opt.stackBeforeUsd) > 0.5
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={isActive}
+      disabled={!opt.available}
+      onClick={onSelect}
+      className={`text-left rounded-xl border p-3 transition-colors min-w-0 w-full ${
+        !opt.available
+          ? "border-[#1F1F1F] opacity-60 cursor-not-allowed"
+          : isActive
+            ? "border-[#F7931A] bg-[#F7931A]/10"
+            : "border-[#333] hover:border-[#555]"
+      }`}
+    >
+      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+        <span className="text-[#F7931A] shrink-0">{meta.icon}</span>
+        <span className="min-w-0">{meta.title}</span>
+      </div>
+      <p className="text-xs text-muted-foreground mt-1">
+        {opt.available ? meta.blurb : opt.unavailableReason}
+      </p>
+      {opt.available && (
+        <div className="mt-2 flex flex-col gap-1 text-xs">
+          <span className="text-foreground">
+            Raises {formatUsd(opt.cashRaisedUsd)}
+            {!opt.coversFullShortfall && amountNum > 0 && (
+              <span className="text-amber-400">
+                {" "}
+                — covers part of {formatUsd(amountNum)}
+              </span>
+            )}
+          </span>
+          {opt.kind === "sell" && (
+            <span className="text-muted-foreground">
+              Sells about {satsToBtcLabel(opt.satsMoved)} BTC
+            </span>
+          )}
+          {opt.kind === "borrow" && (
+            <span className="text-muted-foreground">
+              Pledges about {satsToBtcLabel(opt.satsMoved)} BTC as collateral
+            </span>
+          )}
+          <span className="flex items-center gap-1.5 text-muted-foreground tabular-nums">
+            <Wallet className="h-3 w-3 shrink-0" aria-hidden />
+            {formatUsd(opt.stackBeforeUsd)}
+            <ArrowRight className="h-3 w-3 shrink-0" aria-hidden />
+            {formatUsd(opt.stackAfterUsd)}
+            <span className="text-[11px]">
+              {stackMoves ? "" : "(your total stays the same)"}
+            </span>
+          </span>
+        </div>
+      )}
+    </button>
+  )
+}
+
 /**
  * Refill the cash floor when it slips underneath (slice B6). Opened from Runway
  * when the shortfall is positive. The amount starts at the shortfall but is
@@ -58,6 +134,9 @@ function satsToBtcLabel(sats: number): string {
  *  - Sell   → records a pending sale (coins on the way until the deposit links).
  *  - Borrow / rollover → hands off to the loan form, prefilled with the sized
  *    amount, so real loan terms are captured before anything is created.
+ *
+ * The recommended path (first available, already ordered by preferBorrow) is
+ * shown first; other choices sit under "Other ways."
  */
 export function RunwayRefillDialog({
   open,
@@ -90,6 +169,7 @@ export function RunwayRefillDialog({
 }) {
   const [amount, setAmount] = useState("")
   const [selectedKind, setSelectedKind] = useState<RefillOptionKind | null>(null)
+  const [otherWaysOpen, setOtherWaysOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -100,6 +180,7 @@ export function RunwayRefillDialog({
     const t = setTimeout(() => {
       setAmount(shortfallUsd > 0 ? String(Math.round(shortfallUsd * 100) / 100) : "")
       setSelectedKind(null)
+      setOtherWaysOpen(false)
       setError(null)
     }, 0)
     return () => clearTimeout(t)
@@ -130,10 +211,15 @@ export function RunwayRefillDialog({
   )
 
   // Resolve the active choice: the user's pick if still available, else the
-  // first available option.
+  // first available option (the recommended path).
   const firstAvailable = options.find((o) => o.available) ?? null
   const active: RefillOption | null =
     options.find((o) => o.kind === selectedKind && o.available) ?? firstAvailable
+
+  const recommended = firstAvailable
+  const otherOptions = recommended
+    ? options.filter((o) => o.kind !== recommended.kind)
+    : options
 
   const paycheck =
     nextPaycheckUsd > 0 ? paycheckShortfallCoverage(amountNum, nextPaycheckUsd) : null
@@ -188,8 +274,8 @@ export function RunwayRefillDialog({
         <DialogHeader>
           <DialogTitle>Refill your cash floor</DialogTitle>
           <DialogDescription>
-            Your cash is under the cushion you set aside. Pick how to top it back
-            up — nothing happens until you confirm.
+            Your cash is under the cushion you set aside. We start with the
+            recommended path — nothing happens until you confirm.
           </DialogDescription>
         </DialogHeader>
 
@@ -221,68 +307,47 @@ export function RunwayRefillDialog({
           )}
 
           <div className="flex flex-col gap-2" role="radiogroup" aria-label="How to refill">
-            {options.map((opt) => {
-              const meta = KIND_META[opt.kind]
-              const isActive = active?.kind === opt.kind
-              const stackMoves = Math.abs(opt.stackAfterUsd - opt.stackBeforeUsd) > 0.5
-              return (
-                <button
-                  key={opt.kind}
+            {recommended && (
+              <div className="flex flex-col gap-1.5 min-w-0">
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  Recommended
+                </span>
+                <RefillOptionCard
+                  opt={recommended}
+                  isActive={active?.kind === recommended.kind}
+                  amountNum={amountNum}
+                  onSelect={() => setSelectedKind(recommended.kind)}
+                />
+              </div>
+            )}
+
+            {otherOptions.length > 0 && (
+              <Collapsible open={otherWaysOpen} onOpenChange={setOtherWaysOpen}>
+                <CollapsibleTrigger
                   type="button"
-                  role="radio"
-                  aria-checked={isActive}
-                  disabled={!opt.available}
-                  onClick={() => setSelectedKind(opt.kind)}
-                  className={`text-left rounded-xl border p-3 transition-colors min-w-0 ${
-                    !opt.available
-                      ? "border-[#1F1F1F] opacity-60 cursor-not-allowed"
-                      : isActive
-                        ? "border-[#F7931A] bg-[#F7931A]/10"
-                        : "border-[#333] hover:border-[#555]"
-                  }`}
+                  className="flex w-full items-center justify-between gap-2 rounded-xl border border-[#333] px-3 py-2.5 text-left text-sm hover:border-[#555]"
                 >
-                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    <span className="text-[#F7931A] shrink-0">{meta.icon}</span>
-                    <span className="min-w-0">{meta.title}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {opt.available ? meta.blurb : opt.unavailableReason}
-                  </p>
-                  {opt.available && (
-                    <div className="mt-2 flex flex-col gap-1 text-xs">
-                      <span className="text-foreground">
-                        Raises {formatUsd(opt.cashRaisedUsd)}
-                        {!opt.coversFullShortfall && amountNum > 0 && (
-                          <span className="text-amber-400">
-                            {" "}
-                            — covers part of {formatUsd(amountNum)}
-                          </span>
-                        )}
-                      </span>
-                      {opt.kind === "sell" && (
-                        <span className="text-muted-foreground">
-                          Sells about {satsToBtcLabel(opt.satsMoved)} BTC
-                        </span>
-                      )}
-                      {opt.kind === "borrow" && (
-                        <span className="text-muted-foreground">
-                          Pledges about {satsToBtcLabel(opt.satsMoved)} BTC as collateral
-                        </span>
-                      )}
-                      <span className="flex items-center gap-1.5 text-muted-foreground tabular-nums">
-                        <Wallet className="h-3 w-3 shrink-0" aria-hidden />
-                        {formatUsd(opt.stackBeforeUsd)}
-                        <ArrowRight className="h-3 w-3 shrink-0" aria-hidden />
-                        {formatUsd(opt.stackAfterUsd)}
-                        <span className="text-[11px]">
-                          {stackMoves ? "" : "(your total stays the same)"}
-                        </span>
-                      </span>
-                    </div>
-                  )}
-                </button>
-              )
-            })}
+                  <span className="font-medium text-foreground">Other ways</span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+                      otherWaysOpen ? "rotate-180" : ""
+                    }`}
+                    aria-hidden
+                  />
+                </CollapsibleTrigger>
+                <CollapsibleContent className="flex flex-col gap-2 pt-2">
+                  {otherOptions.map((opt) => (
+                    <RefillOptionCard
+                      key={opt.kind}
+                      opt={opt}
+                      isActive={active?.kind === opt.kind}
+                      amountNum={amountNum}
+                      onSelect={() => setSelectedKind(opt.kind)}
+                    />
+                  ))}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
           </div>
 
           {error && (

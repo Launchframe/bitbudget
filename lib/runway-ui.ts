@@ -26,7 +26,11 @@ import {
   type RiskAnswers,
 } from "@/lib/runway-risk"
 import { formatUsd } from "@/lib/data"
+import { formatMonthsLeft } from "@/lib/runway-expense-impact"
 import { MAX_BITCOIN_OVERRIDE_SATS } from "@/lib/runway-plan"
+
+/** Set in sessionStorage when setup finishes for the first time this visit. */
+export const RUNWAY_JUST_SETUP_KEY = "bitbudget-runway-just-setup"
 
 const SATS_PER_BTC = 1e8
 const DAYS_PER_MONTH = 365.25 / 12
@@ -221,6 +225,203 @@ export function gapSummaryLine(
     )
   }
   return `Still need ${parts.join(" and ")} to reach your runway.`
+}
+
+export type RunwayPrimaryAction = "add_holdings" | "refill_cushion" | "none"
+
+export interface RunwayHoldingsInput {
+  cashUsd: number
+  bitcoinSats: number
+  cashOverrideUsd: number | null
+  bitcoinOverrideSats: number | null
+  /**
+   * Watched wallets answer the bitcoin side even at 0 sats. A missing spot
+   * price must not be required for that answer.
+   */
+  watchCount?: number
+}
+
+export interface RunwayHoldingsStatus {
+  /** Nothing typed, and envelope cash is still empty. A typed zero counts. */
+  cashUnset: boolean
+  /** Nothing typed, no sats, and no watched wallet. A typed zero counts. */
+  bitcoinUnset: boolean
+  /** Both sides still unanswered. */
+  holdingsEmpty: boolean
+}
+
+/**
+ * Which holdings the user has actually answered.
+ *
+ * Bitcoin is judged in sats, not dollars. A missing spot price makes the
+ * dollar value 0 (`satsToUsd`), which must not read as "you have no bitcoin."
+ * A watched wallet is an answer even when it currently holds 0 sats.
+ */
+export function runwayHoldingsStatus(input: RunwayHoldingsInput): RunwayHoldingsStatus {
+  const cashUnset = input.cashOverrideUsd == null && input.cashUsd <= 0.5
+  const bitcoinUnset =
+    input.bitcoinOverrideSats == null &&
+    input.bitcoinSats <= 0 &&
+    (input.watchCount ?? 0) <= 0
+  return {
+    cashUnset,
+    bitcoinUnset,
+    holdingsEmpty: cashUnset && bitcoinUnset,
+  }
+}
+
+/**
+ * One obvious next step. An unanswered cash or bitcoin side wins over a
+ * refill prompt — a missing total is not a cushion to refill.
+ */
+export function runwayPrimaryAction(input: {
+  holdingsEmpty: boolean
+  underFloor: boolean
+  cashUnset?: boolean
+  bitcoinUnset?: boolean
+  /** Sats are on hand but there is no spot price, so a refill would be guesswork. */
+  bitcoinUnpriced?: boolean
+}): RunwayPrimaryAction {
+  if (input.holdingsEmpty || input.cashUnset || input.bitcoinUnset) return "add_holdings"
+  if (input.bitcoinUnpriced) return "none"
+  if (input.underFloor) return "refill_cushion"
+  return "none"
+}
+
+/**
+ * Both sides look unanswered: nothing typed, and the budget/wallet totals are
+ * still empty. A typed zero is an answer, not a missing one.
+ *
+ * Bitcoin is judged in sats. A missing spot price makes the dollar value 0
+ * (`satsToUsd`), which must not read as "you have no bitcoin." A watched
+ * wallet counts even at 0 sats.
+ */
+export function holdingsLookEmpty(input: RunwayHoldingsInput): boolean {
+  return runwayHoldingsStatus(input).holdingsEmpty
+}
+
+/**
+ * Last setup step asks for whichever side is still unanswered. A watched
+ * wallet counts (even at 0 sats); a typed zero counts. One known side does
+ * not hide the other.
+ */
+export function shouldPromptHoldings(input: {
+  envelopeCashUsd: number
+  walletSats: number
+  cashOverrideUsd: number | null
+  bitcoinOverrideSats: number | null
+  watchCount?: number
+}): boolean {
+  const status = runwayHoldingsStatus({
+    cashUsd: input.envelopeCashUsd,
+    bitcoinSats: input.walletSats,
+    cashOverrideUsd: input.cashOverrideUsd,
+    bitcoinOverrideSats: input.bitcoinOverrideSats,
+    watchCount: input.watchCount,
+  })
+  return status.cashUnset || status.bitcoinUnset
+}
+
+/**
+ * Edit-totals asks for a typed bitcoin amount until a wallet is on the watch
+ * list. A typed override stays editable so it can be changed or cleared.
+ */
+export function showBitcoinTotalField(input: {
+  watchCount: number
+  bitcoinOverrideSats: number | null
+}): boolean {
+  return input.watchCount <= 0 || input.bitcoinOverrideSats != null
+}
+
+/**
+ * Cash should keep coming from Savings and envelopes. A typed cash total is
+ * how the budget and the runway drift apart — so edit-totals only offers a
+ * cash field when envelopes are empty (need an answer) or the user already
+ * typed an override they may want to change or clear.
+ */
+export function showCashTotalField(input: {
+  envelopeCashUsd: number
+  cashOverrideUsd: number | null
+}): boolean {
+  return input.cashOverrideUsd != null || input.envelopeCashUsd <= 0.5
+}
+
+/**
+ * Large first line. Months the money lasts, not the quit-date countdown.
+ * An empty plan, or bitcoin that cannot be priced yet, must not show a
+ * months figure that treats those sats as worth $0.
+ */
+export function runwayMonthsHeadline(
+  monthsLeft: number | null,
+  options?: { holdingsEmpty?: boolean; bitcoinUnpriced?: boolean },
+): string {
+  if (options?.holdingsEmpty) return "Add your numbers"
+  if (options?.bitcoinUnpriced) return "Waiting on a bitcoin price"
+  const formatted = formatMonthsLeft(monthsLeft)
+  if (formatted === "—") return "Add your numbers"
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1)
+}
+
+/**
+ * One supporting sentence under the months headline.
+ *
+ * Today's cash cushion uses refill language only. A shortfall that future
+ * savings are projected to fill is "by the time you step back" — never
+ * "cushion covered" while cash is short today.
+ */
+export function runwayHeroDetail(input: {
+  holdingsEmpty: boolean
+  underFloor: boolean
+  shortfallUsd: number
+  projectedCashGapUsd: number
+  projectedBitcoinGapUsd: number
+  /** Plan phase is already "living off savings" — there is no future step-back date. */
+  alreadySteppedBack: boolean
+  /** Cash was never entered. Do not quote a shortfall that assumes $0. */
+  cashUnset?: boolean
+  /** Bitcoin was never entered and no wallet is watched. */
+  bitcoinUnset?: boolean
+  /** Sats are known, but a missing spot price would value them at $0. */
+  bitcoinUnpriced?: boolean
+}): string {
+  if (input.holdingsEmpty || (input.cashUnset && input.bitcoinUnset)) {
+    return "Add the cash and bitcoin you have today so this number means something."
+  }
+  if (input.cashUnset) {
+    return "Add the cash you have today so the cushion is real."
+  }
+  if (input.bitcoinUnset) {
+    return "Add the bitcoin you have today so this number includes it."
+  }
+  if (input.bitcoinUnpriced) {
+    return "Waiting on a bitcoin price"
+  }
+  if (input.underFloor) {
+    return `Your cash cushion is ${formatUsd(input.shortfallUsd)} short today.`
+  }
+  const cashShort =
+    Number.isFinite(input.projectedCashGapUsd) && input.projectedCashGapUsd > 0.5
+  const bitcoinShort =
+    !Number.isFinite(input.projectedBitcoinGapUsd) ||
+    input.projectedBitcoinGapUsd > 0.5
+  if (!cashShort && !bitcoinShort) {
+    return input.alreadySteppedBack
+      ? "You have enough set aside for the months you planned."
+      : "You're on track for the date you picked."
+  }
+  const parts: string[] = []
+  if (cashShort) parts.push(`${formatUsd(input.projectedCashGapUsd)} more cash`)
+  if (bitcoinShort) {
+    parts.push(
+      Number.isFinite(input.projectedBitcoinGapUsd)
+        ? `${formatUsd(input.projectedBitcoinGapUsd)} more bitcoin`
+        : "more bitcoin",
+    )
+  }
+  const short = parts.join(" and ")
+  return input.alreadySteppedBack
+    ? `For the months you planned, you're still short ${short}.`
+    : `By the time you step back, you're still short ${short}.`
 }
 
 /**
