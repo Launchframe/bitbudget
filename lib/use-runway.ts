@@ -25,7 +25,7 @@ import {
 } from "@/lib/runway-refill"
 import { suggestedStressPercent } from "@/lib/runway-stress"
 import { useWalletWatches } from "@/lib/use-wallet-watch"
-import { runwayWalletSats } from "@/lib/wallet-confirmed-sats"
+import { runwayWalletSats, walletWatchInformsHoldings } from "@/lib/wallet-confirmed-sats"
 import { todayTransactionCalendarDay } from "@/lib/transaction-dates"
 
 /** Serialized loan row from GET /api/runway/loans. */
@@ -98,6 +98,18 @@ export interface UseRunwayResult {
   cashOnTheWayUsd: number
   /** Estimated next paycheck while still earning (0 once on runway). */
   nextPaycheckUsd: number
+  /**
+   * Spendable sats from the browser watch list. Exchange coins that are still
+   * bitcoin-on-the-way are removed so they are not counted twice.
+   */
+  walletSats: number
+  /** Watched wallets stored in this browser for the signed-in user. */
+  watchCount: number
+  /**
+   * True when a watch has a balance or a chain reading. An empty watch that
+   * has never been read does not replace "type how much bitcoin you hold".
+   */
+  bitcoinFromWatches: boolean
   /**
    * Default stress percent suggested from historical bitcoin drawdowns. Seeds a
    * NEW plan only (see RunwaySetupDialog); never overwrites a saved plan's
@@ -279,10 +291,15 @@ export function useRunway(): UseRunwayResult {
   // chip at a cash-floor shortfall. Use monthly income as the paycheck estimate.
   const nextPaycheckUsd =
     plan && plan.phase !== "runway" ? Math.max(0, state.monthlyIncome) : 0
+  // Subtract only bitcoin still on the way (sale status `sent`). Cash-on-the-way
+  // is already cash — reservedForSaleSats would shrink a refreshed exchange
+  // balance and nothing adds those sats back. Typed overrides still subtract
+  // the full reserve inside computeRunwayNeed.
   const walletSats = useMemo(
-    () => runwayWalletSats(watches, reservedForSaleSats),
-    [watches, reservedForSaleSats],
+    () => runwayWalletSats(watches, bitcoinOnTheWaySats),
+    [watches, bitcoinOnTheWaySats],
   )
+  const bitcoinFromWatches = walletWatchInformsHoldings(watches)
 
   const compute = useCallback(
     (scenarioMode: ScenarioMode): RunwayComputation | null => {
@@ -342,6 +359,7 @@ export function useRunway(): UseRunwayResult {
     discretionaryUsd,
     walletSats,
     watchCount: watches.length,
+    bitcoinFromWatches,
     btcPriceUsd,
     btcPriceOrNull,
     loans,
