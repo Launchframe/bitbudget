@@ -1644,8 +1644,13 @@ const dismissPremiumRenewalUi = useCallback(async (logKey: string) => {
       sessionStorage.removeItem("bitbudget-survey-shown")
       sessionStorage.removeItem(DASHBOARD_CHART_RANGE_OVERRIDE_KEY)
       clearAllDrafts()
-      clearAllWalletWatches()
       // Pending shopping invite survives logout (localStorage handoff) so Google ↔ email switches mid-join keep working.
+    } catch {
+      /* ignore */
+    }
+    try {
+      // Own try: a sessionStorage failure above must not leave watched addresses behind.
+      clearAllWalletWatches()
     } catch {
       /* ignore */
     }
