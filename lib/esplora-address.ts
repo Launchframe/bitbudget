@@ -20,7 +20,7 @@ export function addressWatchError(value: string): string | null {
   if (/\s/.test(trimmed)) {
     return "Paste one address. A seed is not accepted."
   }
-  if (/^(xprv|yprv|zprv|xpub|ypub|zpub)/i.test(trimmed)) {
+  if (/^(xprv|yprv|zprv|tprv|uprv|vprv|xpub|ypub|zpub)/i.test(trimmed)) {
     return "Paste one address. A key is not accepted."
   }
   if (/^[5KL]/.test(trimmed) && trimmed.length >= 51 && trimmed.length <= 52) {
@@ -33,6 +33,21 @@ export function addressWatchError(value: string): string | null {
     return "That doesn't look like a bitcoin address."
   }
   return null
+}
+
+/**
+ * What to show for a watched address. A row saved before a successful lookup
+ * has no timestamp and must not read as a real zero balance.
+ */
+export function addressWatchAmountLabel(
+  watch: { confirmedSats: number; updatedAt: string | null },
+  checking: boolean,
+  formatBalance: (sats: number) => string,
+): string {
+  const checked = typeof watch.updatedAt === "string" && watch.updatedAt.length > 0
+  if (!checked && checking) return "Checking…"
+  if (!checked) return "Not checked yet"
+  return formatBalance(watch.confirmedSats)
 }
 
 /** One confirmed movement on an address. Positive nets were received. */
@@ -112,8 +127,17 @@ export function confirmedSatsFromEsploraBody(body: unknown): number | null {
   const funded = (chain as { funded_txo_sum?: unknown }).funded_txo_sum
   const spent = (chain as { spent_txo_sum?: unknown }).spent_txo_sum
   if (typeof funded !== "number" || typeof spent !== "number") return null
-  if (!Number.isFinite(funded) || !Number.isFinite(spent)) return null
-  return Math.max(0, Math.round(funded - spent))
+  if (!Number.isSafeInteger(funded) || !Number.isSafeInteger(spent)) return null
+  if (funded < 0 || spent < 0) return null
+  const delta = funded - spent
+  if (!Number.isSafeInteger(delta)) return null
+  return Math.max(0, delta)
+}
+
+function reportedEsploraAddress(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null
+  const reported = (body as { address?: unknown }).address
+  return typeof reported === "string" && reported.trim() ? reported : null
 }
 
 export async function fetchAddressConfirmedSats(
@@ -125,11 +149,19 @@ export async function fetchAddressConfirmedSats(
   const lookup = canonicalBitcoinAddress(address)
   const response = await fetchFn(`${base}/address/${encodeURIComponent(lookup)}`, {
     signal: AbortSignal.timeout(12_000),
+    cache: "no-store",
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
   })
   if (!response.ok) {
     throw new Error("Address lookup failed")
   }
   const body: unknown = await response.json()
+  const reported = reportedEsploraAddress(body)
+  // A mismatched body must not credit a different address's balance.
+  if (reported == null || canonicalBitcoinAddress(reported) !== lookup) {
+    throw new Error("Address lookup failed")
+  }
   const sats = confirmedSatsFromEsploraBody(body)
   if (sats == null) throw new Error("Address lookup failed")
   return sats

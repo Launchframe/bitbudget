@@ -4,6 +4,9 @@ const NSEC_RE = /\bnsec1[a-z0-9]+\b/gi
 const NPUB_RE = /\bnpub1[a-z0-9]+\b/gi
 const HEX64_RE = /\b[0-9a-f]{64}\b/gi
 const BEARER_RE = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi
+/** Mainnet addresses only. Bech32 is case-insensitive; base58 keeps its alphabet. */
+const BITCOIN_ADDRESS_RE =
+  /\b(?:bc1[02-9ac-hj-np-z]{11,87}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b/gi
 const SENSITIVE_TEXT_PAIR_RE =
   /(["']?)(email|password|passphrase|pin|token|secret|encryptedPrivacyKey|privacyKeySalt|authorization|cookie|nsec|npub|payee|notes|accessToken|refreshToken|inviteToken|verificationCode|alias|merchant)\1(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,}&\]]+)/gi
 
@@ -15,6 +18,7 @@ function redactString(value: string): string {
     .replace(NSEC_RE, "[redacted-nsec]")
     .replace(NPUB_RE, "[redacted-npub]")
     .replace(HEX64_RE, "[redacted-hex]")
+    .replace(new RegExp(BITCOIN_ADDRESS_RE.source, BITCOIN_ADDRESS_RE.flags), "[redacted-address]")
 }
 
 function scrubValue(value: unknown, depth = 0): unknown {
@@ -43,8 +47,15 @@ interface SentryExceptionValue {
   [key: string]: unknown
 }
 
+export interface ScrubbableSentrySpan {
+  description?: string
+  data?: object
+  name?: string
+}
+
 interface ScrubbableSentryEvent {
   message?: string
+  transaction?: string
   user?: { id?: string; email?: string; [key: string]: unknown }
   request?: {
     headers?: Record<string, string>
@@ -55,6 +66,29 @@ interface ScrubbableSentryEvent {
   extra?: Record<string, unknown>
   contexts?: Record<string, unknown>
   breadcrumbs?: Array<{ message?: string; data?: Record<string, unknown> }>
+  spans?: ScrubbableSentrySpan[]
+}
+
+/**
+ * Scrub a span payload. Static tracing puts the full fetch URL in
+ * `description` and `data["http.url"]`. Returning the same span keeps it;
+ * dropping spans is not allowed by the SDK.
+ */
+export function scrubSentrySpan<T extends ScrubbableSentrySpan>(span: T): T {
+  if (typeof span.description === "string") {
+    span.description = redactString(span.description)
+  }
+  if (typeof span.name === "string") {
+    span.name = redactString(span.name)
+  }
+  if (span.data) {
+    const record = span.data as Record<string, unknown>
+    for (const key of Object.keys(record)) {
+      const value = record[key]
+      if (typeof value === "string") record[key] = redactString(value)
+    }
+  }
+  return span
 }
 
 /** Scrub PII from Sentry events before send (AGENTS.md privacy contract). */
@@ -62,6 +96,9 @@ export function scrubSentryEvent(event: ScrubbableSentryEvent, hint?: unknown): 
   void hint
   if (event.message) {
     event.message = redactString(event.message)
+  }
+  if (typeof event.transaction === "string") {
+    event.transaction = redactString(event.transaction)
   }
   if (event.request) {
     const request = scrubValue(event.request) as NonNullable<ScrubbableSentryEvent["request"]>
@@ -98,6 +135,9 @@ export function scrubSentryEvent(event: ScrubbableSentryEvent, hint?: unknown): 
       ...v,
       value: v.value ? redactString(v.value) : v.value,
     }))
+  }
+  if (event.spans) {
+    for (const span of event.spans) scrubSentrySpan(span)
   }
   return event
 }

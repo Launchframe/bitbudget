@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from "react"
 import { Loader2, RefreshCw, Trash2 } from "lucide-react"
 import { useApp } from "@/lib/app-context"
+import { formatSats } from "@/lib/data"
 import {
+  addressWatchAmountLabel,
   addressWatchError,
   canonicalBitcoinAddress,
   fetchAddressChainMovements,
@@ -187,7 +189,10 @@ export function RunwayAddressWatch() {
               <div className="min-w-0">
                 <p className="text-sm text-foreground">
                   {watch.role === "exchange" ? "Exchange" : "Wallet"}
-                  <span className="text-muted-foreground"> · {formatBitcoin(watch.confirmedSats)}</span>
+                  <span className="text-muted-foreground" aria-live="polite">
+                    {" · "}
+                    {addressWatchAmountLabel(watch, busyId === watch.id, formatSats)}
+                  </span>
                 </p>
                 <p className="text-xs text-muted-foreground break-all">{watch.descriptor}</p>
                 <AddressActivity
@@ -240,6 +245,8 @@ export function RunwayAddressWatch() {
             autoComplete="off"
             spellCheck={false}
             aria-label="Bitcoin address"
+            aria-invalid={error != null}
+            aria-describedby={error ? "address-watch-error" : undefined}
             className="min-w-0 w-full rounded-lg border border-[#333] bg-[#1A1A1A] px-3 py-2 text-sm text-foreground"
           />
           <button
@@ -255,8 +262,12 @@ export function RunwayAddressWatch() {
           <RoleButton current={role} value="wallet" onSelect={setRole} label="Wallet I spend from" />
           <RoleButton current={role} value="exchange" onSelect={setRole} label="Exchange" />
         </div>
+        <p className="text-xs text-muted-foreground">
+          Choose Exchange if this balance still shows bitcoin you already sent to sell. That amount
+          is left out so it is not counted twice.
+        </p>
         {error ? (
-          <p className="text-xs text-red-400" role="alert">
+          <p id="address-watch-error" className="text-xs text-red-400" role="alert">
             {error}
           </p>
         ) : null}
