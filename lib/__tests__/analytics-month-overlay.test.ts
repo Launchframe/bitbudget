@@ -235,6 +235,36 @@ describe("buildMonthOverlayChartData", () => {
     expect(may.points.find(p => p.day === 10)?.value).toBe(850)
   })
 
+  it("excludes deficit_cover expenses from cash_flow spending totals", () => {
+    const transactions = [
+      txn({ id: "real", date: "2026-05-10", type: "expense", amount: 150, envelopeId: discA }),
+      txn({
+        id: "deficit-cover",
+        date: "2026-05-05",
+        type: "expense",
+        amount: 400,
+        envelopeId: discA,
+        source: "deficit_cover",
+        excludeFromMainHistory: false,
+      }),
+    ]
+
+    const data = buildMonthOverlayChartData({
+      mode: "cash_flow",
+      transactions,
+      monthCount: 1,
+      paydayUser,
+      monthlyBudget: 1000,
+      savingsEnvelopeId: savingsId,
+      discretionaryEnvelopeIds: new Set([discA]),
+      now: new Date("2026-05-20T12:00:00.000Z"),
+    })
+
+    const may = data.series[0]!
+    expect(may.points.find(p => p.day === 5)?.value).toBe(1000)
+    expect(may.points.find(p => p.day === 10)?.value).toBe(850)
+  })
+
   it("builds chart rows keyed by month", () => {
     const keys = monthKeysInLookback(2, new Date("2026-05-15T12:00:00.000Z"))
     expect(keys).toHaveLength(2)

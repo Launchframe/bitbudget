@@ -1,5 +1,6 @@
 import {
   isBudgetEnvelope,
+  TX_SOURCE_DEFICIT_COVER,
   TX_SOURCE_ENVELOPE_SWEEP,
   TX_SOURCE_ENVELOPE_TRANSFER_OUT,
 } from "@/lib/constants"
@@ -89,7 +90,11 @@ function buildDailyDiscretionaryExpenseTotals(
     // Exclude internal ledger transfers: monthly sweeps (RESET/CAPPED policy) and
     // envelope-to-envelope rebalances are not real user spending.
     const src = t.source ?? "manual"
-    if (src === TX_SOURCE_ENVELOPE_SWEEP || src === TX_SOURCE_ENVELOPE_TRANSFER_OUT) continue
+    if (
+      src === TX_SOURCE_ENVELOPE_SWEEP ||
+      src === TX_SOURCE_ENVELOPE_TRANSFER_OUT ||
+      src === TX_SOURCE_DEFICIT_COVER
+    ) continue
     if (getMonthKey(t.date) !== monthKey) continue
     const dom = Number(t.date.slice(8, 10))
     if (!Number.isFinite(dom)) continue
