@@ -59,21 +59,21 @@ export interface StatementParseResult {
  * Throws if the file does not look like a Fold statement CSV.
  */
 export function parseFoldStatementCsv(text: string): StatementParseResult {
-  const rawLines = text.split("\n")
-  const lines = rawLines.filter(l => l.trim())
+  const lines = statementLines(text)
 
   if (lines.length < 2) {
     throw new Error("File is empty or has no data rows.")
   }
 
-  const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/['"]/g, "").trim())
-
-  if (!isFoldStatementCsv(headers)) {
+  const headerIndex = findHeaderIndex(lines, isFoldStatementCsv)
+  if (headerIndex < 0) {
     throw new Error(
       "This doesn't look like a Fold statement CSV. " +
         "Expected columns: Transaction ID, Settlement Date, Description, Amount.",
     )
   }
+
+  const headers = normalizedHeaders(lines[headerIndex] ?? "")
 
   const idIdx = headers.findIndex(h => /transaction.?id/i.test(h))
   const dateIdx = headers.findIndex(h => /settlement.?date/i.test(h))
@@ -83,8 +83,8 @@ export function parseFoldStatementCsv(text: string): StatementParseResult {
   const transactions: ParsedTransaction[] = []
   let skipped = 0
 
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseCSVLine(lines[i])
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i] ?? "")
 
     // Fold transaction rows always have at least 4 columns; metadata rows have 2 or fewer.
     if (cols.length < 4) {
@@ -126,7 +126,7 @@ export function parseFoldStatementCsv(text: string): StatementParseResult {
 
   return {
     transactions,
-    totalRows: lines.length - 1,
+    totalRows: lines.length - headerIndex - 1,
     skippedRows: skipped,
     format: "fold_csv",
     institutionName: "Fold",
@@ -172,18 +172,23 @@ function normalizedHeaders(headerLine: string): string[] {
 }
 
 function parseMoney(raw: string): number {
-  const cleaned = raw.replace(/[^0-9.+-]/g, "")
-  if (!cleaned || cleaned === "+" || cleaned === "-" || cleaned === ".") return Number.NaN
-  return Number.parseFloat(cleaned)
+  const trimmed = raw.trim()
+  if (!trimmed) return Number.NaN
+  const negative = /^\(.*\)$/.test(trimmed) || trimmed.startsWith("-") || trimmed.endsWith("-")
+  const cleaned = trimmed.replace(/[^0-9.]/g, "")
+  if (!cleaned || cleaned === ".") return Number.NaN
+  const value = Number.parseFloat(cleaned)
+  if (!Number.isFinite(value)) return Number.NaN
+  return negative ? -value : value
 }
 
 /** Plain-language note when buys, sells, and coin transfers are left out. */
 export function ignoredTradesMessage(count: number): string | null {
   if (!Number.isFinite(count) || count <= 0) return null
   if (count === 1) {
-    return "1 bitcoin buy, sell, or transfer was left out. Those are not spending or income."
+    return "1 row was left out. Buys, sells, and coin transfers are not spending or income."
   }
-  return `${count} bitcoin buys, sells, or transfers were left out. Those are not spending or income.`
+  return `${count} rows were left out. Buys, sells, and coin transfers are not spending or income.`
 }
 
 function hasHeader(headers: string[], re: RegExp): boolean {
@@ -309,12 +314,12 @@ export function parseCoinbaseHistoryCsv(text: string): StatementParseResult {
     const txType = (cols[typeIdx] ?? "").trim()
     const quantity = parseMoney(cols[qtyIdx] ?? "")
     const classified = coinbaseLedger(txType, asset, quantity)
-    if (!date || classified == null) {
-      skipped++
-      continue
-    }
     if (classified === "trade") {
       ignoredTrades++
+      continue
+    }
+    if (!date || classified == null) {
+      skipped++
       continue
     }
     const note = notesIdx >= 0 ? (cols[notesIdx] ?? "").trim() : ""
@@ -344,11 +349,17 @@ function coinbaseLedger(
 ): { type: "expense" | "credit"; amount: number } | "trade" | null {
   if (!Number.isFinite(quantity) || quantity === 0) return null
   const kind = txType.trim().toLowerCase()
-  const usd = asset.trim().toUpperCase() === "USD"
-  if (usd && kind.includes("deposit")) return { type: "credit", amount: Math.abs(quantity) }
-  if (usd && (kind.includes("withdraw") || kind === "send")) {
-    return { type: "expense", amount: Math.abs(quantity) }
+  const code = asset.trim().toUpperCase()
+  if (!kind || !code) return null
+  if (code === "USD") {
+    // Receive matches send: dollars arriving are money in, dollars leaving are money out.
+    if (kind.includes("deposit") || /\breceive\b/.test(kind)) {
+      return { type: "credit", amount: Math.abs(quantity) }
+    }
+    if (kind.includes("withdraw") || /\bsend\b/.test(kind)) {
+      return { type: "expense", amount: Math.abs(quantity) }
+    }
+    return "trade"
   }
-  if (!usd) return "trade"
-  return null
+  return "trade"
 }
