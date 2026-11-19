@@ -628,7 +628,9 @@ export function RunwayPage() {
                 </span>
                 <span className="text-[11px] text-muted-foreground block mt-0.5">
                   {plan.bitcoinOverrideSats != null
-                    ? "You typed this"
+                    ? watchCount > 0
+                      ? "You typed this. Watched wallets are not included."
+                      : "You typed this"
                     : bitcoinFromWatches
                       ? "From wallets you watch"
                       : bitcoinUnset
