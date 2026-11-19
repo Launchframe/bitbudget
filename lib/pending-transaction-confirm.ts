@@ -75,7 +75,8 @@ function resolveConfirmFields(
 }
 
 /**
- * Atomically removes a pending row and creates the expense transaction.
+ * Atomically removes a pending row and creates the ledger transaction.
+ * A pending credit stays a credit; everything else is an expense.
  * Concurrent confirms for the same pending id create at most one transaction.
  *
  * For efficiency, pre-fetch the BTC price before calling and pass it as
@@ -117,6 +118,8 @@ export async function confirmPendingTransactionAtomic(
         : await getBtcPriceForDate(finalDate.toISOString().split("T")[0]!)
     const absAmount = Math.abs(finalAmount)
 
+    const ledgerType = pending.type === "credit" ? "credit" : "expense"
+
     const transaction = await tx.transaction.create({
       data: {
         userId,
@@ -124,7 +127,7 @@ export async function confirmPendingTransactionAtomic(
         date: finalDate,
         payee: finalPayee,
         amount: absAmount,
-        type: "expense",
+        type: ledgerType,
         source: pending.source,
         tags: finalTags,
         notes: finalNotes ?? null,

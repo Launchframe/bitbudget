@@ -5,6 +5,8 @@ import { plaidClient } from "@/lib/plaid"
 import { activateReferral } from "@/lib/referral"
 import { plaidApiErrorMessage } from "@/lib/plaid-link-feedback"
 import { premiumForbiddenResponse, requirePremiumOrTrialOrReferralBankLinkPending } from "@/lib/subscription"
+import { snapshotFromPlaidAccount } from "@/lib/plaid-ledger"
+import { upsertPlaidAccountSnapshots } from "@/lib/plaid-account-sync"
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -51,20 +53,15 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    for (const account of accountsResponse.data.accounts) {
-      await prisma.plaidAccount.create({
-        data: {
-          plaidItemId: plaidItem.id,
-          accountName: account.name,
-          mask: account.mask ?? null,
-          type: account.type,
-        },
-      })
-    }
+    const snapshots = accountsResponse.data.accounts
+      .map((account) => snapshotFromPlaidAccount(account))
+      .filter((snapshot) => snapshot != null)
 
-    const accounts = accountsResponse.data.accounts.map((account) => ({
+    await upsertPlaidAccountSnapshots(plaidItem.id, snapshots)
+
+    const accounts = snapshots.map((account) => ({
       accountName: account.name,
-      mask: account.mask ?? null,
+      mask: account.mask,
       type: account.type,
     }))
 

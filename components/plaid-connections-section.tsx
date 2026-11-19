@@ -16,6 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
+  formatPlaidAccountBalance,
   formatPlaidAccountLabel,
   formatPlaidInstitutionTitle,
 } from "@/lib/plaid-connection-labels"
@@ -25,12 +26,16 @@ interface PlaidConnectionAccount {
   accountName: string
   mask: string | null
   type: string
+  currentBalance?: number | null
+  availableBalance?: number | null
+  isoCurrencyCode?: string | null
 }
 
 interface PlaidConnectionItem {
   id: string
   institutionName: string | null
   createdAt: string
+  depositoryCashUsd?: number | null
   accounts: PlaidConnectionAccount[]
 }
 
@@ -129,10 +134,26 @@ export function PlaidConnectionsSection({
               <p className="font-medium text-foreground truncate">{title}</p>
             </div>
             <ul className="space-y-1 pl-6 text-sm text-muted-foreground">
-              {item.accounts.map((account) => (
-                <li key={account.id}>{formatPlaidAccountLabel(account)}</li>
-              ))}
+              {item.accounts.map((account) => {
+                const balance = formatPlaidAccountBalance(account)
+                return (
+                  <li key={account.id} className="min-w-0 break-words">
+                    {formatPlaidAccountLabel(account)}
+                    {balance ? <span className="text-foreground"> · {balance}</span> : null}
+                  </li>
+                )
+              })}
             </ul>
+            {item.depositoryCashUsd != null ? (
+              <p className="pl-6 text-xs text-muted-foreground">
+                Cash in checking and savings:{" "}
+                <span className="text-foreground tabular-nums">
+                  {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
+                    item.depositoryCashUsd,
+                  )}
+                </span>
+              </p>
+            ) : null}
           </div>
           <button
             type="button"

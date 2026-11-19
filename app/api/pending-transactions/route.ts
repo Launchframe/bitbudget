@@ -18,6 +18,7 @@ export async function GET() {
     source: p.source,
     payee: p.payee,
     amount: p.amount,
+    type: p.type === "credit" ? "credit" : "expense",
     date: p.date.toISOString().split("T")[0],
     notes: p.notes ?? null,
     suggestedEnvelopeId: p.suggestedEnvelopeId ?? null,

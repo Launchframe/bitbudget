@@ -565,6 +565,8 @@ model PendingTransaction {
   source              String
   payee               String
   amount              Float
+  /// "expense" (money out) or "credit" (money in). Plaid inflows use credit.
+  type                String   @default("expense")
   date                DateTime
   notes               String?
   suggestedEnvelopeId String?
@@ -693,11 +695,18 @@ model PlaidImportedTransaction {
 }
 
 model PlaidAccount {
-  id          String  @id @default(cuid())
-  plaidItemId String
-  accountName String
-  mask        String?
-  type        String
+  id               String    @id @default(cuid())
+  plaidItemId      String
+  /// Plaid `account_id`. Null on rows created before balances were stored.
+  plaidAccountId   String?   @unique
+  accountName      String
+  mask             String?
+  /// Plaid account type: depository, credit, loan, investment, other.
+  type             String
+  currentBalance   Decimal?  @db.Decimal(14, 2)
+  availableBalance Decimal?  @db.Decimal(14, 2)
+  isoCurrencyCode  String?
+  balanceUpdatedAt DateTime?
 
   plaidItem PlaidItem @relation(fields: [plaidItemId], references: [id], onDelete: Cascade)
 }
