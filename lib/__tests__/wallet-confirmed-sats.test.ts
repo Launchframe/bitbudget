@@ -189,6 +189,22 @@ describe("wallet watch storage", () => {
     vi.unstubAllGlobals()
   })
 
+  it("removes one watch without dropping a row added before React re-renders", () => {
+    installMemoryStorage()
+    writeWalletWatches("user_a", [wallet({ id: "a", confirmedSats: 1 })])
+    writeWalletWatches("user_a", [
+      wallet({ id: "a", confirmedSats: 1 }),
+      wallet({ id: "b", confirmedSats: 0 }),
+    ])
+    const current = getWalletWatchSnapshot("user_a")
+    writeWalletWatches(
+      "user_a",
+      current.filter((watch) => watch.id !== "a"),
+    )
+    expect(getWalletWatchSnapshot("user_a").map((row) => row.id)).toEqual(["b"])
+    vi.unstubAllGlobals()
+  })
+
   it("ignores a fractional balance update instead of deleting the watch", () => {
     installMemoryStorage()
     writeWalletWatches("user_a", [wallet({ id: "keep", confirmedSats: 10 })])
